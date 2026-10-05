@@ -63,6 +63,17 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
 .legend{font-size:.82rem;color:var(--muted)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:2px 14px;font-size:.87rem;margin:6px 0}
 .kv dt{color:var(--muted)} .kv dd{margin:0;font-variant-numeric:tabular-nums}
+.blist{display:grid;gap:6px;max-height:460px;overflow-y:auto}
+.blist details{border:1px solid var(--line);border-radius:5px;padding:6px 9px;background:var(--bg)}
+.blist summary{cursor:pointer;font-size:.86rem;list-style:none}
+.blist summary::-webkit-details-marker{display:none}
+.blist summary b{font-family:var(--f-data);font-weight:600}
+.blist .bt{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 12px;margin-top:6px;font-size:.8rem}
+.blist .bt div{border-top:1px solid var(--line);padding-top:4px}
+.blist .bt h4{margin:0 0 2px;font-size:.8rem}
+.blist .bt p{margin:0;display:flex;justify-content:space-between;gap:6px;color:var(--muted)}
+.blist .bt p span:last-child{font-family:var(--f-data);color:var(--fg)}
+.blist .bt p.tot span{font-weight:700;color:var(--fg)}
 .busy{position:absolute;inset:8px;display:grid;place-items:center;background:#0009;color:#f3ead6;font-family:var(--f-display);border-radius:4px}
 .busy[hidden]{display:none}
 #chart{height:120px}
@@ -87,7 +98,7 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
       <div class="mapbox"><canvas id="map"></canvas><div class="badge" id="clock"></div><div class="busy" id="busy">推演中…</div></div>
       <div class="row">
         <span class="seg" id="layers" role="group" aria-label="圖層">
-          <button data-v="faction" aria-pressed="true">勢力</button><button data-v="market">市場範圍</button><button data-v="price">糧價</button><button data-v="bandit">盜匪</button>
+          <button data-v="faction" aria-pressed="true">勢力</button><button data-v="realm">王國</button><button data-v="market">市場範圍</button><button data-v="price">糧價</button><button data-v="bandit">盜匪</button>
         </span>
         <label class="legend"><input type="checkbox" id="showCarts" checked> 顯示車隊</label>
       </div>
@@ -98,6 +109,12 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
       <div class="panel"><h2>運輸</h2><div class="stats" id="stats"></div></div>
       <div class="panel"><h2>勢力</h2><div class="tbl"><table><thead><tr><th>勢力</th><th class="r">建立</th><th class="r">領地</th><th class="r">人口</th><th class="r">收編兵</th></tr></thead><tbody id="facs"></tbody></table></div></div>
       <div class="panel"><h2>戰事</h2><ul class="chron" id="wars" style="max-height:220px"></ul></div>
+      <div class="panel"><h2>主要戰役</h2>
+        <div class="row" style="margin-bottom:6px"><span class="seg" id="bmode" role="group" aria-label="排序"><button data-v="big" aria-pressed="true">規模最大</button><button data-v="recent">最近</button></span></div>
+        <div id="battles" class="blist"></div>
+        <div class="legend">戰力＝兵力 × 各項修正 × 臨陣（隨機的士氣與運氣）。守軍按八成計，另加當地民兵。</div></div>
+      <div class="panel"><h2>英雄與領主</h2><div class="tbl" style="max-height:340px;overflow-y:auto"><table><thead><tr><th>人物</th><th>封地</th><th class="r">戰績</th><th class="r">統率</th><th>狀態</th></tr></thead><tbody id="heroes"></tbody></table></div>
+        <div class="legend">統率會乘在所帶的兵力上。有封地的是領主，忠誠低的領主會讓封地民怨上升，甚至據城自立。</div></div>
       <div class="panel"><h2>盜匪山寨</h2><ul class="chron" id="gangs" style="max-height:200px"></ul><div class="legend">勢力＝山寨一帶的盜匪壓力。山寨離得近會火併；附近的勢力可能出糧出鐵招安；勢大的會自立為王。</div></div>
       <div class="panel" id="townPanel" hidden><h2 id="townName"></h2><div id="townBody"></div></div>
       <div class="panel"><h2>市鎮</h2><div class="tbl"><table><thead><tr><th>市鎮</th><th class="r">人口</th><th class="r">村</th><th class="r">糧</th><th class="r">鐵</th><th class="r">鹽</th><th class="r">糧滿足</th></tr></thead><tbody id="towns"></tbody></table></div>
@@ -112,7 +129,7 @@ const {generate,W,H,N,BIOMES,FDEF,NBR,GOODS,GN,BASEP,col,row}=SIM;
 const $=id=>document.getElementById(id);
 const GC={food:'#e7b84a',wood:'#74b85e',iron:'#9fc3e6',stone:'#c7a98a',salt:'#f3efe4'};
 const TAG={war:'戰爭',ruin:'廢墟',hero:'英雄',bandit:'盜匪',disaster:'天災',found:'開拓',econ:'物資',trade:'貿易',build:'築城',npc:'旅人'};
-let w=null,S=null,layer='faction',speed=4,sel=-1,R=10,centers=[],acc=0,last=0,series=[];
+let lastB='',lastH='',openB=new Set(),bmode='big',w=null,S=null,layer='faction',speed=4,sel=-1,R=10,centers=[],acc=0,last=0,series=[];
 const cv=$('map'),ctx=cv.getContext('2d');
 
 function layout(){const cssW=cv.parentElement.clientWidth-16;R=cssW/(Math.sqrt(3)*(W+.5));const cssH=R*(1.5*(H-1)+2);
@@ -130,6 +147,7 @@ function draw(){if(!S)return;ctx.clearRect(0,0,cv.width,cv.height);const land=w.
   for(let i=0;i<N;i++){const [x,y]=centers[i],base=BIOMES[S.biome[i]].c;let fill=base;
     if(land[i]){const o=S.owner[i],dull=mix(base,'#8a8c86',.65);
       if(layer==='faction')fill=o>=0?mix(mix(base,'#888888',.5),S.econ[o].c,.35+Math.min(.5,S.pop[i]/160)):mix(base,'#7a7a72',.55);
+      else if(layer==='realm'){const top=o>=0&&S.econ[o].liege>=0?S.econ[o].liege:o;fill=o>=0?mix(mix(base,'#888888',.5),S.econ[top].c,top!==o?.45:.65):mix(base,'#7a7a72',.55)}
       else if(layer==='market'){const t=S.mkt[i];fill=o>=0&&t>=0?mix(dull,hsl2hex(townHue(t)),sel<0||sel===t?.9:.2):mix(base,'#7a7a72',.6)}
       else if(layer==='price'){const m=mk[S.mkt[i]];fill=o>=0&&m?mix(mix(dull,'#2f7a45',Math.max(0,1-m.price.food)*1.6),'#b3261e',Math.min(1,Math.max(0,m.price.food-1)*.9)):mix(base,'#7a7a72',.6)}
       else if(layer==='bandit')fill=mix(dull,'#b3261e',Math.min(1,S.bandit[i]/100*1.4))}
@@ -164,7 +182,7 @@ function draw(){if(!S)return;ctx.clearRect(0,0,cv.width,cv.height);const land=w.
   for(const w2 of S.wars){const[x,y]=centers[w2.goal];ctx.font=`700 ${Math.max(11,R*.95)}px system-ui`;ctx.lineWidth=3;ctx.strokeStyle='#000c';ctx.strokeText('⚔',x+R*.55,y-R*.45);ctx.fillStyle=S.econ[w2.att].c;ctx.fillText('⚔',x+R*.55,y-R*.45);
     if(w2.siege>=0){const[sx,sy]=centers[w2.siege];ctx.beginPath();ctx.arc(sx,sy,R*.85,0,7);ctx.setLineDash([3,3]);ctx.strokeStyle='#ff5a4a';ctx.lineWidth=2.2;ctx.stroke();ctx.setLineDash([])}}
   if(sel>=0){hexPath(centers[sel][0],centers[sel][1],R*1.02);ctx.strokeStyle='#fff';ctx.lineWidth=2.2;ctx.stroke()}
-  const dark=[0,0,.08,.2][S.period];if(dark){ctx.fillStyle=`rgba(8,14,40,${dark})`;ctx.fillRect(0,0,cv.width,cv.height)}}
+  const dark=speed>0&&speed<=4?[0,0,.08,.2][S.period]:0;if(dark){ctx.fillStyle=`rgba(8,14,40,${dark})`;ctx.fillRect(0,0,cv.width,cv.height)}}
 
 function drawChart(){const ch=$('chart'),c=ch.getContext('2d'),cw=ch.clientWidth||ch.width,hh=120;c.clearRect(0,0,cw,hh);if(series.length<2)return;
   const mt=Math.max(...series.map(s=>s.towns))*1.15,mp=Math.max(...series.map(s=>s.pop))*1.1,n=series.length,X=k=>4+k/(n-1)*(cw-8);
@@ -187,17 +205,31 @@ function render(){if(!S)return;draw();
   const m=S.markets.find(x=>x.t===sel);$('townPanel').hidden=!m;
   if(m){$('townName').textContent=`${w.names[m.t]}　${S.econ[m.f].n||''}`;
     const inbound=S.carts.filter(c=>c[1]===m.t).length,out=S.caravans.filter(c=>c[1]===m.t),inc=S.caravans.filter(c=>c[2]===m.t);
-    $('townBody').innerHTML=`<dl class="kv"><dt>服務人口</dt><dd>${m.pop}（${villages[m.t]||0} 個村）</dd><dt>正在進城的運糧車</dt><dd>${inbound}</dd>
+    const lr=S.lords.find(x=>x[0]===m.t),lh=lr?S.heroes.find(h=>h.fief===m.t&&h.alive):null;
+    $('townBody').innerHTML=`<dl class="kv">${lh?`<dt>領主</dt><dd>${lh.name}（統率 ${lh.skill}、忠誠 ${Math.round(lh.loyal*100)}%）</dd>`:''}<dt>服務人口</dt><dd>${m.pop}（${villages[m.t]||0} 個村）</dd><dt>正在進城的運糧車</dt><dd>${inbound}</dd>
       <dt>派出的商隊</dt><dd>${out.map(c=>`${GN[GOODS[c[3]]]} ${c[4]} → ${w.names[c[2]]}`).join('、')||'無'}</dd><dt>來訪的商隊</dt><dd>${inc.map(c=>`${w.names[c[1]]} 的${GN[GOODS[c[3]]]}`).join('、')||'無'}</dd></dl>
       <div class="tbl"><table><thead><tr><th></th>${GOODS.map(g=>`<th class="r">${GN[g]}</th>`).join('')}</tr></thead><tbody>
       <tr><td>庫存</td>${GOODS.map(g=>`<td class="r">${m.stock[g].toFixed(1)}</td>`).join('')}</tr>
       <tr><td>價格</td>${GOODS.map(g=>price(m,g)).join('')}</tr>
       <tr><td>滿足率</td>${GOODS.map(g=>`<td class="r">${Math.round(m.ratio[g]*100)}%</td>`).join('')}</tr></tbody></table></div>`}
-  $('facs').innerHTML=S.econ.map((e,k)=>[e,k]).filter(([e])=>e.alive).sort((a,b)=>b[0].tiles-a[0].tiles).map(([e])=>`<tr><td><span class="dot" style="background:${e.c}"></span>${e.n}</td><td class="r">${e.born>0?e.born+' 年':'開局'}</td><td class="r">${e.tiles}</td><td class="r">${Math.round(e.pop)}</td><td class="r">${e.merc||''}</td></tr>`).join('');
+  const frow=(e,sub)=>`<tr><td>${sub?'<span style="color:var(--muted)">└ </span>':''}<span class="dot" style="background:${e.c}"></span>${e.n}${sub?`<span class="legend">（忠誠 ${Math.round(e.loyal*100)}%）</span>`:''}</td><td class="r">${e.born>0?e.born+' 年':'開局'}</td><td class="r">${e.tiles}</td><td class="r">${Math.round(e.pop)}</td><td class="r">${e.merc||''}</td></tr>`;
+  const alive=S.econ.map((e,k)=>({...e,k})).filter(e=>e.alive);
+  $('facs').innerHTML=alive.filter(e=>e.liege<0).sort((a,b)=>b.tiles-a.tiles).map(e=>frow(e,false)+alive.filter(v=>v.liege===e.k).map(v=>frow(v,true)).join('')).join('');
+  const SN=['春','夏','秋','冬'],ln=t=>{const l=S.lords.find(x=>x[0]===t);return l};
+  const bl=bmode==='big'?S.battles.slice().sort((p,q)=>(q.LA+q.LD+q.xA+q.xD)-(p.LA+p.LD+p.xA+p.xD)).slice(0,20):S.battles.slice().sort((p,q)=>q.y-p.y||q.s-p.s).slice(0,15);
+  const P=(k,v)=>`<p><span>${k}</span><span>${v}</span></p>`;
+  const bsig=bmode+bl.map(b=>b.y+'-'+b.s+'-'+b.t).join(',');
+  if(bsig!==lastB){lastB=bsig;$('battles').innerHTML=bl.map(b=>{const aw=b.win==='a',wn=aw?b.an:b.dn,res=b.took?(b.ctr?'收復':'攻陷'):b.siege&&aw?'圍城得手':b.siege?'守住城池':aw?'擊退守軍':'擊退攻勢';
+    const key=b.y+'-'+b.s+'-'+b.t;return `<details data-k="${key}" ${openB.has(key)?'open':''}><summary><span class="legend">${b.y} 年${SN[b.s]}</span>　<b>${w.names[b.t]}</b>之戰　${b.an} ${b.LA+b.xA} 對 ${b.dn} ${b.LD+b.xD+b.mil}　→ <b style="color:${aw?'var(--accent)':'var(--muted)'}">${wn}${res}</b></summary>
+      <div class="bt"><div><h4>攻方：${b.an}${b.ctr?'（反攻）':''}</h4>${P('主將',b.hA||'無')}${P('本國兵力',b.LA)}${b.xA?P('封臣援軍',b.xA):''}${P('侵略性',`×${b.ag}`)}${b.wf!==1?P(b.dd>1?'遠征／寒冬':'寒冬行軍',`×${b.wf}`):''}${P('補給線',`×${b.sup}`)}${P('統率',`×${b.kA}`)}${P('臨陣',`×${b.rA}`)}<p class="tot"><span>戰力</span><span>${b.sa}</span></p></div>
+      <div><h4>守方：${b.dn}</h4>${P('主將',b.hD||'無')}${P('本國兵力 ×0.8',Math.round(b.LD*.8))}${b.xD?P('宗主／封臣援軍 ×0.8',Math.round(b.xD*.8)):''}${P('當地民兵',b.mil)}${P('地形：'+BIOMES[b.b].n,`×${b.tm}`)}${b.wm>1?P('城牆',`×${b.wm}`):''}${P('統率',`×${b.kD}`)}${P('臨陣',`×${b.rD}`)}<p class="tot"><span>戰力</span><span>${b.sd}</span></p></div></div>
+      <div class="legend" style="margin-top:4px">${b.siege?'這是一場圍城戰。':''}敗方陣亡約 ${b.dead} 人${b.fell?`，${b.fell}戰死`:''}。</div></details>`}).join('')||'<div class="legend">還沒有戰役。</div>'}
+  const hs=S.heroes.slice().sort((p,q)=>(q.wins-p.wins)||(q.alive-p.alive)).slice(0,60);
+  const hsig=hs.map(h=>h.name+h.alive+h.wins+h.fief).join(',');if(hsig!==lastH){lastH=hsig;$('heroes').innerHTML=hs.map(h=>`<tr data-t="${h.fief}"><td><span class="dot" style="background:${S.econ[h.f].c}"></span>${h.name}</td><td>${h.fief>=0?w.names[h.fief]:''}</td><td class="r">${h.wins}/${h.battles}</td><td class="r">${h.skill}</td><td>${h.alive?`<span class="legend">在世，成名 ${S.year-h.born} 年</span>`:`<span class="legend">${h.diedY} 年${h.end}</span>`}</td></tr>`).join('')}
   $('wars').innerHTML=S.wars.map(x=>`<li data-t="${x.goal}"><span class="y">${x.start} 年</span><span><b style="color:${S.econ[x.att].c}">${S.econ[x.att].n}</b> → <b style="color:${S.econ[x.def].c}">${S.econ[x.def].n}</b>，目標 ${w.names[x.goal]}${x.siege>=0?`，正圍攻 ${w.names[x.siege]}`:''}（戰況 ${x.score>0?'+':''}${x.score}）</span></li>`).join('')||'<li><span></span><span>天下暫時太平。</span></li>';
   $('gangs').innerHTML=S.gangs.slice().sort((a,b)=>b.str-a.str).map(g=>`<li data-t="${g.lair}"><span class="y">${g.str}</span><span>${g.name}，盤據${w.names[g.lair]}</span></li>`).join('')||'<li><span></span><span>目前沒有成股的盜匪。</span></li>';
   $('chron').innerHTML=S.events.slice(-120).reverse().map(e=>`<li data-t="${e.tile??-1}"><span class="y">${e.y} 年</span><span>[${TAG[e.type]||e.type}] ${e.text}</span></li>`).join('');
-  const LG={faction:'勢力：圓圈是市鎮（★ 首都），金色小點是運糧車，菱形是商隊（顏色＝貨物），彩色線是去年的商路。⚔ 是戰爭目標，紅色虛線圈是圍城，☠ 是盜匪山寨。',market:'市場範圍：同一個顏色的格子把收成送到同一座市鎮。點市鎮可單獨看它。',price:'糧價：每格看它所屬市鎮的糧價。綠便宜、紅昂貴。',bandit:'盜匪：越紅壓力越高，車隊走過越容易被劫。'};
+  const LG={realm:'王國：封臣的領地塗上宗主的顏色（淡一點），看得出誰是誰的人。',faction:'勢力：圓圈是市鎮（★ 首都），金色小點是運糧車，菱形是商隊（顏色＝貨物），彩色線是去年的商路。⚔ 是戰爭目標，紅色虛線圈是圍城，☠ 是盜匪山寨。',market:'市場範圍：同一個顏色的格子把收成送到同一座市鎮。點市鎮可單獨看它。',price:'糧價：每格看它所屬市鎮的糧價。綠便宜、紅昂貴。',bandit:'盜匪：越紅壓力越高，車隊走過越容易被劫。'};
   $('legend').textContent=LG[layer];drawChart()}
 
 function sample(){const v=w.sim.view();series.push({towns:v.markets.length,pop:v.pop.reduce((a,b)=>a+b,0),live:true})}
@@ -207,7 +239,7 @@ function loop(t){const dt=Math.min(.25,(t-last)/1000);last=t;
     else{acc+=dt*speed;const n=Math.floor(acc);if(n>0){acc-=n;step(n);render()}}}
   requestAnimationFrame(loop)}
 
-function boot(){const seed=$('seed').value.trim()||'灰燼-1031';$('busy').hidden=false;$('busy').textContent='推演 400 年歷史中…';
+function boot(){lastB='';lastH='';openB.clear();const seed=$('seed').value.trim()||'灰燼-1031';$('busy').hidden=false;$('busy').textContent='推演 400 年歷史中…';
   setTimeout(()=>{w=generate(seed);w.sim.startLive(0);
     series=w.snaps.map(s=>({towns:s.town.reduce((a,b)=>a+b,0),pop:s.pop.reduce((a,b)=>a+b,0),live:false}));
     S=w.sim.view();sel=-1;layout();render();$('busy').hidden=true},30)}
@@ -215,10 +247,11 @@ function boot(){const seed=$('seed').value.trim()||'灰燼-1031';$('busy').hidde
 $('gen').onclick=boot;
 $('rnd').onclick=()=>{const A=['灰燼','霜歌','鐵冠','白河','長夜','赤沙','青嶺','雪港'];$('seed').value=A[Math.floor(Math.random()*A.length)]+'-'+Math.floor(Math.random()*9999);boot()};
 const segs=(id,fn)=>$(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;for(const x of $(id).children)x.setAttribute('aria-pressed',x===b);fn(b.dataset.v)});
-segs('speed',v=>{speed=+v;acc=0});segs('layers',v=>{layer=v;render()});
+segs('speed',v=>{speed=+v;acc=0;render()});segs('bmode',v=>{bmode=v;render()});segs('layers',v=>{layer=v;render()});
 $('showCarts').onchange=render;
 $('towns').addEventListener('click',e=>{const tr=e.target.closest('tr');if(!tr)return;const t=+tr.dataset.t;sel=sel===t?-1:t;render()});
-for(const id of ['chron','wars','gangs'])$(id).addEventListener('click',e=>{const li=e.target.closest('li');if(!li)return;const t=+li.dataset.t;if(t>=0){sel=S.town[t]?t:S.mkt[t]>=0?S.mkt[t]:t;render()}});
+$('battles').addEventListener('toggle',e=>{const d=e.target;if(d.open)openB.add(d.dataset.k);else openB.delete(d.dataset.k)},true);
+for(const id of ['chron','wars','gangs','heroes'])$(id).addEventListener('click',e=>{const li=e.target.closest('li,tr');if(!li)return;const t=+li.dataset.t;if(t>=0){sel=S.town[t]?t:S.mkt[t]>=0?S.mkt[t]:t;render()}});
 cv.addEventListener('click',e=>{if(!S)return;const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let b=-1,bd=1e9;
   centers.forEach(([cx,cy],i)=>{const d=(cx-x)**2+(cy-y)**2;if(d<bd){bd=d;b=i}});const t=S.town[b]?b:S.mkt[b];sel=t>=0&&t!==sel?t:-1;render()});
 let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{layout();render()},120)});

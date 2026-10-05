@@ -103,9 +103,9 @@ function createSim(w,rand,pick){
   const owner=new Int8Array(N).fill(-1),pop=new Float32Array(N),bandit=new Float32Array(N),ruin=new Uint8Array(N),peak=new Float32Array(N);
   const zero=()=>({food:0,wood:0,iron:0,stone:0,salt:0}),one=()=>({food:1,wood:1,iron:1,stone:1,salt:1});
   const fac=FDEF.map((d,i)=>({...d,id:i,alive:true,cap:-1,aggr:.8+rand()*.6,stock:{food:60,wood:10,iron:4,stone:10,salt:3},
-    ratio:one(),price:one(),prod:zero(),loss:0,pop:0,cold:0,fronts:0,frontsPrev:0,famineCD:0,woodCD:0,winterFood:1,merc:0,shock:0,crisis:-1,born:0}));
+    ratio:one(),price:one(),prod:zero(),loss:0,pop:0,cold:0,fronts:0,frontsPrev:0,famineCD:0,woodCD:0,winterFood:1,merc:0,shock:0,crisis:-1,born:0,liege:-1,loyal:1,lsince:0,diedY:-99}));
   for(let k=FDEF.length;k<FMAX;k++)fac.push({n:'',c:RESERVE_C[k-FDEF.length],id:k,alive:false,cap:-1,aggr:1,stock:zero(),ratio:one(),price:one(),prod:zero(),loss:0,pop:0,cold:0,
-    fronts:0,frontsPrev:0,famineCD:0,woodCD:0,winterFood:1,merc:0,shock:0,crisis:-1,born:-1,diedY:-99});
+    fronts:0,frontsPrev:0,famineCD:0,woodCD:0,winterFood:1,merc:0,shock:0,crisis:-1,born:-1,diedY:-99,liege:-1,loyal:1,lsince:0});
   const ev=[],graves=[],heroes=[],snaps=[],routeSeen={};
   const nm=i=>names[i]||'無名之地';
   let live=false,curY=0,T=0;
@@ -156,6 +156,20 @@ function createSim(w,rand,pick){
       known:known.slice(),wall:u8(wall),town:town.slice(),econ,routes}};
   snaps.push(makeSnap());
   const heroName=()=>pick(SUR)+pick(GIV)+(rand()<.5?pick(GIV):'');
+  // 英雄與領主：有封地的英雄就是那座市鎮的領主；死了由子嗣繼承
+  let nextHero=1,battles=[];
+  const mkHero=(f,y,name)=>{const h={id:nextHero++,name:name||heroName(),f,born:y,alive:true,fief:-1,wins:0,battles:0,skill:+(.9+rand()*.4).toFixed(2),loyal:+(.4+rand()*.6).toFixed(2),diedY:-1,end:''};heroes.push(h);return h};
+  const heroById=id=>heroes.find(h=>h.id===id);
+  function heroDies(h,y,end){h.alive=false;h.diedY=y;h.end=end;
+    if(h.fief>=0&&markets[h.fief]&&owner[h.fief]===h.f&&fac[h.f].alive){const t=h.fief,heir=mkHero(h.f,y,h.name[0]+pick(GIV)+(rand()<.5?pick(GIV):''));
+      heir.fief=t;heir.loyal=+Math.min(1,h.loyal*.6+rand()*.4).toFixed(2);markets[t].lord=heir.id;
+      if(markets[t].pop>=100&&rand()<.3)say(y,'hero',`${nm(t)}領主${h.name}死後，由其子${heir.name}繼承封地。`,t)}
+    h.fief=-1}
+  // 同一個封建體系內（宗主、封臣、同一宗主的封臣之間）不會互相宣戰
+  const sameRealm=(a,b)=>a===b||fac[a].liege===b||fac[b].liege===a||(fac[a].liege>=0&&fac[a].liege===fac[b].liege);
+  function makeVassal(v,l,y){const V=fac[v];V.liege=l;V.loyal=.6;V.lsince=y;
+    for(const x of fac)if(x.alive&&x.liege===v){x.liege=l;x.lsince=y}
+    const a=Math.min(v,l),b=Math.max(v,l);war[a][b]=null;tension[a][b]=0}
 
 
   let bc,front,covet,gangs=[],nextGang=1;
@@ -174,9 +188,10 @@ function createSim(w,rand,pick){
     refreshCE();if(!live){bindMarkets();buildTownNet()}}   // 線上模式：市場在每季結算前重綁、鎮際路網在開年下一個時段重建   // 線上模式把鎮際路網挪到下一個時段算，分散單次的計算量
   function refreshCE(){for(let n=0;n<N;n++)CE[n]=MOVE[biome[n]]*(land[n]&&river[n]?.6:1)}
   // 市鎮之間的路網：每年開春算一次，只留下鎮到鎮的路程與路線（要存檔，讀檔時不重算）
-  function buildTownNet(){townNet={};const ts=Object.keys(markets).map(Number);
+  function buildTownNet(part=-1){const ts=Object.keys(markets).map(Number);
+    if(part<0)townNet={};else for(const k of Object.keys(townNet))if(!markets[k])delete townNet[k];
     const maxD=.7/(.03*Math.min(...GOODS.map(g=>WEIGHT[g])));   // 再遠的話，最輕的貨也損耗超過七成，沒人會走
-    for(const t of ts){const D=dijkstra(t,enemyMaskOf(owner[t]),maxD),dist={},path={};
+    for(const t of ts){if(part>=0&&t%2!==part)continue;const D=dijkstra(t,enemyMaskOf(owner[t]),maxD),dist={},path={};
       for(const u of ts)if(u!==t&&D.dist[u]<Infinity){dist[u]=D.dist[u];path[u]=pathTo(D,u)}
       townNet[t]={dist,path}}}
   // 多源最短路：每格記下最近的起點；acc 給了的話，順便把沿路的 acc 值累加起來（例如盜匪壓力）
@@ -228,12 +243,14 @@ function createSim(w,rand,pick){
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){
       if(!fac[a].alive||!fac[b].alive){war[a][b]=null;continue}
       if(!bc[a][b]){tension[a][b]*=.9;if(war[a][b]){war[a][b]=null;say(y,'war',`${fac[a].n}與${fac[b].n}之間已無人煙，戰事不了了之。`)}continue}
+      if(!war[a][b]&&sameRealm(a,b)){tension[a][b]*=.8;continue}
       if(!war[a][b]){tension[a][b]+=.4+rand()*1.6+Math.min(bc[a][b],20)*.06+(covet[a][b]||covet[b][a]?2:0);
         if(tension[a][b]>30+rand()*25){
           let att,def;if(covet[a][b]&&!covet[b][a])[att,def]=[a,b];else if(covet[b][a]&&!covet[a][b])[att,def]=[b,a];else [att,def]=rand()<.5?[a,b]:[b,a];
           const [goal,why]=pickGoal(att,def);if(goal<0){tension[a][b]*=.6;continue}
           war[a][b]={att,def,goal,start:y,end:y+4+Math.floor(rand()*8),gain:{},score:0,siege:null,taken:[]};
-          say(y,'war',`${fac[att].n}為奪取${nm(goal)}的${why}，向${fac[def].n}宣戰。`,goal)}}
+          say(y,'war',`${fac[att].n}為奪取${nm(goal)}的${why}，向${fac[def].n}宣戰。`,goal);
+          const L=fac[def].liege;if(L>=0&&fac[L].alive&&L!==att)say(y,'war',`${fac[L].n}出兵援助其封臣${fac[def].n}。`,goal)}}
       else{war[a][b].told=0;war[a][b].snowTold=false}}
   }
 
@@ -294,6 +311,11 @@ function createSim(w,rand,pick){
     {const fp=new Float32Array(FMAX),nw=new Uint8Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)fp[owner[i]]+=pop[i];
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)if(war[a][b]&&fac[a].alive&&fac[b].alive){nw[a]++;nw[b]++}
     const lev=f=>{const F=fac[f];return fp[f]*.08*(.55+.45*F.ratio.iron)*(.7+.3*Math.min(1,F.ratio.food))/Math.max(1,nw[f])+F.merc};
+    // 援軍：封臣出兩成五兵力跟宗主打仗；封臣被打時，宗主派一半兵力來救
+    const vas=FM(()=>[]);for(const F of fac)if(F.alive&&F.liege>=0&&fac[F.liege].alive)vas[F.liege].push(F.id);
+    const ally=(f,foe,def)=>{let x=0;for(const v of vas[f])if(v!==foe)x+=lev(v)*.25;const L=fac[f].liege;if(def&&L>=0&&fac[L].alive&&L!==foe)x+=lev(L)*.5;return x};
+    // 主將：封地離戰場最近的領主帶兵；沒有封地的英雄當作從首都出發
+    const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
     const kill=(f,amt)=>{const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive||W.done)continue;
       if(owner[W.goal]===W.att){W.done=1;continue}if(owner[W.goal]!==W.def){W.done=2;continue}
@@ -310,8 +332,10 @@ function createSim(w,rand,pick){
         if(t<.55){wf*=.65;pop[i]*=.93}}
       fac[A].fronts++;fac[D].fronts++;
       let dT=99;for(const k in markets)if(owner[+k]===A)dT=Math.min(dT,hdist(+k,n));
-      const LA=lev(A),LD=lev(D),sup=1/(1+.08*dT);
-      const sa=LA*fac[A].aggr*wf*sup*(.6+rand()),sd=(LD*.8+pop[n]*.4)*(1+.15*(res[n]-1))*(1+.3*wall[n])*(.6+rand());
+      const LA=lev(A),LD=lev(D),xA=ally(A,D,false),xD=ally(D,A,true),sup=1/(1+.08*dT);
+      const hA=cmdr(A,n),hD=cmdr(D,n),kA=hA?hA.skill:1,kD=hD?hD.skill:1,rA=.6+rand(),rD=.6+rand();
+      const tm=1+.15*(res[n]-1),wm=1+.3*wall[n],mil=pop[n]*.4;
+      const sa=(LA+xA)*fac[A].aggr*wf*sup*kA*rA,sd=((LD+xD)*.8+mil)*tm*wm*kD*rD;
       const siege=!counter&&(town[n]||wall[n]>=1);
       let win,lose,dead,took=false,note='';
       if(sa>sd){win=A;lose=D;dead=LD*.12;
@@ -322,6 +346,8 @@ function createSim(w,rand,pick){
         else took=true}
       else{win=D;lose=A;dead=LA*.12;if(siege&&W.siege&&W.siege.t===n)W.siege.prog=Math.max(0,W.siege.prog-1)}
       W.score+=win===W.att?1:-1;
+      if(xD>0&&fac[D].liege>=0)fac[D].helped=1;
+      const hw=win===A?hA:hD,hl2=win===A?hD:hA;if(hw){hw.battles++;hw.wins++}if(hl2)hl2.battles++;
       kill(lose,dead);kill(win,dead*.4);pop[i]*=.96;
       if(took){owner[n]=A;if(markets[n])for(const g of GOODS)markets[n].stock[g]*=.6;pop[n]*=.6;wall[n]=Math.max(0,wall[n]-1);W.gain[A]=(W.gain[A]||0)+1;
         if(counter)W.taken=W.taken.filter(x=>x!==n);else W.taken.push(n)}
@@ -330,9 +356,14 @@ function createSim(w,rand,pick){
       facGive(win,'iron',loot);facTake(lose,'iron',gear*.5);
       if(!W.told||W.told<3&&(took||siege)){W.told=(W.told||0)+1;
         say(y,'war',`${SEASON[s]}，${nm(n)}之戰：${fac[win].n}擊敗${fac[lose].n}${counter&&win===A?`，收復${nm(n)}`:took?(note||(dd>1?`，遠征軍奪下${nm(n)}`:`，奪下${nm(n)}`)):note||(win===D&&wall[n]>=1?`，${nm(n)}的城牆擋住了攻勢`:'')}${loot>=.5?`，繳獲鐵器 ${loot.toFixed(1)} 擔`:''}。`,n)}
-      const hl=heroes.filter(h=>h.f===lose&&h.alive);
-      if(hl.length&&rand()<.22){const h=pick(hl);h.alive=false;const art=`「${pick(GIV)}${pick(GIV)}」${pick(ARMS)}`;
-        graves.push({tile:n,y,name:h.name});say(y,'hero',`${fac[lose].n}的英雄${h.name}戰死於${nm(n)}，其${art}從此下落不明。`,n)}}}
+      let fell='';
+      if(hl2&&rand()<.22){const h=hl2;const art=`「${pick(GIV)}${pick(GIV)}」${pick(ARMS)}`;fell=h.name;heroDies(h,y,`戰死於${nm(n)}`);
+        graves.push({tile:n,y,name:h.name});say(y,'hero',`${fac[lose].n}的英雄${h.name}戰死於${nm(n)}，其${art}從此下落不明。`,n)}
+      // 戰史：記下雙方兵力與各項加成，供統計頁查看
+      battles.push({y,s,a:A,d:D,an:fac[A].n,dn:fac[D].n,t:n,b:biome[n],dd,ctr:counter?1:0,LA:Math.round(LA),LD:Math.round(LD),xA:Math.round(xA),xD:Math.round(xD),mil:Math.round(mil),
+        ag:+fac[A].aggr.toFixed(2),wf:+wf.toFixed(2),sup:+sup.toFixed(2),tm:+tm.toFixed(2),wm:+wm.toFixed(2),kA:+kA.toFixed(2),kD:+kD.toFixed(2),rA:+rA.toFixed(2),rD:+rD.toFixed(2),
+        sa:Math.round(sa),sd:Math.round(sd),win:win===A?'a':'d',took:took?1:0,siege:siege?1:0,note,dead:Math.round(dead),hA:hA?hA.name:'',hD:hD?hD.name:'',fell});
+      if(battles.length>320){const big=battles.slice().sort((p,q)=>(q.LA+q.LD+q.xA+q.xD)-(p.LA+p.LD+p.xA+p.xD)).slice(0,40);battles=[...new Set([...big,...battles.slice(-200)])].sort((p,q)=>p.y-q.y||p.s-q.s)}}}
     if(s===3){
       for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;m.ratio={...m.rsum};
         if(m.ratio.food<.8&&y>=m.famineCD){say(y,'econ',`${nm(t)}一帶糧食短缺，飢民四散。`,t);m.famineCD=y+8}}
@@ -443,7 +474,10 @@ function createSim(w,rand,pick){
     // 7. 戰爭結束
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W)continue;
         const A=W.att,D=W.def,G=W.goal;let msg=null;
-        if(W.done===1||owner[G]===A)msg=`${fac[D].n}承認失去${nm(G)}，與${fac[A].n}議和。`;
+        if(W.done===1||owner[G]===A){msg=`${fac[D].n}承認失去${nm(G)}，與${fac[A].n}議和。`;
+          // 兵力懸殊的話，敗方還得稱臣納貢
+          let pA=0,pD=0;for(let i=0;i<N;i++){if(owner[i]===A)pA+=pop[i];else if(owner[i]===D)pD+=pop[i]}
+          if(fac[D].alive&&fac[A].liege<0&&fac[D].liege<0&&pA>pD*2.5&&rand()<.6){makeVassal(D,A,y);msg=`${fac[D].n}割讓${nm(G)}，並向${fac[A].n}稱臣納貢。`}}
         else if(W.done===2||owner[G]!==D)msg=`${nm(G)}已不在${fac[D].n}手中，${fac[A].n}與${fac[D].n}罷兵。`;
         else if(W.score<=-4){msg=`${fac[A].n}久攻${nm(G)}不下，撤兵求和。`;fac[A].shock+=.4}
         else if(y>=W.end){const ga=W.gain[A]||0,gd=W.gain[D]||0;msg=ga-gd>=2?`${fac[D].n}割地求和，${fac[A].n}班師。`:gd-ga>=2?`${fac[A].n}得不償失，向${fac[D].n}求和。`:`${fac[A].n}與${fac[D].n}議和，各自收兵。`;
@@ -452,31 +486,56 @@ function createSim(w,rand,pick){
     }
     for(const f of fac){if(!f.alive)continue;if(owner[f.cap]!==f.id){let best=-1,bp=-1;
         for(let i=0;i<N;i++)if(owner[i]===f.id&&pop[i]>bp){bp=pop[i];best=i}
-        if(best<0){f.alive=false;f.diedY=y;say(y,'war',`${f.n}的最後一座城鎮失守，${f.n}就此滅亡。`,f.cap);for(const h of heroes)if(h.f===f.id)h.alive=false}
+        if(best<0){f.alive=false;f.diedY=y;say(y,'war',`${f.n}的最後一座城鎮失守，${f.n}就此滅亡。`,f.cap);for(const h of heroes)if(h.f===f.id&&h.alive){h.fief=-1;heroDies(h,y,'國破後下落不明')}
+          for(const x of fac)if(x.alive&&x.liege===f.id){x.liege=-1;say(y,'war',`宗主${f.n}亡國，${x.n}重獲自主。`,x.cap)}}
         else{say(y,'war',`${f.n}的首都${nm(f.cap)}陷落，朝廷遷往${nm(best)}。`,best);f.cap=best;f.shock+=1;
           if(!town[best]){town[best]=1;markets[best]=markets[best]||newMarket()}}}}
     if(!live)politics(y)   // 線上模式挪到開年第二個時段，分散計算量
-    for(const f of fac)if(f.alive&&rand()<.035){const h={name:heroName(),f:f.id,born:y,alive:true};heroes.push(h);say(y,'hero',`${h.name}在${f.n}嶄露頭角。`,f.cap)}
-    for(const h of heroes)if(h.alive&&y-h.born>25&&rand()<.06){h.alive=false;say(y,'hero',`${fac[h.f].n}的老英雄${h.name}壽終於${nm(fac[h.f].cap)}。`,fac[h.f].cap)}
+    for(const f of fac)if(f.alive&&rand()<.035){const h=mkHero(f.id,y);say(y,'hero',`${h.name}在${f.n}嶄露頭角。`,f.cap)}
+    for(const h of heroes)if(h.alive&&rand()<.01+Math.max(0,y-h.born-20)*.007){const place=h.fief>=0?h.fief:fac[h.f].cap;if(h.wins>=2||h.fief<0)say(y,'hero',`${fac[h.f].n}的老英雄${h.name}壽終於${nm(place)}。`,place);heroDies(h,y,`壽終於${nm(place)}`)}
+    // 只留下活著的英雄，和戰功或封地值得記一筆的死者
+    if(heroes.length>160){const keep=heroes.filter(h=>h.alive||h.wins>=3).sort((p,q)=>(q.alive-p.alive)||(q.wins-p.wins)).slice(0,140);heroes.splice(0,heroes.length,...keep)}
   }
 
   // ===== 政局：離心自立、小國歸附、盜匪幫派 =====
   function politics(y){
+    // 7b. 封地：首都以外的每座市鎮都有一位領主；沒有就從本國英雄裡挑，或冊封新的貴族
+    for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0||!fac[o].alive||t===fac[o].cap){if(m.lord){const h=heroById(m.lord);if(h&&h.fief===t)h.fief=-1;m.lord=0}continue}
+      let h=m.lord?heroById(m.lord):null;if(h&&(!h.alive||h.f!==o||h.fief!==t)){if(h.fief===t)h.fief=-1;h=null;m.lord=0}
+      if(!h){h=heroes.filter(x=>x.alive&&x.f===o&&x.fief<0).sort((p,q)=>q.skill-p.skill)[0]||mkHero(o,y);h.fief=t;m.lord=h.id;
+        if(m.pop>=150&&rand()<.4)say(y,'hero',`${fac[o].n}冊封${h.name}為${nm(t)}領主。`,t)}}
     // 8. 離心：離首都遠、國土太大、鬧饑荒、打敗仗、王位之爭，地方就會坐大，最後自立
     for(const f of fac){if(!f.alive)continue;let tiles=0;for(let i=0;i<N;i++)if(owner[i]===f.id)tiles++;
       const ts=Object.keys(markets).map(Number).filter(t=>owner[t]===f.id&&t!==f.cap);
       if(ts.length>=2&&rand()<.012){f.crisis=y;say(y,'war',`${f.n}的君主駕崩，諸子爭位，各地人心浮動。`,f.cap)}
       for(const t of ts){const m=markets[t],d=hdist(t,f.cap);
-        const u=(d-5)*.04+tiles/100*.1+(m.ratio.food<.85?.2:0)+(f.crisis===y?.6:0)+f.shock*.4;
+        const lord=m.lord?heroById(m.lord):null;
+        const u=(d-5)*.04+tiles/100*.1+(m.ratio.food<.85?.2:0)+(f.crisis===y?.6:0)+f.shock*.4+(lord?(.5-lord.loyal)*.3:0);
         m.unrest=(m.unrest||0)*.7+Math.max(0,u);
         if(m.unrest>1.2+rand()*.8&&m.pop>=100&&y>=(m.revoltCD||0))secede(f,t,y,f.crisis===y?'趁王位之爭':m.ratio.food<.85?'飢荒之下':f.shock>.5?'見朝廷敗象已露':'天高皇帝遠')}
       f.shock*=.5;f.merc*=.8}
+    // 7c. 封臣：每年向宗主納貢；宗主太弱、敗仗、貢賦太重會讓封臣離心，忠心夠久的小封臣則和平併入
+    {const cnt=new Int16Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)cnt[owner[i]]++;
+    for(const V of fac){if(!V.alive||V.liege<0)continue;const L=fac[V.liege];if(!L.alive){V.liege=-1;continue}
+      const fd=facTake(V.id,'food',facStock(V.id,'food')*.12),fe=facTake(V.id,'iron',facStock(V.id,'iron')*.12);facGive(L.id,'food',fd);facGive(L.id,'iron',fe);
+      V.loyal+=(rand()-.5)*.12-(cnt[V.id]>cnt[L.id]*.4?.05:0)-L.shock*.2+(V.helped?.1:0);   // 忠誠會隨世局起伏V.helped=0;V.loyal=Math.max(0,Math.min(1,V.loyal));
+      if(V.loyal<.15&&rand()<.35){const l=L.id;V.liege=-1;V.loyal=1;
+        say(y,'war',`${V.n}停止向${L.n}納貢，宣布獨立。`,V.cap);const a=Math.min(l,V.id),b=Math.max(l,V.id);
+        war[a][b]={att:l,def:V.id,goal:V.cap,start:y,end:y+3+Math.floor(rand()*5),gain:{},score:0,siege:null,taken:[]};say(y,'war',`${L.n}興兵問罪。`,V.cap);continue}
+      if(V.loyal>.85&&y-V.lsince>=40&&cnt[V.id]<=8&&rand()<.08){for(let i=0;i<N;i++)if(owner[i]===V.id)owner[i]=L.id;
+        const ruler=heroes.find(h=>h.alive&&h.f===V.id);for(const h of heroes)if(h.alive&&h.f===V.id){h.f=L.id;h.fief=-1}
+        if(ruler&&markets[V.cap]){ruler.fief=V.cap;markets[V.cap].lord=ruler.id}
+        V.alive=false;V.diedY=y;V.liege=-1;for(let k=0;k<FMAX;k++){const a=Math.min(k,V.id),b=Math.max(k,V.id);if(a!==b)war[a][b]=null}
+        say(y,'war',`${V.n}和平併入${L.n}${ruler?`，原君主${ruler.name}受封為${nm(V.cap)}領主`:''}。`,V.cap)}}}
     // 小國歸附：只剩幾格的小國，被鄰近的大國吞併
     {const cnt=new Int16Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)cnt[owner[i]]++;
     for(const f of fac){if(!f.alive||cnt[f.id]>3||y-f.born<10||rand()>.1)continue;let g=-1,gv=0;
       for(let i=0;i<N;i++)if(owner[i]===f.id)for(const n of NBR[i]){const o=owner[n];if(o>=0&&o!==f.id&&!atWar(o,f.id)&&cnt[o]>=cnt[f.id]*4&&cnt[o]>gv){gv=cnt[o];g=o}}
-      if(g<0)continue;for(let i=0;i<N;i++)if(owner[i]===f.id)owner[i]=g;f.alive=false;f.diedY=y;cnt[g]+=cnt[f.id];cnt[f.id]=0;
+      if(g<0||f.liege>=0)continue;
+      if(cnt[f.id]>=2&&fac[g].liege<0){makeVassal(f.id,g,y);say(y,'war',`${f.n}勢單力孤，向${fac[g].n}稱臣納貢。`,f.cap);continue}
+      for(let i=0;i<N;i++)if(owner[i]===f.id)owner[i]=g;f.alive=false;f.diedY=y;cnt[g]+=cnt[f.id];cnt[f.id]=0;
       for(let k=0;k<FMAX;k++){const a=Math.min(k,f.id),b=Math.max(k,f.id);if(a!==b)war[a][b]=null}
+      for(const x of fac)if(x.alive&&x.liege===f.id)x.liege=-1;
       say(y,'war',`${f.n}勢單力孤，舉國歸附${fac[g].n}。`,f.cap)}}
     // 9. 盜匪幫派：火併、招安、自立為王
     gangYear(y)}
@@ -484,15 +543,18 @@ function createSim(w,rand,pick){
   function freeSlot(y){return fac.find(x=>!x.alive&&x.id>=FDEF.length&&y-x.diedY>20)}
   function newState(slot,y,name,cap,tiles,aggr){
     if(fac.some(x=>x.alive&&x.n===name)){const alt=STATE_SUF.map(x=>name.replace(/(公國|侯國|伯國|自由市|聯盟|寨)$/,'')+x).find(n=>!fac.some(z=>z.alive&&z.n===n));name=alt||'新'+name}
-    Object.assign(slot,{n:name,alive:true,cap,aggr,ratio:one(),price:one(),prod:zero(),born:y,fronts:0,frontsPrev:0,famineCD:0,woodCD:0,shock:0,merc:0,crisis:-1,pop:0,loss:0,cold:0});
+    Object.assign(slot,{n:name,alive:true,cap,aggr,liege:-1,loyal:1,lsince:y,helped:0,ratio:one(),price:one(),prod:zero(),born:y,fronts:0,frontsPrev:0,famineCD:0,woodCD:0,shock:0,merc:0,crisis:-1,pop:0,loss:0,cold:0});
     for(const t of tiles)owner[t]=slot.id;
     for(let k=0;k<FMAX;k++){const a=Math.min(k,slot.id),b=Math.max(k,slot.id);if(a!==b){tension[a][b]=0;war[a][b]=null}}
     if(!town[cap]){town[cap]=1;markets[cap]=markets[cap]||newMarket()}}
   function secede(f,t,y,why){const slot=freeSlot(y),m=markets[t];
     if(!slot){m.unrest=0;m.revoltCD=y+30;for(let i=0;i<N;i++)if(mkt[i]===t&&owner[i]===f.id)pop[i]*=.9;say(y,'war',`${nm(t)}一帶${why}，起兵反抗${f.n}，旋即被鎮壓。`,t);return}
     const tiles=[];for(let i=0;i<N;i++)if(owner[i]===f.id&&mkt[i]===t&&i!==f.cap)tiles.push(i);
+    const lord=m.lord?heroById(m.lord):null;
     newState(slot,y,nm(t)+pick(STATE_SUF),t,tiles,.8+rand()*.6);slot.ratio={...m.ratio};slot.price={...m.price};m.unrest=0;
-    say(y,'war',`${nm(t)}一帶${why}，宣布脫離${f.n}自立，號${slot.n}。`,t);
+    for(const x of fac)if(x.alive&&x.liege===slot.id)x.liege=-1;
+    if(lord&&lord.alive){lord.f=slot.id;lord.fief=-1;m.lord=0;say(y,'war',`${f.n}的${nm(t)}領主${lord.name}${why}，據城自立，號${slot.n}。`,t)}
+    else say(y,'war',`${nm(t)}一帶${why}，宣布脫離${f.n}自立，號${slot.n}。`,t);
     const a=Math.min(f.id,slot.id),b=Math.max(f.id,slot.id);
     war[a][b]={att:f.id,def:slot.id,goal:t,start:y,end:y+3+Math.floor(rand()*6),gain:{},score:0,siege:null,taken:[]};
     say(y,'war',`${f.n}出兵討伐${slot.n}。`,t)}
@@ -669,7 +731,8 @@ function createSim(w,rand,pick){
     if(T%PS===0){const s=(curSeason()+3)%4;season(curY,s);
       if(s===3){yearEnd(curY);ownerHist.push(owner.slice());curY++;yearStart(curY);ended=true}}
     // 線上模式把重的路網計算拆到別的時段：每季結算前一刻重綁市場，開年第一個時段重建鎮際路網
-    if(T%PY===1)buildTownNet();
+    if(T%PY===1)buildTownNet(0);
+    if(T%PY===3)buildTownNet(1);   // 鎮際路網分兩個時段各算一半
     if(T%PY===2)politics(curY);
     if((T+1)%PS===0)bindMarkets();
     lastComputed=computed;return ended}
@@ -677,23 +740,26 @@ function createSim(w,rand,pick){
   // ===== 存檔：把整個世界的可變狀態匯出成一個物件，之後原樣讀回 =====
   const MUT={biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town};
   function exportState(){const o={};for(const k in MUT)o[k]=MUT[k];
-    return {...o,fac,events:ev.slice(-1500),graves,heroes:heroes.filter(h=>h.alive),routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang}}
+    return {...o,fac,events:ev.slice(-1500),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang}}
   function importState(S){for(const k in MUT)MUT[k].set(S[k]);
     fac.splice(0,fac.length,...S.fac);ev.splice(0,ev.length,...S.events);graves.splice(0,graves.length,...S.graves);heroes.splice(0,heroes.length,...S.heroes);
     for(const k of Object.keys(routeSeen))delete routeSeen[k];Object.assign(routeSeen,S.routeSeen);
     for(let a=0;a<FMAX;a++){tension[a]=S.tension[a].slice();war[a]=S.war[a].slice()}
     routes=S.routes;T=S.T;curY=S.curY;live=S.live;story=S.story;actors=S.actors;nextId=S.nextId;ownerHist=S.ownerHist||[];lastComputed=S.lastComputed||0;rand.setState(S.rng);
-    markets=S.markets||{};carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;
+    markets=S.markets||{};carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;battles=S.battles||[];nextHero=S.nextHero||1;
     netSig='';netYear=-99;if(live)yearStartNetOnly(S)}
   // 讀檔後路網與前線要重建（不存檔，因為可以重算）
   function yearStartNetOnly(S){refreshCE();bindMarkets();if(S.townNet)townNet=S.townNet;else buildTownNet();if(S.front){bc=S.bc;front=S.front;covet=S.covet}else buildFronts()}
-  function view(){const econ=fac.map(f=>({n:f.n,c:f.c,born:f.born,merc:Math.round(f.merc),alive:f.alive,cap:f.alive?f.cap:-1,ratio:f.ratio,price:f.price,store:f.store||0,tiles:0,pop:0}));
+  function view(){const econ=fac.map(f=>({n:f.n,c:f.c,born:f.born,merc:Math.round(f.merc),liege:f.alive?f.liege:-1,loyal:+(f.loyal||0).toFixed(2),alive:f.alive,cap:f.alive?f.cap:-1,ratio:f.ratio,price:f.price,store:f.store||0,tiles:0,pop:0}));
     for(let i=0;i<N;i++)if(owner[i]>=0){econ[owner[i]].tiles++;econ[owner[i]].pop+=pop[i]}
     let pending=0;for(let i=0;i<N;i++)if(land[i]&&lastT[i]<T)pending++;
     const r8=a=>Array.from(a,v=>Math.round(v));
     return {stamp:stamp(),T,year:curY,period:T%4,season:curSeason(),computed:lastComputed,pending,story,
       owner:Array.from(owner),pop:r8(pop),bandit:r8(bandit),ruin:Array.from(ruin),wall:r8(wall),biome:Array.from(biome),timber:r8(timber),timberK:r8(timberK),game:r8(game),gameK:r8(gameK),
       vein:r8(vein),vcap:r8(vcap),vex:Array.from(vex),known:Array.from(known),econ,routes,graves,town:Array.from(town),mkt:Array.from(mkt),stats:{...stats},gangs:gangs.map(g=>({name:g.name,lair:g.lair,str:Math.round(g.str)})),
+      heroes:heroes.filter(h=>h.alive||h.wins>=2).map(h=>({name:h.name,f:h.f,born:h.born,alive:h.alive,fief:h.fief,wins:h.wins,battles:h.battles,skill:h.skill,loyal:h.loyal,diedY:h.diedY,end:h.end})),
+      battles:(()=>{const sz=b=>b.LA+b.LD+b.xA+b.xD;const big=battles.slice().sort((p,q)=>sz(q)-sz(p)).slice(0,30);return [...new Set([...big,...battles.slice(-15)])]})(),
+      lords:Object.keys(markets).map(Number).filter(t=>markets[t].lord).map(t=>[t,markets[t].lord]),
       wars:(()=>{const o=[];for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(W&&W.att!==undefined)o.push({att:W.att,def:W.def,goal:W.goal,start:W.start,score:W.score,siege:W.siege?W.siege.t:-1})}return o})(),
       markets:Object.keys(markets).map(Number).filter(t=>owner[t]>=0).map(t=>{const m=markets[t],r2=o=>Object.fromEntries(GOODS.map(g=>[g,+o[g].toFixed(2)]));
         return {t,f:owner[t],pop:Math.round(m.pop),stock:r2(m.stock),price:r2(m.price),ratio:r2(m.ratio)}}),
