@@ -1,0 +1,31 @@
+# 六角世界：Cloudflare Workers 設定
+name = "hex-world"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+account_id = "beb6f869ff9d765dbf31116243c5b348"
+workers_dev = true
+
+# 觀看網頁（public/ 底下的靜態檔案）
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# 世界本體：一個 Durable Object，狀態存在它內建的 SQLite 儲存空間
+[[durable_objects.bindings]]
+name = "WORLD"
+class_name = "World"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["World"]
+
+[vars]
+# 改這個數字並推送，世界就會從創世檔重新開始（模擬規則大改時用）
+WORLD_VERSION = "1"
+# 世界種子
+SEED = "灰燼-1031"
+# NPC 數量（只在重新開始時生效）
+NPC_COUNT = "25"
+# 現實中幾秒推進一個時段（300 = 5 分鐘；一年 112 個時段約 9.3 小時）
+TICK_SECONDS = "300"

@@ -1,0 +1,13 @@
+{
+  "name": "hex-world",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "genesis": "node scripts/genesis.mjs",
+    "dev": "node scripts/genesis.mjs && wrangler dev",
+    "deploy": "node scripts/genesis.mjs && wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4"
+  }
+}

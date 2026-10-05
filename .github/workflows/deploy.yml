@@ -1,0 +1,29 @@
+# 推送到 main 就自動部署到 Cloudflare
+name: 部署到 Cloudflare
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 安裝套件
+        run: npm ci
+      - name: 創世（跑開服前的歷史）
+        run: node scripts/genesis.mjs
+      - name: 部署
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
