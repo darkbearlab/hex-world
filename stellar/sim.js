@@ -371,7 +371,7 @@ function createSim(w,rand,pick){
     // 本季戰事：每場戰爭每季一場戰鬥。兵力＝全國徵召（人口、鐵、糧），分攤到同時打的每場戰爭，再加上收編的兵
     {const fp=new Float32Array(FMAX),nw=new Uint8Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)fp[owner[i]]+=pop[i];
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)if(war[a][b]&&fac[a].alive&&fac[b].alive){nw[a]++;nw[b]++}
-    const lev=f=>{const F=fac[f];if(has(f,'automaton'))return (F.auto||0)/Math.max(1,nw[f])+F.merc;return fp[f]*.08*(.55+.45*F.ratio.iron)*(.7+.3*Math.min(1,F.ratio.food))/Math.max(1,nw[f])+F.merc};
+    const lev=f=>{const F=fac[f];if(has(f,'automaton'))return (F.auto||0)/Math.max(1,nw[f])+F.merc;return fp[f]*(has(f,'elf')?.2:.08)/*精靈人人都是練了幾百年的戰士*/*(.55+.45*F.ratio.iron)*(.7+.3*Math.min(1,F.ratio.food))/Math.max(1,nw[f])+F.merc};
     // 援軍：封臣出兩成五兵力跟宗主打仗；封臣被打時，宗主派一半兵力來救
     const vas=FM(()=>[]);for(const F of fac)if(F.alive&&F.liege>=0&&fac[F.liege].alive)vas[F.liege].push(F.id);
     const ally=(f,foe,def)=>{let x=0;for(const v of vas[f])if(v!==foe)x+=lev(v)*.25;const L=fac[f].liege;if(def&&L>=0&&fac[L].alive&&L!==foe)x+=lev(L)*.5;
@@ -379,7 +379,7 @@ function createSim(w,rand,pick){
         // 帝國互保：選帝侯被外人攻打時，皇帝與其他選帝侯象徵性出兵
         if(fac[f].elector&&!fac[foe].elector)for(const E of fac)if(E.alive&&E.elector&&E.id!==f&&!atWar(E.id,f))x+=lev(E.id)*(E.id===emperor?.15:.06)}
       return x};
-    const qual=(f,t)=>fac[f].vet*(has(f,'gunpowder')?1.2:1);
+    const qual=(f,t)=>fac[f].vet*(has(f,'gunpowder')?1.2:1)*(has(f,'elf')?1.8:1);   // 精靈活得久、練得精：一個精靈戰士抵將近兩個人類
     // 主將：封地離戰場最近的領主帶兵；沒有封地的英雄當作從首都出發
     const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f&&h.mark&&rand()<.85){if(!b||h.mp>b.mp)b=h}if(b)return b;   // 有蛇紋者就派蛇紋者上陣
       for(const h of heroes)if(h.alive&&h.f===f){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
@@ -504,7 +504,7 @@ function createSim(w,rand,pick){
           say(y,'econ',`${nm(i)}的森林被砍伐殆盡，化為草原。`,i)}}else deforest[i]=0}
     // 3. 人口
     for(let i=0;i<N;i++)if(owner[i]>=0){const f=fac[owner[i]],R=tileRatio(i),cap=fert[i]*100+5,fr=R.food;
-      if(fr>=.95)pop[i]+=pop[i]*.2*(1-pop[i]/cap);else pop[i]*=.85+.15*fr;
+      if(fr>=.95)pop[i]+=pop[i]*.2*(has(owner[i],'elf')?.35:1)*(1-pop[i]/cap);else pop[i]*=.85+.15*fr;   // 精靈生得少，人口補得慢
       if(temp[i]<.4)pop[i]*=.97+.03*R.wood;
       pop[i]-=bandit[i]*.06;if(pop[i]>peak[i])peak[i]=pop[i]}
 
@@ -768,7 +768,8 @@ function createSim(w,rand,pick){
     for(const h of heroes)if(h.alive&&h.mark){heroDies(h,y,'在滅世大火中化為灰燼')}
     // 人口：南方與帝國心臟受創最重，北方最輕
     for(let i=0;i<N;i++){if(owner[i]<0&&pop[i]<=0)continue;const u=uOf(i),o=owner[i];
-      let loss=u>.6?.45:u>.32?.4:.1;if(fire.oldHeart.includes(i))loss=.55;if(o===2)loss=.08;if(o===3||o===6)loss=.25;
+      let loss=u>.6?.68:u>.32?.6:.22;if(fire.oldHeart.includes(i))loss=.78;if(o===2)loss=.15;if(o===3||o===6)loss=.42;
+      if(u>.32&&rand()<.5){fert[i]*=.75;timber[i]*=.3}   // 焦土：田地與林子要很多年才長得回來
       pop[i]*=1-loss*(.8+rand()*.4);if(pop[i]<3&&o>=0){owner[i]=-1;pop[i]=0;if(peak[i]>=20)ruin[i]=1;if(town[i]){town[i]=0;delete markets[i]}}}
     for(const f of fac){f.merc=0;if(f.id!==2)f.vet=1}
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){war[a][b]=null;tension[a][b]=0}
