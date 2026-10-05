@@ -21,7 +21,7 @@ function draw(){if(!S||!ST)return;ctx.clearRect(0,0,cv.width,cv.height);
   const hist=isHist(),own=hist?ownerAt(viewYear):S.owner;
   for(let i=0;i<N;i++){const [x,y]=centers[i],b=S.biome[i],base=BIOMES[b].c;let fill=base;
     if(ST.land[i]){const dull=mix(base,'#8a8c86',.65);
-      if(layer==='faction'||hist){const o=own[i];fill=o>=0?mix(mix(base,'#888888',.5),FDEF[o].c,.35+(hist?.25:Math.min(.5,S.pop[i]/160))):mix(base,'#7a7a72',.55)}
+      if(layer==='faction'||hist){const o=own[i];fill=o>=0?mix(mix(base,'#888888',.5),S.econ[o].c,.35+(hist?.25:Math.min(.5,S.pop[i]/160))):mix(base,'#7a7a72',.55)}
       else if(layer==='bandit')fill=mix(dull,'#b3261e',Math.min(1,S.bandit[i]/100*1.4));
       else if(layer==='timber')fill=mix(dull,'#2e7d32',Math.min(1,S.timber[i]/110));
       else if(layer==='game')fill=mix(dull,'#c27a1e',Math.min(1,S.game[i]/60));
@@ -29,7 +29,7 @@ function draw(){if(!S||!ST)return;ctx.clearRect(0,0,cv.width,cv.height);
       else{const sh=(ST.elev[i]-.36)*.3;fill=mix(base,'#ffffff',Math.max(0,sh-.08))}}
     hexPath(x,y,R*1.01);ctx.fillStyle=fill;ctx.fill()}
   if(layer==='faction'||hist)for(let i=0;i<N;i++){const o=own[i];if(o<0)continue;
-    if(NBR[i].some(n=>own[n]!==o)||NBR[i].length<6){hexPath(centers[i][0],centers[i][1],R*.82);ctx.strokeStyle=FDEF[o].c;ctx.lineWidth=Math.max(1,R*.14);ctx.stroke()}}
+    if(NBR[i].some(n=>own[n]!==o)||NBR[i].length<6){hexPath(centers[i][0],centers[i][1],R*.82);ctx.strokeStyle=S.econ[o].c;ctx.lineWidth=Math.max(1,R*.14);ctx.stroke()}}
   ctx.strokeStyle='#6fb4e0';ctx.lineWidth=Math.max(1.2,R*.22);ctx.lineCap='round';ctx.lineJoin='round';
   for(const p of ST.riverPaths){ctx.beginPath();p.forEach((t,k)=>{const[x,y]=centers[t];k?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke()}
   const fs=Math.max(9,R*1.05);ctx.font=`700 ${fs}px system-ui,sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';
@@ -49,11 +49,11 @@ function draw(){if(!S||!ST)return;ctx.clearRect(0,0,cv.width,cv.height);
   // 市鎮（首都以外）、運糧車、商隊
   if(S.markets&&(layer==='faction'||layer==='terrain')){const caps=new Set(S.econ.map(e=>e.cap));
     for(const m of S.markets){if(caps.has(m.t))continue;const[x,y]=centers[m.t],r=Math.max(3,R*(.26+Math.min(.25,m.pop/900)));
-      ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fillStyle='#f3ead6';ctx.fill();ctx.lineWidth=Math.max(1.5,R*.15);ctx.strokeStyle=FDEF[m.f].c;ctx.stroke()}
+      ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fillStyle='#f3ead6';ctx.fill();ctx.lineWidth=Math.max(1.5,R*.15);ctx.strokeStyle=S.econ[m.f].c;ctx.stroke()}
     const jit=k=>((k*9301+49297)%233280)/233280-.5;
     (S.carts||[]).forEach(([t],k)=>{const[x,y]=centers[t];ctx.beginPath();ctx.arc(x+jit(k)*R*.9,y+jit(k+7)*R*.9,Math.max(1.5,R*.12),0,7);ctx.fillStyle='#d9b26a';ctx.fill();ctx.strokeStyle='#000a';ctx.lineWidth=1;ctx.stroke()});
     (S.caravans||[]).forEach(([t,,,gi],k)=>{const[x,y]=centers[t],z=Math.max(3,R*.28),dx=jit(k+3)*R*.6,dy=jit(k+11)*R*.6;ctx.beginPath();ctx.moveTo(x+dx,y+dy-z);ctx.lineTo(x+dx+z,y+dy);ctx.lineTo(x+dx,y+dy+z);ctx.lineTo(x+dx-z,y+dy);ctx.closePath();ctx.fillStyle=GC[GOODS[gi]];ctx.fill();ctx.strokeStyle='#000';ctx.lineWidth=1.2;ctx.stroke()})}
-  S.econ.forEach((e,f)=>{if(e.cap>=0)mark(e.cap,'★',FDEF[f].c)});
+  S.econ.forEach((e,f)=>{if(e.cap>=0)mark(e.cap,'★',S.econ[f].c)});
   const dark=[.08,0,.22,.45][S.period];if(dark){ctx.fillStyle=`rgba(8,14,40,${dark})`;ctx.fillRect(0,0,cv.width,cv.height)}
   // 旅人：同一格多人時圍成一圈
   const byTile={};for(const a of S.actors)(byTile[a.tile]=byTile[a.tile]||[]).push(a);
@@ -65,7 +65,7 @@ function draw(){if(!S||!ST)return;ctx.clearRect(0,0,cv.width,cv.height);
 function pct(r){const v=Math.round(r*100),c=v>=95?'ok':v>=70?'warn':'bad';return`<td class="r ${c}">${v}%</td>`}
 function prc(g,idx){const c=idx<=.8?'ok':idx<1.6?'':idx<2.4?'warn':'bad';return`<td class="r ${c}">${(BASEP[g]*idx).toFixed(1)}</td>`}
 function renderFactions(){const head=tmode==='ratio'?'<th>糧</th><th>木材</th><th>鐵</th><th>石材</th><th>鹽</th><th>冬前存糧</th>':'<th>糧</th><th>木材</th><th>鐵</th><th>石材</th><th>鹽</th>';
-  const rows=S.econ.map((e,k)=>{const f=FDEF[k];if(!e.alive)return`<tr class="dead"><th><i style="background:${f.c}"></i>${f.n}</th><td colspan="${tmode==='ratio'?8:7}">已滅亡</td></tr>`;
+  const rows=S.econ.map((e,k)=>{const f=e;if(!e.alive)return !f.n?"":`<tr class="dead"><th><i style="background:${f.c}"></i>${f.n}</th><td colspan="${tmode==='ratio'?8:7}">已滅亡</td></tr>`;
     const cells=tmode==='ratio'?GOODS.map(g=>pct(e.ratio[g])).join('')+`<td class="r ${e.store>=2?'ok':e.store>=1.2?'warn':'bad'}">${e.store.toFixed(1)} 季</td>`:GOODS.map(g=>prc(g,e.price[g])).join('');
     return`<tr><th><i style="background:${f.c}"></i>${f.n}</th><td>${e.tiles}</td><td>${Math.round(e.pop)}</td>${cells}</tr>`}).join('');
   $('ehead').textContent=tmode==='ratio'?'需求滿足率':'市價（銀）';
@@ -85,7 +85,7 @@ function renderTile(){if(sel<0)return;const i=sel,b=S.biome[i];
   const o=S.owner[i],who=S.actors.filter(a=>a.tile===i);
   $('tile').innerHTML=`<span class="lbl">地塊 · ${col(i)},${row(i)}</span><h2>${ST.names[i]}</h2>
   <dl class="kv"><dt>地貌</dt><dd>${BIOMES[b].n}${ST.river[i]?'，有河流經過':''}${ST.coast[i]?'，臨海':''}</dd>
-  <dt>歸屬</dt><dd>${o>=0?FDEF[o].n:(S.ruin[i]?'無主（廢墟）':'無主')}</dd><dt>人口</dt><dd>${S.pop[i]}</dd><dt>盜匪壓力</dt><dd>${S.bandit[i]} / 100</dd>
+  <dt>歸屬</dt><dd>${o>=0?S.econ[o].n:(S.ruin[i]?'無主（廢墟）':'無主')}</dd><dt>人口</dt><dd>${S.pop[i]}</dd><dt>盜匪壓力</dt><dd>${S.bandit[i]} / 100</dd>
   <dt>木材</dt><dd>${S.timberK[i]?`${S.timber[i]} / ${S.timberK[i]}`:'無'}</dd><dt>獵物</dt><dd>${S.gameK[i]?`${S.game[i]} / ${S.gameK[i]}`:'無'}</dd>
   <dt>鐵礦</dt><dd>${S.vex[i]?(S.vein[i]<=0?'已挖光':S.known[i]?`剩 ${S.vein[i]} / ${S.vcap[i]}`:'有礦脈，尚未發現'):'無'}</dd><dt>城牆</dt><dd>${S.wall[i]?S.wall[i]+' 重':'無'}</dd>
   <dt>旅人</dt><dd>${who.length?who.map(a=>`${a.name}（${ROLE[a.role]}）`).join('、'):'無'}</dd></dl>`}

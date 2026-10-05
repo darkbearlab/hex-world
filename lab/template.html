@@ -72,7 +72,7 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
 <div class="wrap">
   <header>
     <h1>六角世界實驗室</h1>
-    <p>封建化第一階段的試驗場：村莊把收成裝車送到最近的市鎮，市鎮之間派商隊做買賣，盜匪沿路劫車。整個世界在你的瀏覽器裡跑，可以調速度、換種子。</p>
+    <p>封建化的試驗場：村莊把收成裝車送進市鎮，商隊在市鎮間買賣；戰爭有目標、會圍城，地方會自立，盜匪會火併、被招安或稱王。整個世界在你的瀏覽器裡跑，可以調速度、換種子。</p>
   </header>
   <div class="row">
     <input id="seed" class="seedin" value="灰燼-1031" aria-label="世界種子">
@@ -96,6 +96,9 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
     </div>
     <div class="col">
       <div class="panel"><h2>運輸</h2><div class="stats" id="stats"></div></div>
+      <div class="panel"><h2>勢力</h2><div class="tbl"><table><thead><tr><th>勢力</th><th class="r">建立</th><th class="r">領地</th><th class="r">人口</th><th class="r">收編兵</th></tr></thead><tbody id="facs"></tbody></table></div></div>
+      <div class="panel"><h2>戰事</h2><ul class="chron" id="wars" style="max-height:220px"></ul></div>
+      <div class="panel"><h2>盜匪山寨</h2><ul class="chron" id="gangs" style="max-height:200px"></ul><div class="legend">勢力＝山寨一帶的盜匪壓力。山寨離得近會火併；附近的勢力可能出糧出鐵招安；勢大的會自立為王。</div></div>
       <div class="panel" id="townPanel" hidden><h2 id="townName"></h2><div id="townBody"></div></div>
       <div class="panel"><h2>市鎮</h2><div class="tbl"><table><thead><tr><th>市鎮</th><th class="r">人口</th><th class="r">村</th><th class="r">糧</th><th class="r">鐵</th><th class="r">鹽</th><th class="r">糧滿足</th></tr></thead><tbody id="towns"></tbody></table></div>
         <div class="legend">價格單位是銀；綠色便宜、紅色昂貴。點一列可在地圖上看它的市場範圍。</div></div>
@@ -126,13 +129,13 @@ function hsl2hex(s){const m=s.match(/[\d.]+/g).map(Number);const h=m[0],sa=m[1]/
 function draw(){if(!S)return;ctx.clearRect(0,0,cv.width,cv.height);const land=w.land,mk={};for(const m of S.markets)mk[m.t]=m;
   for(let i=0;i<N;i++){const [x,y]=centers[i],base=BIOMES[S.biome[i]].c;let fill=base;
     if(land[i]){const o=S.owner[i],dull=mix(base,'#8a8c86',.65);
-      if(layer==='faction')fill=o>=0?mix(mix(base,'#888888',.5),FDEF[o].c,.35+Math.min(.5,S.pop[i]/160)):mix(base,'#7a7a72',.55);
+      if(layer==='faction')fill=o>=0?mix(mix(base,'#888888',.5),S.econ[o].c,.35+Math.min(.5,S.pop[i]/160)):mix(base,'#7a7a72',.55);
       else if(layer==='market'){const t=S.mkt[i];fill=o>=0&&t>=0?mix(dull,hsl2hex(townHue(t)),sel<0||sel===t?.9:.2):mix(base,'#7a7a72',.6)}
       else if(layer==='price'){const m=mk[S.mkt[i]];fill=o>=0&&m?mix(mix(dull,'#2f7a45',Math.max(0,1-m.price.food)*1.6),'#b3261e',Math.min(1,Math.max(0,m.price.food-1)*.9)):mix(base,'#7a7a72',.6)}
       else if(layer==='bandit')fill=mix(dull,'#b3261e',Math.min(1,S.bandit[i]/100*1.4))}
     hexPath(x,y,R*1.01);ctx.fillStyle=fill;ctx.fill()}
   if(layer!=='bandit')for(let i=0;i<N;i++){const o=S.owner[i];if(o<0)continue;
-    if(NBR[i].some(n=>S.owner[n]!==o)||NBR[i].length<6){hexPath(centers[i][0],centers[i][1],R*.82);ctx.strokeStyle=FDEF[o].c;ctx.lineWidth=Math.max(1,R*.12);ctx.stroke()}}
+    if(NBR[i].some(n=>S.owner[n]!==o)||NBR[i].length<6){hexPath(centers[i][0],centers[i][1],R*.82);ctx.strokeStyle=S.econ[o].c;ctx.lineWidth=Math.max(1,R*.12);ctx.stroke()}}
   ctx.strokeStyle='#6fb4e0';ctx.lineWidth=Math.max(1.2,R*.2);ctx.lineCap='round';ctx.lineJoin='round';
   for(const p of w.riverPaths){ctx.beginPath();p.forEach((t,k)=>{const[x,y]=centers[t];k?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke()}
   // 村莊到市鎮的連線（選了市鎮才畫，或在市場圖層）
@@ -153,9 +156,13 @@ function draw(){if(!S)return;ctx.clearRect(0,0,cv.width,cv.height);const land=w.
   const caps=new Set(S.econ.filter(e=>e.cap>=0).map(e=>e.cap));
   ctx.textAlign='center';ctx.textBaseline='middle';
   for(const m of S.markets){const[x,y]=centers[m.t],r=Math.max(3.5,R*(.28+Math.min(.3,m.pop/900)));
-    ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fillStyle=caps.has(m.t)?'#fff4d6':'#f3ead6';ctx.fill();ctx.lineWidth=Math.max(1.5,R*.16);ctx.strokeStyle=FDEF[m.f].c;ctx.stroke();
-    if(caps.has(m.t)){ctx.font=`700 ${r*1.3}px system-ui`;ctx.fillStyle=FDEF[m.f].c;ctx.fillText('★',x,y+1)}
+    ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fillStyle=caps.has(m.t)?'#fff4d6':'#f3ead6';ctx.fill();ctx.lineWidth=Math.max(1.5,R*.16);ctx.strokeStyle=S.econ[m.f].c;ctx.stroke();
+    if(caps.has(m.t)){ctx.font=`700 ${r*1.3}px system-ui`;ctx.fillStyle=S.econ[m.f].c;ctx.fillText('★',x,y+1)}
     if(R>9||m.t===sel){ctx.font=`700 ${Math.max(10,R*.85)}px ${getComputedStyle(document.body).fontFamily}`;ctx.lineWidth=3;ctx.strokeStyle='#000b';ctx.strokeText(w.names[m.t],x,y-r-R*.45);ctx.fillStyle='#fff';ctx.fillText(w.names[m.t],x,y-r-R*.45)}}
+  // 戰爭目標（⚔）、圍城（紅圈）、盜匪山寨（☠，越大越強）
+  for(const g of S.gangs){const[x,y]=centers[g.lair],z=Math.max(10,R*(.7+Math.min(.8,g.str/400)));ctx.font=`700 ${z}px system-ui`;ctx.lineWidth=3;ctx.strokeStyle='#000c';ctx.strokeText('☠',x,y);ctx.fillStyle='#f2e6d0';ctx.fillText('☠',x,y)}
+  for(const w2 of S.wars){const[x,y]=centers[w2.goal];ctx.font=`700 ${Math.max(11,R*.95)}px system-ui`;ctx.lineWidth=3;ctx.strokeStyle='#000c';ctx.strokeText('⚔',x+R*.55,y-R*.45);ctx.fillStyle=S.econ[w2.att].c;ctx.fillText('⚔',x+R*.55,y-R*.45);
+    if(w2.siege>=0){const[sx,sy]=centers[w2.siege];ctx.beginPath();ctx.arc(sx,sy,R*.85,0,7);ctx.setLineDash([3,3]);ctx.strokeStyle='#ff5a4a';ctx.lineWidth=2.2;ctx.stroke();ctx.setLineDash([])}}
   if(sel>=0){hexPath(centers[sel][0],centers[sel][1],R*1.02);ctx.strokeStyle='#fff';ctx.lineWidth=2.2;ctx.stroke()}
   const dark=[0,0,.08,.2][S.period];if(dark){ctx.fillStyle=`rgba(8,14,40,${dark})`;ctx.fillRect(0,0,cv.width,cv.height)}}
 
@@ -176,9 +183,9 @@ function render(){if(!S)return;draw();
   $('stats').innerHTML=[[S.markets.length,'市鎮'],[S.carts.length,'在路上的運糧車'],[S.caravans.length,'在路上的商隊'],[lr(st.cartLost,st.cart),'運糧車被劫率（累計）'],[lr(st.cvLost,st.cv),'商隊被劫率（累計）'],[S.year,'年']]
     .map(([v,l])=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
   const ms=S.markets.slice().sort((a,b)=>b.pop-a.pop);
-  $('towns').innerHTML=ms.map(m=>`<tr data-t="${m.t}" class="${m.t===sel?'sel':''}"><td><span class="dot" style="background:${FDEF[m.f].c}"></span>${w.names[m.t]}</td><td class="r">${m.pop}</td><td class="r">${villages[m.t]||0}</td>${price(m,'food')}${price(m,'iron')}${price(m,'salt')}<td class="r ${m.ratio.food>=.95?'ok':m.ratio.food>=.7?'warn':'bad'}">${Math.round(m.ratio.food*100)}%</td></tr>`).join('');
+  $('towns').innerHTML=ms.map(m=>`<tr data-t="${m.t}" class="${m.t===sel?'sel':''}"><td><span class="dot" style="background:${S.econ[m.f].c}"></span>${w.names[m.t]}</td><td class="r">${m.pop}</td><td class="r">${villages[m.t]||0}</td>${price(m,'food')}${price(m,'iron')}${price(m,'salt')}<td class="r ${m.ratio.food>=.95?'ok':m.ratio.food>=.7?'warn':'bad'}">${Math.round(m.ratio.food*100)}%</td></tr>`).join('');
   const m=S.markets.find(x=>x.t===sel);$('townPanel').hidden=!m;
-  if(m){$('townName').textContent=`${w.names[m.t]}　${FDEF[m.f].n||''}`;
+  if(m){$('townName').textContent=`${w.names[m.t]}　${S.econ[m.f].n||''}`;
     const inbound=S.carts.filter(c=>c[1]===m.t).length,out=S.caravans.filter(c=>c[1]===m.t),inc=S.caravans.filter(c=>c[2]===m.t);
     $('townBody').innerHTML=`<dl class="kv"><dt>服務人口</dt><dd>${m.pop}（${villages[m.t]||0} 個村）</dd><dt>正在進城的運糧車</dt><dd>${inbound}</dd>
       <dt>派出的商隊</dt><dd>${out.map(c=>`${GN[GOODS[c[3]]]} ${c[4]} → ${w.names[c[2]]}`).join('、')||'無'}</dd><dt>來訪的商隊</dt><dd>${inc.map(c=>`${w.names[c[1]]} 的${GN[GOODS[c[3]]]}`).join('、')||'無'}</dd></dl>
@@ -186,8 +193,11 @@ function render(){if(!S)return;draw();
       <tr><td>庫存</td>${GOODS.map(g=>`<td class="r">${m.stock[g].toFixed(1)}</td>`).join('')}</tr>
       <tr><td>價格</td>${GOODS.map(g=>price(m,g)).join('')}</tr>
       <tr><td>滿足率</td>${GOODS.map(g=>`<td class="r">${Math.round(m.ratio[g]*100)}%</td>`).join('')}</tr></tbody></table></div>`}
+  $('facs').innerHTML=S.econ.map((e,k)=>[e,k]).filter(([e])=>e.alive).sort((a,b)=>b[0].tiles-a[0].tiles).map(([e])=>`<tr><td><span class="dot" style="background:${e.c}"></span>${e.n}</td><td class="r">${e.born>0?e.born+' 年':'開局'}</td><td class="r">${e.tiles}</td><td class="r">${Math.round(e.pop)}</td><td class="r">${e.merc||''}</td></tr>`).join('');
+  $('wars').innerHTML=S.wars.map(x=>`<li data-t="${x.goal}"><span class="y">${x.start} 年</span><span><b style="color:${S.econ[x.att].c}">${S.econ[x.att].n}</b> → <b style="color:${S.econ[x.def].c}">${S.econ[x.def].n}</b>，目標 ${w.names[x.goal]}${x.siege>=0?`，正圍攻 ${w.names[x.siege]}`:''}（戰況 ${x.score>0?'+':''}${x.score}）</span></li>`).join('')||'<li><span></span><span>天下暫時太平。</span></li>';
+  $('gangs').innerHTML=S.gangs.slice().sort((a,b)=>b.str-a.str).map(g=>`<li data-t="${g.lair}"><span class="y">${g.str}</span><span>${g.name}，盤據${w.names[g.lair]}</span></li>`).join('')||'<li><span></span><span>目前沒有成股的盜匪。</span></li>';
   $('chron').innerHTML=S.events.slice(-120).reverse().map(e=>`<li data-t="${e.tile??-1}"><span class="y">${e.y} 年</span><span>[${TAG[e.type]||e.type}] ${e.text}</span></li>`).join('');
-  const LG={faction:'勢力：圓圈是市鎮（★ 首都），金色小點是正要進城的運糧車，菱形是商隊（顏色＝貨物），彩色線是去年的商路。',market:'市場範圍：同一個顏色的格子把收成送到同一座市鎮。點市鎮可單獨看它。',price:'糧價：每格看它所屬市鎮的糧價。綠便宜、紅昂貴。',bandit:'盜匪：越紅壓力越高，車隊走過越容易被劫。'};
+  const LG={faction:'勢力：圓圈是市鎮（★ 首都），金色小點是運糧車，菱形是商隊（顏色＝貨物），彩色線是去年的商路。⚔ 是戰爭目標，紅色虛線圈是圍城，☠ 是盜匪山寨。',market:'市場範圍：同一個顏色的格子把收成送到同一座市鎮。點市鎮可單獨看它。',price:'糧價：每格看它所屬市鎮的糧價。綠便宜、紅昂貴。',bandit:'盜匪：越紅壓力越高，車隊走過越容易被劫。'};
   $('legend').textContent=LG[layer];drawChart()}
 
 function sample(){const v=w.sim.view();series.push({towns:v.markets.length,pop:v.pop.reduce((a,b)=>a+b,0),live:true})}
@@ -208,7 +218,7 @@ const segs=(id,fn)=>$(id).addEventListener('click',e=>{const b=e.target.closest(
 segs('speed',v=>{speed=+v;acc=0});segs('layers',v=>{layer=v;render()});
 $('showCarts').onchange=render;
 $('towns').addEventListener('click',e=>{const tr=e.target.closest('tr');if(!tr)return;const t=+tr.dataset.t;sel=sel===t?-1:t;render()});
-$('chron').addEventListener('click',e=>{const li=e.target.closest('li');if(!li)return;const t=+li.dataset.t;if(t>=0&&S.town[t]){sel=t;render()}});
+for(const id of ['chron','wars','gangs'])$(id).addEventListener('click',e=>{const li=e.target.closest('li');if(!li)return;const t=+li.dataset.t;if(t>=0){sel=S.town[t]?t:S.mkt[t]>=0?S.mkt[t]:t;render()}});
 cv.addEventListener('click',e=>{if(!S)return;const r=cv.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;let b=-1,bd=1e9;
   centers.forEach(([cx,cy],i)=>{const d=(cx-x)**2+(cy-y)**2;if(d<bd){bd=d;b=i}});const t=S.town[b]?b:S.mkt[b];sel=t>=0&&t!==sel?t:-1;render()});
 let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(()=>{layout();render()},120)});
