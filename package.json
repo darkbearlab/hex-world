@@ -5,7 +5,8 @@
   "scripts": {
     "genesis": "node scripts/genesis.mjs",
     "dev": "node scripts/genesis.mjs && wrangler dev",
-    "deploy": "node scripts/genesis.mjs && wrangler deploy"
+    "deploy": "node scripts/genesis.mjs && wrangler deploy",
+    "lab": "node scripts/lab.mjs"
   },
   "devDependencies": {
     "wrangler": "^4"

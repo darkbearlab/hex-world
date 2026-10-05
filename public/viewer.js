@@ -46,6 +46,13 @@ function draw(){if(!S||!ST)return;ctx.clearRect(0,0,cv.width,cv.height);
     for(let k=1;k<r.path.length;k++){const a=r.path[k-1],b=r.path[k],[x1,y1]=centers[a],[x2,y2]=centers[b],sea=!ST.land[a]||!ST.land[b];
       ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.lineCap='round';ctx.setLineDash([]);ctx.strokeStyle='#000b';ctx.lineWidth=wd+2;ctx.stroke();
       ctx.setLineDash(sea?[1,R*.35]:[]);ctx.strokeStyle=GC[g];ctx.lineWidth=wd;ctx.stroke()}ctx.setLineDash([])}
+  // 市鎮（首都以外）、運糧車、商隊
+  if(S.markets&&(layer==='faction'||layer==='terrain')){const caps=new Set(S.econ.map(e=>e.cap));
+    for(const m of S.markets){if(caps.has(m.t))continue;const[x,y]=centers[m.t],r=Math.max(3,R*(.26+Math.min(.25,m.pop/900)));
+      ctx.beginPath();ctx.arc(x,y,r,0,7);ctx.fillStyle='#f3ead6';ctx.fill();ctx.lineWidth=Math.max(1.5,R*.15);ctx.strokeStyle=FDEF[m.f].c;ctx.stroke()}
+    const jit=k=>((k*9301+49297)%233280)/233280-.5;
+    (S.carts||[]).forEach(([t],k)=>{const[x,y]=centers[t];ctx.beginPath();ctx.arc(x+jit(k)*R*.9,y+jit(k+7)*R*.9,Math.max(1.5,R*.12),0,7);ctx.fillStyle='#d9b26a';ctx.fill();ctx.strokeStyle='#000a';ctx.lineWidth=1;ctx.stroke()});
+    (S.caravans||[]).forEach(([t,,,gi],k)=>{const[x,y]=centers[t],z=Math.max(3,R*.28),dx=jit(k+3)*R*.6,dy=jit(k+11)*R*.6;ctx.beginPath();ctx.moveTo(x+dx,y+dy-z);ctx.lineTo(x+dx+z,y+dy);ctx.lineTo(x+dx,y+dy+z);ctx.lineTo(x+dx-z,y+dy);ctx.closePath();ctx.fillStyle=GC[GOODS[gi]];ctx.fill();ctx.strokeStyle='#000';ctx.lineWidth=1.2;ctx.stroke()})}
   S.econ.forEach((e,f)=>{if(e.cap>=0)mark(e.cap,'★',FDEF[f].c)});
   const dark=[.08,0,.22,.45][S.period];if(dark){ctx.fillStyle=`rgba(8,14,40,${dark})`;ctx.fillRect(0,0,cv.width,cv.height)}
   // 旅人：同一格多人時圍成一圈
@@ -82,7 +89,7 @@ function renderTile(){if(sel<0)return;const i=sel,b=S.biome[i];
   <dt>木材</dt><dd>${S.timberK[i]?`${S.timber[i]} / ${S.timberK[i]}`:'無'}</dd><dt>獵物</dt><dd>${S.gameK[i]?`${S.game[i]} / ${S.gameK[i]}`:'無'}</dd>
   <dt>鐵礦</dt><dd>${S.vex[i]?(S.vein[i]<=0?'已挖光':S.known[i]?`剩 ${S.vein[i]} / ${S.vcap[i]}`:'有礦脈，尚未發現'):'無'}</dd><dt>城牆</dt><dd>${S.wall[i]?S.wall[i]+' 重':'無'}</dd>
   <dt>旅人</dt><dd>${who.length?who.map(a=>`${a.name}（${ROLE[a.role]}）`).join('、'):'無'}</dd></dl>`}
-const LEG={terrain:'地貌：◆ 鐵礦脈，◇ 已挖光。',faction:'勢力：彩色線是商隊實際走的路（黃＝糧、綠＝木材、藍＝鐵、褐＝石材、白＝鹽），白色方塊是城牆。',bandit:'盜匪：越紅壓力越高。',timber:'木材：越綠存量越多。',game:'獵物：越橘越多。',ore:'礦脈：◆ 越大剩餘越多。'};
+const LEG={terrain:'地貌：◆ 鐵礦脈，◇ 已挖光。',faction:'勢力：圓圈是市鎮，金色小點是運糧車，菱形是商隊。彩色線是商隊實際走的路（黃＝糧、綠＝木材、藍＝鐵、褐＝石材、白＝鹽），白色方塊是城牆。',bandit:'盜匪：越紅壓力越高。',timber:'木材：越綠存量越多。',game:'獵物：越橘越多。',ore:'礦脈：◆ 越大剩餘越多。'};
 function renderLegend(){$('legend').innerHTML=isHist()?`正在看第 ${viewYear} 年的勢力範圍。按「回到現在」看即時的世界。`:
   LEG[layer]+'　圓點是旅人（<span style="color:#e8a33d">獵人</span>・<span style="color:#5fbf6a">樵夫</span>・<span style="color:#a9b8c6">礦工</span>・<span style="color:#e46ec0">行商</span>・<span style="color:#ef5b4a">賞金獵人</span>，灰色＝離線，黃色小帳篷＝紮營）。'}
 function renderClock(){if(!S)return;$('clock').textContent=S.stamp;
