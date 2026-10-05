@@ -37,4 +37,19 @@ export function loreCheck(v,W,H){
     add('s-south','南方大地受創最深',dr[2]>=dr[1]&&dr[2]>=.1,`人口變化：北方 ${Math.round(-dr[0]*100)}%、中部 ${Math.round(-dr[1]*100)}%、南方 ${Math.round(-dr[2]*100)}%`,true);
     add('s-forest','精靈森林被夷為平地',!alive(12)||S.razed>=10,`${alive(12)?`精靈森林還剩 ${F(12).tiles} 格`:'精靈森林已亡'}；燒成焦土的森林 ${S.razed} 格`);
     add('s-queen','精靈女王伊爾瓦納殞命',S.queenDead>=0,S.queenDead>=0?`第 ${S.queenDead} 年（蛇紋之夜後 ${S.queenDead-S.night} 年）`:'女王仍在')}
+  // 引導的年代：只在滅世大火之後判定
+  const G=v.fire;
+  if(G&&G.y>=0){const H=G.hist,lit=H.length?H.filter(h=>h.b>=1).length/H.length:0,last=H[H.length-1]||{b:0,souls:0,people:0};
+    // 兵力以「陣營」計：宗主加上附庸；徵召兵乘上老兵係數
+    const mil0=k=>k===G.order?G.auto:(F(k).pop*.08+(F(k).merc||0))*(F(k).vet||1),mil=k=>mil0(k)+all.filter(j=>F(j).liege===k).reduce((x,j)=>x+mil0(j),0);
+    const top=all.filter(k=>!F(k).tr.includes('orc')&&F(k).liege<0).sort((a,b)=>mil(b)-mil(a)).slice(0,3);
+    add('g-tower','指引塔大多數年份都亮著（每天一千個靈魂）',lit>=.6,`${Math.round(lit*100)}% 的年份夠亮；今年每天 ${last.souls} 個靈魂，人口約 ${Math.round(last.people/10000)} 萬`);
+    add('g-three','三大新興權力鼎立（新秩序、列羅多斯、雅蘭追爾軸心）',G.order>=0&&alive(G.order)&&alive(2)&&alive(3)&&[G.order,2,3].every(k=>top.includes(k)),`陣營兵力前三：${top.map(k=>`${name(k)} ${Math.round(mil(k))}`).join('、')}${alive(2)&&!top.includes(2)?`；列羅多斯 ${Math.round(mil(2))}`:alive(2)?'':'；列羅多斯已亡'}`);
+    add('g-heart','新秩序掌控舊帝國心臟地帶',G.heartOrder>=G.heartLand*.4,`舊心臟 ${G.heartLand} 格，新秩序與效忠者 ${G.heartOrder} 格（附庸 ${G.orderVassals} 個）`);
+    add('g-waste','舊艾文鐸是封建廢土：孤立莊園與無主之地並存',G.heartManors>=2&&G.heartWild>=G.heartLand*.15,`舊心臟裡還有 ${G.heartManors} 處莊園，無主之地 ${G.heartWild} 格`,true);
+    add('g-leth','列羅多斯始終置身事外',alive(2)&&!G.lethHunger,G.lethHunger?`列羅多斯因缺糧南下 ${G.lethHunger} 次`:'沒有南下過');
+    add('g-axis','雅蘭追爾—翡翠海岸軸心資助反秩序同盟',alive(3)&&alive(6)&&G.subsidy>0,`累計資助 ${Math.round(G.subsidy)} 兩`);
+    add('g-cold','三大權力之間沒有正面開戰（冷戰）',!G.threeWar,G.threeWar?`三強之間交戰了 ${G.threeWar} 年次`:'彼此沒有開戰');
+    add('g-solara','索辣拉陷入新舊信仰的血腥衝突',alive(7)&&(G.riots||0)>=1,alive(7)?`衝突 ${G.riots||0} 次`:'索辣拉已亡');
+    add('g-half','世界還沒恢復，仍是半廢土',G.popNow<G.popBefore*.9,`人口：大火前 ${Math.round(G.popBefore*.06)} 萬 → 大火後 ${Math.round(G.popAfter*.06)} 萬 → 現在 ${Math.round(G.popNow*.06)} 萬`)}
   return R}

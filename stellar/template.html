@@ -94,6 +94,7 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
     <button class="btn primary" id="gen">推演 200 年</button>
     <button class="btn" id="rnd">換一個種子</button>
     <button class="btn" id="night" title="蛇紋者劇本：天空傳來訕笑聲，離開過精靈森林的人身上的蛇紋變成力量">🐍 降下蛇紋之夜</button>
+    <button class="btn" id="fire" title="引導的年代：賽琳娜的滅世大火摧毀各國掌權者，在精靈女王的王座前建起以亡魂為燃料的指引塔">🔥 滅世大火</button>
     <span class="seg" id="speed" role="group" aria-label="速度">
       <button data-v="0">暫停</button><button data-v="4" aria-pressed="true">1 日/秒</button><button data-v="28">1 季/秒</button><button data-v="112">1 年/秒</button><button data-v="-1">全速</button>
     </span>
@@ -112,6 +113,8 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
     </div>
     <div class="col">
       <div class="panel"><h2>設定對照</h2><ul class="lore" id="lore"></ul><div class="legend">每條都是筆記裡對「現在」的描述，拿模擬當下的狀態來判定。推演完的第 200 年就是筆記裡的現在；繼續跑下去就是「之後」。</div></div>
+      <div class="panel" id="firePanel" hidden><h2>指引塔</h2><div id="fireInfo"></div><canvas id="towerChart" style="height:90px"></canvas>
+        <div class="legend">亮度＝每天餵進塔裡的靈魂 ÷ 1000。只算自然死亡與戰死（模擬裡 1 單位人口約 600 人，死亡率隨饑荒與盜匪升高）。光不夠亮時遠路難走、盜匪趁夜出沒。</div></div>
       <div class="panel" id="serpPanel" hidden><h2>蛇紋者</h2><div id="serp"></div><div class="tbl" style="max-height:300px;overflow-y:auto"><table><thead><tr><th>蛇紋者</th><th class="r">戰力</th><th class="r">殺敵</th><th>狀態</th></tr></thead><tbody id="marked"></tbody></table></div>
         <div class="legend">蛇紋者上陣時，直接替所屬的一方加上一整支軍隊的戰力；他們打過的地方人口銳減、森林燒成焦土。有錢的國家會出價挖角，蛇紋也可能反噬宿主。</div></div>
       <div class="panel"><h2>帝國</h2><div id="empire"></div></div>
@@ -191,6 +194,9 @@ function draw(){if(!S)return;ctx.clearRect(0,0,cv.width,cv.height);const land=w.
   for(const g of S.gangs){const[x,y]=centers[g.lair],z=Math.max(10,R*(.7+Math.min(.8,g.str/400)));ctx.font=`700 ${z}px system-ui`;ctx.lineWidth=3;ctx.strokeStyle='#000c';ctx.strokeText('☠',x,y);ctx.fillStyle='#f2e6d0';ctx.fillText('☠',x,y)}
   for(const w2 of S.wars){const[x,y]=centers[w2.goal];ctx.font=`700 ${Math.max(11,R*.95)}px system-ui`;ctx.lineWidth=3;ctx.strokeStyle='#000c';ctx.strokeText('⚔',x+R*.55,y-R*.45);ctx.fillStyle=S.econ[w2.att].c;ctx.fillText('⚔',x+R*.55,y-R*.45);
     if(w2.siege>=0){const[sx,sy]=centers[w2.siege];ctx.beginPath();ctx.arc(sx,sy,R*.85,0,7);ctx.setLineDash([3,3]);ctx.strokeStyle='#ff5a4a';ctx.lineWidth=2.2;ctx.stroke();ctx.setLineDash([])}}
+  if(S.fire&&S.fire.tower>=0){const[x,y]=centers[S.fire.tower],last=S.fire.hist[S.fire.hist.length-1],b=last?Math.min(1.5,last.b):1;
+    const gr=ctx.createRadialGradient(x,y,1,x,y,R*(2+3*b));gr.addColorStop(0,`rgba(255,240,190,${.55*b})`);gr.addColorStop(1,'rgba(255,240,190,0)');ctx.fillStyle=gr;ctx.beginPath();ctx.arc(x,y,R*(2+3*b),0,7);ctx.fill();
+    ctx.font=`700 ${Math.max(14,R*1.3)}px system-ui`;ctx.lineWidth=3;ctx.strokeStyle='#000c';ctx.strokeText('▲',x,y);ctx.fillStyle='#fff3c4';ctx.fillText('▲',x,y)}
   if(S.forb>=0){const[x,y]=centers[S.forb];ctx.font=`700 ${Math.max(12,R*1.1)}px system-ui`;ctx.lineWidth=3;ctx.strokeStyle='#000c';ctx.strokeText('✦',x,y);ctx.fillStyle='#c9a2ff';ctx.fillText('✦',x,y);
     ctx.font=`700 ${Math.max(10,R*.8)}px ${getComputedStyle(document.body).fontFamily}`;ctx.strokeText('禁忌之地',x,y+R*.95);ctx.fillText('禁忌之地',x,y+R*.95)}
   // 勢力名稱標在首都旁
@@ -230,6 +236,16 @@ function render(){if(!S)return;draw();
   const alive=S.econ.map((e,k)=>({...e,k})).filter(e=>e.alive);
   S.land=w.land;const LR=loreCheck(S,W,H),lsig=LR.map(r=>r.ok?1:0).join('')+S.year;
   if(lsig!==lastL){lastL=lsig;$('lore').innerHTML=`<li><span></span><b>第 ${S.year} 年：${LR.filter(r=>r.ok).length} / ${LR.length} 條成立${LR.some(r=>!r.ok&&r.soft)?`，另有 ${LR.filter(r=>!r.ok&&r.soft).length} 條不成立但可接受（△）`:''}</b></li>`+LR.map(r=>`<li><span class="${r.ok?'ok':r.soft?'':'no'}">${r.ok?'✓':r.soft?'△':'✗'}</span><div><b>${r.text}</b><span class="d">${r.detail}</span></div></li>`).join('')}
+  const FI=S.fire;$('firePanel').hidden=FI.y<0;$('fire').disabled=FI.y>=0;
+  if(FI.y>=0){const last=FI.hist[FI.hist.length-1]||{b:0,souls:0,people:0},O=FI.order>=0?S.econ[FI.order]:null;
+    $('fireInfo').innerHTML=`<dl class="kv"><dt>滅世大火</dt><dd>第 ${FI.y} 年</dd><dt>今年的亮度</dt><dd><b style="color:${last.b>=1?'var(--good)':'var(--bad)'}">${last.b.toFixed(2)}</b>（每天 ${last.souls} 個靈魂，人口約 ${Math.round(last.people/10000)} 萬）</dd>
+      <dt>新秩序</dt><dd>${O&&O.alive?`魁儡兵 ${FI.auto}、效忠的領主 ${FI.orderVassals} 個`:'已覆滅'}</dd><dt>莊園</dt><dd>大火後 ${FI.manors} 處，現存 ${FI.manorsAlive} 處；被推翻 ${FI.overthrown} 處</dd>
+      <dt>反秩序資助</dt><dd>雅蘭追爾累計 ${Math.round(FI.subsidy)} 兩</dd></dl>`;
+    const tc=$('towerChart'),dpr=devicePixelRatio||1,cw=tc.clientWidth||300;tc.width=cw*dpr;tc.height=90*dpr;const c=tc.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,cw,90);
+    const H2=FI.hist;if(H2.length>1){const mx=Math.max(2,...H2.map(h=>h.b)),X=k=>4+k/(H2.length-1)*(cw-8),Y=b=>86-b/mx*80,st=getComputedStyle(document.documentElement);
+      c.strokeStyle=st.getPropertyValue('--line');c.setLineDash([3,3]);c.beginPath();c.moveTo(0,Y(1));c.lineTo(cw,Y(1));c.stroke();c.setLineDash([]);
+      c.strokeStyle=st.getPropertyValue('--accent');c.lineWidth=1.6;c.beginPath();H2.forEach((h,k)=>{k?c.lineTo(X(k),Y(h.b)):c.moveTo(X(k),Y(h.b))});c.stroke();
+      c.fillStyle=st.getPropertyValue('--muted');c.font='11px '+st.getPropertyValue('--f-data');c.fillText('1.0',2,Y(1)-3)}}
   const SP=S.serp;$('serpPanel').hidden=SP.night<0;$('night').disabled=SP.night>=0;
   if(SP.night>=0){const dr=SP.popAt.map((p,i)=>Math.round((SP.popNow[i]/Math.max(1,p)-1)*100));
     $('serp').innerHTML=`<dl class="kv"><dt>蛇紋之夜</dt><dd>第 ${SP.night} 年</dd><dt>精靈女王</dt><dd>${SP.queenDead>=0?`第 ${SP.queenDead} 年殞命，世界失去指引`:'仍在'}</dd>
@@ -256,7 +272,7 @@ function render(){if(!S)return;draw();
   $('wars').innerHTML=S.wars.map(x=>`<li data-t="${x.goal}"><span class="y">${x.start} 年</span><span><b style="color:${S.econ[x.att].c}">${S.econ[x.att].n}</b> → <b style="color:${S.econ[x.def].c}">${S.econ[x.def].n}</b>，目標 ${w.names[x.goal]}${x.siege>=0?`，正圍攻 ${w.names[x.siege]}`:''}（戰況 ${x.score>0?'+':''}${x.score}）</span></li>`).join('')||'<li><span></span><span>天下暫時太平。</span></li>';
   $('gangs').innerHTML=S.gangs.slice().sort((a,b)=>b.str-a.str).map(g=>`<li data-t="${g.lair}"><span class="y">${g.str}</span><span>${g.name}，盤據${w.names[g.lair]}</span></li>`).join('')||'<li><span></span><span>目前沒有成股的盜匪。</span></li>';
   $('chron').innerHTML=S.events.slice(-120).reverse().map(e=>`<li data-t="${e.tile??-1}"><span class="y">${e.y} 年</span><span>[${TAG[e.type]||e.type}] ${e.text}</span></li>`).join('');
-  const LG={realm:'王國：封臣的領地塗上宗主的顏色（淡一點）。♛ 是皇帝的首都，✦ 是禁忌之地。',_r:'王國：封臣的領地塗上宗主的顏色（淡一點），看得出誰是誰的人。',faction:'勢力：圓圈是市鎮（★ 首都），金色小點是運糧車，菱形是商隊（顏色＝貨物），彩色線是去年的商路。⚔ 是戰爭目標，紅色虛線圈是圍城，☠ 是盜匪山寨。',market:'市場範圍：同一個顏色的格子把收成送到同一座市鎮。點市鎮可單獨看它。',price:'糧價：每格看它所屬市鎮的糧價。綠便宜、紅昂貴。',bandit:'盜匪：越紅壓力越高，車隊走過越容易被劫。'};
+  const LG={realm:'▲ 是指引塔（光暈大小＝亮度）。王國：封臣的領地塗上宗主的顏色（淡一點）。♛ 是皇帝的首都，✦ 是禁忌之地。',_r:'王國：封臣的領地塗上宗主的顏色（淡一點），看得出誰是誰的人。',faction:'勢力：圓圈是市鎮（★ 首都），金色小點是運糧車，菱形是商隊（顏色＝貨物），彩色線是去年的商路。⚔ 是戰爭目標，紅色虛線圈是圍城，☠ 是盜匪山寨。',market:'市場範圍：同一個顏色的格子把收成送到同一座市鎮。點市鎮可單獨看它。',price:'糧價：每格看它所屬市鎮的糧價。綠便宜、紅昂貴。',bandit:'盜匪：越紅壓力越高，車隊走過越容易被劫。'};
   $('legend').textContent=LG[layer];drawChart()}
 
 function sample(){const v=w.sim.view();series.push({towns:v.markets.length,pop:v.pop.reduce((a,b)=>a+b,0),live:true})}
@@ -272,6 +288,7 @@ function boot(){lastM='';lastB='';lastH='';openB.clear();const seed=$('seed').va
     S=w.sim.view();sel=-1;layout();render();$('busy').hidden=true},30)}
 
 $('gen').onclick=boot;
+$('fire').onclick=()=>{if(!w)return;w.sim.worldFire();S=w.sim.view();lastB='';lastH='';lastL='';render()};
 $('night').onclick=()=>{if(!w)return;w.sim.serpentNight();S=w.sim.view();lastB='';lastH='';render()};
 $('rnd').onclick=()=>{$('seed').value='已知-'+Math.floor(Math.random()*9999);boot()};
 const segs=(id,fn)=>$(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;for(const x of $(id).children)x.setAttribute('aria-pressed',x===b);fn(b.dataset.v)});
