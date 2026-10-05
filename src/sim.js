@@ -83,6 +83,8 @@ const WEIGHT={food:1,wood:1.3,iron:.45,stone:1.6,salt:.4};      // 每格運輸�
 const BASEP={food:1,wood:1.5,iron:8,stone:2,salt:4};             // 基準價（銀）
 const SEASON=['春','夏','秋','冬'];
 const HARVEST=[.1,.35,.55,0],SALTS=[.3,.4,.3,0];
+// 鐵：塊煉爐一擔鐵要燒掉 CHAR 擔木炭；平民用鐵隨價格伸縮，舊鐵有一部分回收重打
+const CHAR=3,IRON_CIV=.0015,IRON_SUB=1.5,IRON_RECYCLE=.3;
 // 移動成本：深海、淺海、雪峰、山地、丘陵、凍原、森林、草原、荒漠、沼澤
 const MOVE=[1.1,.8,Infinity,5,2.5,2,2,1,2.5,3];
 class Heap{constructor(n){this.k=new Float64Array(n);this.v=new Int32Array(n);this.size=0}
@@ -225,15 +227,26 @@ function createSim(w,rand,pick){
     // 每座市鎮服務的人口：自己加上綁定的村莊
     for(const k in markets){const m=markets[k];m.pop=0;m.cold=0;m.walls=0}
     for(let i=0;i<N;i++){if(owner[i]<0)continue;const m=markets[mkt[i]];if(!m)continue;m.pop+=pop[i];m.walls+=wall[i];if(temp[i]<.4)m.cold+=pop[i]}
+    // 煉鐵的燃料：同一座市鎮範圍內的林子一起供木炭（燒炭人只砍超過一半林木的部分，林子不會燒光）
+    // 礦石多、林子少的地方煉不了那麼多，鐵就受木炭所限
+    const oreOf=i=>{const p=pop[i];return [p*.006*(biome[i]===9?1:river[i]?.35:0),vein[i]>0?Math.min(vein[i],p*.0625):0]};
+    const cop=t=>Math.max(0,timber[t]-.5*timberK[t])*.12;
+    const oreM=new Float32Array(N),fuelM=new Float32Array(N),fOre=new Float32Array(N),fFuel=new Float32Array(N);
+    const wild=new Int16Array(N).fill(-1);   // 領地邊上的無主林子也有人去燒炭
+    for(let i=0;i<N;i++){const m=mkt[i];if(owner[i]<0||m<0)continue;const [b,v]=oreOf(i);oreM[m]+=b+v;fuelM[m]+=cop(i);
+      for(const n of NBR[i])if(land[n]&&owner[n]<0&&wild[n]<0&&timberK[n]>0){wild[n]=m;catchUp(n,T);fuelM[m]+=cop(n)}}
+    for(const k in markets){const t=+k;if(oreM[t]<=0||fuelM[t]<=0)continue;const sm=Math.min(oreM[t],fuelM[t]/CHAR);fOre[t]=sm/oreM[t];fFuel[t]=sm*CHAR/fuelM[t]}
+    for(let n=0;n<N;n++)if(wild[n]>=0)timber[n]-=cop(n)*fFuel[wild[n]];
     let robbedTold=0;
     for(let i=0;i<N;i++){if(owner[i]<0)continue;const f=fac[owner[i]],p=pop[i];
       const hunt=Math.min(game[i]*.08,p*.08*(s===3?.5:1));game[i]-=hunt;
       const out={food:p*1.5*fert[i]*HARVEST[s]+hunt,wood:Math.min(timber[i]*.03,p*.075),iron:0,
         stone:p*(biome[i]===3?.03:biome[i]===4?.02:.001),salt:saltK[i]*p*.08*SALTS[s]};
       timber[i]-=out.wood;
-      if(biome[i]===9)out.iron+=p*.005;
-      if(vein[i]>0){const fe=Math.min(vein[i],p*.0625);out.iron+=fe;vein[i]-=fe;
-        if(vein[i]<=.5){vein[i]=0;say(y,'econ',`${nm(i)}的鐵礦脈挖掘殆盡，礦坑就此廢棄。`,i)}}
+      // 煉鐵：沼澤、河岸挖沼鐵礦，礦脈挖礦石，按這一區木炭夠煉多少的比例出鐵
+      {const mm=mkt[i];if(mm>=0){const [b,v]=oreOf(i),fe=(b+v)*fOre[mm];timber[i]-=cop(i)*fFuel[mm];
+        if(fe>0){out.iron+=fe;if(v>0){vein[i]-=v*fOre[mm];
+          if(vein[i]<=.5){vein[i]=0;say(y,'econ',`${nm(i)}的鐵礦脈挖掘殆盡，礦坑就此廢棄。`,i)}}}}}
       for(const g of GOODS)f.prod[g]+=out[g];
       const mt=mkt[i],m=markets[mt];
       if(!m||owner[mt]!==owner[i]){const cm=markets[f.cap];if(cm&&owner[f.cap]===f.id)for(const g of GOODS)cm.stock[g]+=out[g]*.5;continue}   // 還沒綁上市場的新墾地：只有一半送得到首都
@@ -248,14 +261,18 @@ function createSim(w,rand,pick){
       for(const g of GOODS)m.stock[g]+=goods[g]}
     // 各市鎮的需求與物價：存貨能撐的季數越少越貴
     for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0)continue;const f=fac[o],share=f.pop>0?m.pop/f.pop:0;
-      m.need={food:m.pop*.25,wood:m.pop*.009+m.cold*(s===3?.05:s===1?0:.012),iron:m.pop*.0015+f.frontsPrev*.25*share,stone:m.pop*.002+m.walls*.05+share,salt:m.pop*.0075};
+      // 平民用鐵：越貴用得越省（改用木器、修了再修），省下的用量改成多燒木材
+      const civBase=m.pop*IRON_CIV;m.civIron=civBase*Math.min(1.15,Math.max(.35,1/m.price.iron));
+      m.need={food:m.pop*.25,wood:m.pop*.009+m.cold*(s===3?.05:s===1?0:.012)+(civBase-m.civIron)*IRON_SUB,iron:m.civIron+f.frontsPrev*.25*share,stone:m.pop*.002+m.walls*.05+share,salt:m.pop*.0075};
       for(const g of GOODS){const cover=m.stock[g]/Math.max(.01,m.need[g]*4),pr=Math.min(3.5,Math.max(.3,1/(.35+cover)));m.price[g]=m.price[g]*.6+pr*.4}}
     tradeSeason(y,s);
     // 消耗與腐壞
     for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;
-      for(const g of GOODS){const r=m.need[g]>0?Math.min(1,m.stock[g]/m.need[g]):1;m.rsum[g]+=r/4;m.stock[g]=Math.max(0,m.stock[g]-m.need[g])}
+      let civUsed=0;
+      for(const g of GOODS){const r=m.need[g]>0?Math.min(1,m.stock[g]/m.need[g]):1;m.rsum[g]+=r/4;if(g==='iron')civUsed=(m.civIron||0)*r;m.stock[g]=Math.max(0,m.stock[g]-m.need[g])}
+      m.stock.iron+=civUsed*IRON_RECYCLE;   // 舊農具、舊釘子回爐重打
       m.stock.food=Math.min(m.stock.food*(1-(.18-.14*m.rsum.salt*4/(s+1))),m.need.food*3);
-      m.stock.wood*=.96;m.stock.salt*=.99;m.stock.iron*=.995;m.stock.stone=Math.min(m.stock.stone,m.need.stone*16+40);   // 石材堆不下了就不再開採
+      m.stock.wood*=.96;m.stock.salt*=.99;m.stock.iron*=.998;m.stock.stone=Math.min(m.stock.stone,m.need.stone*16+40);   // 石材堆不下了就不再開採
       if(s===2)m.store=m.stock.food/Math.max(.01,m.pop*.25)}
     // 本季戰事：每場戰爭每季一場戰鬥
     for(let a=0;a<FDEF.length;a++)for(let b=a+1;b<FDEF.length;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive)continue;
