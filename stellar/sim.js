@@ -221,7 +221,9 @@ function createSim(w,rand,pick){
 
 
   let bc,front,covet,gangs=[],nextGang=1;
-  const effOf=(cost,g,risk)=>(1-.03*cost*WEIGHT[g])*(1-risk);
+  const effOf=(cost,g,risk)=>(1-.03*cost*WEIGHT[g]*serp.dark)*(1-risk);   // 女王殞命後失去指引，遠路更難走
+  // ===== 蛇紋者劇本 =====
+  let serp={night:-1,queenDead:-1,dark:1,burned:0,razed:0,popAt:null,maxWars:0};
   // ===== 時鐘：1 年 = 4 季 = 112 時段（每季 7 天、每天 4 個時段）=====
   const PY=112,PS=28,PERIOD=['晨','午','暮','夜'];
   function stamp(){const p=T%PY,s=Math.floor(p/PS),d=Math.floor((p%PS)/4)+1;return `${curY} 年 ${SEASON[s]} 第${d}日 ${PERIOD[T%4]}`}
@@ -296,7 +298,7 @@ function createSim(w,rand,pick){
       if(!bc[a][b]){tension[a][b]*=.9;if(war[a][b]){war[a][b]=null;say(y,'war',`${fac[a].n}與${fac[b].n}之間已無人煙，戰事不了了之。`)}continue}
       if(!war[a][b]&&sameRealm(a,b)){tension[a][b]*=.8;continue}
       if(!war[a][b]){tension[a][b]+=.4+rand()*1.6+Math.min(bc[a][b],20)*.06+(covet[a][b]||covet[b][a]?2:0);
-        if(tension[a][b]>30+rand()*25){
+        if(tension[a][b]>(fac[a].hawk||fac[b].hawk?18:30)+rand()*25){
           let att,def;if(covet[a][b]&&!covet[b][a])[att,def]=[a,b];else if(covet[b][a]&&!covet[a][b])[att,def]=[b,a];else [att,def]=rand()<.5?[a,b]:[b,a];
           // 精靈與北境自由民不主動開戰
           const pas=f=>has(f,'elf')||has(f,'free');if(pas(att)){if(pas(def)){tension[a][b]*=.5;continue}[att,def]=[def,att]}
@@ -375,7 +377,8 @@ function createSim(w,rand,pick){
       return x};
     const qual=(f,t)=>fac[f].vet*(has(f,'gunpowder')?1.2:1);
     // 主將：封地離戰場最近的領主帶兵；沒有封地的英雄當作從首都出發
-    const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
+    const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f&&h.mark&&rand()<.85){if(!b||h.mp>b.mp)b=h}if(b)return b;   // 有蛇紋者就派蛇紋者上陣
+      for(const h of heroes)if(h.alive&&h.f===f){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
     const kill=(f,amt)=>{const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive||W.done)continue;
       if(owner[W.goal]===W.att){W.done=1;continue}if(owner[W.goal]!==W.def){W.done=2;continue}
@@ -395,13 +398,14 @@ function createSim(w,rand,pick){
       const LA=lev(A),LD=lev(D),xA=ally(A,D,false),xD=ally(D,A,true),sup=1/(1+.08*dT);
       const hA=cmdr(A,n),hD=cmdr(D,n),kA=hA?hA.skill:1,kD=hD?hD.skill:1,rA=.6+rand(),rD=.6+rand();
       const tm=1+.15*(res[n]-1),wm=1+.3*wall[n],mil=pop[n]*.4;
-      const elfD=has(D,'elf')?1.6:1,rfD=has(D,'raider')&&biome[n]===6?1.25:1;
-      const sa=(LA+xA)*fac[A].aggr*wf*sup*kA*rA*qual(A),sd=((LD+xD)*.8+mil)*tm*wm*kD*rD*qual(D)*elfD*rfD;
+      const elfD=has(D,'elf')?(n===serp.elfCap?2.4:1.8):1,rfD=has(D,'raider')&&biome[n]===6?1.25:1;
+      const mpA=hA&&hA.mark?hA.mp:0,mpD=hD&&hD.mark?hD.mp:0;   // 蛇紋者一人抵萬軍：直接加上一整支軍隊的戰力
+      const sa=(LA+xA+mpA)*fac[A].aggr*wf*sup*kA*rA*qual(A),sd=((LD+xD)*.8+mil+mpD)*tm*wm*kD*rD*qual(D)*elfD*rfD;
       const siege=!counter&&(town[n]||wall[n]>=1);
       let win,lose,dead,took=false,note='';
       if(sa>sd){win=A;lose=D;dead=LD*.12;
         if(siege){if(!W.siege||W.siege.t!==n)W.siege={t:n,prog:0};W.siege.prog++;const m=markets[n];if(m)m.stock.food*=.6;
-          const need=1+Math.round(wall[n])+(n===fac[D].cap?1:0),starving=m&&m.stock.food<m.pop*.2;
+          const need=1+Math.round(wall[n])+(n===fac[D].cap?1:0)+(has(D,'elf')&&n===serp.elfCap?3:0),starving=m&&m.stock.food<m.pop*.2;
           if(W.siege.prog>=need||(starving&&W.siege.prog>=1)){took=true;note=starving?`，${nm(n)}糧盡開城`:`，${nm(n)}在圍城 ${W.siege.prog} 季後陷落`;W.siege=null}
           else note=`，${nm(n)}被圍`}
         else took=true}
@@ -418,12 +422,16 @@ function createSim(w,rand,pick){
       if(!W.told||W.told<3&&(took||siege)){W.told=(W.told||0)+1;
         say(y,'war',`${SEASON[s]}，${nm(n)}之戰：${fac[win].n}擊敗${fac[lose].n}${counter&&win===A?`，收復${nm(n)}`:took?(note||(dd>1?`，遠征軍奪下${nm(n)}`:`，奪下${nm(n)}`)):note||(win===D&&wall[n]>=1?`，${nm(n)}的城牆擋住了攻勢`:'')}${loot>=.5?`，繳獲鐵器 ${loot.toFixed(1)} 擔`:''}。`,n)}
       let fell='';
-      if(hl2&&rand()<.22){const h=hl2;const art=`「${pick(GIV)}${pick(GIV)}」${pick(ARMS)}`;fell=h.name;heroDies(h,y,`戰死於${nm(n)}`);
+      // 蛇紋者打過的地方：人死、林燒
+      if(mpA||mpD){pop[n]*=.75;for(const q of NBR[n])if(owner[q]>=0)pop[q]*=.88;timber[n]*=.5;serp.burned++;
+        if(biome[n]===6&&rand()<.2){biome[n]=7;timberK[n]=8;timber[n]=Math.min(timber[n],8);serp.razed++;if(rand()<.5)say(y,'war',`${nm(n)}的森林在蛇紋者的戰火中燒成焦土。`,n)}
+        const hw2=win===A?hA:hD;if(hw2&&hw2.mark)hw2.kills=(hw2.kills||0)+Math.round(dead)}
+      if(hl2&&rand()<(hl2.mark?.06:.22)){const h=hl2;const art=`「${pick(GIV)}${pick(GIV)}」${pick(ARMS)}`;fell=h.name;heroDies(h,y,`戰死於${nm(n)}`);
         graves.push({tile:n,y,name:h.name});say(y,'hero',`${fac[lose].n}的英雄${h.name}戰死於${nm(n)}，其${art}從此下落不明。`,n)}
       // 戰史：記下雙方兵力與各項加成，供統計頁查看
       battles.push({y,s,a:A,d:D,an:fac[A].n,dn:fac[D].n,t:n,b:biome[n],dd,ctr:counter?1:0,LA:Math.round(LA),LD:Math.round(LD),xA:Math.round(xA),xD:Math.round(xD),mil:Math.round(mil),
         ag:+fac[A].aggr.toFixed(2),wf:+wf.toFixed(2),sup:+sup.toFixed(2),tm:+tm.toFixed(2),wm:+wm.toFixed(2),kA:+kA.toFixed(2),kD:+kD.toFixed(2),rA:+rA.toFixed(2),rD:+rD.toFixed(2),
-        sa:Math.round(sa),sd:Math.round(sd),win:win===A?'a':'d',took:took?1:0,siege:siege?1:0,note,dead:Math.round(dead),hA:hA?hA.name:'',hD:hD?hD.name:'',fell});
+        sa:Math.round(sa),sd:Math.round(sd),mpA:Math.round(mpA),mpD:Math.round(mpD),win:win===A?'a':'d',took:took?1:0,siege:siege?1:0,note,dead:Math.round(dead),hA:hA?hA.name:'',hD:hD?hD.name:'',fell});
       if(battles.length>320){const big=battles.slice().sort((p,q)=>(q.LA+q.LD+q.xA+q.xD)-(p.LA+p.LD+p.xA+p.xD)).slice(0,40);battles=[...new Set([...big,...battles.slice(-200)])].sort((p,q)=>p.y-q.y||p.s-q.s)}}}
     if(s===3){
       for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;m.ratio={...m.rsum};
@@ -567,7 +575,7 @@ function createSim(w,rand,pick){
     for(const f of fac)if(f.alive&&rand()<.035){const h=mkHero(f.id,y);say(y,'hero',`${h.name}在${f.n}嶄露頭角。`,f.cap)}
     for(const h of heroes)if(h.alive&&!has(h.f,'elf')&&rand()<.01+Math.max(0,y-h.born-20)*.007){const place=h.fief>=0?h.fief:fac[h.f].cap;if(h.wins>=2||h.fief<0)say(y,'hero',`${fac[h.f].n}的老英雄${h.name}壽終於${nm(place)}。`,place);heroDies(h,y,`壽終於${nm(place)}`)}
     // 只留下活著的英雄，和戰功或封地值得記一筆的死者
-    if(heroes.length>160){const keep=heroes.filter(h=>h.alive||h.wins>=3).sort((p,q)=>(q.alive-p.alive)||(q.wins-p.wins)).slice(0,140);heroes.splice(0,heroes.length,...keep)}
+    if(heroes.length>160){const keep=heroes.filter(h=>h.alive||h.wins>=3||h.mark).sort((p,q)=>(q.alive-p.alive)||(q.wins-p.wins)).slice(0,140);heroes.splice(0,heroes.length,...keep)}
   }
 
   // ===== 政局：離心自立、小國歸附、盜匪幫派 =====
@@ -705,8 +713,48 @@ function createSim(w,rand,pick){
     // 老兵：常打仗、守著盜匪橫行的邊境，兵就越精；太平久了會鬆懈
     for(const f of fac){if(!f.alive)continue;let hot=0;for(let i=0;i<N;i++)if(owner[i]===f.id&&bandit[i]>30)hot++;
       f.vet=Math.max(1,Math.min(1.4,f.vet+.02*Math.min(4,f.fronts)+(hot>2?.02:0)-.015))}
-    // 精靈的外交使節：替各國調停，降低彼此的緊張
-    for(const f of fac)if(f.alive&&has(f.id,'elf'))for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)tension[a][b]=Math.max(0,tension[a][b]-.3)}
+    // 精靈的外交使節：替各國調停，降低彼此的緊張（女王死後就沒了）
+    for(const f of fac)if(f.alive&&has(f.id,'elf')&&serp.queenDead<0)for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)tension[a][b]=Math.max(0,tension[a][b]-.3)
+    if(serp.night>=0)serpentYear(y,fp)}
+  // ----- 蛇紋者 -----
+  const SERP_GIV='瑟蘿薇伊蓮凱妲莉絲珂娜雅緹芙'.split('');
+  const elfWeight=f=>{if(!fac[f].alive||has(f,'elf')||has(f,'orc'))return 0;const E=fac.findIndex(x=>x.alive&&has(x.id,'elf'));
+    return 1+(f===5?3:0)+(E>=0&&bc&&bc[Math.min(f,E)][Math.max(f,E)]>0?2:0)+(E>=0&&(tradePair[f][E]+tradePair[E][f])>0?1:0)};
+  function markHero(f,y,first){const h=mkHero(f,y,pick(SUR)+pick(SERP_GIV)+(rand()<.5?pick(SERP_GIV):''));h.mark=1;h.mp=Math.round(250+rand()*350);h.skill=+(1.1+rand()*.3).toFixed(2);h.loyal=+(.3+rand()*.5).toFixed(2);h.kills=0;
+    if(fac[f].hawk!==true&&rand()<.55){fac[f].hawk=true;fac[f].aggr*=1.3;say(y,'war',`${fac[f].n}得到蛇紋者${h.name}之後，朝中主戰的聲音壓過了一切。`,fac[f].cap)}
+    return h}
+  function serpentNight(y){if(serp.night>=0)return;serp.night=y;const E0=fac.find(x=>x.alive&&has(x.id,'elf'));serp.elfCap=E0?E0.cap:-1;
+    const reg=[0,0,0];for(let i=0;i<N;i++)if(owner[i]>=0)reg[uOf(i)<.32?0:uOf(i)<.6?1:2]+=pop[i];serp.popAt=reg;
+    say(y,'war','那一夜，天空傳來若有似無的訕笑聲。離開過精靈森林的人身上的蛇紋，從致命的毒，變成了力量的泉源。');
+    const W=fac.map(f=>elfWeight(f.id)),tot=W.reduce((a,b)=>a+b,0);
+    for(let k=0;k<8;k++){let r=rand()*tot,f=0;for(;f<FMAX;f++){r-=W[f];if(r<=0)break}if(f>=FMAX||!W[f])continue;
+      const h=markHero(f,y,true);say(y,'hero',`${fac[f].n}的${h.name}身上的蛇紋甦醒了，一人足抵一支軍隊。`,fac[f].cap)}}
+  function serpentYear(y,fp){
+    let nw=0;for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)if(war[a][b])nw++;serp.maxWars=Math.max(serp.maxWars,nw);
+    const M=heroes.filter(h=>h.alive&&h.mark);
+    // 新的蛇紋者：走過森林的人還會陸續出現
+    if(rand()<.3){const W=fac.map(f=>elfWeight(f.id)),tot=W.reduce((a,b)=>a+b,0);let r=rand()*tot,f=0;for(;f<FMAX;f++){r-=W[f];if(r<=0)break}
+      if(f<FMAX&&W[f]){const h=markHero(f,y);say(y,'hero',`${fac[f].n}又出現一名蛇紋者：${h.name}。`,fac[f].cap)}}
+    // 蛇紋反噬
+    for(const h of M)if(rand()<.03){heroDies(h,y,'被蛇紋反噬而死');say(y,'hero',`${fac[h.f].n}的蛇紋者${h.name}被體內的蛇紋反噬而死。`,fac[h.f].cap)}
+    // 各國搶人：有錢的國家出價挖角
+    for(const h of M){if(!h.alive||h.loyal>.6||rand()>.3)continue;let R=null;for(const f of fac)if(f.alive&&f.id!==h.f&&!has(f.id,'elf')&&!has(f.id,'orc')&&(!R||f.silver>R.silver))R=f;
+      const price=200+h.mp*.5;if(!R||R.silver<price*1.5)continue;R.silver-=price;fac[h.f].silver+=price;const old=fac[h.f].n;h.fief=-1;h.f=R.id;h.loyal=+(.3+rand()*.4).toFixed(2);
+      say(y,'hero',`${R.n}以 ${Math.round(price)} 兩銀子，把蛇紋者${h.name}從${old}挖了過來。`,R.cap);if(!R.hawk&&rand()<.5){R.hawk=true;R.aggr*=1.3}}
+    // 好戰：握有蛇紋者的國家四處樹敵，鄰國也因為害怕而敵視它
+    const holders=new Set(heroes.filter(h=>h.alive&&h.mark).map(h=>h.f));
+    for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){if(!bc||!bc[a][b])continue;if(fac[a].hawk&&holders.has(a))tension[a][b]+=7;if(fac[b].hawk&&holders.has(b))tension[a][b]+=7;if(holders.has(a)!==holders.has(b))tension[a][b]+=2.5}
+    // 主戰的國家盯上精靈森林：那是蛇紋的源頭
+    const E=fac.find(x=>x.alive&&has(x.id,'elf'));
+    if(E)for(const f of fac){if(!f.alive||!f.hawk||!holders.has(f.id)||f.id===E.id||atWar(f.id,E.id)||rand()>.15)continue;
+      const a=Math.min(f.id,E.id),b=Math.max(f.id,E.id);if(!bc||!bc[a][b])continue;allyUntil[a][b]=allyUntil[b][a]=-1;
+      war[a][b]={att:f.id,def:E.id,goal:E.cap,start:y,end:y+6+Math.floor(rand()*6),gain:{},score:0,siege:null,taken:[]};
+      say(y,'war',`${f.n}揮軍南下攻打精靈森林，說要找出蛇紋的源頭。`,E.cap)}
+    // 精靈女王殞命：精靈森林的首都陷落或亡國
+    if(serp.queenDead<0&&(!E||owner[serp.elfCap]!==E.id)){   // 女王所在的森林王都陷落const lost=fac.find(x=>has(x.id,'elf'));
+      serp.queenDead=y;serp.dark=1.4;for(const f of fac)if(f.alive)f.shock+=.6;for(let i=0;i<N;i++)if(land[i]&&owner[i]<0)bandit[i]=Math.min(100,bandit[i]+10);
+      say(y,'war',`精靈女王伊爾瓦納在戰火中殞命。照亮已知世界千年的光芒熄滅了，人們在黑暗中失去了方向。`,serp.elfCap)}}
+  function runMore(n){for(let k=0;k<n;k++){const y=curY+1;curY=y;yearStart(y);for(let s=0;s<4;s++){T+=PS;season(y,s)}yearEnd(y);snaps.push(makeSnap())}}
   function freeSlot(y){return fac.find(x=>!x.alive&&x.id>=FDEF.length&&x.id!==RES_FREE&&x.id!==RES_ORC&&y-x.diedY>20)}
   function newState(slot,y,name,cap,tiles,aggr){
     if(fac.some(x=>x.alive&&x.n===name)){const alt=STATE_SUF.map(x=>name.replace(/(公國|侯國|伯國|自由市|聯盟|寨)$/,'')+x).find(n=>!fac.some(z=>z.alive&&z.n===n));name=alt||'新'+name}
@@ -910,13 +958,13 @@ function createSim(w,rand,pick){
   // ===== 存檔：把整個世界的可變狀態匯出成一個物件，之後原樣讀回 =====
   const MUT={biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town,temp};
   function exportState(){const o={};for(const k in MUT)o[k]=MUT[k];
-    return {...o,fac,events:ev.slice(-1500),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,emperor,election,allyUntil,mercCo,tradePair,tradeFood}}
+    return {...o,fac,events:ev.slice(-1500),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,serp,emperor,election,allyUntil,mercCo,tradePair,tradeFood}}
   function importState(S){for(const k in MUT)MUT[k].set(S[k]);
     fac.splice(0,fac.length,...S.fac);ev.splice(0,ev.length,...S.events);graves.splice(0,graves.length,...S.graves);heroes.splice(0,heroes.length,...S.heroes);
     for(const k of Object.keys(routeSeen))delete routeSeen[k];Object.assign(routeSeen,S.routeSeen);
     for(let a=0;a<FMAX;a++){tension[a]=S.tension[a].slice();war[a]=S.war[a].slice()}
     routes=S.routes;T=S.T;curY=S.curY;live=S.live;story=S.story;actors=S.actors;nextId=S.nextId;ownerHist=S.ownerHist||[];lastComputed=S.lastComputed||0;rand.setState(S.rng);
-    markets=S.markets||{};carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;emperor=S.emperor??0;election=S.election||[];if(S.allyUntil)for(let a=0;a<FMAX;a++)allyUntil[a]=S.allyUntil[a].slice();mercCo=S.mercCo||mercCo;tradePair=S.tradePair||tradePair;tradeFood=S.tradeFood||tradeFood;battles=S.battles||[];nextHero=S.nextHero||1;
+    markets=S.markets||{};carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;emperor=S.emperor??0;if(S.serp)serp=S.serp;election=S.election||[];if(S.allyUntil)for(let a=0;a<FMAX;a++)allyUntil[a]=S.allyUntil[a].slice();mercCo=S.mercCo||mercCo;tradePair=S.tradePair||tradePair;tradeFood=S.tradeFood||tradeFood;battles=S.battles||[];nextHero=S.nextHero||1;
     netSig='';netYear=-99;if(live)yearStartNetOnly(S)}
   // 讀檔後路網與前線要重建（不存檔，因為可以重算）
   function yearStartNetOnly(S){refreshCE();bindMarkets();if(S.townNet)townNet=S.townNet;else buildTownNet();if(S.front){bc=S.bc;front=S.front;covet=S.covet}else buildFronts()}
@@ -927,9 +975,10 @@ function createSim(w,rand,pick){
     return {stamp:stamp(),T,year:curY,period:T%4,season:curSeason(),computed:lastComputed,pending,story,
       owner:Array.from(owner),pop:r8(pop),bandit:r8(bandit),ruin:Array.from(ruin),wall:r8(wall),biome:Array.from(biome),timber:r8(timber),timberK:r8(timberK),game:r8(game),gameK:r8(gameK),
       vein:r8(vein),vcap:r8(vcap),vex:Array.from(vex),known:Array.from(known),econ,routes,graves,town:Array.from(town),mkt:Array.from(mkt),stats:{...stats},gangs:gangs.map(g=>({name:g.name,lair:g.lair,str:Math.round(g.str)})),
-      heroes:heroes.filter(h=>h.alive||h.wins>=2).map(h=>({name:h.name,f:h.f,born:h.born,alive:h.alive,fief:h.fief,wins:h.wins,battles:h.battles,skill:h.skill,loyal:h.loyal,diedY:h.diedY,end:h.end})),
+      heroes:heroes.filter(h=>h.alive||h.wins>=2||h.mark).map(h=>({mark:h.mark?1:0,mp:h.mp||0,kills:h.kills||0,name:h.name,f:h.f,born:h.born,alive:h.alive,fief:h.fief,wins:h.wins,battles:h.battles,skill:h.skill,loyal:h.loyal,diedY:h.diedY,end:h.end})),
       battles:(()=>{const sz=b=>b.LA+b.LD+b.xA+b.xD;const big=battles.slice().sort((p,q)=>sz(q)-sz(p)).slice(0,30);return [...new Set([...big,...battles.slice(-15)])]})(),
       lords:Object.keys(markets).map(Number).filter(t=>markets[t].lord).map(t=>[t,markets[t].lord]),
+      serp:{...serp,marked:heroes.filter(h=>h.mark).map(h=>({name:h.name,f:h.f,alive:h.alive,mp:h.mp,kills:h.kills||0,end:h.end,diedY:h.diedY})),hawks:fac.filter(f=>f.alive&&f.hawk).map(f=>f.id),popNow:(()=>{const r=[0,0,0];for(let i=0;i<N;i++)if(owner[i]>=0)r[uOf(i)<.32?0:uOf(i)<.6?1:2]+=pop[i];return r})()},
       emperor,election:election.slice(-12),mercCo,orcs:gangs.filter(g=>g.orc).length,tradePair,tradeFood,forb:w.forb,
       wars:(()=>{const o=[];for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(W&&W.att!==undefined)o.push({att:W.att,def:W.def,goal:W.goal,start:W.start,score:W.score,siege:W.siege?W.siege.t:-1})}return o})(),
       markets:Object.keys(markets).map(Number).filter(t=>owner[t]>=0).map(t=>{const m=markets[t],r2=o=>Object.fromEntries(GOODS.map(g=>[g,+o[g].toFixed(2)]));
@@ -939,7 +988,7 @@ function createSim(w,rand,pick){
       events:ev.slice(-160)}}
 
   w.events=ev;w.graves=graves;w.snaps=snaps;w.fac=fac;w.stats=stats;w.world=()=>({emperor,election,allyUntil,mercCo,tradePair,gangs});
-  return {runHistory,startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+  return {runHistory,runMore,serpentNight:y=>serpentNight(y??curY),get serp(){return serp},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 

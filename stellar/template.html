@@ -93,6 +93,7 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
     <input id="seed" class="seedin" value="已知-1" aria-label="世界種子">
     <button class="btn primary" id="gen">推演 200 年</button>
     <button class="btn" id="rnd">換一個種子</button>
+    <button class="btn" id="night" title="蛇紋者劇本：天空傳來訕笑聲，離開過精靈森林的人身上的蛇紋變成力量">🐍 降下蛇紋之夜</button>
     <span class="seg" id="speed" role="group" aria-label="速度">
       <button data-v="0">暫停</button><button data-v="4" aria-pressed="true">1 日/秒</button><button data-v="28">1 季/秒</button><button data-v="112">1 年/秒</button><button data-v="-1">全速</button>
     </span>
@@ -111,6 +112,8 @@ tbody tr:hover,tbody tr.sel{background:var(--accent-soft)}
     </div>
     <div class="col">
       <div class="panel"><h2>設定對照</h2><ul class="lore" id="lore"></ul><div class="legend">每條都是筆記裡對「現在」的描述，拿模擬當下的狀態來判定。推演完的第 200 年就是筆記裡的現在；繼續跑下去就是「之後」。</div></div>
+      <div class="panel" id="serpPanel" hidden><h2>蛇紋者</h2><div id="serp"></div><div class="tbl" style="max-height:300px;overflow-y:auto"><table><thead><tr><th>蛇紋者</th><th class="r">戰力</th><th class="r">殺敵</th><th>狀態</th></tr></thead><tbody id="marked"></tbody></table></div>
+        <div class="legend">蛇紋者上陣時，直接替所屬的一方加上一整支軍隊的戰力；他們打過的地方人口銳減、森林燒成焦土。有錢的國家會出價挖角，蛇紋也可能反噬宿主。</div></div>
       <div class="panel"><h2>帝國</h2><div id="empire"></div></div>
       <div class="panel"><h2>運輸</h2><div class="stats" id="stats"></div></div>
       <div class="panel"><h2>勢力</h2><div class="tbl"><table><thead><tr><th>勢力</th><th class="r">建立</th><th class="r">領地</th><th class="r">人口</th><th class="r">銀兩</th><th class="r">兵精</th></tr></thead><tbody id="facs"></tbody></table></div></div>
@@ -136,7 +139,7 @@ const {generate,W,H,N,BIOMES,FDEF,NBR,GOODS,GN,BASEP,col,row}=SIM;
 const $=id=>document.getElementById(id);
 const GC={food:'#e7b84a',wood:'#74b85e',iron:'#9fc3e6',stone:'#c7a98a',salt:'#f3efe4'};
 const TAG={war:'戰爭',ruin:'廢墟',hero:'英雄',bandit:'盜匪',disaster:'天災',found:'開拓',econ:'物資',trade:'貿易',build:'築城',npc:'旅人'};
-let lastL='',lastB='',lastH='',openB=new Set(),bmode='big',w=null,S=null,layer='faction',speed=4,sel=-1,R=10,centers=[],acc=0,last=0,series=[];
+let lastM='',lastL='',lastB='',lastH='',openB=new Set(),bmode='big',w=null,S=null,layer='faction',speed=4,sel=-1,R=10,centers=[],acc=0,last=0,series=[];
 const cv=$('map'),ctx=cv.getContext('2d');
 
 function layout(){const boxW=cv.parentElement.clientWidth-16;R=Math.min(boxW/(Math.sqrt(3)*(W+.5)),Math.max(560,innerHeight*.9)/(1.5*(H-1)+2));const cssW=Math.sqrt(3)*R*(W+.5),cssH=R*(1.5*(H-1)+2);
@@ -191,7 +194,7 @@ function draw(){if(!S)return;ctx.clearRect(0,0,cv.width,cv.height);const land=w.
   if(S.forb>=0){const[x,y]=centers[S.forb];ctx.font=`700 ${Math.max(12,R*1.1)}px system-ui`;ctx.lineWidth=3;ctx.strokeStyle='#000c';ctx.strokeText('✦',x,y);ctx.fillStyle='#c9a2ff';ctx.fillText('✦',x,y);
     ctx.font=`700 ${Math.max(10,R*.8)}px ${getComputedStyle(document.body).fontFamily}`;ctx.strokeText('禁忌之地',x,y+R*.95);ctx.fillText('禁忌之地',x,y+R*.95)}
   // 勢力名稱標在首都旁
-  ctx.font=`700 ${Math.max(11,R*.85)}px ${getComputedStyle(document.body).fontFamily}`;for(const e of S.econ){if(!e.alive||e.cap<0)continue;const[x,y]=centers[e.cap];ctx.lineWidth=3.5;ctx.strokeStyle='#000d';ctx.strokeText(e.n,x,y+R*1.15);ctx.fillStyle=e.c;ctx.fillText(e.n,x,y+R*1.15)}
+  ctx.font=`700 ${Math.max(11,R*.85)}px ${getComputedStyle(document.body).fontFamily}`;for(const e of S.econ){if(!e.alive||e.cap<0)continue;const[x,y]=centers[e.cap];ctx.lineWidth=3.5;ctx.strokeStyle='#000d';const k2=S.econ.indexOf(e),sn=S.serp.marked.filter(m=>m.alive&&m.f===k2).length,lb=e.n+(sn?' 🐍'+sn:'');ctx.strokeText(lb,x,y+R*1.15);ctx.fillStyle=e.c;ctx.fillText(lb,x,y+R*1.15)}
   if(sel>=0){hexPath(centers[sel][0],centers[sel][1],R*1.02);ctx.strokeStyle='#fff';ctx.lineWidth=2.2;ctx.stroke()}
   const dark=speed>0&&speed<=4?[0,0,.08,.2][S.period]:0;if(dark){ctx.fillStyle=`rgba(8,14,40,${dark})`;ctx.fillRect(0,0,cv.width,cv.height)}}
 
@@ -227,6 +230,13 @@ function render(){if(!S)return;draw();
   const alive=S.econ.map((e,k)=>({...e,k})).filter(e=>e.alive);
   S.land=w.land;const LR=loreCheck(S,W,H),lsig=LR.map(r=>r.ok?1:0).join('')+S.year;
   if(lsig!==lastL){lastL=lsig;$('lore').innerHTML=`<li><span></span><b>第 ${S.year} 年：${LR.filter(r=>r.ok).length} / ${LR.length} 條成立${LR.some(r=>!r.ok&&r.soft)?`，另有 ${LR.filter(r=>!r.ok&&r.soft).length} 條不成立但可接受（△）`:''}</b></li>`+LR.map(r=>`<li><span class="${r.ok?'ok':r.soft?'':'no'}">${r.ok?'✓':r.soft?'△':'✗'}</span><div><b>${r.text}</b><span class="d">${r.detail}</span></div></li>`).join('')}
+  const SP=S.serp;$('serpPanel').hidden=SP.night<0;$('night').disabled=SP.night>=0;
+  if(SP.night>=0){const dr=SP.popAt.map((p,i)=>Math.round((SP.popNow[i]/Math.max(1,p)-1)*100));
+    $('serp').innerHTML=`<dl class="kv"><dt>蛇紋之夜</dt><dd>第 ${SP.night} 年</dd><dt>精靈女王</dt><dd>${SP.queenDead>=0?`第 ${SP.queenDead} 年殞命，世界失去指引`:'仍在'}</dd>
+      <dt>好戰的國家</dt><dd>${SP.hawks.map(k=>S.econ[k].n).join('、')||'無'}</dd><dt>戰火</dt><dd>蛇紋者參戰 ${SP.burned} 場，焦土 ${SP.razed} 格</dd>
+      <dt>人口變化</dt><dd>北方 ${dr[0]}%、中部 ${dr[1]}%、南方 ${dr[2]}%</dd></dl>`;
+    const ms=SP.marked.slice().sort((a,b)=>(b.alive-a.alive)||(b.kills-a.kills)),msig=ms.map(m=>m.name+m.alive+m.kills+m.f).join();
+    if(msig!==lastM){lastM=msig;$('marked').innerHTML=ms.map(m=>`<tr><td><span class="dot" style="background:${S.econ[m.f].c}"></span>${m.name}<span class="legend">　${S.econ[m.f].n}</span></td><td class="r">${m.mp}</td><td class="r">${m.kills}</td><td><span class="legend">${m.alive?'在世':m.diedY+' 年'+m.end}</span></td></tr>`).join('')}}
   const els=S.econ.map((e,k)=>({...e,k})).filter(e=>e.elector);
   $('empire').innerHTML=`<dl class="kv"><dt>皇帝</dt><dd>${S.econ[S.emperor].alive?S.econ[S.emperor].n:'（虛位）'}</dd><dt>選帝侯</dt><dd>${els.map(e=>e.alive?e.n:`<s>${e.n}</s>`).join('、')}</dd>
     <dt>傭兵團</dt><dd>收過 ${Math.round(S.mercCo.paid)} 兩，又花回各國市集 ${Math.round(S.mercCo.spent)} 兩</dd></dl>
@@ -238,11 +248,11 @@ function render(){if(!S)return;draw();
   const bsig=bmode+bl.map(b=>b.y+'-'+b.s+'-'+b.t).join(',');
   if(bsig!==lastB){lastB=bsig;$('battles').innerHTML=bl.map(b=>{const aw=b.win==='a',wn=aw?b.an:b.dn,res=b.took?(b.ctr?'收復':'攻陷'):b.siege&&aw?'圍城得手':b.siege?'守住城池':aw?'擊退守軍':'擊退攻勢';
     const key=b.y+'-'+b.s+'-'+b.t;return `<details data-k="${key}" ${openB.has(key)?'open':''}><summary><span class="legend">${b.y} 年${SN[b.s]}</span>　<b>${w.names[b.t]}</b>之戰　${b.an} ${b.LA+b.xA} 對 ${b.dn} ${b.LD+b.xD+b.mil}　→ <b style="color:${aw?'var(--accent)':'var(--muted)'}">${wn}${res}</b></summary>
-      <div class="bt"><div><h4>攻方：${b.an}${b.ctr?'（反攻）':''}</h4>${P('主將',b.hA||'無')}${P('本國兵力',b.LA)}${b.xA?P('封臣援軍',b.xA):''}${P('侵略性',`×${b.ag}`)}${b.wf!==1?P(b.dd>1?'遠征／寒冬':'寒冬行軍',`×${b.wf}`):''}${P('補給線',`×${b.sup}`)}${P('統率',`×${b.kA}`)}${P('臨陣',`×${b.rA}`)}<p class="tot"><span>戰力</span><span>${b.sa}</span></p></div>
-      <div><h4>守方：${b.dn}</h4>${P('主將',b.hD||'無')}${P('本國兵力 ×0.8',Math.round(b.LD*.8))}${b.xD?P('宗主／封臣援軍 ×0.8',Math.round(b.xD*.8)):''}${P('當地民兵',b.mil)}${P('地形：'+BIOMES[b.b].n,`×${b.tm}`)}${b.wm>1?P('城牆',`×${b.wm}`):''}${P('統率',`×${b.kD}`)}${P('臨陣',`×${b.rD}`)}<p class="tot"><span>戰力</span><span>${b.sd}</span></p></div></div>
-      <div class="legend" style="margin-top:4px">${b.siege?'這是一場圍城戰。':''}敗方陣亡約 ${b.dead} 人${b.fell?`，${b.fell}戰死`:''}。</div></details>`}).join('')||'<div class="legend">還沒有戰役。</div>'}
+      <div class="bt"><div><h4>攻方：${b.an}${b.ctr?'（反攻）':''}</h4>${P('主將',(b.mpA?'🐍 ':'')+(b.hA||'無'))}${P('本國兵力',b.LA)}${b.mpA?P('蛇紋者',b.mpA):''}${b.xA?P('封臣援軍',b.xA):''}${P('侵略性',`×${b.ag}`)}${b.wf!==1?P(b.dd>1?'遠征／寒冬':'寒冬行軍',`×${b.wf}`):''}${P('補給線',`×${b.sup}`)}${P('統率',`×${b.kA}`)}${P('臨陣',`×${b.rA}`)}<p class="tot"><span>戰力</span><span>${b.sa}</span></p></div>
+      <div><h4>守方：${b.dn}</h4>${P('主將',(b.mpD?'🐍 ':'')+(b.hD||'無'))}${P('本國兵力 ×0.8',Math.round(b.LD*.8))}${b.mpD?P('蛇紋者',b.mpD):''}${b.xD?P('宗主／封臣援軍 ×0.8',Math.round(b.xD*.8)):''}${P('當地民兵',b.mil)}${P('地形：'+BIOMES[b.b].n,`×${b.tm}`)}${b.wm>1?P('城牆',`×${b.wm}`):''}${P('統率',`×${b.kD}`)}${P('臨陣',`×${b.rD}`)}<p class="tot"><span>戰力</span><span>${b.sd}</span></p></div></div>
+      <div class="legend" style="margin-top:4px">${(b.mpA||b.mpD?'蛇紋者參戰，戰場一帶人口銳減、林木焚毀。':'')+(b.siege?'這是一場圍城戰。':'')}敗方陣亡約 ${b.dead} 人${b.fell?`，${b.fell}戰死`:''}。</div></details>`}).join('')||'<div class="legend">還沒有戰役。</div>'}
   const hs=S.heroes.slice().sort((p,q)=>(q.wins-p.wins)||(q.alive-p.alive)).slice(0,60);
-  const hsig=hs.map(h=>h.name+h.alive+h.wins+h.fief).join(',');if(hsig!==lastH){lastH=hsig;$('heroes').innerHTML=hs.map(h=>`<tr data-t="${h.fief}"><td><span class="dot" style="background:${S.econ[h.f].c}"></span>${h.name}</td><td>${h.fief>=0?w.names[h.fief]:''}</td><td class="r">${h.wins}/${h.battles}</td><td class="r">${h.skill}</td><td>${h.alive?`<span class="legend">在世，成名 ${S.year-h.born} 年</span>`:`<span class="legend">${h.diedY} 年${h.end}</span>`}</td></tr>`).join('')}
+  const hsig=hs.map(h=>h.name+h.alive+h.wins+h.fief).join(',');if(hsig!==lastH){lastH=hsig;$('heroes').innerHTML=hs.map(h=>`<tr data-t="${h.fief}"><td><span class="dot" style="background:${S.econ[h.f].c}"></span>${h.mark?'🐍':''}${h.name}</td><td>${h.fief>=0?w.names[h.fief]:''}</td><td class="r">${h.wins}/${h.battles}</td><td class="r">${h.skill}</td><td>${h.alive?`<span class="legend">在世，成名 ${S.year-h.born} 年</span>`:`<span class="legend">${h.diedY} 年${h.end}</span>`}</td></tr>`).join('')}
   $('wars').innerHTML=S.wars.map(x=>`<li data-t="${x.goal}"><span class="y">${x.start} 年</span><span><b style="color:${S.econ[x.att].c}">${S.econ[x.att].n}</b> → <b style="color:${S.econ[x.def].c}">${S.econ[x.def].n}</b>，目標 ${w.names[x.goal]}${x.siege>=0?`，正圍攻 ${w.names[x.siege]}`:''}（戰況 ${x.score>0?'+':''}${x.score}）</span></li>`).join('')||'<li><span></span><span>天下暫時太平。</span></li>';
   $('gangs').innerHTML=S.gangs.slice().sort((a,b)=>b.str-a.str).map(g=>`<li data-t="${g.lair}"><span class="y">${g.str}</span><span>${g.name}，盤據${w.names[g.lair]}</span></li>`).join('')||'<li><span></span><span>目前沒有成股的盜匪。</span></li>';
   $('chron').innerHTML=S.events.slice(-120).reverse().map(e=>`<li data-t="${e.tile??-1}"><span class="y">${e.y} 年</span><span>[${TAG[e.type]||e.type}] ${e.text}</span></li>`).join('');
@@ -256,12 +266,13 @@ function loop(t){const dt=Math.min(.25,(t-last)/1000);last=t;
     else{acc+=dt*speed;const n=Math.floor(acc);if(n>0){acc-=n;step(n);render()}}}
   requestAnimationFrame(loop)}
 
-function boot(){lastB='';lastH='';openB.clear();const seed=$('seed').value.trim()||'已知-1';$('busy').hidden=false;$('busy').textContent='推演 200 年歷史中…（約 5～10 秒）';
+function boot(){lastM='';lastB='';lastH='';openB.clear();const seed=$('seed').value.trim()||'已知-1';$('busy').hidden=false;$('busy').textContent='推演 200 年歷史中…（約 5～10 秒）';
   setTimeout(()=>{w=generate(seed);w.sim.startLive(0);
     series=w.snaps.map(s=>({towns:s.town.reduce((a,b)=>a+b,0),pop:s.pop.reduce((a,b)=>a+b,0),live:false}));
     S=w.sim.view();sel=-1;layout();render();$('busy').hidden=true},30)}
 
 $('gen').onclick=boot;
+$('night').onclick=()=>{if(!w)return;w.sim.serpentNight();S=w.sim.view();lastB='';lastH='';render()};
 $('rnd').onclick=()=>{$('seed').value='已知-'+Math.floor(Math.random()*9999);boot()};
 const segs=(id,fn)=>$(id).addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;for(const x of $(id).children)x.setAttribute('aria-pressed',x===b);fn(b.dataset.v)});
 segs('speed',v=>{speed=+v;acc=0;render()});segs('bmode',v=>{bmode=v;render()});segs('layers',v=>{layer=v;render()});
