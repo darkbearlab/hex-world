@@ -626,7 +626,7 @@ function createSim(w,rand,pick){
     const humanN=fac.filter(f=>f.alive&&!has(f.id,'orc')&&!has(f.id,'free')).reduce((x,f)=>x+north[f.id],0);
     const orcs=gangs.filter(g=>g.orc&&!g.gone&&uOf(g.lair)<NORTH+.08),orcStr=orcs.reduce((x,g)=>x+g.str,0);
     const H=fac[RES_ORC];
-    if(!H.alive&&humanN>=12&&orcStr>=350&&orcs.length>=2&&y-H.diedY>15&&rand()<.35){const chief=orcs.sort((a,b)=>b.str-a.str)[0];
+    if(!H.alive&&humanN>=25&&orcStr>=350&&orcs.length>=2&&y-H.diedY>15&&rand()<.35){const chief=orcs.sort((a,b)=>b.str-a.str)[0];
       const tiles=new Set();for(const g of orcs){g.gone=1;for(const t of [g.lair,...NBR[g.lair]])if(land[t]&&owner[t]<0&&biome[t]!==2)tiles.add(t)}
       for(const t of tiles){pop[t]=Math.max(pop[t],18);peak[t]=Math.max(peak[t],pop[t]);bandit[t]*=.2;ruin[t]=0}
       newState(H,y,chief.name.replace('獸人酋長','')+'的獸人部落聯盟',chief.lair,[...tiles],1.6);H.tr=['orc'];H.vet=1.2;H.silver=0;
@@ -635,7 +635,7 @@ function createSim(w,rand,pick){
       if(tgt>=0){let goal=-1,gd=99;for(let i=0;i<N;i++)if(owner[i]===tgt&&uOf(i)<NORTH){const d=hdist(i,chief.lair);if(d<gd){gd=d;goal=i}}
         if(goal>=0){const a=Math.min(H.id,tgt),b=Math.max(H.id,tgt);war[a][b]={att:H.id,def:tgt,goal,start:y,end:y+6+Math.floor(rand()*6),gain:{},score:0,siege:null,taken:[]};say(y,'war',`獸人部落聯盟揮軍南下，進攻${fac[tgt].n}的${nm(goal)}。`,goal)}}}
     // 外敵退去、共主一死，聯盟就會再次分裂
-    if(H.alive&&y-H.born>=8&&(humanN<6||H.crisis===y||rand()<.02)){const ts=[];for(let i=0;i<N;i++)if(owner[i]===H.id)ts.push(i);
+    if(H.alive&&y-H.born>=8&&(humanN<15||H.crisis===y||rand()<.04)){const ts=[];for(let i=0;i<N;i++)if(owner[i]===H.id)ts.push(i);
       for(const t of ts){owner[t]=-1;bandit[t]=Math.min(100,bandit[t]+30);if(town[t]){town[t]=0;delete markets[t]}}
       for(let k=0;k<3&&ts.length;k++){const t=ts[Math.floor(rand()*ts.length)];gangs.push({id:nextGang++,name:'獸人酋長'+orcName(),orc:1,lair:t,str:0,born:y})}
       H.alive=false;H.diedY=y;for(let k=0;k<FMAX;k++){const a=Math.min(k,H.id),b=Math.max(k,H.id);if(a!==b)war[a][b]=null}
@@ -657,6 +657,8 @@ function createSim(w,rand,pick){
         tally[bc2]=(tally[bc2]||0)+1;(voters[bc2]=voters[bc2]||[]).push(e.n);
         if(has(e.id,'swing')&&bc2!==e.id){const off=fac[bc2].silver*.06;fac[bc2].silver-=off;e.silver+=off;e.L.bribeIn+=off;fac[bc2].L.bribeOut+=off;paid.push(`${e.n}收了${fac[bc2].n}${Math.round(off)}兩銀子`)}}
       const win=+Object.keys(tally).sort((a,b)=>tally[b]-tally[a]||fp[b]-fp[a])[0],old=emperor;emperor=win;election.push({y,win,votes:tally[win],of:E.length});
+      {const L2=fac.find(f=>f.alive&&f.elector&&has(f.id,'veteran')),top=E.filter(f=>f!==L2).sort((a,b)=>b.vet-a.vet)[0];
+        if(L2&&top&&L2.vet<top.vet-.04&&rand()<.6)say(y,'war',`選帝侯會議上，${top.n}的使者當眾揶揄${L2.n}：「北方丟了這麼多年，你們的人早就不會打仗了吧？」`,L2.cap)}
       say(y,'war',`選帝侯會議：${fac[win].n}以 ${tally[win]} 票對 ${E.length} 票${old===win?'續掌皇位':'登上皇位'}（${voters[win].join('、')}支持）${paid.length?'。據說'+paid.join('，'):''}。`,fac[win].cap)}
     // 聯姻結盟：有共同敵人的鄰國會聯姻；山寨軍閥的盟約維持不久
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){if(!fac[a].alive||!fac[b].alive){allyUntil[a][b]=allyUntil[b][a]=-1;continue}
@@ -674,7 +676,7 @@ function createSim(w,rand,pick){
       if(rand()<.3)say(y,'bandit',`${R.n}的人馬越界劫掠${fac[V].n}，搶走糧食 ${fd.toFixed(0)} 擔${fe>=.5?`、鐵器 ${fe.toFixed(1)} 擔`:''}。`,fac[V].cap)}
     // 傭兵：打仗的國家拿銀子僱外籍傭兵（雅蘭追爾平時也養）；傭兵團拿到的錢再到糧價最低的市集買糧
     for(const f of fac){if(!f.alive||f.silver<=0)continue;let war2=false;for(let k=0;k<FMAX;k++)if(atWar(f.id,k))war2=true;
-      const spend=f.silver*((war2?.2:0)+(has(f.id,'merchant')?.08:0));if(spend<1)continue;f.silver-=spend;f.merc+=spend*.08;f.L.merc+=spend;mercCo.silver+=spend;mercCo.paid+=spend}
+      const cap=fp[f.id]*.08*.6/*傭兵上限：本國徵召兵力的六成*/;let spend=f.silver*((war2?.2:0)+(has(f.id,'merchant')?.08:0));spend=Math.min(spend,Math.max(0,(cap-f.merc)/.08));if(spend<1)continue;f.silver-=spend;f.merc+=spend*.08;f.L.merc+=spend;mercCo.silver+=spend;mercCo.paid+=spend}
     {let budget=mercCo.silver*.7;const ms=Object.keys(markets).map(Number).filter(t=>owner[t]>=0&&fac[owner[t]].alive&&markets[t].stock.food>markets[t].need.food*2).sort((p,q)=>markets[p].price.food-markets[q].price.food);
       for(const t of ms){if(budget<1)break;const m=markets[t],pr=BASEP.food*m.price.food,q=Math.min(budget/pr,m.stock.food-m.need.food*2);if(q<=0)continue;
         m.stock.food-=q;const pay=q*pr;budget-=pay;mercCo.silver-=pay;mercCo.spent+=pay;fac[owner[t]].silver+=pay;fac[owner[t]].L.exp+=pay;fac[owner[t]].L.foodEx+=q}}
@@ -688,6 +690,18 @@ function createSim(w,rand,pick){
       for(let i=0;i<N;i++){const A=owner[i];if(A<0||pop[i]<8)continue;let best=-1,bd=.25;
         for(const n of NBR[i]){const B=owner[n];if(B<0||B===A||atWar(A,B)||has(B,'elf')||has(B,'orc'))continue;const d=att[B]-att[A];if(d>bd){bd=d;best=n}}
         if(best>=0){const m=pop[i]*.015;pop[i]-=m;pop[best]+=m;fac[A].L.migOut+=m;fac[owner[best]].L.migIn+=m}}}
+    // 「這裡不行了，不如一起去……吧」：雅蘭追爾的招募掮客在鄰近的外國（非帝國）找肯當兵的人，
+    // 旅人一路宣傳，青壯年跟著走，到了雅蘭追爾一半當外籍傭兵、一半落地生根
+    for(const R of fac){if(!R.alive||!has(R.id,'merchant'))continue;
+      for(const V of fac){if(!V.alive||V.id===R.id||V.elector||atWar(V.id,R.id)||has(V.id,'elf')||has(V.id,'orc')||has(V.id,'free'))continue;
+        if(!(bc&&bc[Math.min(V.id,R.id)][Math.max(V.id,R.id)]>0))continue;
+        const pull=1+Math.max(0,1-V.ratio.food)+(V.silver<fp[V.id]*.1?.5:0);let moved=0;
+        const src=[];for(let i=0;i<N;i++)if(owner[i]===V.id&&pop[i]>20)src.push(i);src.sort((a,b)=>pop[b]-pop[a]);
+        const want=fp[V.id]*.004*pull;for(const i of src.slice(0,6)){const m=Math.min(pop[i]*.04,want/6);pop[i]-=m;moved+=m}
+        if(moved<1)continue;const dst=Object.keys(markets).map(Number).filter(t=>owner[t]===R.id);if(!dst.length)continue;
+        for(const t of dst)pop[t]+=moved*.5/dst.length;R.merc=Math.min(fp[R.id]*.08*.6,R.merc+moved*.5*.3);
+        V.L.migOut+=moved;R.L.migIn+=moved;const fee=Math.min(R.silver*.05,moved*.5);R.silver-=fee;V.silver+=fee;   // 安家費留在原鄉
+        if(rand()<.25)say(y,'econ',`${V.n}的酒館裡，旅人說：「這裡不行了，不如一起去${R.n}吧，那邊招兵給的錢多。」這一年有 ${Math.round(moved)} 人跟著走了。`,V.cap)}}
     // 老兵：常打仗、守著盜匪橫行的邊境，兵就越精；太平久了會鬆懈
     for(const f of fac){if(!f.alive)continue;let hot=0;for(let i=0;i<N;i++)if(owner[i]===f.id&&bandit[i]>30)hot++;
       f.vet=Math.max(1,Math.min(1.4,f.vet+.02*Math.min(4,f.fronts)+(hot>2?.02:0)-.015))}
