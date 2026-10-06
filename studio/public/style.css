@@ -89,3 +89,10 @@ dialog::backdrop{background:#0008}
   .name{width:110px}
   #editor .bar button{padding:6px 8px}
 }
+
+.pill.click{cursor:pointer;border:1px solid var(--line)}
+#colorList{display:flex;flex-direction:column;gap:4px;max-height:55vh;overflow:auto}
+.crow{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:8px;cursor:pointer;font-size:13px}
+.crow:hover,.crow.on{background:var(--panel2)}
+.crow button{min-height:26px;font-size:12px;padding:2px 8px}
+button.lock{font-size:12px;min-height:34px}

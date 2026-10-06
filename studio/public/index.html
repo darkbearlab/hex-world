@@ -35,6 +35,7 @@
   </header>
   <div class="newrow">
     <span class="muted">新作品：</span>
+    <select id="newPlat" aria-label="新作品的模式"><option value="free">自由</option><option value="gba16">GBA 16 色</option></select>
     <button data-size="16">16×16</button>
     <button data-size="32">32×32</button>
     <button data-size="64">64×64</button>
@@ -56,6 +57,8 @@
     <span class="grow"></span>
     <button id="undoBtn" class="ghost" title="復原 (Ctrl+Z)">↶</button>
     <button id="redoBtn" class="ghost" title="重做 (Ctrl+Shift+Z)">↷</button>
+    <select id="platform" title="作業模式" aria-label="作業模式"><option value="free">自由</option><option value="gba16">GBA 16 色</option></select>
+    <span id="colorCount" class="pill click" title="點開看用到哪些顏色">色數</span>
     <button id="mirrorBtn" class="ghost" title="鏡像編輯 (M)：關 → 左右 → 上下 → 四向">鏡像：關</button>
     <label class="size" title="等分參考線">參考線<select id="guides"><option value="0">關</option><option value="d2">2 等分</option><option value="d3">3 等分</option><option value="d4">4 等分</option><option value="d8">8 等分</option><option value="s8">每 8 格</option><option value="s16">每 16 格</option></select></label>
     <button id="gridBtn" class="ghost" title="格線 (#)" aria-pressed="true">格線</button>
@@ -86,6 +89,8 @@
       <button data-tool="eraser" title="橡皮擦 (E)">⌫</button>
       <button data-tool="fill" title="填色 (G)">🪣</button>
       <button data-tool="picker" title="滴管 (I)">💧</button>
+      <button data-tool="lighten" title="加亮筆刷 (L)：變亮、偏暖">☀</button>
+      <button data-tool="darken" title="壓暗筆刷 (D)：變暗、偏冷">☾</button>
       <button data-tool="pan" title="移動畫面 (空白鍵拖曳)">✋</button>
       <label class="size" title="筆刷大小 ([ ])">筆刷<select id="brush"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
     </div>
@@ -93,6 +98,7 @@
       <span id="cur" class="swatch big" title="目前顏色"></span>
       <div id="palette"></div>
       <label class="addc" title="加入新顏色">＋<input id="picker" type="color" value="#ff8800"></label>
+      <button id="lockPal" class="lock" hidden title="鎖定後不會再加新顏色，明暗筆刷只在色票裡找顏色">🔓 色票未鎖</button>
       <button id="rmColor" title="從調色盤移除目前顏色">−</button>
     </div>
   </footer>
@@ -104,6 +110,14 @@
   <p class="muted">自動存檔時每隔幾分鐘記一個版本，最多保留 50 個。還原後可以再用 ↶ 復原。</p>
   <div id="versions" class="grid small"></div>
   <form method="dialog"><button>關閉</button></form>
+</dialog>
+
+<!-- 顏色數 -->
+<dialog id="countDlg">
+  <h3>用到的顏色</h3>
+  <p id="countSum" class="muted"></p>
+  <div id="colorList"></div>
+  <form method="dialog" class="row"><button id="clearHi" type="button" hidden>取消標示</button><button>關閉</button></form>
 </dialog>
 
 <!-- PNG -->
