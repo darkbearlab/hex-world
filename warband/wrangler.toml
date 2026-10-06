@@ -1,8 +1,31 @@
-# 奇幻戰幫・垂直切片：目前只有靜態檔案（規則在瀏覽器跑；之後搬到伺服器結算）
+# 奇幻戰幫：靜態網頁（單人版的規則在瀏覽器跑）＋共享世界的伺服器（/api/*，一個 Durable Object 持有整個大陸）
 name = "warband"
+main = "server/worker.js"
 compatibility_date = "2025-09-01"
 account_id = "beb6f869ff9d765dbf31116243c5b348"
 workers_dev = true
 
 [assets]
 directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# 共享世界：一個 Durable Object，狀態存在它內建的 SQLite 儲存空間
+[[durable_objects.bindings]]
+name = "REALM"
+class_name = "Realm"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Realm"]
+
+[limits]
+cpu_ms = 30000
+
+[vars]
+# 改這個數字並推送，共享世界就從創世檔重新開始（所有玩家的戰幫也一起重來）
+WORLD_VERSION = "1"
+# 現實中幾秒推進一個時段（6 小時）。120 = 兩分鐘，一天 8 分鐘；玩家的行動點以同樣速度回復
+TICK_SECONDS = "120"
+# 設成 "1" 世界就暫停（時鐘停下、進度保留）
+PAUSED = "0"

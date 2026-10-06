@@ -18,7 +18,9 @@
       <p class="sub">舊王國崩解四百年後・切片</p>
       <p class="muted">帶著幾個肯跟你走的人，在這片土地上活下去。<br>你倒下，旅程就結束；他們倒下，就不會再回來。</p>
       <label class="field">你的名字<input id="heroName" maxlength="8" placeholder="無名的騎士"></label>
-      <button id="newRun" class="primary">踏上旅程</button>
+      <button id="newRun" class="primary">踏上旅程（單人）</button>
+      <button id="mpRun">進入共享世界</button>
+      <p class="muted" style="font-size:13px;margin:-4px 0 0">共享世界：大家走在同一片大陸上，世界由伺服器推進（現實兩分鐘＝六小時），你的行動花「行動點」，行動點隨時間回復；離線時戰幫原地休息。</p>
       <button id="continueRun" hidden>繼續旅程</button>
       <details class="help"><summary>怎麼玩</summary>
         <ul>
@@ -39,6 +41,7 @@
       <span>💰 <b id="wGold"></b></span>
       <span>🍞 <b id="wFood"></b></span>
       <span>📦 <b id="wLoad"></b></span>
+      <span id="wAP" hidden>⏳ <b id="wAPv"></b></span>
     </header>
     <div id="mapWrap"><canvas id="map"></canvas><button id="btnHome" class="floating" aria-label="回到隊伍">◎</button><button id="btnDanger" class="floating f2" aria-label="危險地帶">⚠</button></div>
     <div id="hexInfo" class="panel"></div>

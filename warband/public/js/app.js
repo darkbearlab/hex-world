@@ -3,6 +3,24 @@ import {CLASSES, TRAITS, ORDERS, WEAPONS, TERRAIN} from './data.js';
 import * as Wd from './world.js';
 import * as B from './battle.js';
 import * as C from './cont.js';
+// 共享世界：伺服器是唯一的真相；瀏覽器只留一份唯讀的沙盒鏡像來畫圖、查價格
+const NET = {on: false, token: null, apMs: 20000, apAt: 0, T: 0, mirrorT: 0, others: [], battle: null, name: '', busy: false};
+const TOKEN_KEY = 'warband-mp-token';
+async function api(path, body) {
+  const r = await fetch(path, {method: body ? 'POST' : 'GET', headers: {'content-type': 'application/json', 'x-token': NET.token || ''}, body: body ? JSON.stringify(body) : undefined});
+  const d = await r.json().catch(() => ({error: '伺服器沒有回應'})); if (!r.ok && !d.w) throw new Error(d.error || '連線失敗'); return d;
+}
+async function refreshMirror(force) {
+  const d = await api('/api/world'); NET.others = d.others || []; NET.T = d.T;
+  if (G.world) G.world.poiShared = d.poiState;
+  if (force || d.T - NET.mirrorT >= 2) { const s = await (await fetch('/api/snapshot')).json(); C.loadState(s.state); NET.mirrorT = s.T; Wd.MODE.worldT = s.T; }
+}
+function applyView(v) {
+  const notes = G.world?.notes;
+  G.world = v.w; G.world.pois = v.pois || G.world.pois; G.world.poiShared = v.poiState || {}; G.world.notes = v.notes ?? notes;
+  NET.apMs = v.apMs || NET.apMs; NET.apAt = Date.now(); NET.battle = v.battle; NET.name = v.name || NET.name; Wd.MODE.worldT = v.T ?? Wd.MODE.worldT;
+}
+const apNow = () => Math.min(Wd.AP_MAX, (G.world?.ap || 0) + (Date.now() - NET.apAt) / NET.apMs);
 
 const $ = id => document.getElementById(id);
 const SAVE = 'warband-v3';   // v2：世界換成大陸沙盒，沙盒狀態另存在 SAVE-sim
@@ -26,7 +44,7 @@ async function saveSimNow() {
   simSaving = (async () => { try { const json = JSON.stringify(C.saveState()); if (typeof CompressionStream === 'function') { localStorage.setItem(SAVE + '-simz', await gz(json, true)); localStorage.removeItem(SAVE + '-sim'); } else localStorage.setItem(SAVE + '-sim', json); } catch (e) { console.warn('沙盒存檔失敗', e); toast('存檔空間不夠，世界的進度可能沒存到'); } })();
   await simSaving; simSaving = null; if (simDirty) { simDirty = false; saveSimNow(); }
 }
-function save(sim = true) { try { localStorage.setItem(SAVE, JSON.stringify(G)); } catch (e) { console.warn('存檔失敗', e); } if (sim && C.SIM) saveSimNow(); }
+function save(sim = true) { if (NET.on) return; try { localStorage.setItem(SAVE, JSON.stringify(G)); } catch (e) { console.warn('存檔失敗', e); } if (sim && C.SIM) saveSimNow(); }
 async function loadSim() { try { const z = localStorage.getItem(SAVE + '-simz'); if (z) return JSON.parse(await gz(z, false)); const s = localStorage.getItem(SAVE + '-sim'); return s ? JSON.parse(s) : null; } catch (e) { console.warn(e); return null; } }
 function load() { try { const s = localStorage.getItem(SAVE); return s ? JSON.parse(s) : null; } catch { return null; } }
 function wipe() { try { localStorage.removeItem(SAVE); localStorage.removeItem(SAVE + '-sim'); localStorage.removeItem(SAVE + '-simz'); } catch {} }
@@ -60,7 +78,7 @@ $('sheet').addEventListener('click', e => { if (e.target === $('sheet') && !(she
 const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k === 'onclick') e.onclick = v; else if (k === 'html') e.innerHTML = v; else if (k === 'class') e.className = v; else if (v !== false && v != null) e.setAttribute(k, v); } for (const c of kids.flat()) if (c != null) e.append(c); return e; };
 
 /* ───────────── 人物卡 ───────────── */
-function traitTags(m) { return (m.traits || []).map(t => el('span', {class: 'tag trait', onclick: () => toast(`${TRAITS[t].name}：${TRAITS[t].desc}`, 3500)}, TRAITS[t].name)); }
+function traitTags(m) { return (m.traits || []).map(t => el('span', {class: 'tag trait', onclick: async () => toast(`${TRAITS[t].name}：${TRAITS[t].desc}`, 3500)}, TRAITS[t].name)); }
 function memberCard(m, extra) {
   const hpPct = Math.round(m.hp / m.max * 100);
   return el('div', {class: 'card'}, avatar(m.sprite),
@@ -90,6 +108,18 @@ $('newRun').onclick = async () => {
   const seed = (Math.random() * 2 ** 31) | 0;
   G = {world: Wd.newWorld(seed, $('heroName').value.trim() || '無名的騎士'), battle: null};
   cam = null; save(); worldScreen();
+};
+$('mpRun').onclick = async () => {
+  const name = $('heroName').value.trim() || '無名的騎士';
+  NET.token = localStorage.getItem(TOKEN_KEY); if (!NET.token) { NET.token = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem(TOKEN_KEY, NET.token); }
+  $('mpRun').disabled = true; $('mpRun').textContent = '連線中…';
+  try {
+    C.loadPack(await getPack()); NET.on = true; Wd.MODE.shared = true;
+    await refreshMirror(true);
+    const v = await api('/api/join', {name, restart: !!(G.world && G.world.over && NET.on)}); applyView(v);
+    cam = null; worldScreen(); if (NET.battle) startBattle(NET.battle.setup);
+    if (!refreshMirror.timer) refreshMirror.timer = setInterval(() => { if (NET.on && !G.battle && !traveling) refreshMirror().then(() => { if (!$('world').hidden) renderWorld(); }).catch(() => {}); }, 30000);
+  } catch (e) { toast(e.message); NET.on = false; Wd.MODE.shared = false; } finally { $('mpRun').disabled = false; $('mpRun').textContent = '進入共享世界'; }
 };
 $('continueRun').onclick = async () => {
   $('continueRun').disabled = true;
@@ -121,6 +151,7 @@ function renderStatus() {
   $('wGold').textContent = w.gold;
   const fd = Wd.daysOfFood(w); $('wFood').textContent = `${w.food.toFixed(0)}（${fd.toFixed(1)} 天）`; $('wFood').style.color = fd < 2 ? 'var(--enemy)' : '';
   $('wLoad').textContent = `${Wd.load(w)}/${Wd.capacity(w)}`;
+  $('wAP').hidden = !NET.on; if (NET.on) $('wAPv').textContent = `${Math.floor(apNow())}/${Wd.AP_MAX}`;
 }
 let showDanger = false;
 const RISKCOL = r => r < 0.15 ? '#9fd18a' : r < 0.4 ? '#f1c45c' : '#f0705a';
@@ -199,6 +230,9 @@ function renderWorld() {
   // 遊蕩的隊伍：視野內才看得到；在追你的會標出來
   for (const b of w.bands) { if (b.pos < 0 || (!b.hunting && Wd.hdist(b.pos, w.pos) > R)) continue; const [x, y] = scr(b.pos); g.fillStyle = b.hunting ? '#e0402a99' : '#d0533f66'; g.beginPath(); g.arc(x, y, s * 0.62, 0, 7); g.fill(); sprite(g, b.kind === 'wolves' ? ['foes', 'wolf'] : ['foes', 'bandit'], x - s * 0.55, y - s * 0.65, s * 1.1, {flip: true});
     if (b.hunting) { label('追兵', x, y - s * 0.7, '#ff8a6e', Math.max(9, s * 0.36)); const [px, py] = scr(w.pos); g.strokeStyle = '#e0402a88'; g.setLineDash([3, 4]); g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.lineTo(px, py); g.stroke(); g.setLineDash([]); } }
+  // 其他玩家的戰幫（多人）
+  if (NET.on) for (const o of NET.others) { if (o.name === NET.name && o.pos === w.pos) continue; if (!SEEN(o.pos)) continue; const [x, y] = scr(o.pos);
+    g.strokeStyle = '#8fd0ff'; g.lineWidth = 2; g.beginPath(); g.arc(x + s * 0.3, y + s * 0.25, s * 0.42, 0, 7); g.stroke(); sprite(g, ['people', 'squire'], x + s * 0.3 - s * 0.38, y + s * 0.25 - s * 0.45, s * 0.76); if (s >= 16) label(o.name, x + s * 0.3, y - s * 0.35, '#bfe6ff', Math.max(9, s * 0.34)); }
   // 玩家
   const [px, py] = (() => { const [x, y] = partyXY(); return [(x - cam.x) * cam.s + mapSize.w / 2, (y - cam.y) * cam.s + mapSize.h / 2]; })();
   g.strokeStyle = w.escort ? '#9fd18a' : '#d9a441'; g.lineWidth = 2.5; g.beginPath(); g.arc(px, py, s * 0.72, 0, 7); g.stroke();
@@ -243,7 +277,7 @@ function hexInfo() {
   if (!Wd.seen(w, p)) {
     box.append(el('div', {class: 'row'}, el('span', {class: 'fold'}, infoFolded ? '▸' : '▾'), el('b', {}, '未知之地'), el('span', {class: 'tag'}, '沒去過，也沒人說過')));
     const row = el('div', {class: 'rowbtn'});
-    if (wsel?.path) { const hrs = Wd.pathHoursW(w, wsel.path); box.append(el('div', {class: 'muted'}, `${wsel.path.length} 格，粗估 ${(hrs / 24).toFixed(1)} 天。路上的情況不清楚。`)); row.append(el('button', {class: 'primary', onclick: () => travel(wsel.path)}, '前往')); }
+    if (wsel?.path) { const hrs = Wd.pathHoursW(w, wsel.path); box.append(el('div', {class: 'muted'}, `${wsel.path.length} 格，粗估 ${(hrs / 24).toFixed(1)} 天。路上的情況不清楚。`)); row.append(el('button', {class: 'primary', onclick: async () => travel(wsel.path)}, '前往')); }
     else box.append(el('div', {class: 'muted'}, '看起來走不過去。'));
     box.append(row); return;
   }
@@ -268,20 +302,20 @@ function hexInfo() {
   for (const c of w.contracts) if (Wd.contractSite(w, c) === p && (c.taken || c.kind === 'deliver')) box.append(el('div', {}, el('span', {class: 'tag warn'}, Wd.KIND_NAME[c.kind]), ' ', c.title));
   for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) box.append(el('div', {}, el('span', {class: 'tag good'}, '傳聞'), ` 「${L.name}」可能在這一帶${(L.searched || []).includes(p) ? '（這格找過了）' : ''}`));
   const row = el('div', {class: 'rowbtn'});
-  if (here && poi && !Wd.poiDone(w, poi)) row.append(el('button', {class: 'primary', onclick: () => doWorld({type: 'explore'})}, `探索${Wd.POI_TYPES[poi.type].n}（半天）`));
-  if (here) for (const u of units.filter(u => u.kind === 'caravan' || u.kind === 'cart').slice(0, 2)) row.append(el('button', {class: 'danger', onclick: () => { if (confirm(`劫${u.label}？${Wd.facName(u.fac)}會通緝你們，巡邏隊看到會來抓人。`)) doWorld({type: 'raid', what: u.kind, to: u.to}); }}, `劫${u.kind === 'caravan' ? '商隊' : '運貨車'}（往${nm(u.to)}）`));
-  if (here) for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) row.append(el('button', {onclick: () => doWorld({type: 'search', id: L.id})}, `搜尋「${L.name}」（一天）`));
+  if (here && poi && !Wd.poiDone(w, poi)) row.append(el('button', {class: 'primary', onclick: async () => await doWorld({type: 'explore'})}, `探索${Wd.POI_TYPES[poi.type].n}（半天）`));
+  if (here) for (const u of units.filter(u => u.kind === 'caravan' || u.kind === 'cart').slice(0, 2)) row.append(el('button', {class: 'danger', onclick: async () => { if (confirm(`劫${u.label}？${Wd.facName(u.fac)}會通緝你們，巡邏隊看到會來抓人。`)) await doWorld({type: 'raid', what: u.kind, to: u.to}); }}, `劫${u.kind === 'caravan' ? '商隊' : '運貨車'}（往${nm(u.to)}）`));
+  if (here) for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) row.append(el('button', {onclick: async () => await doWorld({type: 'search', id: L.id})}, `搜尋「${L.name}」（一天）`));
   if (!here && wsel?.path) {
     const hrs = Wd.pathHoursW(w, wsel.path), risks = wsel.path.filter(i => Wd.seen(w, i)).map(i => Wd.tileRisk(i, k)), bad = risks.filter(r => r >= 0.4).length, mid = risks.filter(r => r >= 0.15 && r < 0.4).length;
     const need = Wd.eaters(w) * hrs / 24;
     box.append(el('div', {}, `${wsel.path.length} 格，約 ${hrs < 30 ? hrs + ' 小時' : (hrs / 24).toFixed(1) + ' 天'}，吃掉 ${need.toFixed(0)} 份糧食`, need > w.food ? el('span', {class: 'tag bad'}, '糧食不夠') : null));
     box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `沿路：${bad ? `危險 ${bad} 格・` : ''}${mid ? `不太平 ${mid} 格・` : ''}${!bad && !mid ? '看起來還算太平・' : ''}${wsel.path.some(i => !Wd.seen(w, i)) ? '有些路段沒走過・' : ''}${Wd.SEASON_NOTE[k.season] || '天氣不錯'}`));
-    row.append(el('button', {class: 'primary', onclick: () => travel(wsel.path)}, '前往'));
+    row.append(el('button', {class: 'primary', onclick: async () => travel(wsel.path)}, '前往'));
   } else if (!here) box.append(el('div', {class: 'muted'}, '走不到那裡。'));
   if (here && site) {
-    if (site.kind === 'town') row.append(el('button', {class: 'primary', onclick: () => townSheet()}, '進城'));
-    if (site.kind === 'village') row.append(el('button', {class: 'primary', onclick: () => villageSheet(p)}, '進村'));
-    if (site.kind === 'camp') row.append(el('button', {class: 'danger', onclick: () => { if (confirm('進攻山寨？')) doWorld({type: 'assault'}); }}, '進攻'));
+    if (site.kind === 'town') row.append(el('button', {class: 'primary', onclick: async () => townSheet()}, '進城'));
+    if (site.kind === 'village') row.append(el('button', {class: 'primary', onclick: async () => villageSheet(p)}, '進村'));
+    if (site.kind === 'camp') row.append(el('button', {class: 'danger', onclick: async () => { if (confirm('進攻山寨？')) await doWorld({type: 'assault'}); }}, '進攻'));
   }
   box.append(row);
 }
@@ -296,13 +330,24 @@ async function travel(path) {
   traveling = true; wsel = null;
   { const [x, y] = wxy(G.world.pos); cam.x = x; cam.y = y; }
   for (const p of path) {
-    const from = G.world.pos, out = doWorld({type: 'travel', to: p}, true, true);
+    const from = G.world.pos, out = await doWorld({type: 'travel', to: p}, true, true);
     if (out && G.world.pos !== from) await slide(from, G.world.pos, 420 + Math.min(380, Wd.legHours(G.world, G.world.pos) * 12)); else renderWorld();
     if (!out || out.encounter || G.world.pendingBattle || G.world.over || Wd.bandAt(G.world, G.world.pos)) break;
   }
   traveling = false; save(); afterWorldAction();
 }
-function doWorld(a, quiet, noSave) {
+async function doWorld(a, quiet, noSave) {
+  if (NET.on) {
+    if (NET.busy) return null; NET.busy = true;
+    try {
+      const d = await api('/api/act', {action: a}); applyView(d);
+      if (d.error) { toast(d.error); return null; }
+      if (d.mk && C.K().markets[G.world.pos]) C.K().markets[G.world.pos] = d.mk;
+      for (const l of d.out.lines) toast(l, 2600);
+      if (!quiet) afterWorldAction();
+      return d.out;
+    } catch (e) { toast(e.message); return null; } finally { NET.busy = false; }
+  }
   let out;
   try { out = Wd.worldAct(G.world, a); } catch (e) { toast(e.message); return null; }
   if (!noSave) save(); for (const l of out.lines) toast(l, 2600);
@@ -321,18 +366,18 @@ function encounterSheet(b) {
   if (b.kind === 'soldiers') {
     const fine = Wd.fineOf(w, b.fac), box = el('div', {}, el('h2', {}, `${b.name}攔下了你們`), el('p', {}, `${foeSummary(b.foes)}　`, el('span', {class: 'tag ' + cls}, '戰力' + lab)),
       el('p', {class: 'muted'}, '「你們就是通緝告示上那夥人吧。跟我們走一趟，或者把罰金繳了。」'));
-    box.append(el('div', {class: 'rowbtn'}, el('button', {class: 'primary', onclick: () => { closeSheet(); doWorld({type: 'engage', band: b.id}); }}, '迎戰（通緝更緊）'),
-      el('button', {onclick: () => { closeSheet(); doWorld({type: 'evade', band: b.id}); }}, '試著甩開'),
-      el('button', {onclick: () => { closeSheet(); doWorld({type: 'bribe', band: b.id}); }}, `繳罰金（${fine}）`)));
+    box.append(el('div', {class: 'rowbtn'}, el('button', {class: 'primary', onclick: async () => { closeSheet(); await doWorld({type: 'engage', band: b.id}); }}, '迎戰（通緝更緊）'),
+      el('button', {onclick: async () => { closeSheet(); await doWorld({type: 'evade', band: b.id}); }}, '試著甩開'),
+      el('button', {onclick: async () => { closeSheet(); await doWorld({type: 'bribe', band: b.id}); }}, `繳罰金（${fine}）`)));
     const lock = () => {}; lock.locked = true; return openSheet(box, lock);
   }
   const box = el('div', {}, el('h2', {}, b.kind === 'wolves' ? '狼群！' : `${b.name}擋住了去路`),
     el('p', {}, `${foeSummary(b.foes)}　`, el('span', {class: 'tag ' + cls}, '戰力' + lab)),
     el('p', {class: 'muted'}, b.kind === 'wolves' ? '牠們已經聞到你們的味道了。' : toll.escort ? '「商隊的貨留下，你們可以走。」' : toll.cargo ? '「騾子背上的東西留一半下來，人就可以走。」' : '「把錢留下，人就可以走。」'));
   const row = el('div', {class: 'rowbtn'},
-    el('button', {class: 'primary', onclick: () => { closeSheet(); doWorld({type: 'engage', band: b.id}); }}, '迎戰'),
-    el('button', {onclick: () => { closeSheet(); doWorld({type: 'evade', band: b.id}); }}, w.mules ? `試著避開（帶著騾子不好跑）` : '試著避開'));
-  if (b.kind === 'bandits') row.append(el('button', {onclick: () => { closeSheet(); doWorld({type: 'pay', band: b.id}); }}, toll.escort ? '交出商隊的貨（護送失敗）' : toll.cargo ? '交出一半的貨' : `付過路費（${toll.gold}）`));
+    el('button', {class: 'primary', onclick: async () => { closeSheet(); await doWorld({type: 'engage', band: b.id}); }}, '迎戰'),
+    el('button', {onclick: async () => { closeSheet(); await doWorld({type: 'evade', band: b.id}); }}, w.mules ? `試著避開（帶著騾子不好跑）` : '試著避開'));
+  if (b.kind === 'bandits') row.append(el('button', {onclick: async () => { closeSheet(); await doWorld({type: 'pay', band: b.id}); }}, toll.escort ? '交出商隊的貨（護送失敗）' : toll.cargo ? '交出一半的貨' : `付過路費（${toll.gold}）`));
   box.append(row);
   const lock = () => {}; lock.locked = true; openSheet(box, lock);
 }
@@ -344,28 +389,28 @@ function townSheet(tab = 'market') {
   const w = G.world, t = w.pos, k = C.K(), box = el('div', {});
   box.append(el('h2', {}, nm(t)), el('p', {class: 'muted', style: 'margin:-4px 0 4px'}, `${Wd.facName(k.owner[t])}的市鎮・人口約 ${Math.round(k.markets[t].pop * 10)}`));
   const tabs = el('div', {class: 'tabs'});
-  for (const [key, n] of [['market', '市集'], ['smith', '鐵匠'], ['tavern', '酒館'], ['board', '告示'], ['inn', '旅店']]) tabs.append(el('button', {class: key === tab ? 'on' : '', onclick: () => townSheet(key)}, n));
+  for (const [key, n] of [['market', '市集'], ['smith', '鐵匠'], ['tavern', '酒館'], ['board', '告示'], ['inn', '旅店']]) tabs.append(el('button', {class: key === tab ? 'on' : '', onclick: async () => townSheet(key)}, n));
   box.append(tabs);
   const n = w.party.length, again = () => townSheet(tab);
   if (tab === 'market') {
     const pr = Wd.rationPrice(w, t), eat = Math.ceil(Wd.eaters(w));
     box.append(el('h3', {}, '口糧'), el('p', {class: 'muted'}, `每份約 ${pr.toFixed(1)} 金幣。一天吃 ${eat} 份（騾子也要吃），現有 ${w.food.toFixed(0)} 份。`));
-    box.append(el('div', {class: 'rowbtn'}, ...[3, 7, 14].map(d => el('button', {onclick: () => { doWorld({type: 'buyFood', n: eat * d}); again(); }}, `${d} 天份（${Math.ceil(eat * d * pr)}）`))));
+    box.append(el('div', {class: 'rowbtn'}, ...[3, 7, 14].map(d => el('button', {onclick: async () => { await doWorld({type: 'buyFood', n: eat * d}); again(); }}, `${d} 天份（${Math.ceil(eat * d * pr)}）`))));
     box.append(el('h3', {style: 'margin-top:10px'}, '貨物'), el('p', {class: 'muted'}, `載重 ${Wd.load(w)}/${Wd.capacity(w)} 包：每人扛 ${Wd.CARRY_MAN} 包、每頭騾子 ${Wd.MULE_CAP} 包。買得越多越貴、賣得越多越便宜；換季後行情會重新變動。`));
     box.append(goodsTable(t, again));
     box.append(el('div', {class: 'rowbtn'},
-      el('button', {onclick: () => { doWorld({type: 'buyMule'}); again(); }}, `買騾子（${Wd.MULE_PRICE}）・有 ${w.mules} 頭`),
-      el('button', {onclick: () => { doWorld({type: 'buyMap'}); again(); }}, `買附近的地圖（${Wd.MAP_PRICE}）`)));
+      el('button', {onclick: async () => { await doWorld({type: 'buyMule'}); again(); }}, `買騾子（${Wd.MULE_PRICE}）・有 ${w.mules} 頭`),
+      el('button', {onclick: async () => { await doWorld({type: 'buyMap'}); again(); }}, `買附近的地圖（${Wd.MAP_PRICE}）`)));
     box.append(el('h3', {style: 'margin-top:10px'}, '馬'), el('p', {class: 'muted'}, `人人有馬才走得快（平地快三成五，林地山地快一成五），也比較甩得掉追兵。一匹馬一天吃 ${Wd.HORSE_FEED} 份糧。現在有 ${w.horses || 0} 匹，隊伍 ${n} 人${Wd.mounted(w) ? '，全員騎馬' : ''}。`));
-    box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: () => { doWorld({type: 'buyHorse'}); again(); }}, `買馬（${Wd.HORSE_PRICE}）`),
-      w.horses ? el('button', {onclick: () => { doWorld({type: 'sellHorse'}); again(); }}, `賣馬（${Math.round(Wd.HORSE_PRICE / 2)}）`) : null,
-      w.mules ? el('button', {onclick: () => { doWorld({type: 'sellMule'}); again(); }}, `賣騾子（${Math.round(Wd.MULE_PRICE / 2)}）`) : null,
-      w.cargo.food > 0 ? el('button', {onclick: () => { doWorld({type: 'eat'}); again(); }}, `拆一包糧當口糧`) : null));
+    box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await doWorld({type: 'buyHorse'}); again(); }}, `買馬（${Wd.HORSE_PRICE}）`),
+      w.horses ? el('button', {onclick: async () => { await doWorld({type: 'sellHorse'}); again(); }}, `賣馬（${Math.round(Wd.HORSE_PRICE / 2)}）`) : null,
+      w.mules ? el('button', {onclick: async () => { await doWorld({type: 'sellMule'}); again(); }}, `賣騾子（${Math.round(Wd.MULE_PRICE / 2)}）`) : null,
+      w.cargo.food > 0 ? el('button', {onclick: async () => { await doWorld({type: 'eat'}); again(); }}, `拆一包糧當口糧`) : null));
     if (w.relics.length) {
       box.append(el('h3', {style: 'margin-top:10px'}, '寶物'));
       for (const r of w.relics) box.append(el('div', {class: 'card'}, el('div', {class: 'body'}, el('div', {class: 'top'}, el('b', {}, `「${r.name}」`), el('span', {class: 'muted'}, r.kind)),
         el('div', {class: 'muted', style: 'font-size:13px'}, `傳奇武器・換過 ${r.owners} 個主人・打贏過 ${r.wins} 場`),
-        el('div', {class: 'rowbtn'}, el('button', {onclick: () => { if (confirm(`把「${r.name}」賣給${nm(t)}？`)) { doWorld({type: 'sellRelic', id: r.id}); again(); } }}, `賣給這裡的權貴（${Wd.relicPrice(w, r)}）`)))));
+        el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { if (confirm(`把「${r.name}」賣給${nm(t)}？`)) { await doWorld({type: 'sellRelic', id: r.id}); again(); } }}, `賣給這裡的權貴（${Wd.relicPrice(w, r)}）`)))));
     }
   }
   if (tab === 'smith') {
@@ -376,8 +421,8 @@ function townSheet(tab = 'market') {
       box.append(el('div', {class: 'card'}, avatar(m.sprite, 44), el('div', {class: 'body'},
         el('div', {class: 'top'}, el('b', {}, m.name), el('span', {class: 'muted'}, `${Wd.GEAR_NAME.w[gw]}・${Wd.GEAR_NAME.a[ga]}`)),
         el('div', {class: 'rowbtn'},
-          el('button', {disabled: gw >= 3 || iron < gw + 1 || null, onclick: () => { doWorld({type: 'gear', id: m.id, kind: 'w'}); again(); }}, gw >= 3 ? '兵器已頂級' : `${Wd.GEAR_NAME.w[gw + 1]}（${Wd.gearPrice(t, 'w', gw + 1)}）`),
-          el('button', {disabled: ga >= 3 || iron < ga + 1 || null, onclick: () => { doWorld({type: 'gear', id: m.id, kind: 'a'}); again(); }}, ga >= 3 ? '護甲已頂級' : `${Wd.GEAR_NAME.a[ga + 1]}（${Wd.gearPrice(t, 'a', ga + 1)}）`)))));
+          el('button', {disabled: gw >= 3 || iron < gw + 1 || null, onclick: async () => { await doWorld({type: 'gear', id: m.id, kind: 'w'}); again(); }}, gw >= 3 ? '兵器已頂級' : `${Wd.GEAR_NAME.w[gw + 1]}（${Wd.gearPrice(t, 'w', gw + 1)}）`),
+          el('button', {disabled: ga >= 3 || iron < ga + 1 || null, onclick: async () => { await doWorld({type: 'gear', id: m.id, kind: 'a'}); again(); }}, ga >= 3 ? '護甲已頂級' : `${Wd.GEAR_NAME.a[ga + 1]}（${Wd.gearPrice(t, 'a', ga + 1)}）`)))));
     }
   }
   if (tab === 'tavern') {
@@ -389,23 +434,23 @@ function townSheet(tab = 'market') {
         box.append(el('div', {class: 'card'}, el('div', {class: 'body'},
           el('div', {class: 'top'}, el('b', {}, h.epithet ? `「${h.epithet}」${h.name}` : h.name), el('span', {class: 'muted'}, `${CLASSES[o.cls].name} Lv${o.lvl}`)),
           el('div', {class: 'muted', style: 'font-size:13px'}, `${Wd.facName(h.f)}的人・打過 ${h.battles || 0} 場、贏 ${h.wins} 場${h.famed ? '・事蹟傳遍各地' : ''}${o.relic ? `・帶著傳奇武器「${o.relic}」` : ''}・週薪 ${o.wage}`),
-          el('div', {class: 'rowbtn'}, el('button', {class: 'primary', disabled: (w.fame || 0) < need || null, onclick: () => { doWorld({type: 'hireFamous', id: h.id}); again(); }}, (w.fame || 0) < need ? '他看不上你們（名聲不夠）' : `請他加入（${o.fee}）`)))));
+          el('div', {class: 'rowbtn'}, el('button', {class: 'primary', disabled: (w.fame || 0) < need || null, onclick: async () => { await doWorld({type: 'hireFamous', id: h.id}); again(); }}, (w.fame || 0) < need ? '他看不上你們（名聲不夠）' : `請他加入（${o.fee}）`)))));
       }
     }
-    box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: () => { doWorld({type: 'rumor'}); again(); }}, '請一輪酒，打聽各地行情（3）')));
+    box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await doWorld({type: 'rumor'}); again(); }}, '請一輪酒，打聽各地行情（3）')));
     box.append(el('p', {class: 'muted'}, `招募要先付兩週薪水當安家費。隊伍最多 ${Wd.MAX_PARTY} 人（現在 ${n} 人）。新面孔第 ${ts.nextRecruit} 天會來。`));
     if (!ts.recruits.length) box.append(el('p', {}, '今天酒館裡沒有想找差事的人。'));
-    for (const r of ts.recruits) box.append(memberCard(r, el('div', {class: 'rowbtn'}, el('button', {class: 'primary', onclick: () => { doWorld({type: 'hire', id: r.id}); again(); }}, `雇用（${r.wage * 2}）`))));
+    for (const r of ts.recruits) box.append(memberCard(r, el('div', {class: 'rowbtn'}, el('button', {class: 'primary', onclick: async () => { await doWorld({type: 'hire', id: r.id}); again(); }}, `雇用（${r.wage * 2}）`))));
   }
   if (tab === 'board') {
     const claim = w.contracts.filter(c => Wd.canClaimHere(w, c));
-    if (claim.length) box.append(el('button', {class: 'primary', onclick: () => { doWorld({type: 'claim'}); again(); }}, `領賞（${claim.reduce((s, c) => s + c.reward, 0)}）`));
+    if (claim.length) box.append(el('button', {class: 'primary', onclick: async () => { await doWorld({type: 'claim'}); again(); }}, `領賞（${claim.reduce((s, c) => s + c.reward, 0)}）`));
     box.append(contractList(t));
   }
   if (tab === 'inn') {
     box.append(el('p', {}, `每人每晚 2 金幣，一天能養好一半的傷，大家的心情也會好一點。`));
-    box.append(el('div', {class: 'rowbtn'}, ...[1, 3].map(d => el('button', {onclick: () => { doWorld({type: 'rest', days: d}); again(); }}, `住 ${d} 晚（${n * 2 * d}）`))));
-    box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: () => { doWorld({type: 'rest', days: 1, inn: false}); again(); }}, '在城外紮營一天（免費）')));
+    box.append(el('div', {class: 'rowbtn'}, ...[1, 3].map(d => el('button', {onclick: async () => { await doWorld({type: 'rest', days: d}); again(); }}, `住 ${d} 晚（${n * 2 * d}）`))));
+    box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await doWorld({type: 'rest', days: 1, inn: false}); again(); }}, '在城外紮營一天（免費）')));
   }
   openSheet(box, null, true);
 }
@@ -422,10 +467,10 @@ function goodsTable(t, again) {
       el('div', {class: 'gname'}, el('b', {}, Wd.GN[g]), el('span', {class: 'muted'}, `存貨 ${stock > 999 ? '999+' : stock}・你有 ${have}`)),
       el('div', {class: 'gprice'}, el('span', {}, '買 ', el('b', {}, b1 ?? '—')), el('span', {}, '賣 ', el('b', {}, s1))),
       el('div', {class: 'gbtn'},
-        el('button', {disabled: !(bq >= 1) || null, onclick: () => { doWorld({type: 'buy', g, q: 1}); again(); }}, '買 1'),
-        el('button', {disabled: !(bq >= 2) || null, onclick: () => { doWorld({type: 'buy', g, q: bq}); again(); }}, bq >= 2 ? `買 ${bq}（${Wd.quote(w, t, g, 'buy', bq)}）` : '買 5'),
-        el('button', {disabled: !have || null, onclick: () => { doWorld({type: 'sell', g, q: 1}); again(); }}, '賣 1'),
-        el('button', {disabled: !(sq >= 2) || null, onclick: () => { doWorld({type: 'sell', g, q: sq}); again(); }}, sq >= 2 ? `全賣（${Wd.quote(w, t, g, 'sell', sq)}）` : '全賣'))));
+        el('button', {disabled: !(bq >= 1) || null, onclick: async () => { await doWorld({type: 'buy', g, q: 1}); again(); }}, '買 1'),
+        el('button', {disabled: !(bq >= 2) || null, onclick: async () => { await doWorld({type: 'buy', g, q: bq}); again(); }}, bq >= 2 ? `買 ${bq}（${Wd.quote(w, t, g, 'buy', bq)}）` : '買 5'),
+        el('button', {disabled: !have || null, onclick: async () => { await doWorld({type: 'sell', g, q: 1}); again(); }}, '賣 1'),
+        el('button', {disabled: !(sq >= 2) || null, onclick: async () => { await doWorld({type: 'sell', g, q: sq}); again(); }}, sq >= 2 ? `全賣（${Wd.quote(w, t, g, 'sell', sq)}）` : '全賣'))));
   }
   return wrap;
 }
@@ -442,10 +487,10 @@ function contractList(t) {
     if (c.kind === 'merc') info = `${c.desc}目標：${nm(c.target)}（離你 ${dist} 格）。`;
     if (c.kind === 'wolves') info = `狼窩在${nm(c.target)}（離你 ${dist} 格）。`;
     const btns = el('div', {class: 'rowbtn'});
-    if (!c.taken && t != null && c.kind !== 'deliver') btns.append(el('button', {onclick: () => { doWorld({type: 'takeContract', id: c.id}); townSheet('board'); }}, c.kind === 'escort' ? '接下，帶商隊出發' : '接下'));
-    if (c.kind === 'deliver' && c.at === w.pos && w.cargo[c.g] > 0) btns.append(el('button', {class: 'primary', onclick: () => { doWorld({type: 'deliver', id: c.id}); townSheet('board'); }}, `交貨（${Math.min(c.left, w.cargo[c.g])} 包，${Math.min(c.left, w.cargo[c.g]) * c.pay}）`));
-    if (site >= 0 && site !== w.pos) btns.append(el('button', {onclick: () => { closeSheet(); showOnMap(site); }}, '在地圖上看'));
-    if (c.done && !Wd.canClaimHere(w, c)) btns.append(el('button', {class: 'primary', onclick: () => { closeSheet(); showOnMap(c.town); }}, `回${nm(c.town)}領賞（${Wd.hdist(c.town, w.pos)} 格）`));
+    if (!c.taken && t != null && c.kind !== 'deliver') btns.append(el('button', {onclick: async () => { await doWorld({type: 'takeContract', id: c.id}); townSheet('board'); }}, c.kind === 'escort' ? '接下，帶商隊出發' : '接下'));
+    if (c.kind === 'deliver' && c.at === w.pos && w.cargo[c.g] > 0) btns.append(el('button', {class: 'primary', onclick: async () => { await doWorld({type: 'deliver', id: c.id}); townSheet('board'); }}, `交貨（${Math.min(c.left, w.cargo[c.g])} 包，${Math.min(c.left, w.cargo[c.g]) * c.pay}）`));
+    if (site >= 0 && site !== w.pos) btns.append(el('button', {onclick: async () => { closeSheet(); showOnMap(site); }}, '在地圖上看'));
+    if (c.done && !Wd.canClaimHere(w, c)) btns.append(el('button', {class: 'primary', onclick: async () => { closeSheet(); showOnMap(c.town); }}, `回${nm(c.town)}領賞（${Wd.hdist(c.town, w.pos)} 格）`));
     box.append(el('div', {class: 'card'}, el('div', {class: 'body'},
       el('div', {class: 'top'}, el('b', {}, el('span', {class: 'tag'}, Wd.KIND_NAME[c.kind]), ' ', c.title), el('span', {class: 'tag ' + (c.done ? 'good' : c.taken ? 'warn' : '')}, status)),
       el('div', {class: 'muted', style: 'font-size:13px'}, `${nm(c.town)}的告示（${Wd.facName(k.owner[c.town]) || '已亡國'}）・${info ? info + '・' : ''}期限第 ${c.until} 天${c.kind !== 'deliver' ? `・賞金 ${c.reward}` : ''}`),
@@ -456,8 +501,8 @@ function contractList(t) {
     for (const L of w.leads) box.append(el('div', {class: 'card'}, el('div', {class: 'body'},
       el('div', {class: 'top'}, el('b', {}, `「${L.name}」的下落`), el('span', {class: 'muted'}, `第 ${L.day} 天聽說`)),
       el('div', {class: 'muted', style: 'font-size:13px'}, `據說在${nm(L.center)}一帶（離你 ${Wd.hdist(L.center, w.pos)} 格）。到那一帶（含周圍一格）每找一次花一天${L.searched?.length ? `；已經找過：${L.searched.map(nm).join('、')}` : ''}。`),
-      el('div', {class: 'rowbtn'}, el('button', {onclick: () => { closeSheet(); showOnMap(L.center); }}, '在地圖上看'),
-        Wd.hdist(L.center, w.pos) <= 1 ? el('button', {class: 'primary', onclick: () => { closeSheet(); doWorld({type: 'search', id: L.id}); }}, `在${nm(w.pos)}搜尋一天`) : null))));
+      el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { closeSheet(); showOnMap(L.center); }}, '在地圖上看'),
+        Wd.hdist(L.center, w.pos) <= 1 ? el('button', {class: 'primary', onclick: async () => { closeSheet(); await doWorld({type: 'search', id: L.id}); }}, `在${nm(w.pos)}搜尋一天`) : null))));
   }
   return box;
 }
@@ -465,8 +510,8 @@ function showOnMap(i) { const [x, y] = wxy(i); cam.x = x; cam.y = y; selectHex(i
 function villageSheet(v) {
   const w = G.world, eat = Math.ceil(w.party.length + w.mules * Wd.MULE_FEED), pr = Wd.rationPrice(w, v), have = Wd.villageFood(w, v);
   const box = el('div', {}, el('h2', {}, nm(v)), el('p', {}, `村裡能匀出 ${have} 份口糧，每份約 ${pr.toFixed(1)} 金幣，比城裡便宜。`),
-    el('div', {class: 'rowbtn'}, ...[1, 3, 7].map(d => el('button', {disabled: !have || null, onclick: () => { doWorld({type: 'buyFood', n: Math.min(eat * d, have)}); villageSheet(v); }}, `${d} 天份`))),
-    el('div', {class: 'rowbtn'}, el('button', {onclick: () => { doWorld({type: 'rest', days: 1}); closeSheet(); }}, '在村邊紮營一天')));
+    el('div', {class: 'rowbtn'}, ...[1, 3, 7].map(d => el('button', {disabled: !have || null, onclick: async () => { await doWorld({type: 'buyFood', n: Math.min(eat * d, have)}); villageSheet(v); }}, `${d} 天份`))),
+    el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await doWorld({type: 'rest', days: 1}); closeSheet(); }}, '在村邊紮營一天')));
   openSheet(box, null, true);
 }
 // 行情：去過或聽說過的市集
@@ -479,7 +524,7 @@ function marketSheet() {
     const tb = el('table', {class: 'intel'}, el('tr', {}, el('th', {}, title), ...goods.map(g => el('th', {}, Wd.GN[g]))));
     for (const i of ids) {
       const it = w.intel[i];
-      tb.append(el('tr', {onclick: () => { closeSheet(); showOnMap(i); }}, el('td', {}, el('b', {}, nm(i)), el('div', {class: 'muted'}, `${Wd.hdist(i, w.pos)} 格・${fmtDays(w.day - it.day)}${it.src === 'seen' ? '' : '・聽說'}`)),
+      tb.append(el('tr', {onclick: async () => { closeSheet(); showOnMap(i); }}, el('td', {}, el('b', {}, nm(i)), el('div', {class: 'muted'}, `${Wd.hdist(i, w.pos)} 格・${fmtDays(w.day - it.day)}${it.src === 'seen' ? '' : '・聽說'}`)),
         ...goods.map(g => { const p = it.p[g]; if (p == null) return el('td', {class: 'none'}, '?'); const none = it.s && it.s[g] === 0; return el('td', {class: none ? 'none' : p === lo[g] ? 'lo' : p === hi[g] ? 'hi' : ''}, none ? `${p}*` : p); })));
     }
     return tb;
@@ -497,21 +542,21 @@ $('btnParty').onclick = () => {
   if (wl.length) box.append(el('p', {}, el('span', {class: 'tag bad'}, '通緝'), ' ', wl.map(([f, v]) => `${Wd.facName(+f)}（${v >= 3 ? '重犯' : v >= 2 ? '巡邏隊會抓人' : '小心'}）`).join('、')));
   box.append(el('p', {class: 'muted'}, `名聲：${Wd.fameWord(w.fame || 0)}。馬 ${w.horses || 0} 匹${Wd.mounted(w) ? '（全員騎馬）' : ''}。`));
   for (const r of w.relics) { const who = w.party.find(m => m.id === r.equip);
-    box.append(el('div', {class: 'rowbtn'}, el('span', {style: 'flex:2;align-self:center'}, `「${r.name}」${r.kind}：${who ? who.name + '佩帶（力量 +2）' : '收在行囊裡'}`), el('button', {onclick: () => { doWorld({type: 'equipRelic', id: r.id}); $('btnParty').onclick(); }}, who ? '換人' : '交給人佩帶'))); }
-  for (const m of w.party) box.append(memberCard(m, m.hero ? null : el('div', {class: 'rowbtn'}, el('button', {class: 'danger', onclick: () => { if (confirm(`讓${m.name}離開隊伍？`)) { doWorld({type: 'dismiss', id: m.id}); closeSheet(); } }}, '遣散'))));
+    box.append(el('div', {class: 'rowbtn'}, el('span', {style: 'flex:2;align-self:center'}, `「${r.name}」${r.kind}：${who ? who.name + '佩帶（力量 +2）' : '收在行囊裡'}`), el('button', {onclick: async () => { await doWorld({type: 'equipRelic', id: r.id}); $('btnParty').onclick(); }}, who ? '換人' : '交給人佩帶'))); }
+  for (const m of w.party) box.append(memberCard(m, m.hero ? null : el('div', {class: 'rowbtn'}, el('button', {class: 'danger', onclick: async () => { if (confirm(`讓${m.name}離開隊伍？`)) { await doWorld({type: 'dismiss', id: m.id}); closeSheet(); } }}, '遣散'))));
   if (w.fallen.length) { box.append(el('h3', {style: 'margin-top:12px'}, '倒下的人')); for (const f of w.fallen) box.append(el('p', {class: 'muted'}, `${f.name}（${CLASSES[f.cls].name}）・第 ${f.day} 天・${f.how}`)); }
   openSheet(box);
 };
 $('btnLog').onclick = () => { const box = el('div', {class: 'log'}, el('h2', {}, '日誌')); for (const l of G.world.log) box.append(el('p', {}, el('span', {class: 'd'}, `第 ${l.day} 天`), l.text)); openSheet(box); };
 $('btnJobs').onclick = () => openSheet(el('div', {}, el('h2', {}, '委託'), contractList(null)));
 $('btnMarket').onclick = () => marketSheet();
-$('btnRest').onclick = () => { if (confirm('原地紮營休息一天？（會吃掉一天的糧食）')) doWorld({type: 'rest', days: 1, inn: false}); };
+$('btnRest').onclick = async () => { if (confirm('原地紮營休息一天？（會吃掉一天的糧食）')) await doWorld({type: 'rest', days: 1, inn: false}); };
 // 筆記：從右邊拉出來，隨手記
 {
   const pane = $('notes'), ta = $('notesText'); let t0 = 0;
   const open = v => { pane.classList.toggle('open', v); if (v) { ta.value = G.world?.notes || ''; } else if (G.world) { G.world.notes = ta.value; save(false); } };
   $('notesTab').onclick = () => open(!pane.classList.contains('open'));
-  ta.addEventListener('input', () => { if (!G.world) return; G.world.notes = ta.value; clearTimeout(t0); t0 = setTimeout(() => save(false), 600); });
+  ta.addEventListener('input', () => { if (!G.world) return; G.world.notes = ta.value; clearTimeout(t0); t0 = setTimeout(() => NET.on ? api('/api/notes', {notes: ta.value}).catch(() => {}) : save(false), 800); });
   $('notesStamp').onclick = () => { const w = G.world; if (!w) return; const line = `\n【${Wd.timeText(w)}・${nm(w.pos)}】`; ta.setRangeText(line, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); ta.dispatchEvent(new Event('input')); };
   // 從右邊緣往左拖也能拉出來
   let sx = null; addEventListener('touchstart', e => { const x = e.touches[0].clientX; sx = x > innerWidth - 24 && !$('world').hidden ? x : null; }, {passive: true});
@@ -526,9 +571,9 @@ addEventListener('resize', () => { if (!$('world').hidden) renderWorld(); });
 /* ═════════════ 戰鬥 ═════════════ */
 let bsel = null, disp = null, popups = [], animating = false, bubbles = [], picking = null, cell = 32, fo = {x: 0, y: 0};
 function startBattle(setup) {
-  const w = G.world;
-  const st = B.createBattle({seed: setup.seed, biome: setup.biome, party: Wd.battleParty(w), foes: setup.foes, order: w.lastOrder || {stance: 'follow', focus: null}});
-  G.battle = {setup, st}; save(false); battleScreen(true);
+  const w = G.world, mp = NET.on && NET.battle;
+  const st = B.createBattle({seed: setup.seed, biome: setup.biome, party: mp ? NET.battle.party : Wd.battleParty(w), foes: setup.foes, order: mp ? NET.battle.order : (w.lastOrder || {stance: 'follow', focus: null})});
+  G.battle = {setup, st, log: []}; save(false); battleScreen(true);
 }
 function battleScreen(fresh) {
   show('battle'); bsel = null; picking = null; syncDisp(); renderOrders(); bInfo();
@@ -539,15 +584,17 @@ function battleScreen(fresh) {
 function syncDisp() { const st = ST(); disp = {}; for (const u of st.units) disp[u.id] = {x: u.x, y: u.y, hp: u.hp, alpha: u.alive && !u.fled ? 1 : 0, ox: 0, oy: 0}; }
 let lastSt = null;
 const ST = () => (G.battle ? G.battle.st : lastSt);
+// 戰鬥中的每一步都記下來；多人時打完送給伺服器重播
+const bAct = (st, a) => { const ev = B.act(st, a); if (G.battle) (G.battle.log ||= []).push(a); return ev; };
 const uById = id => ST().units.find(u => u.id === id);
 function renderOrders() {
   const box = $('orders'); box.innerHTML = ''; const o = ST().order;
-  for (const [k, v] of Object.entries(ORDERS)) box.append(el('button', {class: o.stance === k ? 'on' : '', onclick: () => setOrder(k)}, k === 'focus' && o.focus && o.stance === 'focus' ? `集火：${uById(o.focus)?.name || ''}` : v.name));
+  for (const [k, v] of Object.entries(ORDERS)) box.append(el('button', {class: o.stance === k ? 'on' : '', onclick: async () => setOrder(k)}, k === 'focus' && o.focus && o.stance === 'focus' ? `集火：${uById(o.focus)?.name || ''}` : v.name));
 }
 function setOrder(k) {
   if (animating) return;
   if (k === 'focus') { picking = 'focus'; toast('點一個敵人當集火目標'); return; }
-  B.act(ST(), {type: 'order', stance: k}); G.world.lastOrder = ST().order; save(false); renderOrders(); bInfo(); toast(`${ORDERS[k].name}：${ORDERS[k].desc}`);
+  bAct(ST(), {type: 'order', stance: k}); G.world.lastOrder = ST().order; save(false); renderOrders(); bInfo(); toast(`${ORDERS[k].name}：${ORDERS[k].desc}`);
 }
 // 版面
 function layout() { const c = $('field').getBoundingClientRect(); cell = Math.floor(Math.min(c.width / B.W, c.height / B.H)); fo = {x: Math.floor((c.width - cell * B.W) / 2), y: Math.floor((c.height - cell * B.H) / 2)}; }
@@ -630,7 +677,7 @@ $('field').addEventListener('click', e => {
   const st = ST(), h = B.hero(st), u = B.unitAt(st, x, y);
   if (!bsel) bsel = {};
   if (picking === 'focus') {
-    if (u && u.side === 'enemy') { B.act(st, {type: 'order', stance: 'focus', focus: u.id}); G.world.lastOrder = st.order; picking = null; save(false); renderOrders(); refreshPlans(); bInfo(); toast(`集火：${u.name}`); }
+    if (u && u.side === 'enemy') { bAct(st, {type: 'order', stance: 'focus', focus: u.id}); G.world.lastOrder = st.order; picking = null; save(false); renderOrders(); refreshPlans(); bInfo(); toast(`集火：${u.name}`); }
     else { picking = null; toast('取消集火'); }
     return;
   }
@@ -673,7 +720,7 @@ function bInfo() {
       el('div', {}, `${f.aDmg}${f.aCount > 1 ? ' ×2' : ''}`), el('div', {class: 'mid'}, '傷害'), el('div', {class: 'r'}, f.canCounter ? `${f.dDmg}${f.dCount > 1 ? ' ×2' : ''}` : '無法反擊'),
       el('div', {}, `${f.aHit}%`), el('div', {class: 'mid'}, '命中'), el('div', {class: 'r'}, f.canCounter ? `${f.dHit}%` : '—'),
       el('div', {}, `${f.aCrit}%`), el('div', {class: 'mid'}, '暴擊'), el('div', {class: 'r'}, f.canCounter ? `${f.dCrit}%` : '—')));
-    acts.append(el('button', {class: 'primary', onclick: () => commit({type: 'hero', to: from, act: {kind: 'attack', target: e.id}})}, '攻擊'), el('button', {onclick: () => { bsel.target = null; bInfo(); }}, '取消'));
+    acts.append(el('button', {class: 'primary', onclick: async () => commit({type: 'hero', to: from, act: {kind: 'attack', target: e.id}})}, '攻擊'), el('button', {onclick: async () => { bsel.target = null; bInfo(); }}, '取消'));
     return;
   }
   if (bsel.inspect) { box.append(unitInfo(uById(bsel.inspect))); }
@@ -682,15 +729,15 @@ function bInfo() {
     for (const p of bsel.plans) { const u = uById(p.id); box.append(el('div', {class: 'plan' + (p.disobey ? ' dis' : '')}, el('b', {}, u.name), el('span', {}, planText(p)))); }
   }
   const to = bsel.to || [h.x, h.y], edge = to[0] === 0 || to[1] === 0 || to[0] === B.W - 1 || to[1] === B.H - 1;
-  acts.append(el('button', {class: 'primary', onclick: () => commit({type: 'hero', to, act: {kind: 'wait'}})}, bsel.to ? '移動並待命' : '待命'));
-  if (edge) acts.append(el('button', {class: 'danger', onclick: () => { if (confirm('撤離戰場？還跟敵人貼身纏鬥的同伴會被丟下。')) commit({type: 'flee', to}); }}, '撤離'));
-  if (bsel.to || bsel.inspect) acts.append(el('button', {onclick: () => { bsel = null; refreshPlans(); bInfo(); }}, '取消'));
+  acts.append(el('button', {class: 'primary', onclick: async () => commit({type: 'hero', to, act: {kind: 'wait'}})}, bsel.to ? '移動並待命' : '待命'));
+  if (edge) acts.append(el('button', {class: 'danger', onclick: async () => { if (confirm('撤離戰場？還跟敵人貼身纏鬥的同伴會被丟下。')) commit({type: 'flee', to}); }}, '撤離'));
+  if (bsel.to || bsel.inspect) acts.append(el('button', {onclick: async () => { bsel = null; refreshPlans(); bInfo(); }}, '取消'));
 }
 $('showDanger').onchange = () => { if (bsel) { bsel.danger = null; bsel.eplans = null; } };
 async function commit(action) {
   if (animating) return;
   const st = ST(); let ev;
-  try { ev = B.act(st, action); } catch (e) { toast(e.message); return; }
+  try { ev = bAct(st, action); } catch (e) { toast(e.message); return; }
   animating = true; $('bActions').innerHTML = ''; $('bInfo').innerHTML = '';
   save(false);
   await play(ev);
@@ -719,10 +766,13 @@ async function play(events) {
   }
 }
 function tween(d, x, y, ms) { return new Promise(res => { const x0 = d.x, y0 = d.y, t0 = performance.now(); const step = () => { const k = Math.min(1, (performance.now() - t0) / ms); d.x = x0 + (x - x0) * k; d.y = y0 + (y - y0) * k; if (k < 1) requestAnimationFrame(step); else res(); }; requestAnimationFrame(step); }); }
-function battleOver() {
-  const {setup, st} = G.battle, w = G.world; lastSt = st;
-  const lvBefore = new Map(w.party.map(m => [m.id, m.lvl]));
-  const out = Wd.applyBattle(w, setup, st);
+async function battleOver() {
+  const {setup, st, log} = G.battle; lastSt = st;
+  const lvBefore = new Map(G.world.party.map(m => [m.id, m.lvl]));
+  let out;
+  if (NET.on) { try { const d = await api('/api/battle', {log}); applyView(d); out = d.out; if (d.error) { toast(d.error); out = {lines: [d.error]}; } } catch (e) { toast(e.message); out = {lines: ['連線失敗，戰果之後會再同步。']}; } refreshMirror(true).catch(() => {}); }
+  else out = Wd.applyBattle(G.world, setup, st);
+  const w = G.world;
   G.battle = null; save();
   if (w.over) return gameOver();
   const box = el('div', {}, el('h2', {}, st.result === 'win' ? '勝利' : st.result === 'retreat' ? '撤退' : '戰鬥結束'));
@@ -731,14 +781,14 @@ function battleOver() {
   openSheet(box, () => worldScreen());
 }
 function gameOver() {
-  const w = G.world; wipe();
+  const w = G.world; if (!NET.on) wipe();
   const h = {name: w.party.find(m => m.hero)?.name};
   const box = el('div', {}, el('h2', {}, '旅程結束'),
     el('p', {}, `你在第 ${w.day} 天倒在${w.over?.where || '路上'}。`),
     el('p', {class: 'muted'}, `打過 ${w.battles} 場仗，隊伍一共擊倒 ${w.kills} 個敵人。`));
   if (w.fallen.length) { box.append(el('h3', {}, '先你而去的人')); for (const f of w.fallen) box.append(el('p', {class: 'muted'}, `${f.name}（${CLASSES[f.cls].name}）・第 ${f.day} 天・${f.how}`)); }
   const alive = w.party.filter(m => !m.hero); if (alive.length) { box.append(el('h3', {}, '活下來的人')); box.append(el('p', {class: 'muted'}, alive.map(m => m.name).join('、') + '——他們會各自散去。')); }
-  box.append(el('button', {class: 'primary', onclick: () => { closeSheet(); G = {world: null, battle: null}; titleScreen(); }}, '重新開始'));
+  box.append(el('button', {class: 'primary', onclick: async () => { closeSheet(); G = {world: null, battle: null}; titleScreen(); }}, '重新開始'));
   void h; const lock = () => {}; lock.locked = true; openSheet(box, lock);
 }
 addEventListener('resize', () => { if (!$('battle').hidden) { bsel && (bsel.reach = null); } });
@@ -746,4 +796,5 @@ addEventListener('resize', () => { if (!$('battle').hidden) { bsel && (bsel.reac
 /* ───────────── 啟動 ───────────── */
 // 舊版存檔（小地圖）已不相容，清掉省空間
 try { for (const k of ['warband-slice-v1', 'warband-v2', 'warband-v2-sim']) localStorage.removeItem(k); } catch {}
+setInterval(() => { if (NET.on && G.world && !$('world').hidden) renderStatus(); }, 5000);
 loadArt().then(titleScreen);

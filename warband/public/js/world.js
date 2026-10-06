@@ -13,6 +13,19 @@ const isSpec = g => !!SPEC[g];
 export const unitValue = g => isSpec(g) ? SPEC[g].v : C.BASEP[g] * COINP;
 const K = C.K, nm = C.nm;
 
+/* ───────────── 共享世界 ───────────── */
+// 單人時：玩家的行動推進沙盒的時鐘。多人時：沙盒由伺服器的鬧鐘推進，
+// 玩家的行動只花自己的行動點（1 AP = 1 小時），傳聞來自伺服器的事件流。
+export const MODE = {shared: false, events: null, worldT: 0, bandName: '一支無名的戰幫'};
+export const AP_MAX = 120;
+// 這個行動要花幾小時（= 幾點 AP）
+export function apCost(w, a) {
+  if (a.type === 'travel') return legHours(w, a.to);
+  if (a.type === 'rest') return 24 * (a.days || 1);
+  if (a.type === 'explore') return 12;
+  if (a.type === 'search') return 24;
+  return 0;
+}
 /* ───────────── 常數 ───────────── */
 export const BALE = 0.02;           // 一包貨 = 沙盒裡 0.02 單位（戰幫的生意比起整座城的進出貨很小）
 export const COINP = 3;             // 沙盒基準價 × 3 = 一包的金幣價
@@ -335,7 +348,7 @@ export function genPOIs() {
 }
 export const poiAt = (w, i) => pois(w).find(p => p.tile === i);
 // 探索過的紀錄：單人存在自己身上；多人時由伺服器塞進 w.poiShared
-export const poiDone = (w, p) => { const r = (w.poiShared && w.poiShared[p.id]) || (w.poi && w.poi[p.id]); return r && w.day - r.day < 60 ? r : null; };
+export const poiDone = (w, p) => { const s = w.poiShared && w.poiShared[p.id]; if (s) return MODE.worldT - s.T < 240 ? s : null; const r = w.poi && w.poi[p.id]; return r && w.day - r.day < 60 ? r : null; };
 const lootText = L => [L.gold ? `${L.gold} 金幣` : '', ...Object.entries(L.cargo || {}).filter(([, q]) => q > 0).map(([g, q]) => `${GN[g]} ${q} 包`), L.gear ? '一件堪用的兵器' : ''].filter(Boolean).join('、');
 function grantLoot(w, L, out) {
   const k = K();
@@ -349,7 +362,7 @@ function grantLoot(w, L, out) {
   if (L.lead != null) { const wp = k.weapons.find(x => x.id === L.lead); if (wp && wp.lost && !w.leads.some(x => x.wp === wp.id)) { const spot = wp.lake && wp.shore != null ? wp.shore : wp.loc; w.leads.push({id: 'L' + w.nextId++, wp: wp.id, name: wp.name, center: spot, day: w.day}); reveal(w, spot, 1); out.lines.push(`你們打聽到「${wp.name}」的下落。`); } }
   if (L.relic != null) { const wp = k.weapons.find(x => x.id === L.relic); if (wp && wp.lost) {
     wp.lost = false; wp.lake = false; wp.sealed = false; wp.holder = 0; wp.fac = -1; wp.gang = 0; wp.loc = -1; wp.player = 1;
-    wp.hist.push({y: k.curY, t: `失落多年後，一支無名的戰幫在${nm(w.pos)}找到了「${wp.name}」。`});
+    wp.hist.push({y: k.curY, t: `失落多年後，${MODE.bandName}在${nm(w.pos)}找到了「${wp.name}」。`});
     w.relics.push({id: wp.id, name: wp.name, kind: wp.kind, wins: wp.wins, owners: wp.owners}); w.leads = w.leads.filter(x => x.wp !== wp.id); w.fame = (w.fame || 0) + 2;
     out.lines.push(`找到了傳說中的「${wp.name}」！`); } }
   const t = lootText(L); if (t) out.lines.push(`得到${t}。`);
@@ -389,7 +402,7 @@ function passHours(w, hours, mode, out) {
 }
 // 每六小時：沙盒推進一個時段；附近發生的事會傳到耳裡；盜匪會盯上帶著貨的人
 function worldTick(w, out) {
-  const evs = C.tick(); w.tick++;
+  const evs = MODE.shared ? MODE.events(w) : C.tick(); w.tick++;
   let told = 0;
   for (const e of evs) {
     if (told >= 2 || !RUMOR_TYPES.has(e.type) || e.tile < 0) continue;
@@ -596,12 +609,12 @@ export function applyBattle(w, setup, bst) {
       const g = k.gangs.find(x => x.id === setup.source.ref);
       out.loot = Math.round(100 + (g.loot || 0) * 2 + g.str * 0.4 + rngInt(w, 60));
       g.gone = 1; g.to = undefined; w.fame = (w.fame || 0) + 2; k.bandit[g.lair] *= 0.25; for (const n of NBR[g.lair]) k.bandit[n] *= 0.4;
-      k.ev.push({y: k.curY, type: 'bandit', text: `一支無名的戰幫攻破了${g.name}的山寨。`, tile: g.lair, ts: k.stamp});
+      k.ev.push({y: k.curY, type: 'bandit', text: `${MODE.bandName}攻破了${g.name}的山寨。`, tile: g.lair, ts: k.stamp});
       for (const c of w.contracts) if (c.gang === g.id) { if (c.taken) { c.done = true; out.lines.push(`委託「${c.title}」完成，回${nm(c.town)}（或${facName(k.owner[c.town])}的其他城）領賞。`); } else c.void = true; }
       // 山寨裡藏著的傳奇武器
       for (const wp of k.weapons) if (wp.gang === g.id) {
         wp.gang = 0; wp.holder = 0; wp.fac = -1; wp.lost = false; wp.loc = -1; wp.player = 1;
-        wp.hist.push({y: k.curY, t: `一支無名的戰幫攻破${g.name}的山寨，從寨裡搜出了「${wp.name}」。`});
+        wp.hist.push({y: k.curY, t: `${MODE.bandName}攻破${g.name}的山寨，從寨裡搜出了「${wp.name}」。`});
         w.relics.push({id: wp.id, name: wp.name, kind: wp.kind, wins: wp.wins, owners: wp.owners});
         out.lines.push(`在寨子深處搜出一把${wp.kind}——是傳說中的「${wp.name}」！`);
       }
@@ -626,6 +639,8 @@ export function applyBattle(w, setup, bst) {
 export function worldAct(w, a) {
   const out = {lines: []};
   if (w.over) throw new Error('這段旅程已經結束');
+  const apNeed = MODE.shared ? apCost(w, a) : 0;
+  if (apNeed > (w.ap ?? 0) + 1e-9) throw new Error(`行動點不夠：要 ${apNeed}，剩 ${Math.floor(w.ap ?? 0)}。休息一下，時間會慢慢補回來。`);
   w.leads ||= []; if (w.escort === undefined) w.escort = null;
   const k = K(), here = siteAt(w, w.pos), town = here?.kind === 'town';
   const needTown = () => { if (!town) throw new Error('要在城鎮的市集'); };
@@ -691,7 +706,7 @@ export function worldAct(w, a) {
       const spot = wp && wp.lost ? (wp.lake && wp.shore != null ? wp.shore : wp.loc) : -1;
       if (spot !== w.pos || rngNext(w) > (wp.lake ? 0.25 : wp.sealed ? 0.3 : 0.6)) { say(w, `在${nm(w.pos)}找了一整天，什麼也沒找到。`); out.lines.push('找了一整天，什麼也沒找到。'); break; }
       wp.lost = false; wp.lake = false; wp.sealed = false; wp.holder = 0; wp.fac = -1; wp.gang = 0; wp.loc = -1; wp.player = 1;
-      wp.hist.push({y: k.curY, t: `失落多年後，一支無名的戰幫在${nm(w.pos)}${spot === wp.shore ? '的水邊' : ''}找到了「${wp.name}」。`});
+      wp.hist.push({y: k.curY, t: `失落多年後，${MODE.bandName}在${nm(w.pos)}${spot === wp.shore ? '的水邊' : ''}找到了「${wp.name}」。`});
       w.relics.push({id: wp.id, name: wp.name, kind: wp.kind, wins: wp.wins, owners: wp.owners});
       w.leads = w.leads.filter(x => x !== L); w.fame = (w.fame || 0) + 2;
       say(w, `在${nm(w.pos)}找到了傳說中的「${wp.name}」！`); out.lines.push(`找到了「${wp.name}」！`);
@@ -770,7 +785,7 @@ export function worldAct(w, a) {
       needTown(); const r = w.relics.find(x => x.id === a.id); if (!r) throw new Error('沒有這件東西');
       const wp = k.weapons.find(x => x.id === r.id), f = k.owner[w.pos], price = relicPrice(w, r);
       w.gold += price; w.relics = w.relics.filter(x => x !== r);
-      if (wp) { wp.player = 0; wp.fac = f; wp.hist.push({y: k.curY, t: `一支無名的戰幫把「${wp.name}」賣給了${nm(w.pos)}，${facName(f)}收進了寶庫。`}); }
+      if (wp) { wp.player = 0; wp.fac = f; wp.hist.push({y: k.curY, t: `${MODE.bandName}把「${wp.name}」賣給了${nm(w.pos)}，${facName(f)}收進了寶庫。`}); }
       say(w, `把「${r.name}」賣給了${nm(w.pos)}的權貴，得 ${price} 金幣。`);
       break;
     }
@@ -842,6 +857,7 @@ export function worldAct(w, a) {
     default: throw new Error('未知的行動');
   }
   if (out.battle) w.pendingBattle = out.battle;
+  if (apNeed) w.ap -= apNeed;
   return out;
 }
 export const relicPrice = (w, r) => { const k = K(), m = k.markets[w.pos]; return Math.round((400 + r.wins * 12 + r.owners * 20) * (m ? Math.min(1.6, 0.6 + m.pop / 600) : 1)); };
@@ -886,7 +902,7 @@ function hireFamous(w, h) {
   m.loyalty = 45 + Math.round((h.loyal || 0.5) * 20); m.wage = o.wage; m.deeds = {battles: h.battles || 0, kills: 0, joinedDay: w.day}; m.simHero = h.id; m.famous = true;
   const wp = k.weapons.find(x => x.holder === h.id); if (wp) m.relicW = wp.id;
   h.warband = 1; h.noCmd = 1; if (h.fief >= 0 && k.markets[h.fief]) k.markets[h.fief].lord = 0; h.fief = -1;
-  k.ev.push({y: k.curY, type: 'hero', text: `${k.fac[h.f]?.n || ''}的${h.name}離開了故國，加入了一支無名的戰幫。`, tile: w.pos, ts: k.stamp});
+  k.ev.push({y: k.curY, type: 'hero', text: `${k.fac[h.f]?.n || ''}的${h.name}離開了故國，加入了${MODE.bandName}。`, tile: w.pos, ts: k.stamp});
   void seedW; return m;
 }
 // 有名者離隊或戰死：寫回沙盒
