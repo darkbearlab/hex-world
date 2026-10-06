@@ -86,6 +86,7 @@ const LEG={terrain:'地貌：◆ 鐵礦脈，◇ 已挖光。',faction:'勢力�
 function renderLegend(){$('legend').innerHTML=isHist()?`正在看第 ${viewYear} 年的勢力範圍。按「回到現在」看即時的世界。`:
   LEG[layer]+'　圓點是旅人（<span style="color:#e8a33d">獵人</span>・<span style="color:#5fbf6a">樵夫</span>・<span style="color:#a9b8c6">礦工</span>・<span style="color:#e46ec0">行商</span>・<span style="color:#ef5b4a">賞金獵人</span>，灰色＝離線，黃色小帳篷＝紮營）。'}
 function renderClock(){if(!S)return;$('clock').textContent=S.stamp;
+  if(S.paused){$('countdown').textContent='世界暫停中（進度已保存，恢復後從這裡繼續）';$('badge').textContent=isHist()?`第 ${viewYear} 年`:'暫停';return}
   const left=Math.max(0,S.nextAt-(Date.now()-clockSkew));const m=Math.floor(left/60000),s=Math.floor(left/1000)%60;
   $('countdown').textContent=`下一個時段：${m}:${String(s).padStart(2,'0')}　｜　本時段實際計算 ${S.computed} 格，${S.pending} 格待補算`;
   $('badge').textContent=isHist()?`第 ${viewYear} 年`:`${PERIOD[S.period]}`}
@@ -95,7 +96,7 @@ let clockSkew=0,timer=null;
 async function poll(){try{const r=await fetch('/api/state',{cache:'no-store'});S=await r.json();clockSkew=Date.now()-S.now;$('busy').hidden=true;
     $('tickdesc').textContent=S.tickMs>=60000?`${Math.round(S.tickMs/60000)} 分鐘`:`${Math.round(S.tickMs/1000)} 秒`;render()}
   catch(e){$('busy').hidden=false;$('busy').textContent='連不上世界，稍後自動重試…'}
-  clearTimeout(timer);const wait=S?Math.min(30000,Math.max(3000,S.nextAt-(Date.now()-clockSkew)+2500)):10000;timer=setTimeout(poll,wait)}
+  clearTimeout(timer);const wait=S&&S.paused?60000:S?Math.min(30000,Math.max(3000,S.nextAt-(Date.now()-clockSkew)+2500)):10000;timer=setTimeout(poll,wait)}
 async function boot(){ST=await (await fetch('/api/static')).json();layout();await poll();setInterval(renderClock,1000)}
 
 document.querySelectorAll('[data-layer]').forEach(b=>b.addEventListener('click',()=>{layer=b.dataset.layer;document.querySelectorAll('[data-layer]').forEach(x=>x.setAttribute('aria-pressed',x===b));draw();renderLegend()}));
