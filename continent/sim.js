@@ -1,6 +1,7 @@
 // 六角世界模擬核心：觀看網頁、創世腳本與 Cloudflare Worker 共用
 
-const W=30,H=24,N=W*H,YEARS=400;
+// 地圖倍率 MK（1 = 舊的 30×24）、拓殖半徑 COLR（墾民只往離自家市鎮幾格內開墾；99 = 不限）
+const MK=globalThis.MAPK??2,COLR=globalThis.COLR??3,W=Math.round(30*MK),H=Math.round(24*MK),N=W*H,YEARS=400;
 
 /* ---------- 亂數與雜訊 ---------- */
 function mulberry32(a){const f=function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};f.state=()=>a;f.setState=v=>{a=v};return f}
@@ -42,15 +43,15 @@ function generate(seedStr,{history=true}={}){
   const HH=H*.866;
   for(let i=0;i<N;i++){const px=col(i)+(row(i)&1)*.5,py=row(i)*.866;
     const dx=(px/W-.5)*2,dy=(py/HH-.5)*2;
-    elev[i]=fbm(px*.17,py*.17,s)*1.1-(dx*dx+dy*dy)*.5;}
+    elev[i]=fbm(px*.17/MK,py*.17/MK,s)*1.1-(dx*dx+dy*dy)*.5;}
     {const ord=[...elev.keys()].sort((a,b)=>elev[a]-elev[b]);ord.forEach((i,k)=>elev[i]=k/(N-1))}
   const SEA=.36,land=i=>elev[i]>=SEA;
   for(let i=0;i<N;i++){const py=row(i)*.866;
-    temp[i]=.15+.8*(py/HH)-Math.max(0,elev[i]-.7)*.6+(fbm(col(i)*.3,row(i)*.3,s+7)-.5)*.2}
+    temp[i]=.15+.8*(py/HH)-Math.max(0,elev[i]-.7)*.6+(fbm(col(i)*.3/MK,row(i)*.3/MK,s+7)-.5)*.2}
   // 由西向東的濕氣：越過山脈後變乾（雨影）
   for(let r=0;r<H;r++){let m=.9;for(let c=0;c<W;c++){const i=idx(c,r);
-    if(!land(i)){m=Math.min(1,m+.12);rain[i]=m;continue}
-    rain[i]=m*(.55+.45*fbm(c*.25,r*.25,s+13));m*=elev[i]>.88?.5:.95}}
+    if(!land(i)){m=Math.min(1,m+.12/MK);rain[i]=m;continue}
+    rain[i]=m*(.55+.45*fbm(c*.25/MK,r*.25/MK,s+13));m*=Math.pow(elev[i]>.88?.5:.95,1/MK)}}
   for(let i=0;i<N;i++){const e=elev[i];let b;
     if(e<.2)b=0;else if(e<SEA)b=1;else if(e>.965)b=2;else if(e>.89)b=3;else if(e>.78)b=4;
     else if(temp[i]<.24)b=5;else if(e<.46&&rain[i]>.6)b=9;else if(rain[i]>.5)b=6;else if(rain[i]<.24&&temp[i]>.55)b=8;else b=7;
@@ -58,8 +59,8 @@ function generate(seedStr,{history=true}={}){
   // 河流：從高處沿最陡方向流向海
   const river=new Uint8Array(N),riverPaths=[];
   const springs=[];for(let i=0;i<N;i++)if(elev[i]>.82&&rain[i]>.3&&biome[i]!==2)springs.push(i);
-  for(let k=0;k<9&&springs.length;k++){let cur=springs.splice(Math.floor(rand()*springs.length),1)[0];const path=[cur];
-    for(let step=0;step<40;step++){let best=-1,be=elev[cur];for(const n of NBR[cur])if(elev[n]<be){be=elev[n];best=n}
+  for(let k=0;k<Math.round(9*MK*MK)&&springs.length;k++){let cur=springs.splice(Math.floor(rand()*springs.length),1)[0];const path=[cur];
+    for(let step=0;step<40*MK;step++){let best=-1,be=elev[cur];for(const n of NBR[cur])if(elev[n]<be){be=elev[n];best=n}
       if(best<0)break;path.push(best);cur=best;if(!land(cur))break}
     if(path.length>3){riverPaths.push(path);for(const p of path)if(land(p))river[p]=1}}
   const fert=new Float32Array(N),res=new Float32Array(N);
@@ -68,7 +69,7 @@ function generate(seedStr,{history=true}={}){
   const names=new Array(N).fill(''),used=new Set();
   for(let i=0;i<N;i++){if(!land(i))continue;let nm,t=0;
     do{nm=pick(PRE)+pick(SUF[biome[i]]);t++}while(used.has(nm)&&t<12);
-    if(used.has(nm))nm=pick(PRE)+pick(PRE)+pick(SUF[biome[i]]);used.add(nm);names[i]=nm}
+    for(let k=0;used.has(nm)&&k<30;k++){const a=pick(PRE);let b=pick(PRE);while(b===a)b=pick(PRE);nm=a+b+pick(SUF[biome[i]])}used.add(nm);names[i]=nm}
   // 天然資源：水源、木材、獵物、鹽、鐵礦脈
   const coast=new Uint8Array(N),water=new Float32Array(N),timberK=new Float32Array(N),gameK=new Float32Array(N),saltK=new Float32Array(N),vein0=new Float32Array(N);
   for(let i=0;i<N;i++){if(!land(i))continue;const b=biome[i];if(NBR[i].some(n=>!land(n)))coast[i]=1;
@@ -160,21 +161,22 @@ function createSim(w,rand,pick){
       edges:Object.entries(edgeT).sort((a,b)=>b[1]-a[1]).slice(0,160).map(([k,v])=>{const [a,b]=k.split('-').map(Number);return [a,b,+v.toFixed(1)]}),
       famine:Array.from(famineH,v=>Math.round(v*10)/10)}};
   snaps.push(makeSnap());
-  const heroName=()=>pick(SUR)+pick(GIV)+(rand()<.5?pick(GIV):'');
+  const givName=()=>{const a=pick(GIV);if(rand()>=.5)return a;let b=pick(GIV);while(b===a)b=pick(GIV);return a+b};
+  const heroName=()=>{const a=pick(GIV);if(rand()>=.5)return pick(SUR)+a;let b=pick(GIV);while(b===a)b=pick(GIV);return pick(SUR)+a+b};
   // 英雄與領主：有封地的英雄就是那座市鎮的領主；死了由子嗣繼承
   let nextHero=1,battles=[];
   const mkHero=(f,y,name)=>{const h={id:nextHero++,name:name||heroName(),f,born:y,alive:true,fief:-1,wins:0,battles:0,skill:+(.9+rand()*.4).toFixed(2),loyal:+(.4+rand()*.6).toFixed(2),diedY:-1,end:''};heroes.push(h);return h};
   const heroById=id=>heroes.find(h=>h.id===id);
   function heroDies(h,y,end,o={}){if(!h.alive)return;h.alive=false;h.captive=null;h.diedY=y;h.end=end;let heir=null;const F=fac[h.f];
-    if(h.fief>=0&&markets[h.fief]&&owner[h.fief]===h.f&&F.alive&&!o.noHeir&&rand()<.92){const t=h.fief;heir=mkHero(h.f,y,h.name[0]+pick(GIV)+(rand()<.5?pick(GIV):''));
+    if(h.fief>=0&&markets[h.fief]&&owner[h.fief]===h.f&&F.alive&&!o.noHeir&&rand()<.92){const t=h.fief;heir=mkHero(h.f,y,h.name[0]+givName());
       heir.fief=t;heir.parent=h.id;heir.loyal=+Math.min(1,h.loyal*.6+rand()*.4).toFixed(2);markets[t].lord=heir.id;
       if(markets[t].pop>=100&&rand()<.3||h.legend)say(y,'hero',`${nm(t)}領主${h.name}死後，由其子${heir.name}繼承封地。`,t)}
     if(F.alive&&F.ruler===h.id){
-      if(!o.noHeir&&rand()<.85){if(!heir){heir=mkHero(h.f,y,h.name[0]+pick(GIV)+(rand()<.5?pick(GIV):''));heir.parent=h.id}
+      if(!o.noHeir&&rand()<.85){if(!heir){heir=mkHero(h.f,y,h.name[0]+givName());heir.parent=h.id}
         if(heir.fief>=0&&markets[heir.fief])markets[heir.fief].lord=0;heir.fief=-1;heir.ruled=1;F.ruler=heir.id;F.house=heir.name[0];
         if(h.ruled&&(h.legend||rand()<.35))say(y,'hero',`${F.n}的國君${h.name}死後，${heir.name}繼位。`,F.cap)}
       else{const mar=marriages.filter(m=>m.h1===F.house||m.h2===F.house).map(m=>m.h1===F.house?m.h2:m.h1).filter(x=>fac.some(z=>z.alive&&z.house===x));
-        if(mar.length&&rand()<.5){const hs=mar[Math.floor(rand()*mar.length)],nh=mkHero(F.id,y-25,hs+pick(GIV)+(rand()<.5?pick(GIV):''));nh.ruled=1;F.ruler=nh.id;F.house=hs;
+        if(mar.length&&rand()<.5){const hs=mar[Math.floor(rand()*mar.length)],nh=mkHero(F.id,y-25,hs+givName());nh.ruled=1;F.ruler=nh.id;F.house=hs;
           const ally=fac.find(z=>z.alive&&z.house===hs&&z.id!==F.id);const txt=`${F.n}的國君${h.name}身後無嗣，由姻親${hs}家的${nh.name}入主${ally?`，從此與${ally.n}同屬${hs}家`:''}。`;(LEGH.has(hs)||LEGH.has(h.name[0])?sagaSay:(yy,tt,ti)=>say(yy,'war',tt,ti))(y,txt,F.cap)}
         else{F.ruler=0;F.crisis=y;say(y,'war',`${F.n}的國君${h.name}身後無嗣，諸侯爭位，各地人心浮動。`,F.cap)}}}
     let given=0;for(const wp of weaponsOf(h)){
@@ -220,7 +222,10 @@ function createSim(w,rand,pick){
   function initLegends(){
     // 首都挪到大陸中央附近的沃土
     const center=idx(Math.floor(W/2),Math.floor(H/2));let cap=fac[0].cap,bd=1e9;
-    for(let i=0;i<N;i++)if(land[i]&&fert[i]>=.6&&biome[i]!==2){const d=hdist(i,center);if(d<bd){bd=d;cap=i}}
+    if((globalThis.CAPAT??'se')==='se'){   // 東南海岸：離東南角最近、夠肥沃的海岸格（有河口更好）
+      const tgt=idx(Math.floor(W*.82),Math.floor(H*.8));
+      for(let i=0;i<N;i++)if(land[i]&&w.coast[i]&&fert[i]>=.5&&biome[i]!==2){const d=hdist(i,tgt)-(river[i]?2:0)-fert[i]*2;if(d<bd){bd=d;cap=i}}}
+    else for(let i=0;i<N;i++)if(land[i]&&fert[i]>=.6&&biome[i]!==2){const d=hdist(i,center);if(d<bd){bd=d;cap=i}}
     const old=fac[0].cap;if(old!==cap){owner[old]=-1;pop[old]=0;peak[old]=0;town[old]=0;delete markets[old];ev.length=0;fac[0].cap=cap;town[cap]=1;markets[cap]=newMarket()}
     // 統一後的疆域：首都七格內的土地
     for(let i=0;i<N;i++){if(!land[i]||biome[i]===2)continue;const d=hdist(i,cap);if(d>7)continue;owner[i]=0;pop[i]=Math.max(6,(fert[i]*100+5)*.42*(1-d/11));peak[i]=pop[i]}
@@ -282,7 +287,7 @@ function createSim(w,rand,pick){
     else if(ARC.phase===2&&y>=ARC.campY)camlann(y,{K,C,Q,M,B,KY});
     else if(ARC.phase===3&&y>=ARC.kingDieY)kingDies(y,{K,C,Q,B,KY})}
   const pr=(a,b,c)=>Math.max(b,Math.min(c,a));
-  const BIGLOOT=globalThis.BIGLOOT??40,LOOTSTR=globalThis.LOOTSTR??1,FAMEK=globalThis.FAMEK??1500,FAMET=globalThis.FAMET??6,RICH=globalThis.RICH??400;
+  const BIGLOOT=globalThis.BIGLOOT??120,LOOTSTR=globalThis.LOOTSTR??1,FAMEK=globalThis.FAMEK??1500,FAMET=globalThis.FAMET??8,RICH=globalThis.RICH??400;
   function scandal(y,{K,C,Q,M,G,R,KY,B}){
     ARC.phase=1;ARC.scandalY=y;const cap=fac[0].cap;
     const who=rand();
@@ -307,11 +312,11 @@ function createSim(w,rand,pick){
       if(rand()<p){const t=h.fief;for(let i=0;i<N;i++)if(owner[i]===0&&(mkt[i]===t||i===t))owner[i]=st.id;h.f=st.id;
         if(h.legend)sagaSay(y,`${h.title}${h.name}站在${C.name}這一邊，帶著${nm(t)}投奔${st.n}。`,t);else say(y,'war',`${nm(t)}領主${h.name}投奔${st.n}。`,t)}}
     const W_=war[Math.min(0,st.id)][Math.max(0,st.id)];if(W_)W_.end=y+12;
-    sagaSay(y,`${K.name}親率大軍圍攻${nm(home)}。${G&&G.alive?G.name+'在王身邊，日夜催促攻城。':''}`,home);
+    sagaSay(y,`${K.name}親率大軍圍攻${nm(home)}。${G&&G.alive?(G.f===0?G.name+'在王身邊，日夜催促攻城。':G.name+'站在城頭，和舊主隔著城牆相望。'):''}`,home);
     ARC.usurpY=y+2+Math.floor(rand()*2)}
   function usurp(y,{K,C,M,G}){
     ARC.phase=2;const st=fac[ARC.champ];
-    if(G&&G.alive&&C.alive){if(rand()<.55){sagaSay(y,`${G.name}在${nm(st.cap)}城下與${C.name}決鬥，被${C.name}一劍重創。臨終前，他寫信請${C.name}回來救王。`,st.cap);heroDies(G,y,`死於與${C.name}的決鬥`);ARC.letter=1}
+    if(G&&G.alive&&C.alive&&G.f===0){if(rand()<.55){sagaSay(y,`${G.name}在${nm(st.cap)}城下與${C.name}決鬥，被${C.name}一劍重創。臨終前，他寫信請${C.name}回來救王。`,st.cap);heroDies(G,y,`死於與${C.name}的決鬥`);ARC.letter=1}
       else sagaSay(y,`${G.name}在${nm(st.cap)}城下與${C.name}決鬥，兩人都負了重傷，被各自的部下抬回陣中。`,st.cap)}
     const slot=freeSlot(y);if(!slot){ARC.phase=3;ARC.kingDieY=y+1;return}
     const cap=fac[0].cap,tiles=[];let where;
@@ -354,10 +359,10 @@ function createSim(w,rand,pick){
     if(keeper){if(keeper.fief>=0&&markets[keeper.fief])markets[keeper.fief].lord=0;keeper.fief=-1;fac[0].ruler=keeper.id;fac[0].house=keeper.name[0];keeper.ruled=1}
     for(const h of heroes.slice())if(h.alive&&h.legend&&h.f===0&&h.fief>=0&&markets[h.fief]&&owner[h.fief]===0){const before=h.f;secede(fac[0],h.fief,y,'王死之後');if(h.f!==before)states.push(`${h.name}的${fac[h.f].n}`)}
     for(const t of Object.keys(markets).map(Number))if(owner[t]===0&&t!==fac[0].cap&&rand()<.5){const m=markets[t],lord=m.lord&&heroById(m.lord);if(lord&&lord.alive&&m.pop>=60){const before=lord.f;secede(fac[0],t,y,'王死之後');if(lord.f!==before)states.push(`${lord.name}的${fac[lord.f].n}`)}}
-    sagaSay(y,`金冠王國就此分崩離析。${keeper?`${keeper.title||''}${keeper.name}守著舊都，改稱${fac[0].n}；`:`舊都的諸侯共推出新的領主，改稱${fac[0].n}；`}${states.length?states.join('、')+'各自稱雄。':''}`,fac[0].cap);
+    sagaSay(y,`金冠王國就此分崩離析。${keeper?`${keeper.title||''}${keeper.name}守著舊都，改稱${fac[0].n}`:`舊都的諸侯共推出新的領主，改稱${fac[0].n}`}${states.length?'；'+states.join('、')+'各自稱雄。':'。'}`,fac[0].cap);
     if(C&&C.alive){const st=fac[C.f],r=rand(),mord=fac[ARC.mord];
       if(r<.5&&!ARC.burned){sagaSay(y,`聽到王的死訊，${C.name}放下了劍，到修道院度過餘生${Q.alive?`；王后${Q.name}也削髮為尼`:''}。${st.alive?st.n+'交給了他的兒子。':''}`,st.cap);
-        C.noCmd=1;if(st.alive&&st.ruler===C.id){const heir=mkHero(st.id,y-20,C.name[0]+pick(GIV)+(rand()<.5?pick(GIV):''));heir.parent=C.id;heir.ruled=1;st.ruler=heir.id;for(const wp of weaponsOf(C))giveW(wp,heir,y,`${C.name}把「${wp.name}」留給了兒子${heir.name}。`)}}
+        C.noCmd=1;if(st.alive&&st.ruler===C.id){const heir=mkHero(st.id,y-20,C.name[0]+givName());heir.parent=C.id;heir.ruled=1;st.ruler=heir.id;for(const wp of weaponsOf(C))giveW(wp,heir,y,`${C.name}把「${wp.name}」留給了兒子${heir.name}。`)}}
       else if(r<.8&&mord&&mord.alive&&st.alive){sagaSay(y,`${C.name}不肯原諒篡位者的血脈，率軍討伐${mord.n}。`,mord.cap);const a=Math.min(st.id,mord.id),b=Math.max(st.id,mord.id);war[a][b]={att:st.id,def:mord.id,goal:mord.cap,start:y,end:y+8,gain:{},score:0,siege:null,taken:[]};hAffAdd(C.name[0],mord.house,-2)}
       else sagaSay(y,`${C.name}得知王死，痛哭三天，從此不再踏出${nm(st.cap)}一步。`,st.cap)}
     ARC.protect=-1}
@@ -530,7 +535,7 @@ function createSim(w,rand,pick){
     for(let i=0;i<N;i++){if(owner[i]<0)continue;const f=fac[owner[i]],p=pop[i];
       const hunt=Math.min(game[i]*.08,p*.08*(s===3?.5:1));game[i]-=hunt;
       const out={food:p*1.5*fert[i]*HARVEST[s]+hunt,wood:Math.min(timber[i]*WOODRATE,p*.075),iron:0,
-        stone:p*(biome[i]===3?.03:biome[i]===4?.02:.001),salt:saltK[i]*p*.08*SALTS[s]};
+        stone:p*(biome[i]===3?.03:biome[i]===4?.02:.001),salt:saltK[i]*p*(globalThis.SALTX??.25)*SALTS[s]};
       timber[i]-=out.wood;
       // 煉鐵：沼澤、河岸挖沼鐵礦，礦脈挖礦石，按這一區木炭夠煉多少的比例出鐵
       {const mm=mkt[i];if(mm>=0){const [b,v]=oreOf(i),fe=(b+v)*fOre[mm];timber[i]-=cop(i)*fFuel[mm];
@@ -647,7 +652,7 @@ function createSim(w,rand,pick){
     if(G){G.loot=(G.loot||0)+v;bandit[G.lair]=Math.min(100,bandit[G.lair]+Math.min(12,v/4));
       if(!G.made&&G.loot>=BIGLOOT){G.made={y,from:S,to:T,g};say(y,'bandit',`盜匪${G.name}在${nm(t)}劫下${nm(S)}往${nm(T)}的一整支${GN[g]}商隊，靠這筆財貨招兵買馬，山寨從此坐大。`,t);return true}
       return false}
-    if(bandit[t]<25||rand()>.35)return false;
+    if(bandit[t]<25||rand()>.02||gangs.filter(x=>!x.gone).length>=3+2*MK*MK)return false;
     let lair=owner[t]<0?t:-1;if(lair<0)for(const n of NBR[t])if(land[n]&&owner[n]<0){lair=n;break}if(lair<0)return false;
     const nG={id:nextGang++,name:heroName(),lair,str:0,born:y,loot:v,made:{y,from:S,to:T,g}};gangs.push(nG);bandit[lair]=Math.min(100,bandit[lair]+30);
     say(y,'bandit',`${nG.name}帶人在${nm(t)}劫了${nm(S)}往${nm(T)}的${GN[g]}商隊，拿這筆錢在${nm(lair)}拉起了一支人馬。`,lair);return true}
@@ -714,7 +719,7 @@ function createSim(w,rand,pick){
         continue}
       if(pop[i]<40||nT[o]>=1+Math.floor(nL[o]/7))continue;
       if(!(river[i]||w.coast[i]||routeTiles.has(i)))continue;
-      let near=false;for(const k in markets)if(owner[+k]===o&&hdist(i,+k)<=3){near=true;break}if(near)continue;
+      const SP=globalThis.TSP??4;let near=false;for(const k in markets)if((SP>3||owner[+k]===o)&&hdist(i,+k)<=SP){near=true;break}if(near)continue;
       town[i]=1;markets[i]=newMarket();nT[o]++;say(y,'found',`${nm(i)}商旅往來漸多，發展成${fac[o].n}的市鎮。`,i)}}
 
     // 4. 築城：石材夠就加固首都與前線
@@ -732,17 +737,22 @@ function createSim(w,rand,pick){
     const order=[...Array(N).keys()];for(let k=N-1;k>0;k--){const j=Math.floor(rand()*(k+1));const t=order[k];order[k]=order[j];order[j]=t}
     for(const i of order){if(owner[i]<0)continue;const cap=fert[i]*100+5;
       if(pop[i]>Math.max(20,cap*.45)&&rand()<.3){let best=-1,bs=.3;
-        for(const n of NBR[i]){if(!land[n]||owner[n]>=0||bandit[n]>=26)continue;
+        for(const n of NBR[i]){if(!land[n]||owner[n]>=0||bandit[n]>=26)continue;if(COLR<99){let ok=false;for(const k in markets)if(owner[+k]===owner[i]&&hdist(n,+k)<=COLR){ok=true;break}if(!ok)continue}
           const sc=fert[n]+(vein[n]>0&&known[n]?.8:0)+timber[n]/250+game[n]/150+saltK[n]*.3+([3,4].includes(biome[n])?.15:0);if(sc>bs){bs=sc;best=n}}
         if(best>=0){owner[best]=owner[i];pop[best]=12;pop[i]-=10;
           if(ruin[best]){ruin[best]=0;say(y,'found',`${fac[owner[i]].n}的墾民重返${nm(best)}的廢墟。`,best)}}}}
+    // 拓殖限制開啟時：偶爾有人遠行，在 4–7 格外的好地方另立一座新市鎮（新的綠洲）
+    if(COLR<99)for(const f of fac){if(!f.alive||f.pop<300||rand()>(globalThis.OPR??.06))continue;const own=Object.keys(markets).map(Number).filter(t=>owner[t]===f.id);if(!own.length)continue;
+      let best=-1,bs=0;for(let i=0;i<N;i++){if(!land[i]||owner[i]>=0||bandit[i]>=30||!(river[i]||w.coast[i]))continue;let d=99;for(const t of own)d=Math.min(d,hdist(i,t));if(d<(globalThis.OPD??5)||d>(globalThis.OPD??5)+4)continue;let dm=99;for(const t in markets)dm=Math.min(dm,hdist(i,+t));if(dm<(globalThis.TSP??3))continue;
+        const sc=fert[i]+(river[i]?.3:0)-d*.03+rand()*.2;if(sc>bs){bs=sc;best=i}}
+      if(best>=0&&bs>.7){owner[best]=f.id;pop[best]=30;peak[best]=30;town[best]=1;markets[best]=newMarket();say(y,'found',`${f.n}的墾民遠行，在${nm(best)}立起了新的市鎮。`,best)}}
     for(let i=0;i<N;i++){if(owner[i]<0||vein[i]>0||(biome[i]!==3&&biome[i]!==4)||rand()>.0006)continue;
       vein[i]=vcap[i]=120+rand()*280;vex[i]=1;known[i]=1;say(y,'econ',`${fac[owner[i]].n}的礦工在${nm(i)}深處掘到新礦脈。`,i)}
     for(let i=0;i<N;i++){if(owner[i]<0)continue;for(const n of [i,...NBR[i]])if(vein[n]>0&&!known[n]){known[n]=1;say(y,'econ',`${fac[owner[i]].n}的探子在${nm(n)}發現鐵礦脈。`,n)}}
 
     // 6. 盜匪
     if(!live)banditStep(1);
-    if(gangs.length<7&&rand()<.3){let bi=-1,bv=35;for(let i=0;i<N;i++)if(owner[i]<0&&bandit[i]>bv&&!gangs.some(g=>hdist(g.lair,i)<=2)){bv=bandit[i];bi=i}
+    if(gangs.filter(g=>!g.gone).length<3+2*MK*MK&&rand()<.3){let bi=-1,bv=35;for(let i=0;i<N;i++)if(owner[i]<0&&bandit[i]>bv&&!gangs.some(g=>hdist(g.lair,i)<=2)){bv=bandit[i];bi=i}
       if(bi>=0&&!gangs.some(g=>hdist(g.lair,bi)<=2)){bandit[bi]=Math.min(100,bandit[bi]+25);const g={id:nextGang++,name:heroName(),lair:bi,str:0,born:y};gangs.push(g);say(y,'bandit',`盜匪頭目${g.name}在${nm(bi)}聚眾。`,bi)}}
     let raids=0;
     for(let i=0;i<N;i++)if(owner[i]>=0&&bandit[i]>20&&rand()<.2/(1+wall[i])){pop[i]*=.62;if(markets[mkt[i]])markets[mkt[i]].stock.food*=.95;if(raids++<2)say(y,'bandit',`盜匪洗劫了${nm(i)}。`,i)}
@@ -763,7 +773,9 @@ function createSim(w,rand,pick){
         if(msg){war[a][b]=null;tension[a][b]=-15;say(y,'war',msg,G);hAffAdd(fac[a].house,fac[b].house,-.25)}
     }
     for(const f of fac){if(!f.alive)continue;if(owner[f.cap]!==f.id){let best=-1,bp=-1;
-        for(let i=0;i<N;i++)if(owner[i]===f.id&&pop[i]>bp){bp=pop[i];best=i}
+        // 遷都先找自己還有的市鎮，沒有市鎮才找人最多的村子
+        for(const t in markets)if(owner[+t]===f.id&&markets[t].pop>bp){bp=markets[t].pop;best=+t}
+        if(best<0)for(let i=0;i<N;i++)if(owner[i]===f.id&&pop[i]>bp){bp=pop[i];best=i}
         if(best<0){const conq=owner[f.cap];facFall(f,y,conq);f.alive=false;f.diedY=y;say(y,'war',`${f.n}的最後一座城鎮失守，${f.n}就此滅亡。`,f.cap);for(const h of heroes)if(h.f===f.id&&h.alive){h.fief=-1;heroDies(h,y,'國破後下落不明',{conq})}
           for(const x of fac)if(x.alive&&x.liege===f.id){x.liege=-1;say(y,'war',`宗主${f.n}亡國，${x.n}重獲自主。`,x.cap)}}
         else{say(y,'war',`${f.n}的首都${nm(f.cap)}陷落，朝廷遷往${nm(best)}。`,best);f.cap=best;f.shock+=1;
@@ -869,7 +881,7 @@ function createSim(w,rand,pick){
       if(t<0)continue;f.merc*=.3;bandit[t]=Math.min(100,bandit[t]+40);
       const g={id:nextGang++,name:heroName(),lair:t,str:0,born:y};gangs.push(g);say(y,'bandit',`${f.n}收編的兵欠餉譁變，由${g.name}帶著重回${nm(t)}的山林。`,t)}
     // 自立為王：勢大的盜匪佔山為國
-    for(const g of gangs){if(g.gone||g.str<330||rand()>.02)continue;const slot=freeSlot(y);if(!slot)break;
+    for(const g of gangs){if(g.gone||g.str<330||rand()>.02)continue;if(Object.keys(markets).some(t=>hdist(+t,g.lair)<=2))continue;/* 山寨就在城邊，立不了國 */const slot=freeSlot(y);if(!slot)break;
       const tiles=near(g.lair,1).filter(t=>land[t]&&owner[t]<0);for(const t of tiles){pop[t]=Math.max(pop[t],20);peak[t]=Math.max(peak[t],pop[t]);bandit[t]*=.2;ruin[t]=0}
       newState(slot,y,nm(g.lair)+'寨',g.lair,tiles,1.5);g.gone=1;g.to=slot.id;{const k=mkHero(slot.id,y-30,g.name);k.ruled=1;k.skill=+(k.skill+.2).toFixed(2);slot.ruler=k.id;slot.house=g.name[0]}
       say(y,'bandit',`盜匪頭目${g.name}在${nm(g.lair)}自立為王，號${slot.n}。${g.made?`當年他就是在${g.made.y}年劫了${nm(g.made.from)}往${nm(g.made.to)}的${GN[g.made.g]}商隊起家的。`:''}`,g.lair)}
@@ -891,7 +903,7 @@ function createSim(w,rand,pick){
   function spawnActor(role,human=false){
     const alive=fac.filter(f=>f.alive),F=alive[Math.floor(rand()*alive.length)];
     let mask=0;const st=Math.floor(rand()*4),len=rand()<.3?3:2;for(let k=0;k<len;k++)mask|=1<<((st+k)%4);
-    const a={id:nextId++,name:pick(SUR)+pick(GIV)+(rand()<.5?pick(GIV):''),role,human,home:F.id,tile:F.cap,ap:24,hp:100,food:5,wood:2,iron:1,salt:0,silver:15,
+    const a={id:nextId++,name:pick(SUR)+givName(),role,human,home:F.id,tile:F.cap,ap:24,hp:100,food:5,wood:2,iron:1,salt:0,silver:15,
       camped:false,hungry:false,mask,skipDay:false,careful:.4+rand()*.6,target:-1,cargo:null,deaths:0,log:[]};
     for(const n of [a.tile,...NBR[a.tile]])catchUp(n,T);
     actors.push(a);alog(a,`以${ROLE[role]}身分在${F.n}的${nm(a.tile)}落腳。`);return a}
