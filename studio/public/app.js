@@ -757,3 +757,55 @@ document.addEventListener('dblclick', e => { if (!editable(e.target)) e.preventD
 for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault(), {passive: false});
 $('stage').addEventListener('touchstart', e => e.preventDefault(), {passive: false});
 $('stage').addEventListener('touchmove', e => e.preventDefault(), {passive: false});
+
+/* 減色：相近色合併。一開始每個顏色各自一群，反覆把「看起來最像」（OKLab 距離最近）的兩群併在一起，
+   直到剩 n 群。合併後的代表色取格數較多的那一色，所以結果都是圖上本來就有的顏色，不會混出新的濁色；
+   面積小但很不一樣的顏色（眼睛、高光）會被留下來。 */
+function mergeSimilar(counts, n) {
+  let items = [...counts].map(([k, c]) => ({k, n: c, keys: [k]}));
+  // 顏色太多時先把幾乎一樣的顏色（每色 5-bit 相同）收成一群，再進入兩兩合併
+  for (const sh of [3, 4, 5, 6, 7]) {
+    if (items.length <= 256) break;
+    const g = new Map();
+    for (const it of items) {
+      const b = (it.k >> (16 + sh)) << 16 | ((it.k >> (8 + sh)) & 255) << 8 | ((it.k & 255) >> sh);
+      const e = g.get(b);
+      if (!e) g.set(b, {...it, keys: it.keys.slice()});
+      else { if (it.n > e.n) e.k = it.k; e.n += it.n; e.keys.push(...it.keys); }
+    }
+    items = [...g.values()];
+  }
+  const rgbOf = k => [k >> 16, (k >> 8) & 255, k & 255];
+  for (const it of items) it.lab = oklab(rgbOf(it.k));
+  const dist = (a, b) => (a.lab[0] - b.lab[0]) ** 2 + (a.lab[1] - b.lab[1]) ** 2 + (a.lab[2] - b.lab[2]) ** 2;
+  const nnOf = i => { let bj = -1, bd = Infinity; for (let j = 0; j < items.length; j++) if (j !== i && items[j]) { const d = dist(items[i], items[j]); if (d < bd) { bd = d; bj = j; } } items[i].nn = bj; items[i].nd = bd; };
+  items.forEach((_, i) => nnOf(i));
+  let alive = items.length;
+  while (alive > Math.max(1, n)) {
+    let a = -1, bd = Infinity;
+    for (let i = 0; i < items.length; i++) if (items[i] && items[i].nd < bd) { bd = items[i].nd; a = i; }
+    const b = items[a].nn, A = items[a], B = items[b];
+    if (B.n > A.n) { A.k = B.k; A.lab = B.lab; }
+    A.n += B.n; A.keys.push(...B.keys); items[b] = null; alive--;
+    for (let i = 0; i < items.length; i++) if (items[i] && (i === a || items[i].nn === a || items[i].nn === b)) nnOf(i);
+    // 代表色可能變了，其他群和 a 的距離也要更新
+    for (let i = 0; i < items.length; i++) if (items[i] && i !== a) { const d = dist(items[i], A); if (d < items[i].nd) { items[i].nd = d; items[i].nn = a; } }
+  }
+  const map = new Map(), pal = [];
+  for (const it of items) if (it) { const c = rgbOf(it.k); pal.push(c); for (const k of it.keys) map.set(k, c); }
+  return {pal, map};
+}
+// 把整張作品（所有圖層）減到 n 色
+function reduceDocColors(n) {
+  const counts = new Map();
+  for (const L of cur.layers) { const p = L.px; for (let i = 0; i < p.length; i += 4) if (p[i + 3]) { const k = p[i] << 16 | p[i + 1] << 8 | p[i + 2]; counts.set(k, (counts.get(k) || 0) + 1); } }
+  if (counts.size <= n) { toast(`目前只有 ${counts.size} 色，不用減`); return; }
+  const {pal, map} = mergeSimilar(counts, n);
+  docOp(() => {
+    for (const L of cur.layers) { const p = L.px; for (let i = 0; i < p.length; i += 4) if (p[i + 3]) { const c = map.get(p[i] << 16 | p[i + 1] << 8 | p[i + 2]); p[i] = c[0]; p[i + 1] = c[1]; p[i + 2] = c[2]; } }
+    const hexes = pal.map(c => rgba2hex(c));
+    if (isGBA()) cur.palette = hexes; else for (const h of hexes) if (!cur.palette.includes(h)) cur.palette.push(h);
+  });
+  renderPalette(); refreshLayerThumbs(); toast(`已把 ${counts.size} 色合併成 ${pal.length} 色（↶ 可復原）`, 4000);
+}
+$('reduceGo').onclick = () => { const n = Math.max(1, +$('reduceN').value | 0); $('countDlg').close(); reduceDocColors(n); };

@@ -119,6 +119,7 @@
   <h3>用到的顏色</h3>
   <p id="countSum" class="muted"></p>
   <div id="colorList"></div>
+  <div class="row"><span>相近色合併，減到</span><input id="reduceN" type="number" min="1" max="256" value="15" style="width:70px"><span>色</span><button id="reduceGo">減色</button></div>
   <form method="dialog" class="row"><button id="clearHi" type="button" hidden>取消標示</button><button>關閉</button></form>
 </dialog>
 
@@ -177,6 +178,7 @@
         <p id="impSizeNote" class="muted small"></p>
         <label>取樣 <select id="impMode"><option value="mode">主色（適合插畫、輪廓清楚）</option><option value="avg">平均（柔和）</option><option value="center">中心點（最銳利）</option></select></label>
         <label>色數 <select id="impColors"><option value="0">不減色</option><option>4</option><option>8</option><option>12</option><option>15</option><option>16</option><option>24</option><option>32</option><option value="pal">只用目前色票</option></select></label>
+        <label>減色方式 <select id="impReduce"><option value="near">相近色合併（保留小面積的特殊色）</option><option value="cut">中位切割（依面積平均分配）</option></select></label>
         <label>透明門檻 <input id="impAlpha" type="range" min="1" max="255" value="128"></label>
         <label><input id="impBgOn" type="checkbox"> 把背景色變透明（取四角的顏色）</label>
         <label>放進 <select id="impTarget"><option value="layer">目前作品的新圖層</option><option value="new">新作品</option></select></label>

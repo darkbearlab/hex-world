@@ -85,7 +85,7 @@
     out.w = Math.max(1, Math.min(512, +$('impW').value | 0)); out.h = Math.max(1, Math.min(512, +$('impH').value | 0));
     $('impW').value = out.w; $('impH').value = out.h; fitFrame();
   };
-  for (const id of ['impMode', 'impColors', 'impAlpha', 'impBgOn']) $(id).addEventListener('input', schedule);
+  for (const id of ['impMode', 'impColors', 'impReduce', 'impAlpha', 'impBgOn']) $(id).addEventListener('input', schedule);
   D.addEventListener('keydown', e => {
     if (e.target.matches('input,select')) return;
     const k = e.shiftKey ? 10 : 1, m = {ArrowLeft: [-k, 0], ArrowRight: [k, 0], ArrowUp: [0, -k], ArrowDown: [0, k]}[e.key];
@@ -199,6 +199,11 @@
     const cm = $('impColors').value;
     let pal = null;
     if (cm === 'pal' && cur && cur.palette.length) pal = cur.palette.map(hex2rgba);
+    else if (+cm > 0 && cols.length && $('impReduce').value === 'near') {
+      const counts = new Map(); for (const c of cols) { const k = c[0] << 16 | c[1] << 8 | c[2]; counts.set(k, (counts.get(k) || 0) + 1); }
+      const {map} = mergeSimilar(counts, +cm);
+      for (let k = 0; k < px.length; k += 4) if (px[k + 3]) { const c = map.get(px[k] << 16 | px[k + 1] << 8 | px[k + 2]); px[k] = c[0]; px[k + 1] = c[1]; px[k + 2] = c[2]; }
+    }
     else if (+cm > 0 && cols.length) { pal = medianCut(cols, +cm); if (gba) pal = pal.map(c => snap15(c)); }
     if (pal) { const f = nearestFn(pal); for (let k = 0; k < px.length; k += 4) if (px[k + 3]) { const c = f([px[k], px[k + 1], px[k + 2]]); px[k] = c[0]; px[k + 1] = c[1]; px[k + 2] = c[2]; } }
     const used = new Set(); for (let k = 0; k < px.length; k += 4) if (px[k + 3]) used.add(rgba2hex([px[k], px[k + 1], px[k + 2]]));
