@@ -215,6 +215,7 @@ function foeSummary(foes) { const c = {}; for (const f of foes) c[clsName(f)] = 
 const gangWord = str => str > 260 ? '人多勢眾' : str > 160 ? '有一定規模' : '人不多';
 function hexInfo() {
   const w = G.world, box = $('hexInfo'), k = C.K(); box.innerHTML = '';
+  box.style.bottom = ($('world').querySelector('.bar').offsetHeight + 8) + 'px';
   const p = wsel ? wsel.pos : w.pos, here = p === w.pos;
   if (!Wd.seen(w, p)) {
     box.append(el('div', {class: 'row'}, el('b', {}, '未知之地'), el('span', {class: 'tag'}, '沒去過，也沒人說過')));

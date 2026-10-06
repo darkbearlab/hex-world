@@ -108,3 +108,9 @@ h3{font-size:16px;margin:6px 0 2px}
 .nhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.nhead button{min-height:32px;font-size:13px}
 #notesText{flex:1;resize:none;font:15px/1.6 inherit;font-family:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px}
 body:has(#world[hidden]) #notes{display:none}
+/* 地圖下方的資訊浮在地圖上，不再擠壓地圖 */
+#world{position:relative}
+#hexInfo{position:absolute;left:8px;right:8px;bottom:72px;max-height:42%;overflow:auto;min-height:0;border:1px solid var(--line);border-radius:14px;background:#231d16ee;box-shadow:0 6px 18px #0008;z-index:3;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+#hexInfo:empty{display:none}
+#mapWrap .floating{bottom:auto;top:10px}
+#mapWrap .floating.f2{top:58px}
