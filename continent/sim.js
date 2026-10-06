@@ -151,7 +151,7 @@ function createSim(w,rand,pick){
   const u8=a=>{const o=new Uint8Array(a.length);for(let i=0;i<a.length;i++){const v=Math.round(a[i]);o[i]=v>255?255:v}return o};
   const makeSnap=()=>{const econ=fac.map(f=>({stock:Object.fromEntries(GOODS.map(g=>[g,f.alive?facStock(f.id,g):0])),ratio:{...f.ratio},price:{...f.price},winterFood:f.winterFood,store:f.store||0,tiles:0,pop:0,loss:f.loss}));
     for(let i=0;i<N;i++)if(owner[i]>=0){econ[owner[i]].tiles++;econ[owner[i]].pop+=pop[i]}
-    return {owner:owner.slice(),pop:u8(pop),bandit:u8(bandit),ruin:ruin.slice(),caps:fac.map(f=>f.alive?f.cap:-1),
+    return {fn:fac.map(f=>f.alive?f.n:''),owner:owner.slice(),pop:u8(pop),bandit:u8(bandit),ruin:ruin.slice(),caps:fac.map(f=>f.alive?f.cap:-1),
       biome:biome.slice(),timber:u8(timber),timberK:u8(timberK),game:u8(game),gameK:u8(gameK),vein:Uint16Array.from(vein),vcap:Uint16Array.from(vcap),vex:vex.slice(),
       known:known.slice(),wall:u8(wall),town:town.slice(),econ,routes}};
   snaps.push(makeSnap());
@@ -160,7 +160,7 @@ function createSim(w,rand,pick){
   let nextHero=1,battles=[];
   const mkHero=(f,y,name)=>{const h={id:nextHero++,name:name||heroName(),f,born:y,alive:true,fief:-1,wins:0,battles:0,skill:+(.9+rand()*.4).toFixed(2),loyal:+(.4+rand()*.6).toFixed(2),diedY:-1,end:''};heroes.push(h);return h};
   const heroById=id=>heroes.find(h=>h.id===id);
-  function heroDies(h,y,end,o={}){if(!h.alive)return;h.alive=false;h.diedY=y;h.end=end;let heir=null;const F=fac[h.f];
+  function heroDies(h,y,end,o={}){if(!h.alive)return;h.alive=false;h.captive=null;h.diedY=y;h.end=end;let heir=null;const F=fac[h.f];
     if(h.fief>=0&&markets[h.fief]&&owner[h.fief]===h.f&&F.alive&&!o.noHeir&&rand()<.92){const t=h.fief;heir=mkHero(h.f,y,h.name[0]+pick(GIV)+(rand()<.5?pick(GIV):''));
       heir.fief=t;heir.parent=h.id;heir.loyal=+Math.min(1,h.loyal*.6+rand()*.4).toFixed(2);markets[t].lord=heir.id;
       if(markets[t].pop>=100&&rand()<.3||h.legend)say(y,'hero',`${nm(t)}領主${h.name}死後，由其子${heir.name}繼承封地。`,t)}
@@ -168,7 +168,10 @@ function createSim(w,rand,pick){
       if(!o.noHeir&&rand()<.85){if(!heir){heir=mkHero(h.f,y,h.name[0]+pick(GIV)+(rand()<.5?pick(GIV):''));heir.parent=h.id}
         if(heir.fief>=0&&markets[heir.fief])markets[heir.fief].lord=0;heir.fief=-1;heir.ruled=1;F.ruler=heir.id;F.house=heir.name[0];
         if(h.ruled&&(h.legend||rand()<.35))say(y,'hero',`${F.n}的國君${h.name}死後，${heir.name}繼位。`,F.cap)}
-      else{F.ruler=0;F.crisis=y;say(y,'war',`${F.n}的國君${h.name}身後無嗣，諸侯爭位，各地人心浮動。`,F.cap)}}
+      else{const mar=marriages.filter(m=>m.h1===F.house||m.h2===F.house).map(m=>m.h1===F.house?m.h2:m.h1).filter(x=>fac.some(z=>z.alive&&z.house===x));
+        if(mar.length&&rand()<.5){const hs=mar[Math.floor(rand()*mar.length)],nh=mkHero(F.id,y-25,hs+pick(GIV)+(rand()<.5?pick(GIV):''));nh.ruled=1;F.ruler=nh.id;F.house=hs;
+          const ally=fac.find(z=>z.alive&&z.house===hs&&z.id!==F.id);const txt=`${F.n}的國君${h.name}身後無嗣，由姻親${hs}家的${nh.name}入主${ally?`，從此與${ally.n}同屬${hs}家`:''}。`;(LEGH.has(hs)||LEGH.has(h.name[0])?sagaSay:(yy,tt,ti)=>say(yy,'war',tt,ti))(y,txt,F.cap)}
+        else{F.ruler=0;F.crisis=y;say(y,'war',`${F.n}的國君${h.name}身後無嗣，諸侯爭位，各地人心浮動。`,F.cap)}}}
     let given=0;for(const wp of weaponsOf(h)){
       if(o.conq>=0&&fac[o.conq]&&fac[o.conq].alive)toTreasury(wp,o.conq,y,`${h.name}${end}，「${wp.name}」落入${fac[o.conq].n}手中。`);
       else if(heir&&heir.alive&&!given++)giveW(wp,heir,y,`${h.name}${end}，「${wp.name}」傳給了${heir.name}。`);
@@ -255,7 +258,8 @@ function createSim(w,rand,pick){
       const ot=land[t]?owner[t]:owner[wp.shore??t];if(ot>=0&&fac[ot].alive){const F=fac[ot],c=heroes.filter(h=>h.alive&&h.f===F.id&&!h.noCmd).sort((a,b)=>weaponsOf(a).length-weaponsOf(b).length||rand()-.5)[0];
         if(c)giveW(wp,c,y,`失落 ${ago} 年後，${F.n}的${c.name}在${nm(land[t]?t:wp.shore)}${wp.lake?'外的水中':wp.sealed?'的古林深處':'的舊戰場'}尋回「${wp.name}」。`)}
       else{const g=gangs.find(g=>!g.gone&&hdist(g.lair,t)<=3);if(g)toGang(wp,g,y,`失落 ${ago} 年後，盜匪頭目${g.name}在${nm(land[t]?t:wp.shore)}${wp.lake?'外的水中撈起':'挖出'}了「${wp.name}」，山寨聲勢大振。`)}}
-    for(const k in houseAff)houseAff[k]*=.996;
+    worldYear(y);
+    for(const k in houseAff)houseAff[k]*=Math.abs(houseAff[k])>1?.9993:.997;
     for(const k in aff)aff[k]*=.995}
   function arc(y){
     const K=heroByRole('king'),C=heroByRole('champion'),Q=heroByRole('queen'),M=heroByRole('nephew'),G=heroByRole('gawain'),R=heroByRole('gareth'),
@@ -272,60 +276,125 @@ function createSim(w,rand,pick){
     else if(ARC.phase===1&&y>=ARC.usurpY)usurp(y,{K,C,M,G});
     else if(ARC.phase===2&&y>=ARC.campY)camlann(y,{K,C,Q,M,B,KY});
     else if(ARC.phase===3&&y>=ARC.kingDieY)kingDies(y,{K,C,Q,B,KY})}
+  const pr=(a,b,c)=>Math.max(b,Math.min(c,a));
   function scandal(y,{K,C,Q,M,G,R,KY,B}){
-    ARC.phase=1;ARC.scandalY=y;
-    sagaSay(y,`王甥${M.name}在朝堂上揭發王后${Q.name}與${C.title}${C.name}的私情。${K.name}依律判王后火刑。`,fac[0].cap);
-    if(R&&R.alive){heroDies(R,y,`在劫法場的混戰中被${C.name}誤殺`);sagaSay(y,`${C.name}率眾劫法場救走王后，混戰中誤殺了手無寸鐵的${R.name}。${G?G.name+'對著弟弟的屍首發誓，要燧衡血債血償。':''}`,fac[0].cap);affAdd(G,C,-3);hAffAdd(G.name[0],C.name[0],-1.8)}
-    else sagaSay(y,`${C.name}率眾劫法場救走王后。`,fac[0].cap);
-    affAdd(K,C,-2.5);hAffAdd(K.name[0],C.name[0],-1);
-    if(C.fief<0){const ts=Object.keys(markets).map(Number).filter(t=>owner[t]===0&&t!==fac[0].cap);C.fief=ts.sort((a,b)=>hdist(b,fac[0].cap)-hdist(a,fac[0].cap))[0];markets[C.fief].lord=C.id}
-    const home=C.fief;secede(fac[0],home,y,'帶著王后出奔');
-    const st=fac[C.f];Q.f=st.id;ARC.champ=st.id;ARC.protect=st.cap;
-    sagaSay(y,`${C.name}帶著王后逃回${nm(home)}，據城自立，號${st.n}。`,home);
-    for(const h of heroes){if(!h.legend||!h.alive||h.f!==0||h.fief<0||['king','nephew','gawain','kay','bedivere'].includes(h.role))continue;
-      if(affV(h,C)>affV(h,K)-.2+rand()*.4){const t=h.fief;for(let i=0;i<N;i++)if(owner[i]===0&&(mkt[i]===t||i===t))owner[i]=st.id;h.f=st.id;
-        sagaSay(y,`${h.title}${h.name}站在${C.name}這一邊，帶著${nm(t)}投奔${st.n}。`,t)}}
+    ARC.phase=1;ARC.scandalY=y;const cap=fac[0].cap;
+    const who=rand();
+    if(who<.55)sagaSay(y,`王甥${M.name}在朝堂上揭發王后${Q.name}與${C.title}${C.name}的私情。${K.name}依律判王后火刑。`,cap);
+    else if(who<.75&&KY&&KY.alive)sagaSay(y,`素來嫉妒${C.name}的家宰${KY.name}，帶人在王后寢宮外堵住了他。${K.name}依律判王后火刑。`,cap);
+    else sagaSay(y,`王后${Q.name}的侍女走漏了消息，${C.title}${C.name}與王后的私情在宮中傳開。${K.name}依律判王后火刑。`,cap);
+    const r=rand();ARC.burned=false;
+    if(r<.12){ARC.burned=true;sagaSay(y,`${C.name}來遲了一步。王后${Q.name}在${nm(cap)}的廣場上被燒死，${C.name}在火堆前殺出一條血路，發誓這輩子不再向${K.name}低頭。`,cap);heroDies(Q,y,'死於火刑');affAdd(K,C,-4);hAffAdd(K.name[0],C.name[0],-2)}
+    else if(r<.65&&R&&R.alive){heroDies(R,y,`在劫法場的混戰中被${C.name}誤殺`);sagaSay(y,`${C.name}率眾劫法場救走王后，混戰中誤殺了手無寸鐵的${R.name}。${G?G.name+'對著弟弟的屍首發誓，要燧衡血債血償。':''}`,cap);affAdd(G,C,-3);hAffAdd(G.name[0],C.name[0],-2.6);affAdd(K,C,-2.5)}
+    else{sagaSay(y,`${C.name}趁夜劫走王后，沒有人喪命，但整個王國都知道王被背叛了。`,cap);affAdd(K,C,-2)}
+    hAffAdd(K.name[0],C.name[0],-1);
+    if(C.fief<0){const ts=Object.keys(markets).map(Number).filter(t=>owner[t]===0&&t!==cap);C.fief=ts.sort((a,b)=>hdist(b,cap)-hdist(a,cap))[0];markets[C.fief].lord=C.id}
+    const home=C.fief;secede(fac[0],home,y,ARC.burned?'為王后報仇':'帶著王后出奔');
+    const st=fac[C.f];if(Q.alive)Q.f=st.id;ARC.champ=st.id;ARC.protect=st.cap;
+    sagaSay(y,`${C.name}${ARC.burned?'':'帶著王后'}逃回${nm(home)}，據城自立，號${st.n}。`,home);
+    // 站隊：每位傳奇依對王與對燧衡的好感決定；一般領主也可能跟著走
+    for(const h of heroes){if(!h.alive||h.f!==0||h===K||h===M||h===B||h===C)continue;
+      if(h===G&&(R&&!R.alive))continue;
+      if(!h.legend&&h.fief<0)continue;
+      const p=h.legend?pr(.35+(affV(h,C)-affV(h,K))*.5,.08,.9):.12;
+      if(rand()<p&&h.fief<0){h.f=st.id;sagaSay(y,`${h.title}${h.name}站在${C.name}這一邊，隻身投奔${st.n}。`,C.fief>=0?C.fief:0);continue}
+      if(rand()<p){const t=h.fief;for(let i=0;i<N;i++)if(owner[i]===0&&(mkt[i]===t||i===t))owner[i]=st.id;h.f=st.id;
+        if(h.legend)sagaSay(y,`${h.title}${h.name}站在${C.name}這一邊，帶著${nm(t)}投奔${st.n}。`,t);else say(y,'war',`${nm(t)}領主${h.name}投奔${st.n}。`,t)}}
     const W_=war[Math.min(0,st.id)][Math.max(0,st.id)];if(W_)W_.end=y+12;
     sagaSay(y,`${K.name}親率大軍圍攻${nm(home)}。${G&&G.alive?G.name+'在王身邊，日夜催促攻城。':''}`,home);
     ARC.usurpY=y+2+Math.floor(rand()*2)}
   function usurp(y,{K,C,M,G}){
     ARC.phase=2;const st=fac[ARC.champ];
-    if(G&&G.alive&&C.alive){if(rand()<.6){sagaSay(y,`${G.name}在${nm(st.cap)}城下與${C.name}決鬥，被${C.name}一劍重創。臨終前，他寫信請${C.name}回來救王。`,st.cap);heroDies(G,y,`死於與${C.name}的決鬥`)}
-      else{sagaSay(y,`${G.name}在${nm(st.cap)}城下與${C.name}決鬥，兩人都負了重傷，被各自的部下抬回陣中。`,st.cap)}}
-    const cap=fac[0].cap,tiles=[];for(let i=0;i<N;i++)if(owner[i]===0&&(mkt[i]===cap||hdist(i,cap)<=2||(M.fief>=0&&mkt[i]===M.fief)))tiles.push(i);
+    if(G&&G.alive&&C.alive){if(rand()<.55){sagaSay(y,`${G.name}在${nm(st.cap)}城下與${C.name}決鬥，被${C.name}一劍重創。臨終前，他寫信請${C.name}回來救王。`,st.cap);heroDies(G,y,`死於與${C.name}的決鬥`);ARC.letter=1}
+      else sagaSay(y,`${G.name}在${nm(st.cap)}城下與${C.name}決鬥，兩人都負了重傷，被各自的部下抬回陣中。`,st.cap)}
     const slot=freeSlot(y);if(!slot){ARC.phase=3;ARC.kingDieY=y+1;return}
-    newState(slot,y,nm(cap)+'王國',cap,tiles,1.5);slot.ruler=M.id;slot.house=M.name[0];M.f=slot.id;if(M.fief>=0&&markets[M.fief])markets[M.fief].lord=0;M.fief=-1;M.ruled=1;ARC.mord=slot.id;ARC.protect=cap;
-    sagaSay(y,`${K.name}出征期間，攝政的${M.name}散布王已戰死的謠言，在${nm(cap)}自立為王，號${slot.n}。`,cap);
+    const cap=fac[0].cap,tiles=[];let where;
+    if(rand()<.62||M.fief<0){where=cap;for(let i=0;i<N;i++)if(owner[i]===0&&(mkt[i]===cap||hdist(i,cap)<=2||(M.fief>=0&&mkt[i]===M.fief)))tiles.push(i);
+      newState(slot,y,nm(cap)+'王國',cap,tiles,1.5);sagaSay(y,`${K.name}出征期間，攝政的${M.name}散布王已戰死的謠言，在${nm(cap)}自立為王，號${slot.n}。`,cap)}
+    else{where=M.fief;for(let i=0;i<N;i++)if(owner[i]===0&&mkt[i]===M.fief)tiles.push(i);
+      newState(slot,y,nm(where)+'王國',where,tiles,1.6);
+      const g=gangs.filter(g=>!g.gone).sort((a,b)=>hdist(a.lair,where)-hdist(b.lair,where))[0];
+      if(g){g.gone=1;g.to=slot.id;slot.merc+=Math.max(60,g.str*.8);sagaSay(y,`${M.name}在${nm(where)}起兵，還把盜匪頭目${g.name}的人馬收作爪牙，號${slot.n}，要和舅舅爭這頂王冠。`,where)}
+      else sagaSay(y,`${M.name}在${nm(where)}起兵，號${slot.n}，要和舅舅爭這頂王冠。`,where)}
+    slot.ruler=M.id;slot.house=M.name[0];M.f=slot.id;if(M.fief>=0&&markets[M.fief])markets[M.fief].lord=0;M.fief=-1;M.ruled=1;ARC.mord=slot.id;ARC.protect=slot.cap;
     const a=Math.min(0,st.id),b=Math.max(0,st.id);war[a][b]=null;tension[a][b]=-30;
     sagaSay(y,`${K.name}聞訊與${C.name}停戰，回師討逆。`,st.cap);
-    const c=Math.min(0,slot.id),d=Math.max(0,slot.id);war[c][d]={att:0,def:slot.id,goal:cap,start:y,end:y+6,gain:{},score:0,siege:null,taken:[]};
+    const c=Math.min(0,slot.id),d=Math.max(0,slot.id);war[c][d]={att:0,def:slot.id,goal:slot.cap,start:y,end:y+6,gain:{},score:0,siege:null,taken:[]};
     ARC.campY=y+1}
   function camlann(y,{K,C,Q,M,B,KY}){
     ARC.phase=3;const s=fac[ARC.mord];const c0=fac[0].alive&&owner[fac[0].cap]===0?fac[0].cap:Object.keys(markets).map(Number).find(t=>owner[t]===0)??fac[0].cap,c1=s&&s.alive?s.cap:fac[0].cap;
     let t=c1,bd=99;for(let i=0;i<N;i++)if(land[i]&&biome[i]!==2){const d=Math.abs(hdist(i,c0)-hdist(i,c1))+hdist(i,c1)*.3;if(d<bd){bd=d;t=i}}
     ARC.field=t;for(let i=0;i<N;i++)if(owner[i]===0||owner[i]===ARC.mord)pop[i]*=.8;
     sagaSay(y,`${nm(t)}之戰：${K.name}與${M.name}的大軍在晨霧中相遇，一條毒蛇引得一名騎士拔劍，兩軍就此殺成一片，從清晨打到日落。`,t);
-    if(M.alive){for(const wp of weaponsOf(M))loseW(wp,t,y,`「${wp.name}」隨${M.name}倒在${nm(t)}的屍堆裡。`);
-      sagaSay(y,`${K.name}用長槍貫穿了${M.name}；${M.name}沿著槍桿逼近，用最後的力氣砍中了王的頭盔。`,t);heroDies(M,y,`死於${nm(t)}之戰，死在${K.name}的槍下`,{noHeir:rand()<.5})}
-    ARC.kingDieY=rand()<.85?y:y+1+Math.floor(rand()*2);
-    if(ARC.kingDieY>y)sagaSay(y,`${K.name}身受重傷，被抬回${nm(c0)}。`,c0);
+    let kingP=.85;
+    if(C.alive&&!ARC.burned&&rand()<(ARC.letter?.45:.2)){kingP=.55;sagaSay(y,`${ARC.letter?'收到岑烈的遺書，':''}${C.name}率領${fac[C.f]?.n||'舊部'}的騎兵在午後趕到，從側翼衝進了${M.name}的軍陣。`,t);
+      if(rand()<.4){sagaSay(y,`${C.name}在亂軍中替王擋下了致命的一擊，自己卻再也沒有站起來。`,t);heroDies(C,y,`戰死於${nm(t)}，替${K.name}擋下了一擊`)}
+      else{affAdd(K,C,2.5);hAffAdd(K.name[0],C.name[0],1.5)}}
+    if(M.alive){if(rand()<.9){for(const wp of weaponsOf(M))loseW(wp,t,y,`「${wp.name}」隨${M.name}倒在${nm(t)}的屍堆裡。`);
+        sagaSay(y,`${K.name}用長槍貫穿了${M.name}；${M.name}沿著槍桿逼近，用最後的力氣砍中了王的頭盔。`,t);heroDies(M,y,`死於${nm(t)}之戰，死在${K.name}的槍下`,{noHeir:rand()<.5})}
+      else{kingP=.95;sagaSay(y,`${M.name}一劍砍中了王，自己帶著殘兵逃回${nm(c1)}。`,t)}}
+    ARC.kingDieY=rand()<kingP?y:y+2+Math.floor(rand()*5);
+    if(ARC.kingDieY>y)sagaSay(y,`${K.name}活了下來，但傷得很重，被抬回${nm(c0)}之後再也拿不起劍。`,c0);
     if(ARC.kingDieY===y)kingDies(y,{K,C,Q,B,KY})}
   function kingDies(y,{K,C,Q,B,KY}){
-    ARC.phase=4;ARC.fallY=y;const sw=weaponsOf(K)[0],lake=nearWater(ARC.field>=0?ARC.field:fac[0].cap);
+    ARC.phase=4;ARC.fallY=y;const G=heroByRole('gawain');const sw=weaponsOf(K)[0],lake=nearWater(ARC.field>=0?ARC.field:fac[0].cap);
     if(sw){if(B&&B.alive)loseW(sw,lake,y,`臨終前，${K.name}命${B.name}把「誓約」拋回水中。${B.name}猶豫了兩次，第三次才照做；一隻手從水面伸出，接住了劍。`,{lake:true});
-      else loseW(sw,ARC.field,y,`沒有人來得及收起「誓約」，它遺落在${nm(ARC.field)}的戰場上。`)}
+      else if(rand()<.5)loseW(sw,ARC.field,y,`沒有人來得及收起「誓約」，它遺落在${nm(ARC.field)}的戰場上。`);
+      else loseW(sw,lake,y,`沒有人知道「誓約」去了哪裡。有個漁夫說，他看見王最後的侍從把一把劍拋進了水裡。`,{lake:true})}
     sagaSay(y,`${K.name}駕崩，得年 ${y-K.born} 歲，身後無嗣。有人說他沒有死，而是被帶去了湖中的島，有一天會回來。`,ARC.field);
     heroDies(K,y,`死於${nm(ARC.field)}之戰的重傷`,{noHeir:true});
-    // 王國分崩離析：每位還在王國裡、握有封地的傳奇都據地自立
     const states=[];fac[0].n=`${nm(fac[0].cap)}公國`;
-    const keeper=KY&&KY.alive&&KY.f===0?KY:B&&B.alive&&B.f===0?B:null;if(keeper){if(keeper.fief>=0&&markets[keeper.fief])markets[keeper.fief].lord=0;keeper.fief=-1;fac[0].ruler=keeper.id;fac[0].house=keeper.name[0];keeper.ruled=1}
+    const cands=[KY,B,G].filter(h=>h&&h.alive&&h.f===0),keeper=cands.length?cands[Math.floor(rand()*cands.length)]:null;
+    if(keeper){if(keeper.fief>=0&&markets[keeper.fief])markets[keeper.fief].lord=0;keeper.fief=-1;fac[0].ruler=keeper.id;fac[0].house=keeper.name[0];keeper.ruled=1}
     for(const h of heroes.slice())if(h.alive&&h.legend&&h.f===0&&h.fief>=0&&markets[h.fief]&&owner[h.fief]===0){const before=h.f;secede(fac[0],h.fief,y,'王死之後');if(h.f!==before)states.push(`${h.name}的${fac[h.f].n}`)}
     for(const t of Object.keys(markets).map(Number))if(owner[t]===0&&t!==fac[0].cap&&rand()<.5){const m=markets[t],lord=m.lord&&heroById(m.lord);if(lord&&lord.alive&&m.pop>=60){const before=lord.f;secede(fac[0],t,y,'王死之後');if(lord.f!==before)states.push(`${lord.name}的${fac[lord.f].n}`)}}
-    sagaSay(y,`金冠王國就此分崩離析。${keeper?`${keeper.title||''}${keeper.name}守著舊都，改稱${fac[0].n}；`:''}${states.length?states.join('、')+'各自稱雄。':''}`,fac[0].cap);
-    if(C&&C.alive){if(rand()<.6){const st=fac[C.f];sagaSay(y,`聽到王的死訊，${C.name}放下了劍，到修道院度過餘生；王后${Q.name}也削髮為尼。${st.alive?st.n+'交給了他的兒子。':''}`,st.cap);
-      C.noCmd=1;if(st.alive&&st.ruler===C.id){const heir=mkHero(st.id,y-20,C.name[0]+pick(GIV)+(rand()<.5?pick(GIV):''));heir.parent=C.id;heir.ruled=1;st.ruler=heir.id;for(const wp of weaponsOf(C))giveW(wp,heir,y,`${C.name}把「${wp.name}」留給了兒子${heir.name}。`)}}
-      else sagaSay(y,`${C.name}得知王死，痛哭三天，從此不再踏出${nm(fac[C.f]?.cap??0)}一步。`,fac[C.f]?.cap??-1)}
+    sagaSay(y,`金冠王國就此分崩離析。${keeper?`${keeper.title||''}${keeper.name}守著舊都，改稱${fac[0].n}；`:`舊都的諸侯共推出新的領主，改稱${fac[0].n}；`}${states.length?states.join('、')+'各自稱雄。':''}`,fac[0].cap);
+    if(C&&C.alive){const st=fac[C.f],r=rand(),mord=fac[ARC.mord];
+      if(r<.5&&!ARC.burned){sagaSay(y,`聽到王的死訊，${C.name}放下了劍，到修道院度過餘生${Q.alive?`；王后${Q.name}也削髮為尼`:''}。${st.alive?st.n+'交給了他的兒子。':''}`,st.cap);
+        C.noCmd=1;if(st.alive&&st.ruler===C.id){const heir=mkHero(st.id,y-20,C.name[0]+pick(GIV)+(rand()<.5?pick(GIV):''));heir.parent=C.id;heir.ruled=1;st.ruler=heir.id;for(const wp of weaponsOf(C))giveW(wp,heir,y,`${C.name}把「${wp.name}」留給了兒子${heir.name}。`)}}
+      else if(r<.8&&mord&&mord.alive&&st.alive){sagaSay(y,`${C.name}不肯原諒篡位者的血脈，率軍討伐${mord.n}。`,mord.cap);const a=Math.min(st.id,mord.id),b=Math.max(st.id,mord.id);war[a][b]={att:st.id,def:mord.id,goal:mord.cap,start:y,end:y+8,gain:{},score:0,siege:null,taken:[]};hAffAdd(C.name[0],mord.house,-2)}
+      else sagaSay(y,`${C.name}得知王死，痛哭三天，從此不再踏出${nm(st.cap)}一步。`,st.cap)}
     ARC.protect=-1}
+  // ═══════════ 世界中的人：聯姻、武器的轉手、英雄的去留、俘虜 ═══════════
+  const LEGH=new Set(CAST.map(c=>c.name[0]));
+  const notable=h=>h&&(h.legend||LEGH.has(h.name[0])||weaponsOf(h).length||h.ruled);
+  const marriages=[];
+  const rulerOf=f=>{const r=fac[f]&&fac[f].alive?heroById(fac[f].ruler):null;return r&&r.alive?r:null};
+  const holderLoc=h=>h.fief>=0?h.fief:fac[h.f]?.cap??-1;
+  function worldYear(y){
+    if(ARC.phase<4)return;
+    // 聯姻：相鄰、沒在打仗、沒有世仇的兩家
+    for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const A_=fac[a],B_=fac[b];if(!A_.alive||!B_.alive||!bc||!bc[a][b]||war[a][b]||!A_.house||!B_.house||A_.house===B_.house)continue;
+      if(hAff(A_.house,B_.house)<-.4||rand()>.02)continue;const ra=rulerOf(a),rb=rulerOf(b);if(!ra||!rb||ra.wed||rb.wed)continue;if(marriages.some(m=>((m.h1===A_.house&&m.h2===B_.house)||(m.h2===A_.house&&m.h1===B_.house))&&y-m.y<40))continue;ra.wed=rb.wed=1;
+      marriages.push({h1:A_.house,h2:B_.house,y});hAffAdd(A_.house,B_.house,1.2);tension[a][b]=-25;
+      const txt=`${A_.n}的${ra.name}與${B_.n}的${rb.name}兩家結了親。`;if(LEGH.has(A_.house)||LEGH.has(B_.house))sagaSay(y,txt,A_.cap);else say(y,'hero',txt,A_.cap);
+      const [giver,taker]=rand()<.5?[ra,rb]:[rb,ra];const ws=weaponsOf(giver);if(ws.length&&rand()<.3)giveW(ws[0],taker,y,`${giver.name}把「${ws[0].name}」當作嫁妝，送進了${fac[taker.f].n}的${taker.name}家。`)}
+    // 傳奇武器：被偷、典當、賜給封臣、殺人奪寶
+    for(const wp of weapons){if(!wp.holder)continue;const h=heroById(wp.holder);if(!h||!h.alive||!fac[h.f]?.alive)continue;const F=fac[h.f],at=holderLoc(h);
+      const r=rand();
+      if(r<.003){const g=gangs.find(g=>!g.gone&&hdist(g.lair,at)<=5);if(g)toGang(wp,g,y,`「${wp.name}」在${nm(at)}被盜匪${g.name}的人偷走。`);else loseW(wp,farWild(at,2),y,`「${wp.name}」被一個僕人偷走，從此下落不明。`)}
+      else if(r<.006){const k=heroes.filter(x=>x.alive&&x!==h&&!x.noCmd&&!x.captive&&(x.f===h.f||(fac[x.f]&&hdist(fac[x.f].cap,at)<=6))).sort(()=>rand()-.5)[0];
+        if(k){giveW(wp,k,y,`${fac[k.f].n}的${k.name}覬覦「${wp.name}」，在${nm(at)}刺殺了${h.name}，奪走了它。`);hAffAdd(h.name[0],k.name[0],-2);heroDies(h,y,`被${k.name}刺殺`)}}
+      else if(F.ratio&&F.ratio.food<.8&&r<.05){const buyer=fac.filter(x=>x.alive&&x.id!==F.id&&!war[Math.min(x.id,F.id)][Math.max(x.id,F.id)]).sort((p,q)=>facStock(q.id,'food')-facStock(p.id,'food'))[0];
+        if(buyer&&facStock(buyer.id,'food')>60){facTake(buyer.id,'food',40);facGive(F.id,'food',40);toTreasury(wp,buyer.id,y,`${F.n}鬧饑荒，${h.name}把「${wp.name}」典當給了${buyer.n}，換回四十擔糧。`)}}
+      else if(F.ruler===h.id&&r<.04){const V=fac.find(x=>x.alive&&x.liege===F.id&&x.loyal<.5);const vr=V&&rulerOf(V.id);if(vr){V.loyal=Math.min(1,V.loyal+.3);giveW(wp,vr,y,`為了安撫心懷不滿的封臣，${h.name}把「${wp.name}」賜給了${V.n}的${vr.name}。`)}}}
+    // 英雄的去留：投奔別國、落草為寇
+    for(const h of heroes){if(!h.alive||h.plot&&ARC.phase<4||h.captive||h.ruled||h.noCmd||!fac[h.f]?.alive)continue;const F=fac[h.f];
+      const p=.003+(F.shock>.5?.02:0)+(h.loyal<.3?.015:0)+(F.ratio&&F.ratio.food<.8?.01:0);if(rand()>p)continue;
+      if(h.fief<0&&rand()<.35){let t=-1;for(let k=0;k<30&&t<0;k++){const c=Math.floor(rand()*N);if(land[c]&&owner[c]<0&&hdist(c,fac[h.f].cap)<=8)t=c}
+        if(t>=0){const g={id:nextGang++,name:h.name,lair:t,str:0,born:y};gangs.push(g);bandit[t]=Math.min(100,bandit[t]+35);
+          for(const wp of weaponsOf(h))toGang(wp,g,y,`${h.name}帶著「${wp.name}」落草為寇。`);
+          (notable(h)?sagaSay:(yy,tt,ti)=>say(yy,'bandit',tt,ti))(y,`${F.n}的${h.name}不滿朝廷，帶著部下在${nm(t)}落草為寇。`,t);h.alive=false;h.diedY=y;h.end=`在${nm(t)}落草為寇`;h.fief=-1;continue}}
+      const targets=fac.filter(x=>x.alive&&x.id!==F.id&&bc&&bc[Math.min(x.id,F.id)][Math.max(x.id,F.id)]);if(!targets.length)continue;
+      const T_=targets.sort((p_,q)=>hAff(h.name[0],q.house)-hAff(h.name[0],p_.house)+rand()-.5)[0];
+      if(h.fief>=0&&markets[h.fief])markets[h.fief].lord=0;h.fief=-1;h.f=T_.id;h.loyal=+(.5+rand()*.4).toFixed(2);hAffAdd(h.name[0],F.house,-.8);
+      (notable(h)?sagaSay:(yy,tt,ti)=>say(yy,'hero',tt,ti))(y,`${F.n}的${h.name}${weaponsOf(h).length?`帶著「${weaponsOf(h)[0].name}」`:''}投奔了${T_.n}。`,T_.cap)}
+    // 俘虜：贖回、招降或處決
+    for(const h of heroes){if(!h.alive||!h.captive)continue;const by=fac[h.captive.by],own=fac[h.f];
+      if(!by||!by.alive||!own||!own.alive){h.captive=null;continue}
+      if(rand()<.45&&facStock(own.id,'food')>40){facTake(own.id,'food',30);facGive(by.id,'food',30);h.captive=null;(notable(h)?sagaSay:(yy,tt,ti)=>say(yy,'hero',tt,ti))(y,`${own.n}付了三十擔糧，把被俘的${h.name}贖了回來。`,own.cap);continue}
+      if(y-h.captive.y>=3){if(rand()<.5){h.f=by.id;h.captive=null;h.fief=-1;hAffAdd(h.name[0],own.house,-.6);(notable(h)?sagaSay:(yy,tt,ti)=>say(yy,'hero',tt,ti))(y,`被俘三年的${h.name}降了${by.n}。`,by.cap)}
+        else{for(const wp of weaponsOf(h))toTreasury(wp,by.id,y,`${by.n}處決了被俘的${h.name}，「${wp.name}」收進了寶庫。`);hAffAdd(h.name[0],by.house,-1.5);heroDies(h,y,`被${by.n}處決`)}}}}
   // 同一個封建體系內（宗主、封臣、同一宗主的封臣之間）不會互相宣戰
   const sameRealm=(a,b)=>a===b||fac[a].liege===b||fac[b].liege===a||(fac[a].liege>=0&&fac[a].liege===fac[b].liege);
   function makeVassal(v,l,y){const V=fac[v];V.liege=l;V.loyal=.6;V.lsince=y;
@@ -404,7 +473,7 @@ function createSim(w,rand,pick){
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){
       if(!fac[a].alive||!fac[b].alive){war[a][b]=null;continue}
       if(!bc[a][b]){tension[a][b]*=.9;if(war[a][b]){war[a][b]=null;say(y,'war',`${fac[a].n}與${fac[b].n}之間已無人煙，戰事不了了之。`)}continue}
-      if(!war[a][b]&&sameRealm(a,b)){tension[a][b]*=.8;continue}
+      if(!war[a][b]&&(sameRealm(a,b)||(fac[a].house&&fac[a].house===fac[b].house))){tension[a][b]*=.8;continue}
       if(!war[a][b]){tension[a][b]+=.4+rand()*1.6+Math.min(bc[a][b],20)*.06+(covet[a][b]||covet[b][a]?2:0)+Math.max(-1.5,Math.min(3,-hAff(fac[a].house,fac[b].house)*1.2));
         if(tension[a][b]>30+rand()*25){
           let att,def;if(covet[a][b]&&!covet[b][a])[att,def]=[a,b];else if(covet[b][a]&&!covet[a][b])[att,def]=[b,a];else [att,def]=rand()<.5?[a,b]:[b,a];
@@ -476,7 +545,7 @@ function createSim(w,rand,pick){
     const vas=FM(()=>[]);for(const F of fac)if(F.alive&&F.liege>=0&&fac[F.liege].alive)vas[F.liege].push(F.id);
     const ally=(f,foe,def)=>{let x=0;for(const v of vas[f])if(v!==foe)x+=lev(v)*.25;const L=fac[f].liege;if(def&&L>=0&&fac[L].alive&&L!==foe)x+=lev(L)*.5;return x};
     // 主將：封地離戰場最近的領主帶兵；沒有封地的英雄當作從首都出發
-    const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f&&!h.noCmd){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
+    const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f&&!h.noCmd&&!h.captive){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
     const kill=(f,amt)=>{const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive||W.done)continue;
       if(owner[W.goal]===W.att){W.done=1;continue}if(owner[W.goal]!==W.def){W.done=2;continue}
@@ -523,7 +592,8 @@ function createSim(w,rand,pick){
         for(const wp of wl){const r=rand();if(r<.45&&hw&&hw.alive)giveW(wp,hw,y,`${h.name}戰死於${nm(n)}，「${wp.name}」被${fac[win].n}的${hw.name}奪走。`);else if(r<.75)loseW(wp,n,y,`${h.name}戰死於${nm(n)}，「${wp.name}」遺落在戰場上。`)}
         graves.push({tile:n,y,name:h.name});
         if(h.legend)sagaSay(y,`${h.title}${h.name}戰死於${nm(n)}。`,n);else if(!wl.length)say(y,'hero',`${fac[lose].n}的英雄${h.name}戰死於${nm(n)}。`,n);
-        heroDies(h,y,`戰死於${nm(n)}`)}
+        if(hw)hAffAdd(h.name[0],hw.name[0],-.5);heroDies(h,y,`戰死於${nm(n)}`)}
+      else if(hl2&&!hl2.plot&&!hl2.captive&&!hl2.noCmd&&rand()<.12){hl2.captive={by:win,y};for(const wp of weaponsOf(hl2))if(hw&&hw.alive&&rand()<.5)giveW(wp,hw,y,`${hl2.name}在${nm(n)}被俘，「${wp.name}」落入${hw.name}手中。`);say(y,'hero',`${fac[lose].n}的${hl2.name}在${nm(n)}兵敗被俘。`,n)}
       // 戰史：記下雙方兵力與各項加成，供統計頁查看
       battles.push({y,s,a:A,d:D,an:fac[A].n,dn:fac[D].n,t:n,b:biome[n],dd,ctr:counter?1:0,LA:Math.round(LA),LD:Math.round(LD),xA:Math.round(xA),xD:Math.round(xD),mil:Math.round(mil),
         ag:+fac[A].aggr.toFixed(2),wf:+wf.toFixed(2),sup:+sup.toFixed(2),tm:+tm.toFixed(2),wm:+wm.toFixed(2),kA:+kA.toFixed(2),kD:+kD.toFixed(2),rA:+rA.toFixed(2),rD:+rD.toFixed(2),
@@ -938,7 +1008,7 @@ function createSim(w,rand,pick){
       events:ev.slice(-160)}}
 
   w.events=ev;w.graves=graves;w.snaps=snaps;w.fac=fac;w.stats=stats;
-  const legendData=()=>({weapons,saga,ARC,houseAff,aff,heroes:heroes.filter(h=>h.legend||h.ruled||h.wins>=4),fac:fac.map(f=>({id:f.id,n:f.n,alive:f.alive,born:f.born,diedY:f.diedY,cap:f.cap,ruler:f.ruler,house:f.house,liege:f.liege})),names:w.names,owner:owner.slice(),events:ev});
+  const legendData=()=>({marriages,weapons:weapons.map(wp=>{const h=wp.holder?heroById(wp.holder):null;return {...wp,at:h?(h.fief>=0?h.fief:fac[h.f].cap):wp.fac>=0?fac[wp.fac].cap:wp.gang?(gangs.find(g=>g.id===wp.gang)||{lair:wp.loc}).lair:(wp.lake&&wp.shore!==undefined?wp.shore:wp.loc)}}),saga,ARC,houseAff,aff,heroes:heroes.filter(h=>h.legend||h.ruled||h.wins>=4),fac:fac.map(f=>({id:f.id,n:f.n,alive:f.alive,born:f.born,diedY:f.diedY,cap:f.cap,ruler:f.ruler,house:f.house,liege:f.liege})),names:w.names,owner:owner.slice(),events:ev});
   return {legendData,runHistory,startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
