@@ -205,7 +205,7 @@ function noteIntel(w, i, src) {
 export function newWorld(seed, heroName) {
   const k = K();
   const w = {v: 2, seed, rng: hashSeed('world', seed), nextId: 1, day: 1, hour: 8, gold: 200, food: 16, log: [], battles: 0, kills: 0, fallen: [], over: null,
-    contracts: [], bands: [], towns: {}, vill: {}, press: {}, intel: {}, cargo: {food: 0, wood: 0, iron: 0, stone: 0, salt: 0}, mules: 0, relics: [], leads: [], escort: null, pins: [], wanted: {}, seen: new Array(N).fill(0), tick: 0, rumorDay: 0, earned: 0};
+    contracts: [], bands: [], towns: {}, vill: {}, press: {}, intel: {}, cargo: {food: 0, wood: 0, iron: 0, stone: 0, salt: 0}, mules: 0, relics: [], leads: [], escort: null, pins: [], wanted: {}, poi: {}, seen: new Array(N).fill(0), tick: 0, rumorDay: 0, earned: 0};
   // 從大城開始：人口前五大的市鎮挑一個
   const towns = Object.keys(k.markets).map(Number).filter(i => k.owner[i] >= 0).sort((a, b) => k.markets[b].pop - k.markets[a].pop).slice(0, 5);
   w.pos = towns[rngInt(w, towns.length)];
@@ -215,6 +215,7 @@ export function newWorld(seed, heroName) {
   w.party.push(h);
   for (const cls of ['spearman', 'archer', 'herbalist']) w.party.push(makeRecruit(w, cls, 1));
   w.nextWage = 8;
+  w.pois = genPOIs();
   reveal(w, w.pos, 3);
   arrive(w);
   say(w, `${h.name}帶著三個夥伴，在${facName(k.owner[w.pos])}的${nm(w.pos)}落腳。這是 ${k.stamp.replace(/ \S+$/, '')}。`);
@@ -298,6 +299,80 @@ export const contractSite = (w, c) => {
 };
 export const KIND_NAME = {gang: '剿匪', escort: '護送', deliver: '收購', merc: '傭兵', wolves: '狼害'};
 
+/* ───────────── 興趣點：荒野裡值得繞路去看看的地方 ───────────── */
+// 由世界種子決定，同一個世界裡每個人看到的都一樣（多人時共用探索狀態）
+export const POI_TYPES = {
+  ruin: {n: '廢墟', icon: '廢', c: '#cdbf9f', d: '不知道哪個年代留下的斷牆。也許還埋著什麼，也許早被人挖空了。'},
+  cave: {n: '山洞', icon: '洞', c: '#a99c8a', d: '山壁上黑黝黝的洞口，有野獸的氣味。'},
+  fort: {n: '廢棄的哨堡', icon: '堡', c: '#d39a7a', d: '舊王國時代的哨堡，現在只剩半截石牆。常有逃兵和盜匪躲在裡面。'},
+  wreck: {n: '沉船', icon: '船', c: '#8fc1df', d: '擱淺在礁石間的船殼，退潮時走得到。'},
+  hermit: {n: '隱士小屋', icon: '屋', c: '#b6e3a8', d: '林子裡冒著一縷炊煙。住在這裡的人，知道很多外人不知道的事。'},
+  shrine: {n: '古神龕', icon: '龕', c: '#e6d48c', d: '長滿青苔的石龕，供的是誰已經沒人記得。'},
+  field: {n: '古戰場', icon: '骨', c: '#d8c7b8', d: '草底下還埋著生鏽的鐵器和白骨。'},
+  grove: {n: '古林深處', icon: '林', c: '#9fd18a', d: '林子深處靜得出奇，連鳥都不叫。老人說舊王國的大賢者就是在這樣的地方消失的。'},
+  mist: {n: '湖上的霧', icon: '霧', c: '#b9d6f0', d: '水面上終年不散的霧。漁夫說霧裡偶爾會看見一隻手。'},
+};
+// 開局時生成一次，存在世界裡（之後國界變了也不會跟著變）
+export const pois = w => (w && w.pois) || [];
+export function genPOIs() {
+  const k = K(), st = {rng: hashSeed('poi', C.SEED)}, out = [], taken = new Set();
+  const put = (i, type) => { if (taken.has(i)) return; taken.add(i); out.push({id: 'q' + i, tile: i, type}); };
+  // 傳奇武器失落的地方：古林與湖霧
+  for (const wp of k.weapons) if (wp.lost && wp.loc >= 0) { if (wp.sealed) put(wp.loc, 'grove'); else if (wp.lake && wp.shore != null) put(wp.shore, 'mist'); }
+  for (let i = 0; i < N; i++) {
+    if (!C.land(i) || k.biome[i] === 2 || k.owner[i] >= 0 || isTown(i, k)) continue;
+    if (rngNext(st) > 0.05) continue;
+    const b = k.biome[i], coast = NBR[i].some(n => !C.land(n)), nearOwn = NBR[i].some(n => k.owner[n] >= 0);
+    const opts = ['ruin', 'field'];
+    if (b === 3 || b === 4) opts.push('cave', 'cave', 'shrine');
+    if (b === 6 || b === 9) opts.push('hermit', 'grove');
+    if (coast) opts.push('wreck', 'wreck');
+    if (nearOwn) opts.push('fort');
+    if (b === 7 || b === 4) opts.push('shrine');
+    put(i, rngPick(st, opts));
+  }
+  return out;
+}
+export const poiAt = (w, i) => pois(w).find(p => p.tile === i);
+// 探索過的紀錄：單人存在自己身上；多人時由伺服器塞進 w.poiShared
+export const poiDone = (w, p) => { const r = (w.poiShared && w.poiShared[p.id]) || (w.poi && w.poi[p.id]); return r && w.day - r.day < 60 ? r : null; };
+const lootText = L => [L.gold ? `${L.gold} 金幣` : '', ...Object.entries(L.cargo || {}).filter(([, q]) => q > 0).map(([g, q]) => `${GN[g]} ${q} 包`), L.gear ? '一件堪用的兵器' : ''].filter(Boolean).join('、');
+function grantLoot(w, L, out) {
+  const k = K();
+  if (L.gold) w.gold += L.gold;
+  let room = capacity(w) - load(w);
+  for (const [g, q0] of Object.entries(L.cargo || {})) { const q = Math.min(room, q0); if (q > 0) { w.cargo[g] = (w.cargo[g] || 0) + q; room -= q; } }
+  if (L.gear) { const m = w.party.filter(m => (m.gw || 0) < 2).sort((a, b) => (a.gw || 0) - (b.gw || 0))[0]; if (m) { m.gw = (m.gw || 0) + 1; out.lines.push(`${m.name}換上了撿到的${GEAR_NAME.w[m.gw]}。`); } }
+  if (L.reveal) reveal(w, w.pos, L.reveal);
+  if (L.heal) for (const m of w.party) m.hp = m.max;
+  if (L.loyalty) for (const m of companions(w)) m.loyalty = Math.min(100, m.loyalty + L.loyalty);
+  if (L.lead != null) { const wp = k.weapons.find(x => x.id === L.lead); if (wp && wp.lost && !w.leads.some(x => x.wp === wp.id)) { const spot = wp.lake && wp.shore != null ? wp.shore : wp.loc; w.leads.push({id: 'L' + w.nextId++, wp: wp.id, name: wp.name, center: spot, day: w.day}); reveal(w, spot, 1); out.lines.push(`你們打聽到「${wp.name}」的下落。`); } }
+  if (L.relic != null) { const wp = k.weapons.find(x => x.id === L.relic); if (wp && wp.lost) {
+    wp.lost = false; wp.lake = false; wp.sealed = false; wp.holder = 0; wp.fac = -1; wp.gang = 0; wp.loc = -1; wp.player = 1;
+    wp.hist.push({y: k.curY, t: `失落多年後，一支無名的戰幫在${nm(w.pos)}找到了「${wp.name}」。`});
+    w.relics.push({id: wp.id, name: wp.name, kind: wp.kind, wins: wp.wins, owners: wp.owners}); w.leads = w.leads.filter(x => x.wp !== wp.id); w.fame = (w.fame || 0) + 2;
+    out.lines.push(`找到了傳說中的「${wp.name}」！`); } }
+  const t = lootText(L); if (t) out.lines.push(`得到${t}。`);
+}
+// 探索：花半天。結果可能是一場仗（打贏才拿得到東西）、一筆財物、一條線索，或什麼都沒有
+function explorePOI(w, p, out) {
+  const k = K(), r = rngNext(w), lvl = 1 + Math.floor(w.day / 14), L = {}, m = (lo, hi) => lo + rngInt(w, hi - lo + 1);
+  let fight = null, text = '';
+  const nearestLost = () => { let best = null, bd = 99; for (const wp of k.weapons) if (wp.lost && wp.loc >= 0) { const d = hdist(wp.loc, w.pos); if (d < bd) { bd = d; best = wp; } } return best; };
+  switch (p.type) {
+    case 'ruin': if (r < 0.45) { L.gold = m(40, 140); text = '在倒塌的地窖裡翻出一個生鏽的錢箱。'; } else if (r < 0.75) { fight = {foes: ['bandit', 'cutthroat', 'bandit'], name: '盜墓賊'}; L.gold = m(30, 90); text = '一夥盜墓賊比你們先到。'; } else text = '只有碎陶片和老鼠。'; break;
+    case 'cave': if (r < 0.5) { fight = {foes: ['wolf', 'wolf', rngNext(w) < 0.4 ? 'bear' : 'boar'], name: '洞裡的野獸', biome: 'forest'}; L.cargo = {fur: m(2, 5)}; L.gold = m(0, 30); text = '洞裡的東西被吵醒了。'; } else if (r < 0.8) { L.cargo = {gem: m(1, 4)}; text = '洞壁深處有幾顆沒人採的原石。'; } else text = '洞很淺，什麼都沒有。'; break;
+    case 'fort': if (r < 0.7) { fight = {foes: ['spearman', 'swordsman', 'archer', 'bandit'], name: '躲在堡裡的逃兵', leader: 'chief'}; L.gold = m(60, 160); L.cargo = {iron: m(2, 6)}; text = '石牆後面射出一支箭。'; } else { L.cargo = {iron: m(1, 4)}; text = '堡裡沒人，兵器庫還剩幾捆生鐵。'; } break;
+    case 'wreck': if (r < 0.25) { fight = {foes: ['cutthroat', 'poacher', 'bandit'], name: '撿破爛的海盜'}; L.cargo = {salt: m(3, 8), fish: m(2, 6)}; text = '船殼裡有人。'; } else if (r < 0.85) { L.cargo = rngNext(w) < 0.25 ? {gem: m(1, 3), salt: m(2, 6)} : {salt: m(3, 10), fish: m(2, 8)}; text = '退潮時從船艙裡搬出了一些還能用的貨。'; } else text = '船早就被搬空了。'; break;
+    case 'hermit': { L.reveal = 7; L.heal = true; const wp = nearestLost(); if (wp && rngNext(w) < 0.6) L.lead = wp.id; text = '隱士留你們過了一夜，替傷者敷了藥，還在地上畫出了附近的山川。'; break; }
+    case 'shrine': if (r < 0.6) { L.loyalty = 10; text = '大家在神龕前默默站了一會兒，心裡都踏實了些。'; } else text = '風穿過石縫，像有人在低聲說話。你們沒有久留。'; break;
+    case 'field': if (r < 0.4) { L.gear = true; text = '在白骨堆裡找到一把保養得出奇好的兵器。'; } else if (r < 0.7) { fight = {foes: ['wolf', 'wolf', 'wolf'], name: '啃骨頭的野狗', biome: 'plain'}; L.gold = m(10, 40); text = '一群野狗不肯讓出牠們的地盤。'; } else { const wp = nearestLost(); if (wp) L.lead = wp.id; text = '一塊殘碑上刻著舊王國騎士的名字。'; } break;
+    case 'grove': case 'mist': { const wp = k.weapons.find(x => x.lost && (x.loc === w.pos || x.shore === w.pos));
+      if (wp && rngNext(w) < (p.type === 'grove' ? 0.35 : 0.2)) { L.relic = wp.id; text = p.type === 'grove' ? '在一棵老得看不出年紀的樹根之間，有什麼東西在發光。' : '霧散開的一瞬間，水邊的石頭上靠著一把劍。'; }
+      else { L.loyalty = 3; text = p.type === 'grove' ? '你們在林子裡繞了半天，總覺得有東西在看著。什麼也沒找到，但你確定這裡有什麼。' : '霧太濃了，什麼也看不見。也許換個日子再來。'; } break; }
+  }
+  return {fight, L, text};
+}
 /* ───────────── 時間流逝 ───────────── */
 const RUMOR_TYPES = new Set(['war', 'bandit', 'econ', 'disaster', 'legend', 'hero', 'found']);
 function passHours(w, hours, mode, out) {
@@ -448,6 +523,12 @@ export function battleSetup(w, kind, ref) {
     else { const n = 1 + Math.min(3, u.n) + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'spearman', Math.max(1, lvl - 1), {name: '押車的民兵'})); }
     return {seed, biome: battleBiome(w.pos), foes, source: {kind: 'raid', what: u.kind, to: u.to, fac: u.fac}, title: u.label};
   }
+  if (kind === 'poi') {
+    const {p, fight, L} = ref, lvl = 1 + Math.floor(w.day / 14), foes = [];
+    if (fight.leader) foes.push(makeMember(w, fight.leader, lvl + 1, {leader: true}));
+    for (const c of fight.foes) foes.push(makeMember(w, c, lvl, CLASSES[c].beast ? {} : {name: fight.name}));
+    return {seed, biome: fight.biome || battleBiome(w.pos), foes, source: {kind: 'poi', id: p.id, loot: L}, title: `${POI_TYPES[p.type].n}的${fight.name}`};
+  }
   if (kind === 'contract') {
     const c = w.contracts.find(x => x.id === ref), k = K(), lvl = 1 + Math.floor(w.day / 12), foes = [];
     if (c.kind === 'wolves') { const n = 2 + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'wolf', lvl)); foes.push(makeMember(w, rngNext(w) < 0.3 ? 'bear' : 'boar', lvl, {leader: true})); return {seed, biome: 'forest', foes, source: {kind, ref}, title: c.title}; }
@@ -484,7 +565,8 @@ export function applyBattle(w, setup, bst) {
   if (!hero.alive) { w.over = {day: w.day, where: setup.title}; return out; }
   if (bst.result === 'win') {
     const fled = bst.units.filter(u => u.side === 'enemy' && u.fled).length;
-    if (setup.source.kind === 'raid') {
+    if (setup.source.kind === 'poi') { grantLoot(w, setup.source.loot, out); w.fame = (w.fame || 0) + 0.3; }
+    else if (setup.source.kind === 'raid') {
       const k = K(), S = setup.source, list = S.what === 'caravan' ? k.caravans : k.carts, got = {};
       const hit = list.filter(c => c.wait <= 0 && c.path[c.pos] === w.pos && c.to === S.to);
       for (const c of hit) { if (S.what === 'caravan') got[c.g] = (got[c.g] || 0) + c.amt / BALE; else for (const g of GOODS) got[g] = (got[g] || 0) + c.goods[g] / BALE; }
@@ -613,6 +695,15 @@ export function worldAct(w, a) {
       w.relics.push({id: wp.id, name: wp.name, kind: wp.kind, wins: wp.wins, owners: wp.owners});
       w.leads = w.leads.filter(x => x !== L); w.fame = (w.fame || 0) + 2;
       say(w, `在${nm(w.pos)}找到了傳說中的「${wp.name}」！`); out.lines.push(`找到了「${wp.name}」！`);
+      break;
+    }
+    case 'explore': {
+      const p = poiAt(w, w.pos); if (!p) throw new Error('這裡沒什麼好探索的'); if (poiDone(w, p)) throw new Error('這裡最近才被探索過');
+      passHours(w, 12, 'camp', out); if (w.over || out.encounter) break;
+      const res = explorePOI(w, p, out); (w.poi ||= {})[p.id] = {day: w.day, by: w.party.find(m => m.hero)?.name};
+      say(w, `探索${POI_TYPES[p.type].n}（${nm(w.pos)}）：${res.text}`); out.lines.push(res.text);
+      if (res.fight) out.battle = battleSetup(w, 'poi', {p, ...res});
+      else { grantLoot(w, res.L, out); for (const l of out.lines.slice(1)) say(w, l); }
       break;
     }
     case 'buyMap': {

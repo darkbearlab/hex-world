@@ -53,7 +53,7 @@ function fit(canvas) { const r = canvas.getBoundingClientRect(), d = devicePixel
 
 /* ───────────── 抽屜 ───────────── */
 let sheetOnClose = null;
-function openSheet(html, onClose) { $('sheetContent').innerHTML = ''; if (typeof html === 'string') $('sheetContent').innerHTML = html; else $('sheetContent').append(html); $('sheet').hidden = false; sheetOnClose = onClose || null; $('sheetClose').hidden = !!(onClose && onClose.locked); }
+function openSheet(html, onClose, full = false) { $('sheet').classList.toggle('full', !!full); $('sheetContent').innerHTML = ''; if (typeof html === 'string') $('sheetContent').innerHTML = html; else $('sheetContent').append(html); $('sheet').hidden = false; sheetOnClose = onClose || null; $('sheetClose').hidden = !!(onClose && onClose.locked); }
 function closeSheet() { $('sheet').hidden = true; const f = sheetOnClose; sheetOnClose = null; if (f) f(); }
 $('sheetClose').onclick = closeSheet;
 $('sheet').addEventListener('click', e => { if (e.target === $('sheet') && !(sheetOnClose && sheetOnClose.locked)) closeSheet(); });
@@ -173,6 +173,11 @@ function renderWorld() {
     else if (s >= 24 && k.owner[i] >= 0 && k.pop[i] >= 8) sprite(g, ['props', 'cottage'], x - s * 0.28, y - s * 0.3, s * 0.56, {alpha: 0.6});
     const gg = Wd.gangAt(i, k); if (gg) { const z = s * 1.1; sprite(g, ['props', 'banner'], x - z / 2, y - z * 0.65, z); if (s >= 16) label(gg.name + '寨', x, y + s * 0.95, '#f3b2a6', Math.max(9, s * 0.4)); }
   }
+  // 興趣點：看得到的才畫；探索過的變暗
+  for (const p of Wd.pois(w)) { if (!SEEN(p.tile)) continue; const [x, y] = scr(p.tile); if (x < -s || y < -s || x > cw + s || y > ch + s) continue;
+    const T = Wd.POI_TYPES[p.type], done = Wd.poiDone(w, p), r = Math.max(7, s * 0.3);
+    g.globalAlpha = done ? 0.45 : 1; g.fillStyle = '#140f0bdd'; g.beginPath(); g.arc(x - s * 0.42, y - s * 0.38, r, 0, 7); g.fill(); g.strokeStyle = T.c; g.lineWidth = 2; g.stroke();
+    g.fillStyle = T.c; g.font = `700 ${Math.max(8, r * 1.05)}px system-ui`; g.textAlign = 'center'; g.fillText(T.icon, x - s * 0.42, y - s * 0.38 + r * 0.38); g.globalAlpha = 1; }
   // 委託地點、傳聞、聽說的事
   const mark = (i, text, col) => { const [x, y] = scr(i); g.fillStyle = col; g.beginPath(); g.arc(x + s * 0.5, y + s * 0.45, Math.max(6, s * 0.26), 0, 7); g.fill(); g.strokeStyle = '#000a'; g.lineWidth = 1.5; g.stroke(); g.fillStyle = '#1b150d'; g.font = `800 ${Math.max(8, s * 0.3)}px system-ui`; g.textAlign = 'center'; g.fillText(text, x + s * 0.5, y + s * 0.45 + Math.max(3, s * 0.11)); };
   for (const p of w.pins || []) if (w.day - p.day < 12) mark(p.tile, '!', '#e9dcbf');
@@ -195,7 +200,7 @@ function renderWorld() {
   for (const b of w.bands) { if (b.pos < 0 || (!b.hunting && Wd.hdist(b.pos, w.pos) > R)) continue; const [x, y] = scr(b.pos); g.fillStyle = b.hunting ? '#e0402a99' : '#d0533f66'; g.beginPath(); g.arc(x, y, s * 0.62, 0, 7); g.fill(); sprite(g, b.kind === 'wolves' ? ['foes', 'wolf'] : ['foes', 'bandit'], x - s * 0.55, y - s * 0.65, s * 1.1, {flip: true});
     if (b.hunting) { label('追兵', x, y - s * 0.7, '#ff8a6e', Math.max(9, s * 0.36)); const [px, py] = scr(w.pos); g.strokeStyle = '#e0402a88'; g.setLineDash([3, 4]); g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.lineTo(px, py); g.stroke(); g.setLineDash([]); } }
   // 玩家
-  const [px, py] = scr(w.pos);
+  const [px, py] = (() => { const [x, y] = partyXY(); return [(x - cam.x) * cam.s + mapSize.w / 2, (y - cam.y) * cam.s + mapSize.h / 2]; })();
   g.strokeStyle = w.escort ? '#9fd18a' : '#d9a441'; g.lineWidth = 2.5; g.beginPath(); g.arc(px, py, s * 0.72, 0, 7); g.stroke();
   sprite(g, ['people', 'knight'], px - s * 0.6, py - s * 0.7, s * 1.2);
   if (w.escort && s >= 16) label('護送中', px, py + s * 0.98, '#bfe3b0', Math.max(9, s * 0.36));
@@ -249,6 +254,8 @@ function hexInfo() {
     k.bandit[p] > 40 ? el('span', {class: 'tag bad'}, '盜匪出沒') : k.bandit[p] > 15 ? el('span', {class: 'tag warn'}, '不太平') : null);
   box.append(title);
   if (band) { const [lab, cls] = strength(band.foes); box.append(el('div', {}, `${band.name}：${foeSummary(band.foes)} `, el('span', {class: 'tag ' + cls}, '戰力' + lab))); }
+  const poi = Wd.poiAt(w, p);
+  if (poi) { const T = Wd.POI_TYPES[poi.type], done = Wd.poiDone(w, poi); box.append(el('div', {}, el('span', {class: 'tag good'}, T.n), ' ', el('span', {class: 'muted'}, done ? `第 ${done.day} 天${done.by ? '被' + done.by + '的戰幫' : ''}探索過，暫時沒什麼可找的。` : T.d))); }
   const units = Wd.unitsInView(w).filter(u => u.pos === p);
   for (const u of units.slice(0, 6)) box.append(el('div', {}, el('span', {class: 'tag'}, {caravan: '商隊', cart: '運貨車', patrol: '巡邏', army: '軍隊'}[u.kind]), ` ${u.label}・`, el('span', {class: 'muted'}, u.detail)));
   if (units.length > 6) box.append(el('div', {class: 'muted'}, `還有 ${units.length - 6} 組……`));
@@ -261,6 +268,7 @@ function hexInfo() {
   for (const c of w.contracts) if (Wd.contractSite(w, c) === p && (c.taken || c.kind === 'deliver')) box.append(el('div', {}, el('span', {class: 'tag warn'}, Wd.KIND_NAME[c.kind]), ' ', c.title));
   for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) box.append(el('div', {}, el('span', {class: 'tag good'}, '傳聞'), ` 「${L.name}」可能在這一帶${(L.searched || []).includes(p) ? '（這格找過了）' : ''}`));
   const row = el('div', {class: 'rowbtn'});
+  if (here && poi && !Wd.poiDone(w, poi)) row.append(el('button', {class: 'primary', onclick: () => doWorld({type: 'explore'})}, `探索${Wd.POI_TYPES[poi.type].n}（半天）`));
   if (here) for (const u of units.filter(u => u.kind === 'caravan' || u.kind === 'cart').slice(0, 2)) row.append(el('button', {class: 'danger', onclick: () => { if (confirm(`劫${u.label}？${Wd.facName(u.fac)}會通緝你們，巡邏隊看到會來抓人。`)) doWorld({type: 'raid', what: u.kind, to: u.to}); }}, `劫${u.kind === 'caravan' ? '商隊' : '運貨車'}（往${nm(u.to)}）`));
   if (here) for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) row.append(el('button', {onclick: () => doWorld({type: 'search', id: L.id})}, `搜尋「${L.name}」（一天）`));
   if (!here && wsel?.path) {
@@ -277,10 +285,19 @@ function hexInfo() {
   }
   box.append(row);
 }
+let anim = null;   // {from, to, t0, dur}：隊伍從哪格滑到哪格
+const partyXY = () => { if (!anim) return wxy(G.world.pos); const k = Math.min(1, (performance.now() - anim.t0) / anim.dur), e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2, [x0, y0] = wxy(anim.from), [x1, y1] = wxy(anim.to); return [x0 + (x1 - x0) * e, y0 + (y1 - y0) * e]; };
+function slide(from, to, dur) {
+  return new Promise(res => { anim = {from, to, t0: performance.now(), dur};
+    const step = () => { const [x, y] = partyXY(); cam.x = x; cam.y = y; renderWorld(); if (performance.now() - anim.t0 < dur) requestAnimationFrame(step); else { anim = null; res(); } };
+    requestAnimationFrame(step); });
+}
 async function travel(path) {
   traveling = true; wsel = null;
+  { const [x, y] = wxy(G.world.pos); cam.x = x; cam.y = y; }
   for (const p of path) {
-    const out = doWorld({type: 'travel', to: p}, true, true); followParty(); renderWorld(); await sleep(150);
+    const from = G.world.pos, out = doWorld({type: 'travel', to: p}, true, true);
+    if (out && G.world.pos !== from) await slide(from, G.world.pos, 420 + Math.min(380, Wd.legHours(G.world, G.world.pos) * 12)); else renderWorld();
     if (!out || out.encounter || G.world.pendingBattle || G.world.over || Wd.bandAt(G.world, G.world.pos)) break;
   }
   traveling = false; save(); afterWorldAction();
@@ -390,7 +407,7 @@ function townSheet(tab = 'market') {
     box.append(el('div', {class: 'rowbtn'}, ...[1, 3].map(d => el('button', {onclick: () => { doWorld({type: 'rest', days: d}); again(); }}, `住 ${d} 晚（${n * 2 * d}）`))));
     box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: () => { doWorld({type: 'rest', days: 1, inn: false}); again(); }}, '在城外紮營一天（免費）')));
   }
-  openSheet(box);
+  openSheet(box, null, true);
 }
 function goodsTable(t, again) {
   const w = G.world, wrap = el('div', {class: 'goods'});
@@ -450,7 +467,7 @@ function villageSheet(v) {
   const box = el('div', {}, el('h2', {}, nm(v)), el('p', {}, `村裡能匀出 ${have} 份口糧，每份約 ${pr.toFixed(1)} 金幣，比城裡便宜。`),
     el('div', {class: 'rowbtn'}, ...[1, 3, 7].map(d => el('button', {disabled: !have || null, onclick: () => { doWorld({type: 'buyFood', n: Math.min(eat * d, have)}); villageSheet(v); }}, `${d} 天份`))),
     el('div', {class: 'rowbtn'}, el('button', {onclick: () => { doWorld({type: 'rest', days: 1}); closeSheet(); }}, '在村邊紮營一天')));
-  openSheet(box);
+  openSheet(box, null, true);
 }
 // 行情：去過或聽說過的市集
 function marketSheet() {
