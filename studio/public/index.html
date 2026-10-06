@@ -42,6 +42,7 @@
     <button data-size="128">128×128</button>
     <button data-size="256">256×256</button>
     <span class="custom"><input id="cw" type="number" min="1" max="512" value="48" aria-label="寬">×<input id="ch" type="number" min="1" max="512" value="48" aria-label="高"><button id="customNew">自訂</button></span>
+    <button id="importNew" class="primary">從圖片轉像素…</button>
   </div>
   <h2 id="listTitle">我的作品</h2>
   <div id="docs" class="grid"></div>
@@ -64,6 +65,7 @@
     <button id="gridBtn" class="ghost" title="格線 (#)" aria-pressed="true">格線</button>
     <button id="fitBtn" class="ghost" title="置中 (0)">置中</button>
     <button id="histBtn" class="ghost">版本</button>
+    <button id="importBtn" class="ghost">匯入圖片</button>
     <button id="pngBtn" class="ghost">匯出 PNG</button>
     <button id="layersToggle" class="ghost only-narrow">圖層</button>
   </header>
@@ -131,6 +133,59 @@
 </dialog>
 
 <div id="toast" role="status"></div>
+<!-- 匯入圖片轉像素 -->
+<dialog id="impDlg" class="imp">
+  <div class="imphead">
+    <h3>圖片轉像素</h3>
+    <label class="btn">選圖片…<input id="impFile" type="file" accept="image/*" hidden></label>
+    <span class="muted small">也可以直接拖進來或貼上（Ctrl+V）</span>
+    <span class="grow"></span>
+    <button id="impCancel" class="ghost">取消</button>
+    <button id="impOk" class="primary" disabled>匯入</button>
+  </div>
+  <div class="impbody">
+    <div class="impviews">
+      <div class="impbox">
+        <div class="cap">原圖・<span class="muted">拖曳＝移動取樣框，滾輪／雙指＝縮放取樣框</span></div>
+        <div id="impSrcWrap"><canvas id="impSrc"></canvas><p id="impHint" class="muted">先選一張圖片</p></div>
+        <div class="row">
+          <span class="muted">檢視</span><button id="impVz-">−</button><button id="impVz+">＋</button><button id="impVfit">全圖</button><button id="impVframe">對準框</button>
+        </div>
+      </div>
+      <div class="impbox">
+        <div class="cap">結果預覽 <span id="impInfo" class="muted"></span></div>
+        <div id="impOutWrap"><canvas id="impOut"></canvas></div>
+      </div>
+    </div>
+    <div class="impctl">
+      <fieldset>
+        <legend>取樣框（原圖像素）</legend>
+        <div class="pad">
+          <span></span><button data-mv="0,-1" title="上移 1px">↑</button><span></span>
+          <button data-mv="-1,0" title="左移 1px">←</button><button id="impCenter" title="置中">◎</button><button data-mv="1,0" title="右移 1px">→</button>
+          <span></span><button data-mv="0,1" title="下移 1px">↓</button><span></span>
+        </div>
+        <label>X <input id="impX" type="number" step="1"></label>
+        <label>Y <input id="impY" type="number" step="1"></label>
+        <label>每格 <input id="impCell" type="number" step="0.25" min="0.25"> 原圖像素</label>
+        <div class="row"><button id="impC-" title="框變小（放大原圖）">框 −</button><button id="impC+" title="框變大（縮小原圖）">框 ＋</button><button id="impFit">框住全圖</button></div>
+        <p class="muted small">方向鍵移動 1px，Shift+方向鍵 10px；+ / − 縮放取樣框。</p>
+      </fieldset>
+      <fieldset>
+        <legend>輸出</legend>
+        <div id="impSizeRow"><label>寬 <input id="impW" type="number" min="1" max="512"></label><label>高 <input id="impH" type="number" min="1" max="512"></label></div>
+        <p id="impSizeNote" class="muted small"></p>
+        <label>取樣 <select id="impMode"><option value="mode">主色（適合插畫、輪廓清楚）</option><option value="avg">平均（柔和）</option><option value="center">中心點（最銳利）</option></select></label>
+        <label>色數 <select id="impColors"><option value="0">不減色</option><option>4</option><option>8</option><option>12</option><option>15</option><option>16</option><option>24</option><option>32</option><option value="pal">只用目前色票</option></select></label>
+        <label>透明門檻 <input id="impAlpha" type="range" min="1" max="255" value="128"></label>
+        <label><input id="impBgOn" type="checkbox"> 把背景色變透明（取四角的顏色）</label>
+        <label>放進 <select id="impTarget"><option value="layer">目前作品的新圖層</option><option value="new">新作品</option></select></label>
+      </fieldset>
+    </div>
+  </div>
+</dialog>
+
 <script src="app.js"></script>
+<script src="import.js"></script>
 </body>
 </html>

@@ -543,7 +543,7 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('wheel', e => { e.preventDefault(); const f = e.deltaY < 0 ? 1.25 : 0.8; zoomAt(e.clientX, e.clientY, Math.round(view.z * f) === view.z ? view.z + (e.deltaY < 0 ? 1 : -1) : Math.round(view.z * f)); }, {passive: false});
 
 addEventListener('keydown', e => {
-  if (!cur || $('editor').hidden || e.target.matches('input,select,textarea')) return;
+  if (!cur || $('editor').hidden || document.querySelector('dialog[open]') || e.target.matches('input,select,textarea')) return;
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); doRedo(); return; }
