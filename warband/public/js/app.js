@@ -174,6 +174,7 @@ function renderWorld() {
     const [x0, y0] = scr(u.pos), x = x0 + (n - 2) * s * 0.42, y = y0 - s * 0.05, fc = k.fac[u.fac]?.c || '#aaa', z = u.kind === 'army' ? s * 0.95 : s * 0.7;
     g.fillStyle = fc + 'cc'; g.beginPath(); g.arc(x, y + z * 0.28, z * 0.42, 0, 7); g.fill(); g.strokeStyle = '#140f0b'; g.lineWidth = 1.5; g.stroke();
     sprite(g, UNIT[u.kind], x - z / 2, y - z * 0.45, z, {alpha: u.kind === 'cart' ? 0.85 : 1});
+    if (u.n > 1 && s >= 14) { g.fillStyle = '#140f0b'; g.beginPath(); g.arc(x + z * 0.38, y - z * 0.3, Math.max(6, s * 0.2), 0, 7); g.fill(); g.fillStyle = '#f6ecd4'; g.font = `700 ${Math.max(8, s * 0.24)}px system-ui`; g.textAlign = 'center'; g.fillText(u.n, x + z * 0.38, y - z * 0.3 + Math.max(3, s * 0.08)); }
     if (u.kind === 'army') { g.fillStyle = fc; g.fillRect(x + z * 0.25, y - z * 0.7, z * 0.32, z * 0.2); g.strokeStyle = '#140f0b'; g.lineWidth = 1; g.strokeRect(x + z * 0.25, y - z * 0.7, z * 0.32, z * 0.2); }
   }
   // 遊蕩的隊伍：視野內才看得到；在追你的會標出來
@@ -213,25 +214,31 @@ function selectHex(p) {
 const strength = (foes) => { const r = Wd.partyPower(foes) / Math.max(1, Wd.partyPower(G.world.party)); return r < 0.5 ? ['弱', 'good'] : r < 0.85 ? ['稍弱', 'good'] : r < 1.15 ? ['相當', 'warn'] : r < 1.6 ? ['強', 'bad'] : ['很強', 'bad']; };
 function foeSummary(foes) { const c = {}; for (const f of foes) c[clsName(f)] = (c[clsName(f)] || 0) + 1; return Object.entries(c).map(([k, n]) => `${k}×${n}`).join('、'); }
 const gangWord = str => str > 260 ? '人多勢眾' : str > 160 ? '有一定規模' : '人不多';
+let infoFolded = false;
+$('hexInfo').addEventListener('click', e => { if (e.target.closest('.row') && !e.target.closest('button')) { infoFolded = !infoFolded; $('hexInfo').classList.toggle('folded', infoFolded); const f = $('hexInfo').querySelector('.fold'); if (f) f.textContent = infoFolded ? '▸' : '▾'; } });
 function hexInfo() {
   const w = G.world, box = $('hexInfo'), k = C.K(); box.innerHTML = '';
   box.style.bottom = ($('world').querySelector('.bar').offsetHeight + 8) + 'px';
+  box.classList.toggle('folded', !!infoFolded);
   const p = wsel ? wsel.pos : w.pos, here = p === w.pos;
   if (!Wd.seen(w, p)) {
-    box.append(el('div', {class: 'row'}, el('b', {}, '未知之地'), el('span', {class: 'tag'}, '沒去過，也沒人說過')));
+    box.append(el('div', {class: 'row'}, el('span', {class: 'fold'}, infoFolded ? '▸' : '▾'), el('b', {}, '未知之地'), el('span', {class: 'tag'}, '沒去過，也沒人說過')));
     const row = el('div', {class: 'rowbtn'});
     if (wsel?.path) { const hrs = Wd.pathHoursW(w, wsel.path); box.append(el('div', {class: 'muted'}, `${wsel.path.length} 格，粗估 ${(hrs / 24).toFixed(1)} 天。路上的情況不清楚。`)); row.append(el('button', {class: 'primary', onclick: () => travel(wsel.path)}, '前往')); }
     else box.append(el('div', {class: 'muted'}, '看起來走不過去。'));
     box.append(row); return;
   }
   const site = Wd.siteAt(w, p), band = Wd.bandAt(w, p), o = k.owner[p];
-  const title = el('div', {class: 'row'}, el('b', {}, nm(p)), el('span', {class: 'tag'}, Wd.BIOMES[k.biome[p]].n),
+  const title = el('div', {class: 'row'}, el('span', {class: 'fold'}, infoFolded ? '▸' : '▾'), el('b', {}, nm(p)), el('span', {class: 'tag'}, Wd.BIOMES[k.biome[p]].n),
     o >= 0 ? el('span', {class: 'tag'}, Wd.facName(o)) : el('span', {class: 'tag warn'}, '無主之地'),
     here ? el('span', {class: 'tag good'}, '你在這裡') : null, k.routeTiles.has(p) ? el('span', {class: 'tag'}, '商路') : null,
     k.bandit[p] > 40 ? el('span', {class: 'tag bad'}, '盜匪出沒') : k.bandit[p] > 15 ? el('span', {class: 'tag warn'}, '不太平') : null);
   box.append(title);
   if (band) { const [lab, cls] = strength(band.foes); box.append(el('div', {}, `${band.name}：${foeSummary(band.foes)} `, el('span', {class: 'tag ' + cls}, '戰力' + lab))); }
-  for (const u of Wd.unitsInView(w).filter(u => u.pos === p)) box.append(el('div', {}, el('span', {class: 'tag'}, {caravan: '商隊', cart: '運貨車', patrol: '巡邏', army: '軍隊'}[u.kind]), ` ${u.label}・`, el('span', {class: 'muted'}, u.detail)));
+  const units = Wd.unitsInView(w).filter(u => u.pos === p);
+  for (const u of units.slice(0, 6)) box.append(el('div', {}, el('span', {class: 'tag'}, {caravan: '商隊', cart: '運貨車', patrol: '巡邏', army: '軍隊'}[u.kind]), ` ${u.label}・`, el('span', {class: 'muted'}, u.detail)));
+  if (units.length > 6) box.append(el('div', {class: 'muted'}, `還有 ${units.length - 6} 組……`));
+  if (o >= 0 && Wd.wantedBy(w, o) >= 1) box.append(el('div', {}, el('span', {class: 'tag bad'}, '通緝'), ` ${Wd.facName(o)}正在通緝你們${Wd.wantedBy(w, o) >= 3 ? '：城裡的人不會跟你們打交道' : ''}`));
   if (Wd.hdist(p, w.pos) > Wd.viewRadius(w)) box.append(el('div', {class: 'muted', style: 'font-size:12px'}, '在你的視野外：那裡現在有誰經過，你看不到。'));
   for (const pin of (w.pins || []).filter(x => x.tile === p && w.day - x.day < 12)) box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `第 ${pin.day} 天聽說：${pin.text}`));
   if (site?.kind === 'town') { const wars = Wd.atWarWith(site.fac); box.append(el('div', {class: 'muted'}, `市鎮。市集、酒館、告示板、旅店。${k.fac[site.fac].hardy ? `${Wd.facName(site.fac)}是北地之國，耐寒。` : ''}${wars.length ? `${Wd.facName(site.fac)}正與${wars.join('、')}交戰。` : ''}`)); const it = w.intel[p]; if (it && !here) box.append(intelLine(p)); }
@@ -240,6 +247,7 @@ function hexInfo() {
   for (const c of w.contracts) if (Wd.contractSite(w, c) === p && (c.taken || c.kind === 'deliver')) box.append(el('div', {}, el('span', {class: 'tag warn'}, Wd.KIND_NAME[c.kind]), ' ', c.title));
   for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) box.append(el('div', {}, el('span', {class: 'tag good'}, '傳聞'), ` 「${L.name}」可能在這一帶${(L.searched || []).includes(p) ? '（這格找過了）' : ''}`));
   const row = el('div', {class: 'rowbtn'});
+  if (here) for (const u of units.filter(u => u.kind === 'caravan' || u.kind === 'cart').slice(0, 2)) row.append(el('button', {class: 'danger', onclick: () => { if (confirm(`劫${u.label}？${Wd.facName(u.fac)}會通緝你們，巡邏隊看到會來抓人。`)) doWorld({type: 'raid', what: u.kind, to: u.to}); }}, `劫${u.kind === 'caravan' ? '商隊' : '運貨車'}（往${nm(u.to)}）`));
   if (here) for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) row.append(el('button', {onclick: () => doWorld({type: 'search', id: L.id})}, `搜尋「${L.name}」（一天）`));
   if (!here && wsel?.path) {
     const hrs = Wd.pathHoursW(w, wsel.path), risks = wsel.path.filter(i => Wd.seen(w, i)).map(i => Wd.tileRisk(i, k)), bad = risks.filter(r => r >= 0.4).length, mid = risks.filter(r => r >= 0.15 && r < 0.4).length;
@@ -279,6 +287,14 @@ function afterWorldAction() {
 }
 function encounterSheet(b) {
   const [lab, cls] = strength(b.foes), w = G.world, toll = Wd.tollOf(w);
+  if (b.kind === 'soldiers') {
+    const fine = Wd.fineOf(w, b.fac), box = el('div', {}, el('h2', {}, `${b.name}攔下了你們`), el('p', {}, `${foeSummary(b.foes)}　`, el('span', {class: 'tag ' + cls}, '戰力' + lab)),
+      el('p', {class: 'muted'}, '「你們就是通緝告示上那夥人吧。跟我們走一趟，或者把罰金繳了。」'));
+    box.append(el('div', {class: 'rowbtn'}, el('button', {class: 'primary', onclick: () => { closeSheet(); doWorld({type: 'engage', band: b.id}); }}, '迎戰（通緝更緊）'),
+      el('button', {onclick: () => { closeSheet(); doWorld({type: 'evade', band: b.id}); }}, '試著甩開'),
+      el('button', {onclick: () => { closeSheet(); doWorld({type: 'bribe', band: b.id}); }}, `繳罰金（${fine}）`)));
+    const lock = () => {}; lock.locked = true; return openSheet(box, lock);
+  }
   const box = el('div', {}, el('h2', {}, b.kind === 'wolves' ? '狼群！' : `${b.name}擋住了去路`),
     el('p', {}, `${foeSummary(b.foes)}　`, el('span', {class: 'tag ' + cls}, '戰力' + lab)),
     el('p', {class: 'muted'}, b.kind === 'wolves' ? '牠們已經聞到你們的味道了。' : toll.escort ? '「商隊的貨留下，你們可以走。」' : toll.cargo ? '「騾子背上的東西留一半下來，人就可以走。」' : '「把錢留下，人就可以走。」'));
@@ -439,6 +455,8 @@ $('btnParty').onclick = () => {
   const box = el('div', {}, el('h2', {}, `隊伍（${w.party.length}/${Wd.MAX_PARTY}）`),
     el('p', {class: 'muted'}, `下次發餉：第 ${w.nextWage} 天，共 ${due} 金幣。騾子 ${w.mules} 頭。`),
     el('p', {}, `身上的貨：${Wd.GOODS.filter(g => w.cargo[g]).map(g => `${Wd.GN[g]} ${w.cargo[g]} 包`).join('、') || '沒有'}（${Wd.load(w)}/${Wd.capacity(w)}）`));
+  const wl = Object.entries(w.wanted || {}).filter(([, v]) => v >= 0.5);
+  if (wl.length) box.append(el('p', {}, el('span', {class: 'tag bad'}, '通緝'), ' ', wl.map(([f, v]) => `${Wd.facName(+f)}（${v >= 3 ? '重犯' : v >= 2 ? '巡邏隊會抓人' : '小心'}）`).join('、')));
   box.append(el('p', {class: 'muted'}, `名聲：${Wd.fameWord(w.fame || 0)}。馬 ${w.horses || 0} 匹${Wd.mounted(w) ? '（全員騎馬）' : ''}。`));
   for (const r of w.relics) { const who = w.party.find(m => m.id === r.equip);
     box.append(el('div', {class: 'rowbtn'}, el('span', {style: 'flex:2;align-self:center'}, `「${r.name}」${r.kind}：${who ? who.name + '佩帶（力量 +2）' : '收在行囊裡'}`), el('button', {onclick: () => { doWorld({type: 'equipRelic', id: r.id}); $('btnParty').onclick(); }}, who ? '換人' : '交給人佩帶'))); }

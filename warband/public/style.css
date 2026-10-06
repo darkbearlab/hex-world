@@ -114,3 +114,5 @@ body:has(#world[hidden]) #notes{display:none}
 #hexInfo:empty{display:none}
 #mapWrap .floating{bottom:auto;top:10px}
 #mapWrap .floating.f2{top:58px}
+#hexInfo .row:first-child{cursor:pointer}.fold{color:var(--muted);width:14px;display:inline-block}
+#hexInfo.folded>*:not(:first-child){display:none}#hexInfo.folded{min-height:0;padding-top:8px;padding-bottom:8px}
