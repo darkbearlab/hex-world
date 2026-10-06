@@ -19,7 +19,7 @@ function heroPlan(st) {
 }
 function fight(w) {
   const setup = w.pendingBattle;
-  const st = B.createBattle({seed: setup.seed, biome: setup.biome, party: w.party, foes: setup.foes, order: {stance: 'follow'}});
+  const st = B.createBattle({seed: setup.seed, biome: setup.biome, party: Wd.battleParty(w), foes: setup.foes, order: {stance: 'follow'}});
   let g = 0; while (!st.result && g++ < 60) B.act(st, heroPlan(st));
   if (!st.result) st.result = 'retreat';
   return Wd.applyBattle(w, setup, st);
@@ -60,7 +60,13 @@ for (let s = 1; s <= RUNS; s++) {
         // 到了目的地就賣
         for (const g of Wd.GOODS) if (w.cargo[g] > 0 && (!plan || plan.t === w.pos)) { Wd.worldAct(w, {type: 'sell', g, q: w.cargo[g]}); sum.trades++; }
         if (plan && plan.t === w.pos) plan = null;
-        if (Wd.daysOfFood(w) < 6) Wd.worldAct(w, {type: 'buyFood', n: Math.ceil((w.party.length + w.mules / 2) * 8)});
+        if (w.contracts.some(c => Wd.canClaimHere(w, c))) { Wd.worldAct(w, {type: 'claim'}); sum.claims = (sum.claims || 0) + 1; }
+        // 有委託先做委託：護送、清狼、夠強就剿匪或從軍
+        if (!plan && !w.escort) {
+          const pw = Wd.partyPower(w.party), job = w.contracts.find(c => !c.taken && c.town === w.pos && (c.kind === 'escort' || c.kind === 'wolves' || (c.kind === 'merc' && pw > 70) || (c.kind === 'gang' && pw > 75)));
+          if (job) { Wd.worldAct(w, {type: 'takeContract', id: job.id}); sum.jobs = (sum.jobs || 0) + 1; plan = {t: Wd.contractSite(w, job), job: job.id}; }
+        }
+        if (Wd.daysOfFood(w) < 6) Wd.worldAct(w, {type: 'buyFood', n: Math.ceil(Wd.eaters(w) * 10)});
         if (w.mules < 4 && w.gold > 180) Wd.worldAct(w, {type: 'buyMule'});
         if (w.party.some(m => m.hp < m.max * 0.6) && w.gold > 60) { Wd.worldAct(w, {type: 'rest', days: 1}); continue; }
         if (!plan) { const d = bestDeal(w); if (d) { Wd.worldAct(w, {type: 'buy', g: d.g, q: d.n}); plan = d; } }
@@ -69,14 +75,18 @@ for (let s = 1; s <= RUNS; s++) {
           plan = {t: ts[(w.day * 7 + s) % ts.length]};
         }
       }
+      if (plan?.job) { const c = w.contracts.find(x => x.id === plan.job); if (!c || c.done) plan = {t: c ? c.town : w.pos}; else if (c.kind === 'gang') { const site = Wd.contractSite(w, c); if (site === w.pos) { Wd.worldAct(w, {type: 'assault'}); continue; } plan.t = site; } }
+      if (plan && plan.t < 0) plan = null;
+      if (!plan) { const k = C.K(), ts = Object.keys(k.markets).map(Number).filter(t => Wd.isTown(t, k) && t !== w.pos).sort((a, b) => C.hdist(a, w.pos) - C.hdist(b, w.pos)); plan = {t: ts[0]}; }
       if (here?.kind === 'village' && Wd.daysOfFood(w) < 3) Wd.worldAct(w, {type: 'buyFood', n: 10});
       const path = Wd.findPath(w, w.pos, plan.t);
       if (!path || !path.length) { plan = null; Wd.worldAct(w, {type: 'rest', days: 1, inn: false}); continue; }
       Wd.worldAct(w, {type: 'travel', to: path[0]});
-    } catch (e) { plan = null; Wd.worldAct(w, {type: 'rest', days: 1, inn: false}); }
+    } catch (e) { if (process.env.DBG) console.log('bot', e.message); plan = null; try { Wd.worldAct(w, {type: 'rest', days: 1, inn: false}); } catch {} }
   }
   sum.over += w.over ? 1 : 0; sum.gold.push(w.gold + Wd.cargoValue(w)); sum.earned.push(w.earned); sum.battles += w.battles; sum.fallen += w.fallen.length; sum.days.push(w.day);
   if (s === 1) console.log(w.log.slice(0, 60).reverse().map(l => `第${l.day}天 ${l.text}`).join('\n'));
 }
 const avg = a => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0);
+console.log(`委託 ${sum.jobs || 0} 件、領賞 ${sum.claims || 0} 次`);
 console.log(`${RUNS} 局 × ${DAYS} 天：主角陣亡 ${sum.over}；結束時身家平均 ${avg(sum.gold)}（開局 200）；賣貨收入平均 ${avg(sum.earned)}；成交 ${sum.trades} 筆；遭遇 ${sum.ambush} 次、戰鬥 ${sum.battles} 場、同伴陣亡 ${sum.fallen}`);

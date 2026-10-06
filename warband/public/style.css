@@ -97,3 +97,4 @@ table.intel td:first-child{text-align:left}table.intel td .muted{font-size:11px}
 table.intel td.lo{color:var(--gold);font-weight:700}table.intel td.hi{color:#f08a74;font-weight:700}table.intel td.none{color:var(--muted)}
 table.intel tr{cursor:pointer}
 h3{font-size:16px;margin:6px 0 2px}
+.floating.f2{bottom:58px}.floating.on{background:#8a2c1e;border-color:#e0402a}
