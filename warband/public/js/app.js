@@ -274,7 +274,7 @@ function townSheet(tab = 'market') {
     for (const r of ts.recruits) box.append(memberCard(r, el('div', {class: 'rowbtn'}, el('button', {class: 'primary', onclick: () => { doWorld({type: 'hire', id: r.id}); again(); }}, `雇用（${r.wage * 2}）`))));
   }
   if (tab === 'board') {
-    const claim = w.contracts.filter(c => c.done && c.taken && c.town === t);
+    const claim = w.contracts.filter(c => Wd.canClaimHere(w, c));
     if (claim.length) box.append(el('button', {class: 'primary', onclick: () => { doWorld({type: 'claim'}); again(); }}, `領賞（${claim.reduce((s, c) => s + c.reward, 0)}）`));
     box.append(contractList(t));
   }
@@ -309,11 +309,12 @@ function contractList(t) {
   for (const c of list) {
     const lair = Wd.contractSite(w, c);
     box.append(el('div', {class: 'card'}, el('div', {class: 'body'},
-      el('div', {class: 'top'}, el('b', {}, c.title), el('span', {class: 'tag ' + (c.done ? 'good' : c.taken ? 'warn' : '')}, c.done ? '完成，待領賞' : c.taken ? '進行中' : `賞金 ${c.reward}`)),
-      el('div', {class: 'muted', style: 'font-size:13px'}, `${nm(c.town)}的告示・${lair >= 0 ? `山寨在${nm(lair)}（離你 ${Wd.hdist(lair, w.pos)} 格）・` : c.done ? '' : '山寨已經不在了・'}期限第 ${c.until} 天・賞金 ${c.reward}`),
+      el('div', {class: 'top'}, el('b', {}, c.title), el('span', {class: 'tag ' + (c.done ? 'good' : c.taken ? 'warn' : '')}, c.done ? (Wd.canClaimHere(w, c) ? '完成，可以領賞' : '完成，待領賞') : c.taken ? '進行中' : `賞金 ${c.reward}`)),
+      el('div', {class: 'muted', style: 'font-size:13px'}, `${nm(c.town)}的告示（${Wd.facName(C.K().owner[c.town])}）・${lair >= 0 ? `山寨在${nm(lair)}（離你 ${Wd.hdist(lair, w.pos)} 格）・` : c.done ? '' : '山寨已經不在了・'}期限第 ${c.until} 天・賞金 ${c.reward}`),
       el('div', {class: 'rowbtn'},
         !c.taken && t != null ? el('button', {onclick: () => { doWorld({type: 'takeContract', id: c.id}); townSheet('board'); }}, '接下') : null,
-        lair >= 0 ? el('button', {onclick: () => { closeSheet(); showOnMap(lair); }}, '在地圖上看') : null))));
+        lair >= 0 ? el('button', {onclick: () => { closeSheet(); showOnMap(lair); }}, '在地圖上看') : null,
+        c.done && !Wd.canClaimHere(w, c) ? el('button', {class: 'primary', onclick: () => { closeSheet(); showOnMap(c.town); }}, `回${nm(c.town)}領賞（${Wd.hdist(c.town, w.pos)} 格）`) : null))));
   }
   return box;
 }

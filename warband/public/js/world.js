@@ -158,6 +158,8 @@ function refreshContracts(w, t) {
     w.contracts.push({id: 'k' + w.nextId++, kind: 'gang', town: t, gang: g.id, title: `剿滅${g.name}的山寨`, reward: Math.round(120 + g.str * 0.6), until: w.day + 24, taken: false, done: false});
   }
 }
+// 懸賞是官府出的：回發佈的城，或同一國的任何一座城都能領
+export const canClaimHere = (w, c) => { const k = K(); return c.done && c.taken && isTown(w.pos, k) && (c.town === w.pos || (k.owner[c.town] >= 0 && k.owner[c.town] === k.owner[w.pos])); };
 export const contractSite = (w, c) => { const g = K().gangs.find(x => x.id === c.gang); return g && !g.gone ? g.lair : -1; };
 
 /* ───────────── 時間流逝 ───────────── */
@@ -307,7 +309,7 @@ export function applyBattle(w, setup, bst) {
       out.loot = Math.round(100 + (g.loot || 0) * 2 + g.str * 0.4 + rngInt(w, 60));
       g.gone = 1; g.to = undefined; k.bandit[g.lair] *= 0.25; for (const n of NBR[g.lair]) k.bandit[n] *= 0.4;
       k.ev.push({y: k.curY, type: 'bandit', text: `一支無名的戰幫攻破了${g.name}的山寨。`, tile: g.lair, ts: k.stamp});
-      for (const c of w.contracts) if (c.gang === g.id) { if (c.taken) { c.done = true; out.lines.push(`委託「${c.title}」完成，回${nm(c.town)}領賞。`); } else c.void = true; }
+      for (const c of w.contracts) if (c.gang === g.id) { if (c.taken) { c.done = true; out.lines.push(`委託「${c.title}」完成，回${nm(c.town)}（或${facName(k.owner[c.town])}的其他城）領賞。`); } else c.void = true; }
       // 山寨裡藏著的傳奇武器
       for (const wp of k.weapons) if (wp.gang === g.id) {
         wp.gang = 0; wp.holder = 0; wp.fac = -1; wp.lost = false; wp.loc = -1; wp.player = 1;
@@ -438,7 +440,7 @@ export function worldAct(w, a) {
     }
     case 'claim': {
       needTown();
-      const done = w.contracts.filter(c => c.done && c.taken && c.town === w.pos); if (!done.length) throw new Error('這裡沒有可以領的賞金');
+      const done = w.contracts.filter(c => canClaimHere(w, c)); if (!done.length) { const far = w.contracts.find(c => c.done && c.taken); throw new Error(far ? `賞金要回${C.nm(far.town)}（或${facName(K().owner[far.town])}的其他城）領` : '沒有可以領的賞金'); }
       for (const c of done) { w.gold += c.reward; say(w, `領了「${c.title}」的賞金 ${c.reward}。`); }
       w.contracts = w.contracts.filter(c => !done.includes(c));
       break;
