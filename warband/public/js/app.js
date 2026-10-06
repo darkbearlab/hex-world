@@ -149,7 +149,11 @@ function renderWorld() {
   const label = (text, x, y, color, size) => { g.font = `600 ${size}px system-ui`; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = '#000b'; g.strokeText(text, x, y); g.fillStyle = color; g.fillText(text, x, y); };
   for (const [i, x, y] of vis) {
     if (!SEEN(i)) continue;
-    if (Wd.isTown(i, k)) { const z = s * 1.35; sprite(g, ['props', 'tower'], x - z / 2, y - z * 0.7, z); label(nm(i), x, y + s * 0.95, '#f6ecd4', Math.max(10, s * 0.46));
+    if (Wd.isTown(i, k)) { const z = s * 1.35, fc = k.fac[k.owner[i]].c, cap = k.fac[k.owner[i]].cap === i;
+      g.fillStyle = fc; g.strokeStyle = '#140f0b'; g.lineWidth = 2; g.beginPath(); g.ellipse(x, y + s * 0.18, s * 0.62, s * 0.3, 0, 0, 7); g.fill(); g.stroke();
+      sprite(g, ['props', 'tower'], x - z / 2, y - z * 0.7, z);
+      g.fillStyle = fc; g.beginPath(); g.moveTo(x + s * 0.1, y - z * 0.72); g.lineTo(x + s * 0.1, y - z * 0.98); g.lineTo(x + s * 0.5, y - z * 0.88); g.lineTo(x + s * 0.1, y - z * 0.8); g.fill(); g.strokeStyle = '#140f0b'; g.lineWidth = 1; g.stroke();
+      label((cap ? '★' : '') + nm(i), x, y + s * 0.95, fc, Math.max(10, s * 0.46));
       if (w.intel[i]) { g.fillStyle = '#d9a441'; g.beginPath(); g.arc(x + s * 0.55, y - s * 0.55, Math.max(2.5, s * 0.12), 0, 7); g.fill(); }
       if (k.markets[i].ratio?.food < 0.8) label('饑荒', x, y - s * 0.75, '#ff8a6e', Math.max(9, s * 0.38)); }
     else if (s >= 24 && k.owner[i] >= 0 && k.pop[i] >= 8) sprite(g, ['props', 'cottage'], x - s * 0.28, y - s * 0.3, s * 0.56, {alpha: 0.6});
@@ -160,8 +164,20 @@ function renderWorld() {
   for (const p of w.pins || []) if (w.day - p.day < 12) mark(p.tile, '!', '#e9dcbf');
   for (const c of w.contracts) { const t = Wd.contractSite(w, c); if (t >= 0 && (c.taken || c.kind === 'deliver') && !c.done) mark(t, Wd.KIND_NAME[c.kind][0], '#f1c45c'); if (c.done) mark(c.town, '賞', '#9fd18a'); }
   for (const L of w.leads || []) mark(L.center, '?', '#b6e3a8');
-  // 遊蕩的隊伍：看得見的才畫；在追你的會標出來
-  for (const b of w.bands) { if (b.pos < 0 || (!SEEN(b.pos) && Wd.hdist(b.pos, w.pos) > 2)) continue; const [x, y] = scr(b.pos); g.fillStyle = b.hunting ? '#e0402a99' : '#d0533f66'; g.beginPath(); g.arc(x, y, s * 0.62, 0, 7); g.fill(); sprite(g, b.kind === 'wolves' ? ['foes', 'wolf'] : ['foes', 'bandit'], x - s * 0.55, y - s * 0.65, s * 1.1, {flip: true});
+  // 視野內的商隊、運貨車、軍隊、巡邏隊
+  const R = Wd.viewRadius(w);
+  if (s >= 12) { g.strokeStyle = '#f1d38a55'; g.setLineDash([2, 5]); g.lineWidth = 1.5; for (const [i, x, y] of vis) if (Wd.hdist(i, w.pos) === R) { hexPath(g, x, y, s * 0.98); g.stroke(); } g.setLineDash([]); }
+  const UNIT = {caravan: ['people', 'merchant'], cart: ['props', 'cart'], patrol: ['people', 'spearman'], army: ['people', 'knight']};
+  const stack = {};
+  for (const u of Wd.unitsInView(w)) {
+    const n = stack[u.pos] = (stack[u.pos] || 0) + 1; if (n > 3) continue;
+    const [x0, y0] = scr(u.pos), x = x0 + (n - 2) * s * 0.42, y = y0 - s * 0.05, fc = k.fac[u.fac]?.c || '#aaa', z = u.kind === 'army' ? s * 0.95 : s * 0.7;
+    g.fillStyle = fc + 'cc'; g.beginPath(); g.arc(x, y + z * 0.28, z * 0.42, 0, 7); g.fill(); g.strokeStyle = '#140f0b'; g.lineWidth = 1.5; g.stroke();
+    sprite(g, UNIT[u.kind], x - z / 2, y - z * 0.45, z, {alpha: u.kind === 'cart' ? 0.85 : 1});
+    if (u.kind === 'army') { g.fillStyle = fc; g.fillRect(x + z * 0.25, y - z * 0.7, z * 0.32, z * 0.2); g.strokeStyle = '#140f0b'; g.lineWidth = 1; g.strokeRect(x + z * 0.25, y - z * 0.7, z * 0.32, z * 0.2); }
+  }
+  // 遊蕩的隊伍：視野內才看得到；在追你的會標出來
+  for (const b of w.bands) { if (b.pos < 0 || (!b.hunting && Wd.hdist(b.pos, w.pos) > R)) continue; const [x, y] = scr(b.pos); g.fillStyle = b.hunting ? '#e0402a99' : '#d0533f66'; g.beginPath(); g.arc(x, y, s * 0.62, 0, 7); g.fill(); sprite(g, b.kind === 'wolves' ? ['foes', 'wolf'] : ['foes', 'bandit'], x - s * 0.55, y - s * 0.65, s * 1.1, {flip: true});
     if (b.hunting) { label('追兵', x, y - s * 0.7, '#ff8a6e', Math.max(9, s * 0.36)); const [px, py] = scr(w.pos); g.strokeStyle = '#e0402a88'; g.setLineDash([3, 4]); g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.lineTo(px, py); g.stroke(); g.setLineDash([]); } }
   // 玩家
   const [px, py] = scr(w.pos);
@@ -214,6 +230,8 @@ function hexInfo() {
     k.bandit[p] > 40 ? el('span', {class: 'tag bad'}, '盜匪出沒') : k.bandit[p] > 15 ? el('span', {class: 'tag warn'}, '不太平') : null);
   box.append(title);
   if (band) { const [lab, cls] = strength(band.foes); box.append(el('div', {}, `${band.name}：${foeSummary(band.foes)} `, el('span', {class: 'tag ' + cls}, '戰力' + lab))); }
+  for (const u of Wd.unitsInView(w).filter(u => u.pos === p)) box.append(el('div', {}, el('span', {class: 'tag'}, {caravan: '商隊', cart: '運貨車', patrol: '巡邏', army: '軍隊'}[u.kind]), ` ${u.label}・`, el('span', {class: 'muted'}, u.detail)));
+  if (Wd.hdist(p, w.pos) > Wd.viewRadius(w)) box.append(el('div', {class: 'muted', style: 'font-size:12px'}, '在你的視野外：那裡現在有誰經過，你看不到。'));
   for (const pin of (w.pins || []).filter(x => x.tile === p && w.day - x.day < 12)) box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `第 ${pin.day} 天聽說：${pin.text}`));
   if (site?.kind === 'town') { const wars = Wd.atWarWith(site.fac); box.append(el('div', {class: 'muted'}, `市鎮。市集、酒館、告示板、旅店。${k.fac[site.fac].hardy ? `${Wd.facName(site.fac)}是北地之國，耐寒。` : ''}${wars.length ? `${Wd.facName(site.fac)}正與${wars.join('、')}交戰。` : ''}`)); const it = w.intel[p]; if (it && !here) box.append(intelLine(p)); }
   if (site?.kind === 'village') box.append(el('div', {class: 'muted'}, `村莊。可以買到 ${Wd.villageFood(w, p)} 份口糧，每份約 ${Wd.rationPrice(w, p).toFixed(1)} 金幣。`));
@@ -431,6 +449,19 @@ $('btnLog').onclick = () => { const box = el('div', {class: 'log'}, el('h2', {},
 $('btnJobs').onclick = () => openSheet(el('div', {}, el('h2', {}, '委託'), contractList(null)));
 $('btnMarket').onclick = () => marketSheet();
 $('btnRest').onclick = () => { if (confirm('原地紮營休息一天？（會吃掉一天的糧食）')) doWorld({type: 'rest', days: 1, inn: false}); };
+// 筆記：從右邊拉出來，隨手記
+{
+  const pane = $('notes'), ta = $('notesText'); let t0 = 0;
+  const open = v => { pane.classList.toggle('open', v); if (v) { ta.value = G.world?.notes || ''; } else if (G.world) { G.world.notes = ta.value; save(false); } };
+  $('notesTab').onclick = () => open(!pane.classList.contains('open'));
+  ta.addEventListener('input', () => { if (!G.world) return; G.world.notes = ta.value; clearTimeout(t0); t0 = setTimeout(() => save(false), 600); });
+  $('notesStamp').onclick = () => { const w = G.world; if (!w) return; const line = `\n【${Wd.timeText(w)}・${nm(w.pos)}】`; ta.setRangeText(line, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); ta.dispatchEvent(new Event('input')); };
+  // 從右邊緣往左拖也能拉出來
+  let sx = null; addEventListener('touchstart', e => { const x = e.touches[0].clientX; sx = x > innerWidth - 24 && !$('world').hidden ? x : null; }, {passive: true});
+  addEventListener('touchmove', e => { if (sx != null && sx - e.touches[0].clientX > 40) { open(true); sx = null; } }, {passive: true});
+  pane.addEventListener('touchstart', e => { pane._x = e.touches[0].clientX; }, {passive: true});
+  pane.addEventListener('touchmove', e => { if (pane._x != null && e.touches[0].clientX - pane._x > 60 && e.target !== ta) { open(false); pane._x = null; } }, {passive: true});
+}
 $('btnDanger').onclick = () => { showDanger = !showDanger; $('btnDanger').classList.toggle('on', showDanger); renderWorld(); };
 $('btnHome').onclick = () => { const [x, y] = wxy(G.world.pos); cam.x = x; cam.y = y; renderWorld(); };
 addEventListener('resize', () => { if (!$('world').hidden) renderWorld(); });

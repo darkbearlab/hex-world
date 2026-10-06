@@ -6,7 +6,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
   -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
-input{-webkit-user-select:text;user-select:text}
+input,textarea{-webkit-user-select:text;user-select:text}
 [hidden]{display:none!important}
 #app{max-width:560px;margin:0 auto;height:100dvh;position:relative}
 .screen{height:100%;display:flex;flex-direction:column}
@@ -98,3 +98,13 @@ table.intel td.lo{color:var(--gold);font-weight:700}table.intel td.hi{color:#f08
 table.intel tr{cursor:pointer}
 h3{font-size:16px;margin:6px 0 2px}
 .floating.f2{bottom:58px}.floating.on{background:#8a2c1e;border-color:#e0402a}
+
+/* 筆記 */
+#notes{position:fixed;top:0;bottom:0;right:0;width:min(86vw,380px);transform:translateX(100%);transition:transform .22s ease;z-index:6;display:flex}
+#notes.open{transform:none;box-shadow:-8px 0 24px #0008}
+#notesTab{position:absolute;left:-34px;top:42%;width:34px;min-height:76px;padding:6px 0;writing-mode:vertical-rl;letter-spacing:.3em;border-radius:10px 0 0 10px;border-right:none;background:var(--panel2);font-size:14px}
+#notes.open #notesTab{background:var(--gold);color:var(--gold-ink)}
+.nbody{flex:1;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;padding:calc(10px + env(safe-area-inset-top)) 10px calc(10px + env(safe-area-inset-bottom))}
+.nhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.nhead button{min-height:32px;font-size:13px}
+#notesText{flex:1;resize:none;font:15px/1.6 inherit;font-family:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:10px}
+body:has(#world[hidden]) #notes{display:none}

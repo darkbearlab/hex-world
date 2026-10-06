@@ -51,13 +51,14 @@ const say = (w, text) => { w.log.unshift({day: w.day, text}); if (w.log.length >
 export const passable = i => C.land(i) && K().biome[i] !== 2;
 // 走進一格要花幾小時：依地形；商路上的格子有路可走
 // 一格大約是一兩天的路程。季節：冬天路難走（北地更難），春汛時河邊的格子要繞路（有商路的地方有橋）
+export const ROAD_MUL = 0.5;   // 有路的格子：走一半的時間（之後改 AP 制時，就是省一半 AP）
 export const SEASON_NOTE = ['春汛：河邊不好走', '', '', '冬天：路難走，北地吃得多'];
 export const coldAt = i => (C.WS.temp ? C.WS.temp[i] : 1) < 0.45;
 export function hexHours(i, k = K()) {
   if (!C.land(i) || k.biome[i] === 2) return Infinity;
   let h = Math.min(72, C.MOVE[k.biome[i]] * 20);
   const road = k.routeTiles.has(i);
-  if (road) h *= 0.6;
+  if (road) h *= ROAD_MUL;
   if (k.season === 3 && !road) h *= coldAt(i) ? 1.6 : 1.3;
   if (k.season === 0 && C.river(i) && !road) h *= 1.4;
   return Math.max(6, Math.round(h));
@@ -137,6 +138,28 @@ export function villageFood(w, i) { const k = K(), v = w.vill[i]; const cap = Ma
 export const seen = (w, i) => !w.seen || w.seen[i] === 1;
 export function reveal(w, c, r) { if (!w.seen) return; const out = [c]; for (let i = 0; i < N; i++) if (hdist(i, c) <= r) w.seen[i] = 1; return out; }
 const sightOf = i => { const b = K().biome[i]; return b === 3 || b === 4 ? 3 : b === 6 || b === 9 ? 1 : 2; };
+export const viewRadius = w => sightOf(w.pos) + 1;
+// 每場戰爭在前線各擺一支軍隊：攻方在圍城的城外或離目標最近的邊境，守方在對面
+export function armies() {
+  const k = K(), out = [];
+  for (let a = 0; a < k.fac.length; a++) for (let b = a + 1; b < k.fac.length; b++) {
+    const Wr = k.war[a][b]; if (!Wr || !k.fac[a].alive || !k.fac[b].alive) continue;
+    const att = Wr.att, def = Wr.def, goal = Wr.siege ? Wr.siege.t : Wr.goal;
+    let best = -1, bd = 99; for (let i = 0; i < N; i++) if (k.owner[i] === att && NBR[i].some(n => k.owner[n] === def)) { const d = hdist(i, goal); if (d < bd) { bd = d; best = i; } }
+    if (best < 0) continue;
+    out.push({kind: 'army', pos: best, fac: att, label: `${k.fac[att].n}的大軍`, detail: Wr.siege ? `正在圍攻${nm(Wr.siege.t)}（第 ${Wr.siege.prog} 季）` : `往${nm(Wr.goal)}進兵`});
+    const d = NBR[best].find(n => k.owner[n] === def); if (d != null) out.push({kind: 'army', pos: d, fac: def, label: `${k.fac[def].n}的守軍`, detail: `擋在${nm(d)}`});
+  }
+  return out;
+}
+export function unitsInView(w) {
+  const k = K(), R = viewRadius(w), near = i => i >= 0 && hdist(i, w.pos) <= R, out = [];
+  for (const c of k.caravans || []) { if (c.wait > 0) continue; const i = c.path[c.pos]; if (near(i)) out.push({kind: 'caravan', pos: i, fac: c.f, label: `${nm(c.from)}往${nm(c.to)}的${GN[c.g]}商隊`, detail: `載著約 ${Math.round(c.amt / BALE)} 包${GN[c.g]}`}); }
+  for (const c of k.carts || []) { if (c.wait > 0) continue; const i = c.path[c.pos]; if (near(i)) out.push({kind: 'cart', pos: i, fac: c.f, label: `往${nm(c.to)}的運貨車`, detail: '村裡的收成要送進城'}); }
+  for (const a of armies()) if (near(a.pos)) out.push(a);
+  for (const p of w.patrols || []) if (near(p.pos)) out.push({kind: 'patrol', pos: p.pos, fac: p.fac, label: `${k.fac[p.fac]?.n}的巡邏隊`, detail: `${p.size} 人，會趕走盜匪`});
+  return out;
+}
 // 記下親眼看到的行情
 function noteIntel(w, i, src) {
   const k = K(), m = k.markets[i]; if (!m) return;
@@ -325,6 +348,23 @@ function onEnter(w, out) {
 // 附近山寨的人盯上帶著貨的戰幫，派人追過來
 function sendBands(w) {
   const k = K(), cv = cargoValue(w) + (w.escort ? w.escort.value : 0);
+  // 山寨平常就有人在附近遊蕩：看得到的話可以繞路
+  for (const g of k.gangs) {
+    if (g.gone || hdist(g.lair, w.pos) > 6 || w.bands.some(b => b.gang === g.id && !b.hunting) || rngNext(w) > 0.12) continue;
+    const b = makeBand(w, 'bandits', g.lair, {str: g.str * 0.7, gang: g.id, name: `${g.name}的嘍囉`, ttl: 14}); b.home = g.lair;
+  }
+  // 各國的巡邏隊：從附近的城出發，在自己的國土上走動，趕走盜匪
+  w.patrols = (w.patrols || []).filter(p => --p.ttl > 0);
+  for (const p of w.patrols) {
+    const nb = NBR[p.pos].filter(n => k.owner[n] === p.fac && passable(n)); if (nb.length) p.pos = rngPick(w, nb);
+    k.bandit[p.pos] *= 0.9;
+    const b = w.bands.find(x => x.pos === p.pos && x.kind === 'bandits' && x.pos !== w.pos);
+    if (b) { w.bands = w.bands.filter(x => x !== b); if (hdist(p.pos, w.pos) <= viewRadius(w)) say(w, `${k.fac[p.fac]?.n}的巡邏隊在${nm(p.pos)}趕跑了${b.name}。`); }
+  }
+  if (w.patrols.length < 3) for (const t of Object.keys(k.markets).map(Number)) {
+    if (!isTown(t, k) || hdist(t, w.pos) > 5 || w.patrols.some(p => p.home === t) || rngNext(w) > 0.08) continue;
+    w.patrols.push({id: 'p' + w.nextId++, fac: k.owner[t], home: t, pos: t, ttl: 16, size: 3 + rngInt(w, 3)}); if (w.patrols.length >= 3) break;
+  }
   if (w.bands.filter(b => b.hunting).length >= 2) return;
   for (const g of k.gangs) {
     if (g.gone || g.str < 100 || hdist(g.lair, w.pos) > 4 || w.bands.some(b => b.gang === g.id)) continue;
@@ -340,7 +380,7 @@ function moveBands(w, out) {
     if (--b.ttl <= 0) { w.bands = w.bands.filter(x => x !== b); continue; }
     const theirs = partyPower(b.foes);
     if (b.hunting && theirs > mine * 0.7) { const p = findPath(w, b.pos, w.pos); if (p && p.length) b.pos = p[0]; }
-    else { const nb = NBR[b.pos].filter(passable); if (nb.length) b.pos = rngPick(w, nb); }
+    else { const nb = NBR[b.pos].filter(n => passable(n) && (b.home == null || hdist(n, b.home) <= 3)); if (nb.length) b.pos = rngPick(w, nb); }
     if (b.pos === w.pos && !out.encounter) out.encounter = b.id;
   }
 }
