@@ -1016,13 +1016,15 @@ function createSim(w,rand,pick){
   // ===== 存檔：把整個世界的可變狀態匯出成一個物件，之後原樣讀回 =====
   const MUT={biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town};
   function exportState(){const o={};for(const k in MUT)o[k]=MUT[k];
-    return {...o,fac,events:ev.slice(-1500),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang}}
+    return {...o,fac,events:ev.slice(-1500),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,marriages}}}
   function importState(S){for(const k in MUT)MUT[k].set(S[k]);
     fac.splice(0,fac.length,...S.fac);ev.splice(0,ev.length,...S.events);graves.splice(0,graves.length,...S.graves);heroes.splice(0,heroes.length,...S.heroes);
     for(const k of Object.keys(routeSeen))delete routeSeen[k];Object.assign(routeSeen,S.routeSeen);
     for(let a=0;a<FMAX;a++){tension[a]=S.tension[a].slice();war[a]=S.war[a].slice()}
     routes=S.routes;T=S.T;curY=S.curY;live=S.live;story=S.story;actors=S.actors;nextId=S.nextId;ownerHist=S.ownerHist||[];lastComputed=S.lastComputed||0;rand.setState(S.rng);
     markets=S.markets||{};carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;battles=S.battles||[];nextHero=S.nextHero||1;
+    if(S.legend){const L=S.legend;for(const k of Object.keys(ARC))delete ARC[k];Object.assign(ARC,L.ARC);weapons.splice(0,weapons.length,...L.weapons);saga.splice(0,saga.length,...L.saga);
+      for(const o of [aff,houseAff])for(const k of Object.keys(o))delete o[k];Object.assign(aff,L.aff);Object.assign(houseAff,L.houseAff);marriages.splice(0,marriages.length,...L.marriages)}
     netSig='';netYear=-99;if(live)yearStartNetOnly(S)}
   // 讀檔後路網與前線要重建（不存檔，因為可以重算）
   function yearStartNetOnly(S){refreshCE();bindMarkets();if(S.townNet)townNet=S.townNet;else buildTownNet();if(S.front){bc=S.bc;front=S.front;covet=S.covet}else buildFronts()}
@@ -1045,7 +1047,8 @@ function createSim(w,rand,pick){
 
   w.events=ev;w.graves=graves;w.snaps=snaps;w.fac=fac;w.stats=stats;
   const legendData=()=>({marriages,weapons:weapons.map(wp=>{const h=wp.holder?heroById(wp.holder):null;return {...wp,at:h?(h.fief>=0?h.fief:fac[h.f].cap):wp.fac>=0?fac[wp.fac].cap:wp.gang?(gangs.find(g=>g.id===wp.gang)||{lair:wp.loc}).lair:(wp.lake&&wp.shore!==undefined?wp.shore:wp.loc)}}),saga,ARC,houseAff,aff,heroes:heroes.filter(h=>h.legend||h.ruled||h.famed||h.wins>=4),fac:fac.map(f=>({id:f.id,n:f.n,alive:f.alive,born:f.born,diedY:f.diedY,cap:f.cap,ruler:f.ruler,house:f.house,liege:f.liege})),names:w.names,owner:owner.slice(),events:ev});
-  return {legendData,runHistory,startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+  const peek=()=>({owner,pop,bandit,town,mkt,markets,gangs,fac,routeTiles,biome,game,gameK,ev,T,curY,weapons,heroes,war,stamp:stamp(),season:curSeason()});
+  return {peek,legendData,runHistory,startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 
