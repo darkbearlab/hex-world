@@ -748,3 +748,12 @@ function ensureInPalette() {
   if (cur.palette.length >= PAL_MAX) { toast(`色票已滿 ${PAL_MAX} 色，先移除一色或改用色票裡的顏色`); return false; }
   cur.palette.push(h); renderPalette(); markDirty(); return true;
 }
+
+/* 手機手勢：擋掉瀏覽器自己的選取、長按選單、雙擊放大、整頁捏合縮放 */
+const editable = t => t && t.closest && t.closest('input,textarea,select,[contenteditable]');
+document.addEventListener('selectstart', e => { if (!editable(e.target)) e.preventDefault(); });
+document.addEventListener('contextmenu', e => { if (!editable(e.target)) e.preventDefault(); });
+document.addEventListener('dblclick', e => { if (!editable(e.target)) e.preventDefault(); }, {passive: false});
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault(), {passive: false});
+$('stage').addEventListener('touchstart', e => e.preventDefault(), {passive: false});
+$('stage').addEventListener('touchmove', e => e.preventDefault(), {passive: false});
