@@ -132,6 +132,9 @@ function createSim(w,rand,pick){
   // town[i]=1 表示這格是市鎮（有市集）；其他有人住的格子是村莊，產出送到綁定的市鎮 mkt[i]
   const town=new Uint8Array(N),mkt=new Int16Array(N).fill(-1),mcost=new Float32Array(N).fill(Infinity),mrisk=new Float32Array(N);
   let markets={},carts=[],caravans=[],flows=[],townNet={},mDs={},routeTiles=new Set();
+  // 商路熱度（每年衰減，約十幾年的記憶）、路段流量、饑荒熱度
+  const traffic=new Float32Array(N),famineH=new Float32Array(N);let edgeT={};
+  const trafNear=t=>traffic[t]+NBR[t].reduce((x,n)=>x+traffic[n],0);
   const newMarket=st=>({stock:st||{food:30,wood:6,iron:2,stone:6,salt:2},price:one(),need:zero(),rsum:zero(),ratio:one(),store:2,pop:0,cold:0,walls:0,famineCD:0});
   for(const f of fac)if(f.alive){town[f.cap]=1;markets[f.cap]=newMarket({...f.stock})}
   const tension=FM(()=>FM(()=>0)),war=FM(()=>FM(()=>null));
@@ -153,7 +156,9 @@ function createSim(w,rand,pick){
     for(let i=0;i<N;i++)if(owner[i]>=0){econ[owner[i]].tiles++;econ[owner[i]].pop+=pop[i]}
     return {fn:fac.map(f=>f.alive?f.n:''),owner:owner.slice(),pop:u8(pop),bandit:u8(bandit),ruin:ruin.slice(),caps:fac.map(f=>f.alive?f.cap:-1),
       biome:biome.slice(),timber:u8(timber),timberK:u8(timberK),game:u8(game),gameK:u8(gameK),vein:Uint16Array.from(vein),vcap:Uint16Array.from(vcap),vex:vex.slice(),
-      known:known.slice(),wall:u8(wall),town:town.slice(),econ,routes}};
+      known:known.slice(),wall:u8(wall),town:town.slice(),econ,routes,
+      edges:Object.entries(edgeT).sort((a,b)=>b[1]-a[1]).slice(0,160).map(([k,v])=>{const [a,b]=k.split('-').map(Number);return [a,b,+v.toFixed(1)]}),
+      famine:Array.from(famineH,v=>Math.round(v*10)/10)}};
   snaps.push(makeSnap());
   const heroName=()=>pick(SUR)+pick(GIV)+(rand()<.5?pick(GIV):'');
   // 英雄與領主：有封地的英雄就是那座市鎮的領主；死了由子嗣繼承
@@ -277,6 +282,7 @@ function createSim(w,rand,pick){
     else if(ARC.phase===2&&y>=ARC.campY)camlann(y,{K,C,Q,M,B,KY});
     else if(ARC.phase===3&&y>=ARC.kingDieY)kingDies(y,{K,C,Q,B,KY})}
   const pr=(a,b,c)=>Math.max(b,Math.min(c,a));
+  const BIGLOOT=globalThis.BIGLOOT??40,LOOTSTR=globalThis.LOOTSTR??1,FAMEK=globalThis.FAMEK??1500,FAMET=globalThis.FAMET??6,RICH=globalThis.RICH??400;
   function scandal(y,{K,C,Q,M,G,R,KY,B}){
     ARC.phase=1;ARC.scandalY=y;const cap=fac[0].cap;
     const who=rand();
@@ -357,7 +363,8 @@ function createSim(w,rand,pick){
     ARC.protect=-1}
   // ═══════════ 世界中的人：聯姻、武器的轉手、英雄的去留、俘虜 ═══════════
   const LEGH=new Set(CAST.map(c=>c.name[0]));
-  const notable=h=>h&&(h.legend||LEGH.has(h.name[0])||weaponsOf(h).length||h.ruled);
+  const notable=h=>h&&(h.legend||h.famed||LEGH.has(h.name[0])||weaponsOf(h).length||h.ruled);
+  const EPI=['狼','虎','鷹','盾','槍','刃','獅','熊','鴉','蛇','鐵壁','長弓','紅鬃','獨眼','白鬍子'];
   const marriages=[];
   const rulerOf=f=>{const r=fac[f]&&fac[f].alive?heroById(fac[f].ruler):null;return r&&r.alive?r:null};
   const holderLoc=h=>h.fief>=0?h.fief:fac[h.f]?.cap??-1;
@@ -378,6 +385,18 @@ function createSim(w,rand,pick){
       else if(F.ratio&&F.ratio.food<.8&&r<.05){const buyer=fac.filter(x=>x.alive&&x.id!==F.id&&!war[Math.min(x.id,F.id)][Math.max(x.id,F.id)]).sort((p,q)=>facStock(q.id,'food')-facStock(p.id,'food'))[0];
         if(buyer&&facStock(buyer.id,'food')>60){facTake(buyer.id,'food',40);facGive(F.id,'food',40);toTreasury(wp,buyer.id,y,`${F.n}鬧饑荒，${h.name}把「${wp.name}」典當給了${buyer.n}，換回四十擔糧。`)}}
       else if(F.ruler===h.id&&r<.04){const V=fac.find(x=>x.alive&&x.liege===F.id&&x.loyal<.5);const vr=V&&rulerOf(V.id);if(vr){V.loyal=Math.min(1,V.loyal+.3);giveW(wp,vr,y,`為了安撫心懷不滿的封臣，${h.name}把「${wp.name}」賜給了${V.n}的${vr.name}。`)}}}
+    // 名聲：事蹟跟著商隊傳開，夠響亮的人會得到綽號，從此被傳唱
+    for(const h of heroes){if(!h.alive||h.legend||h.famed||(h.fame||0)<FAMET)continue;h.famed=1;const at=h.lastWin??holderLoc(h);
+      {const e=pick(EPI);h.epithet=e.length>1?e:nm(at)[0]+e}sagaSay(y,`${fac[h.f]?.alive?fac[h.f].n+'的':''}${h.name}在${nm(at)}一帶連戰連勝，事蹟跟著往來的商隊傳遍各地市集，人稱「${h.epithet}」。`,at)}
+    // 富裕的市集出錢贖回傳奇武器：從盜匪手上買，或向撿到古兵器的農夫收購
+    for(const wp of weapons){const fromGang=wp.gang&&gangs.find(g=>g.id===wp.gang&&!g.gone),onField=wp.lost&&!wp.sealed&&!wp.lake&&wp.loc>=0;
+      if(!fromGang&&!onField)continue;const at=fromGang?fromGang.lair:wp.loc;let best=-1,bw=0;
+      for(const k in markets){const t=+k,o=owner[t];if(o<0||!fac[o].alive||hdist(t,at)>7)continue;const m=markets[k];
+        const wv=m.pop*.5+GOODS.reduce((x,g)=>x+Math.max(0,m.stock[g])*BASEP[g],0)+trafNear(t)*.3;if(wv>bw){bw=wv;best=t}}
+      if(best<0||bw<RICH||rand()>(fromGang?.04:.015))continue;const m=markets[best],o=owner[best];
+      for(const g of ['salt','iron'])m.stock[g]*=.5;
+      toTreasury(wp,o,y,fromGang?`${nm(best)}的商人們湊出一大筆鹽、鐵和銀子，從盜匪${fromGang.name}手上贖回「${wp.name}」，獻給了${fac[o].n}。`
+        :`一個農夫在${nm(at)}翻出一把古兵器，賣給了${nm(best)}的商人；商人認出那是「${wp.name}」，轉手獻給了${fac[o].n}。`)}
     // 英雄的去留：投奔別國、落草為寇
     for(const h of heroes){if(!h.alive||h.plot&&ARC.phase<4||h.captive||h.ruled||h.noCmd||!fac[h.f]?.alive)continue;const F=fac[h.f];
       const p=.003+(F.shock>.5?.02:0)+(h.loyal<.3?.015:0)+(F.ratio&&F.ratio.food<.8?.01:0);if(rand()>p)continue;
@@ -577,7 +596,7 @@ function createSim(w,rand,pick){
       else{win=D;lose=A;dead=LA*.12;if(siege&&W.siege&&W.siege.t===n)W.siege.prog=Math.max(0,W.siege.prog-1)}
       W.score+=win===W.att?1:-1;
       if(xD>0&&fac[D].liege>=0)fac[D].helped=1;
-      const hw=win===A?hA:hD,hl2=win===A?hD:hA;if(hw){hw.battles++;hw.wins++;for(const wp of weaponsOf(hw))wp.wins++}if(hl2)hl2.battles++;
+      const hw=win===A?hA:hD,hl2=win===A?hD:hA;if(hw){hw.battles++;hw.wins++;for(const wp of weaponsOf(hw))wp.wins++;hw.fame=(hw.fame||0)+.25+Math.min(1.75,trafNear(n)/FAMEK);hw.lastWin=n}if(hl2)hl2.battles++;
       kill(lose,dead);kill(win,dead*.4);pop[i]*=.96;
       if(took&&n===ARC.protect){took=false;note=`，${nm(n)}久圍不下`}
       if(took){owner[n]=A;if(markets[n])for(const g of GOODS)markets[n].stock[g]*=.6;pop[n]*=.6;wall[n]=Math.max(0,wall[n]-1);W.gain[A]=(W.gain[A]||0)+1;
@@ -601,6 +620,7 @@ function createSim(w,rand,pick){
       if(battles.length>320){const big=battles.slice().sort((p,q)=>(q.LA+q.LD+q.xA+q.xD)-(p.LA+p.LD+p.xA+p.xD)).slice(0,40);battles=[...new Set([...big,...battles.slice(-200)])].sort((p,q)=>p.y-q.y||p.s-q.s)}}}
     if(s===3){
       for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;m.ratio={...m.rsum};
+        if(m.ratio.food<.8){const h_=(.8-m.ratio.food)*12;famineH[t]+=h_;for(const n of NBR[t])if(land[n])famineH[n]+=h_*.5}
         if(m.ratio.food<.8&&y>=m.famineCD){say(y,'econ',`${nm(t)}一帶糧食短缺，飢民四散。`,t);m.famineCD=y+8}}
       for(const f of fac){if(!f.alive)continue;const ms=[];for(const k in markets)if(owner[+k]===f.id)ms.push(markets[k]);
         const tp=ms.reduce((x,m)=>x+m.pop,0)||1;f.ratio=zero();f.price=zero();f.store=0;
@@ -611,6 +631,19 @@ function createSim(w,rand,pick){
       for(const fl of flows){const key=fl.a+'-'+fl.b;(agg[key]=agg[key]||{a:fl.a,b:fl.b,path:fl.path,flow:zero(),sea:fl.sea}).flow[fl.g]+=fl.amt;for(const t of fl.path)routeTiles.add(t)}
       routes=Object.values(agg);flows=[]}
   }
+
+  // ===== 被劫的商隊：附近的盜匪因此坐大；沒有盜匪的地方，劫商隊的人可能就此起家 =====
+  // 回傳 true 表示已經寫了故事，呼叫端不必再寫一般的遭劫紀錄
+  function cvRobbed(y,S,T,g,amt,path){
+    let t=-1;for(const x of path)if(land[x]&&(t<0||bandit[x]>bandit[t]))t=x;if(t<0)return false;
+    const v=amt*BASEP[g];let G=null,bd=4;for(const x of gangs)if(!x.gone){const d=hdist(x.lair,t);if(d<bd){bd=d;G=x}}
+    if(G){G.loot=(G.loot||0)+v;bandit[G.lair]=Math.min(100,bandit[G.lair]+Math.min(12,v/4));
+      if(!G.made&&G.loot>=BIGLOOT){G.made={y,from:S,to:T,g};say(y,'bandit',`盜匪${G.name}在${nm(t)}劫下${nm(S)}往${nm(T)}的一整支${GN[g]}商隊，靠這筆財貨招兵買馬，山寨從此坐大。`,t);return true}
+      return false}
+    if(bandit[t]<25||rand()>.35)return false;
+    let lair=owner[t]<0?t:-1;if(lair<0)for(const n of NBR[t])if(land[n]&&owner[n]<0){lair=n;break}if(lair<0)return false;
+    const nG={id:nextGang++,name:heroName(),lair,str:0,born:y,loot:v,made:{y,from:S,to:T,g}};gangs.push(nG);bandit[lair]=Math.min(100,bandit[lair]+30);
+    say(y,'bandit',`${nG.name}帶人在${nm(t)}劫了${nm(S)}往${nm(T)}的${GN[g]}商隊，拿這筆錢在${nm(lair)}拉起了一支人馬。`,lair);return true}
 
   // ===== 商隊：每座市鎮每季找一筆最划算的買賣，沿實際道路運去別的市鎮 =====
   function tradeSeason(y,s){const ts=Object.keys(markets).map(Number).filter(t=>owner[t]>=0);
@@ -623,6 +656,7 @@ function createSim(w,rand,pick){
       if(!best)continue;
       const T=best.T,oT=owner[T],path=D.path[T],sea=path.some(t=>!land[t]);
       ms.stock[best.g]-=best.amt;flows.push({a:S,b:T,g:best.g,amt:best.amt,path,sea});
+      {const v=best.amt*BASEP[best.g];for(let k=0;k<path.length;k++){traffic[path[k]]+=v;if(k){const a=Math.min(path[k-1],path[k]),b=Math.max(path[k-1],path[k]);edgeT[a+'-'+b]=(edgeT[a+'-'+b]||0)+v}}}
       if(oS!==oT){const a=Math.min(oS,oT),b=Math.max(oS,oT);tension[a][b]=Math.max(0,tension[a][b]-best.amt*.08)}
       const key=S+'>'+T+best.g;
       if(routeSeen[key]===undefined||y-routeSeen[key]>15){const mid=path.filter(t=>land[t]&&t!==S&&t!==T);
@@ -632,7 +666,7 @@ function createSim(w,rand,pick){
       if(live){stats.cv++;caravans.push(cv);continue}
       const risk=path.reduce((x,t)=>x+bandit[t]+(atWar(owner[t],oS)?40:0),0);
       stats.cv++;
-      if(rand()<1-Math.exp(-risk/1500)){stats.cvLost++;robSay(y,'v'+S+'>'+T,`${nm(S)}往${nm(T)}的${GN[best.g]}商隊在半路遭劫。`,S);continue}
+      if(rand()<1-Math.exp(-risk/1500)){stats.cvLost++;if(!cvRobbed(y,S,T,best.g,best.amt,path))robSay(y,'v'+S+'>'+T,`${nm(S)}往${nm(T)}的${GN[best.g]}商隊在半路遭劫。`,S);continue}
       markets[T].stock[best.g]+=cv.amt}}
 
   // ===== 盜匪擴散：歷史模式一年算一步，線上模式每時段算 1/112 步 =====
@@ -648,6 +682,8 @@ function createSim(w,rand,pick){
 
   // ===== 年層：歲末 =====
   function yearEnd(y){
+    for(let i=0;i<N;i++){traffic[i]*=.93;famineH[i]*=.97}
+    for(const k in edgeT){edgeT[k]*=.93;if(edgeT[k]<.5)delete edgeT[k]}
     // 2. 生態：全部補算到年底，再做獵物遷徙與砍伐判定
     for(let i=0;i<N;i++)catchUp(i,T);
     for(let i=0;i<N;i++){if(!land[i]||gameK[i]<=0)continue;let s2=0,c=0;for(const n of NBR[i])if(gameK[n]>0){s2+=game[n]/gameK[n];c++}
@@ -729,7 +765,7 @@ function createSim(w,rand,pick){
     for(const f of fac)if(f.alive&&rand()<.035){const h=mkHero(f.id,y);say(y,'hero',`${h.name}在${f.n}嶄露頭角。`,f.cap)}
     for(const h of heroes)if(h.alive&&!(h.plot&&ARC.phase<4)&&rand()<(h.legend?.006+Math.max(0,y-h.born-50)*.009:.01+Math.max(0,y-h.born-20)*.007)){const place=h.fief>=0?h.fief:fac[h.f].cap;if(h.legend)sagaSay(y,`${h.title}${h.name}壽終於${nm(place)}，享年 ${y-h.born} 歲。`,place);else if(h.wins>=2||h.fief<0)say(y,'hero',`${fac[h.f].n}的老英雄${h.name}壽終於${nm(place)}。`,place);heroDies(h,y,`壽終於${nm(place)}`)}
     // 只留下活著的英雄，和戰功或封地值得記一筆的死者
-    if(heroes.length>260){const keep=heroes.filter(h=>h.legend).concat(heroes.filter(h=>!h.legend&&(h.alive||h.wins>=3||h.ruled)).sort((p,q)=>(q.alive-p.alive)||(q.wins-p.wins)).slice(0,240));heroes.splice(0,heroes.length,...keep)}
+    if(heroes.length>260){const keep=heroes.filter(h=>h.legend).concat(heroes.filter(h=>!h.legend&&(h.alive||h.wins>=3||h.ruled||h.famed)).sort((p,q)=>(q.alive-p.alive)||(q.wins-p.wins)).slice(0,240));heroes.splice(0,heroes.length,...keep)}
   }
 
   // ===== 政局：離心自立、小國歸附、盜匪幫派 =====
@@ -800,7 +836,7 @@ function createSim(w,rand,pick){
     for(const g of gangs){let b=g.lair;for(const n of NBR[g.lair])if(land[n]&&owner[n]<0&&bandit[n]>bandit[b])b=n;g.lair=b;
       if(owner[g.lair]>=0){g.str=0;continue}
       bandit[g.lair]=Math.min(100,bandit[g.lair]+6);for(const n of NBR[g.lair])if(land[n])bandit[n]=Math.min(100,bandit[n]+2);
-      g.str=near(g.lair,1).reduce((x,t)=>x+bandit[t],0)+weapons.filter(w=>w.gang===g.id).length*80}
+      g.str=near(g.lair,1).reduce((x,t)=>x+bandit[t],0)+weapons.filter(w=>w.gang===g.id).length*80+Math.min(160,(g.loot||0)*LOOTSTR);g.loot=(g.loot||0)*.85}
     for(const g of gangs)if(g.str<60&&!g.gone){g.gone=1;if(rand()<.4)say(y,'bandit',`${g.name}的山寨人心散了，部眾各奔東西。`,g.lair)}
     // 火併：兩股盜匪的山寨離得近，就會為地盤打起來
     for(const g of gangs)for(const h of gangs){if(g===h||g.gone||h.gone||g.id>h.id||hdist(g.lair,h.lair)>4||rand()>.25)continue;
@@ -829,7 +865,7 @@ function createSim(w,rand,pick){
     for(const g of gangs){if(g.gone||g.str<330||rand()>.02)continue;const slot=freeSlot(y);if(!slot)break;
       const tiles=near(g.lair,1).filter(t=>land[t]&&owner[t]<0);for(const t of tiles){pop[t]=Math.max(pop[t],20);peak[t]=Math.max(peak[t],pop[t]);bandit[t]*=.2;ruin[t]=0}
       newState(slot,y,nm(g.lair)+'寨',g.lair,tiles,1.5);g.gone=1;g.to=slot.id;{const k=mkHero(slot.id,y-30,g.name);k.ruled=1;k.skill=+(k.skill+.2).toFixed(2);slot.ruler=k.id;slot.house=g.name[0]}
-      say(y,'bandit',`盜匪頭目${g.name}在${nm(g.lair)}自立為王，號${slot.n}。`,g.lair)}
+      say(y,'bandit',`盜匪頭目${g.name}在${nm(g.lair)}自立為王，號${slot.n}。${g.made?`當年他就是在${g.made.y}年劫了${nm(g.made.from)}往${nm(g.made.to)}的${GN[g.made.g]}商隊起家的。`:''}`,g.lair)}
     for(const g of gangs)if(g.gone)for(const wp of weapons)if(wp.gang===g.id){
       if(g.to>=0&&g.to!==undefined&&fac[g.to].alive)toTreasury(wp,g.to,y,`${g.name}的山寨散了，「${wp.name}」歸了${fac[g.to].n}。`);
       else if(g.toGang){const W2=gangs.find(x=>x.id===g.toGang);if(W2)toGang(wp,W2,y,`${W2.name}火併了${g.name}，奪得「${wp.name}」。`);else loseW(wp,g.lair,y,`「${wp.name}」在山寨的廢墟裡失落。`)}
@@ -940,7 +976,7 @@ function createSim(w,rand,pick){
         let bud=(c.left||0)+1.2;let done=false,lost=false;
         while(c.pos<c.path.length-1){const a=c.path[c.pos],b=c.path[c.pos+1],k=stepCost(a,b);if(k>bud)break;bud-=k;c.pos++;
           const p=bandit[b]/1500+(atWar(owner[b],c.f)?.027:0);
-          if(rand()<p){lost=true;bandit[b]=Math.min(100,bandit[b]+.4);if(isCv)stats.cvLost++;else stats.cartLost++;
+          if(rand()<p){lost=true;bandit[b]=Math.min(100,bandit[b]+.4);if(isCv){stats.cvLost++;if(cvRobbed(curY,c.from,c.to,c.g,c.amt,[b]))break}else stats.cartLost++;
             if(robTold!==curY&&rand()<.3){robTold=curY;robSay(curY,isCv?'v'+c.from+'>'+c.to:'c'+c.to,isCv?`${nm(c.from)}往${nm(c.to)}的${GN[c.g]}商隊在${nm(b)}遭劫。`:`運往${nm(c.to)}的${cargoName(c.goods)}車隊在${nm(b)}被盜匪劫走。`,b)}
             break}}
         if(lost)continue;
@@ -1008,7 +1044,7 @@ function createSim(w,rand,pick){
       events:ev.slice(-160)}}
 
   w.events=ev;w.graves=graves;w.snaps=snaps;w.fac=fac;w.stats=stats;
-  const legendData=()=>({marriages,weapons:weapons.map(wp=>{const h=wp.holder?heroById(wp.holder):null;return {...wp,at:h?(h.fief>=0?h.fief:fac[h.f].cap):wp.fac>=0?fac[wp.fac].cap:wp.gang?(gangs.find(g=>g.id===wp.gang)||{lair:wp.loc}).lair:(wp.lake&&wp.shore!==undefined?wp.shore:wp.loc)}}),saga,ARC,houseAff,aff,heroes:heroes.filter(h=>h.legend||h.ruled||h.wins>=4),fac:fac.map(f=>({id:f.id,n:f.n,alive:f.alive,born:f.born,diedY:f.diedY,cap:f.cap,ruler:f.ruler,house:f.house,liege:f.liege})),names:w.names,owner:owner.slice(),events:ev});
+  const legendData=()=>({marriages,weapons:weapons.map(wp=>{const h=wp.holder?heroById(wp.holder):null;return {...wp,at:h?(h.fief>=0?h.fief:fac[h.f].cap):wp.fac>=0?fac[wp.fac].cap:wp.gang?(gangs.find(g=>g.id===wp.gang)||{lair:wp.loc}).lair:(wp.lake&&wp.shore!==undefined?wp.shore:wp.loc)}}),saga,ARC,houseAff,aff,heroes:heroes.filter(h=>h.legend||h.ruled||h.famed||h.wins>=4),fac:fac.map(f=>({id:f.id,n:f.n,alive:f.alive,born:f.born,diedY:f.diedY,cap:f.cap,ruler:f.ruler,house:f.house,liege:f.liege})),names:w.names,owner:owner.slice(),events:ev});
   return {legendData,runHistory,startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
