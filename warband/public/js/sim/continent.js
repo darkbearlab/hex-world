@@ -87,7 +87,7 @@ const BASEP={food:1,wood:1.5,iron:8,stone:2,salt:4};             // 基準價（
 const SEASON=['春','夏','秋','冬'];
 const HARVEST=[.1,.35,.55,0],SALTS=[.3,.4,.3,0];
 // 鐵：塊煉爐一擔鐵要燒掉 CHAR 擔木炭；平民用鐵隨價格伸縮，舊鐵有一部分回收重打
-const CHAR=3,IRON_CIV=.0015,IRON_SUB=1.5,IRON_RECYCLE=.3;
+const CHAR=3,IRON_CIV=.0015,IRON_SUB=1.5,IRON_RECYCLE=.3,WOODRATE=.03,WILDCUT=.15,HARDY=.5,FIREWOOD=.006;
 // 移動成本：深海、淺海、雪峰、山地、丘陵、凍原、森林、草原、荒漠、沼澤
 const MOVE=[1.1,.8,Infinity,5,2.5,2,2,1,2.5,3];
 class Heap{constructor(n){this.k=new Float64Array(n);this.v=new Int32Array(n);this.size=0}
@@ -480,13 +480,15 @@ function createSim(w,rand,pick){
   // ===== 年層：開年 =====
   function yearStart(y){
     // 天災
-    if(rand()<.07){say(y,'disaster','大寒之年，北地村落多有凍餓。');for(let i=0;i<N;i++)if(owner[i]>=0&&temp[i]<.5)pop[i]*=.72}
+    if(rand()<.07){say(y,'disaster','大寒之年，北地村落多有凍餓。');for(let i=0;i<N;i++)if(owner[i]>=0&&temp[i]<.5)pop[i]*=fac[owner[i]].hardy?.86:.72}
     if(rand()<.03){const al=fac.filter(f=>f.alive);if(al.length){const f=pick(al);say(y,'disaster',`瘟疫席捲${f.n}。`,f.cap);for(let i=0;i<N;i++)if(owner[i]===f.id)pop[i]*=.6}}
 
     buildNet(y);
     for(const f of fac){f.walls=0;f.prod=zero();f.loss=0;f.pop=0;f.cold=0;f.frontsPrev=f.fronts;f.fronts=0;f.rsum=zero()}
     for(const k in markets)markets[k].rsum=zero();
     for(let i=0;i<N;i++)if(owner[i]>=0){const f=fac[owner[i]];f.pop+=pop[i];f.walls+=wall[i];if(temp[i]<.4)f.cold+=pop[i]}
+    // 耐寒：北地人口過半的國家習於風雪，取暖的柴少燒一半
+    for(const f of fac)if(f.alive){const h=f.pop>0&&f.cold/f.pop>.5;if(h&&!f.hardy&&y>1&&f.born<y-1)say(y,'econ',`${f.n}的人多半生在北地，早已習慣了風雪。`,f.cap);f.hardy=h}
     // 前線、緊張與宣戰（每年判斷一次）
     buildFronts();
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){
@@ -519,10 +521,15 @@ function createSim(w,rand,pick){
       for(const n of NBR[i])if(land[n]&&owner[n]<0&&wild[n]<0&&timberK[n]>0){wild[n]=m;catchUp(n,T);fuelM[m]+=cop(n)}}
     for(const k in markets){const t=+k;if(oreM[t]<=0||fuelM[t]<=0)continue;const sm=Math.min(oreM[t],fuelM[t]/CHAR);fOre[t]=sm/oreM[t];fFuel[t]=sm*CHAR/fuelM[t]}
     for(let n=0;n<N;n++)if(wild[n]>=0)timber[n]-=cop(n)*fFuel[wild[n]];
+    // 樵夫會進領地外第二圈的無主林子砍柴（第一圈留給燒炭的人；只砍超過三成林木的部分，林子不會砍光），柴挑回最近的市鎮，路上損耗兩成
+    {const wild2=new Int16Array(N).fill(-1);
+      for(let i=0;i<N;i++){const m=mkt[i];if(owner[i]<0||m<0)continue;for(const n of NBR[i])if(wild[n]>=0)for(const x of NBR[n])if(land[x]&&owner[x]<0&&wild[x]<0&&wild2[x]<0&&timberK[x]>0){wild2[x]=m;catchUp(x,T)}}
+      for(let n=0;n<N;n++){const m=wild2[n];if(m<0||!markets[m])continue;const cut=Math.min(Math.max(0,timber[n]-.3*timberK[n])*WILDCUT,timberK[n]*.02);if(cut<=0)continue;
+        timber[n]-=cut;markets[m].stock.wood+=cut*.8;if(owner[m]>=0)fac[owner[m]].prod.wood+=cut*.8}}
     let robbedTold=0;
     for(let i=0;i<N;i++){if(owner[i]<0)continue;const f=fac[owner[i]],p=pop[i];
       const hunt=Math.min(game[i]*.08,p*.08*(s===3?.5:1));game[i]-=hunt;
-      const out={food:p*1.5*fert[i]*HARVEST[s]+hunt,wood:Math.min(timber[i]*.03,p*.075),iron:0,
+      const out={food:p*1.5*fert[i]*HARVEST[s]+hunt,wood:Math.min(timber[i]*WOODRATE,p*.075),iron:0,
         stone:p*(biome[i]===3?.03:biome[i]===4?.02:.001),salt:saltK[i]*p*.08*SALTS[s]};
       timber[i]-=out.wood;
       // 煉鐵：沼澤、河岸挖沼鐵礦，礦脈挖礦石，按這一區木炭夠煉多少的比例出鐵
@@ -545,7 +552,7 @@ function createSim(w,rand,pick){
     for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0)continue;const f=fac[o],share=f.pop>0?m.pop/f.pop:0;
       // 平民用鐵：越貴用得越省（改用木器、修了再修），省下的用量改成多燒木材
       const civBase=m.pop*IRON_CIV;m.civIron=civBase*Math.min(1.15,Math.max(.35,1/m.price.iron));
-      m.need={food:m.pop*.25,wood:m.pop*.009+m.cold*(s===3?.05:s===1?0:.012)+(civBase-m.civIron)*IRON_SUB,iron:m.civIron+f.frontsPrev*.25*share,stone:m.pop*.002+m.walls*.05+share,salt:m.pop*.0075};
+      m.need={food:m.pop*.25,wood:m.pop*FIREWOOD+m.cold*(s===3?.05:s===1?0:.012)*(f.hardy?HARDY:1)+(civBase-m.civIron)*IRON_SUB,iron:m.civIron+f.frontsPrev*.25*share,stone:m.pop*.002+m.walls*.05+share,salt:m.pop*.0075};
       for(const g of GOODS){const cover=m.stock[g]/Math.max(.01,m.need[g]*4),pr=Math.min(3.5,Math.max(.3,1/(.35+cover)));m.price[g]=m.price[g]*.6+pr*.4}}
     tradeSeason(y,s);
     // 消耗與腐壞

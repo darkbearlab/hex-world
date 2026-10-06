@@ -11,7 +11,7 @@ const K = C.K, nm = C.nm;
 export const BALE = 0.02;           // 一包貨 = 沙盒裡 0.02 單位（戰幫的生意比起整座城的進出貨很小）
 export const COINP = 3;             // 沙盒基準價 × 3 = 一包的金幣價
 export const RATIONS_PER_BALE = 3;  // 一包糧 = 三份口糧
-export const CARRY_MAN = 2, MULE_CAP = 8, MULE_FEED = 0.5, MULE_PRICE = 45, MAX_MULES = 8, MAX_PARTY = 8;
+export const CARRY_MAN = 1, MULE_CAP = 8, MULE_FEED = 0.5, MULE_PRICE = 45, MAX_MULES = 8, MAX_PARTY = 8;
 export const GOOD_DESC = {food: '糧', wood: '木材', iron: '鐵', stone: '石材', salt: '鹽'};
 const SEASON_T = 28;
 
