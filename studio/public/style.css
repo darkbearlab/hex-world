@@ -59,7 +59,8 @@ h1{font-size:18px;margin:0}h2{font-size:15px;color:var(--muted);font-weight:600;
 .layer input:focus{border-color:var(--line);background:var(--panel2)}
 .layer .eye{min-height:28px;padding:0 6px;background:transparent;border:none}
 .tools{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--panel);border-top:1px solid var(--line);flex-wrap:wrap;padding-bottom:max(8px,env(safe-area-inset-bottom))}
-.toolset{display:flex;gap:4px;align-items:center}
+.toolset{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.toolset button.mirror{font-size:13px;min-width:0}
 .toolset button{min-width:40px;justify-content:center;font-size:17px}
 .size{display:inline-flex;gap:4px;align-items:center;font-size:13px;color:var(--muted)}
 .colors{display:flex;gap:6px;align-items:center;flex:1;min-width:0}

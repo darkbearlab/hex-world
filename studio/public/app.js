@@ -47,12 +47,12 @@ addEventListener('offline', () => setOnline(false));
 async function serialize(doc) {
   const layers = [];
   for (const L of doc.layers) layers.push({name: L.name, visible: L.visible, opacity: L.opacity, px: b64(await zip(new Uint8Array(L.px.buffer)))});
-  return JSON.stringify({v: 1, palette: doc.palette, layers});
+  return JSON.stringify({v: 1, palette: doc.palette, guides: doc.guides || '0', mirror: doc.mirror || 0, layers});
 }
 async function deserialize(rec) {
   const doc = {id: rec.id, name: rec.name, w: rec.w, h: rec.h, palette: DB32.slice(), layers: []};
   if (rec.data) {
-    const d = JSON.parse(rec.data); doc.palette = d.palette || doc.palette;
+    const d = JSON.parse(rec.data); doc.palette = d.palette || doc.palette; doc.guides = d.guides || '0'; doc.mirror = d.mirror || 0;
     for (const L of d.layers) {
       const raw = await unzip(unb64(L.px)), px = new Uint8ClampedArray(rec.w * rec.h * 4); px.set(raw.subarray(0, px.length));
       doc.layers.push({uid: rid(), name: L.name, visible: L.visible !== false, opacity: L.opacity ?? 1, px});
@@ -240,6 +240,7 @@ async function openDoc(id, keepView) {
   flat.width = doc.w; flat.height = doc.h; flatBuf = new Uint8ClampedArray(doc.w * doc.h * 4);
   show('editor'); $('docName').value = doc.name;
   if (!keepView) fit();
+  $('guides').value = doc.guides || '0'; renderMirror();
   resize(); renderPalette(); renderLayers(); renderSave(); updateUndo();
 }
 function markDirty() {
@@ -301,10 +302,32 @@ function paint() {
     g.stroke();
   }
   g.strokeStyle = 'rgba(128,128,128,.6)'; g.strokeRect(ox - .5, oy - .5, pw + 1, ph + 1);
+  // 等分參考線
+  const gd = cur.guides || '0';
+  if (gd !== '0') {
+    const n = +gd.slice(1), xs = [], ys = [];
+    if (gd[0] === 'd') { for (let i = 1; i < n; i++) { xs.push(Math.round(cur.w * i / n)); ys.push(Math.round(cur.h * i / n)); } }
+    else { for (let i = n; i < cur.w; i += n) xs.push(i); for (let i = n; i < cur.h; i += n) ys.push(i); }
+    g.setLineDash([]); g.beginPath();
+    for (const x of xs) { const X = Math.round(ox + x * z) + .5; g.moveTo(X, oy); g.lineTo(X, oy + ph); }
+    for (const y of ys) { const Y = Math.round(oy + y * z) + .5; g.moveTo(ox, Y); g.lineTo(ox + pw, Y); }
+    g.lineWidth = 3 * d; g.strokeStyle = 'rgba(0,0,0,.45)'; g.stroke();   // 深色襯底，任何底色上都看得到
+    g.lineWidth = Math.max(1, d); g.strokeStyle = 'rgba(80,220,255,.95)'; g.stroke();
+  }
+  // 鏡像軸
+  if (cur.mirror) {
+    g.lineWidth = Math.max(2, 2 * d); g.strokeStyle = 'rgba(255,60,180,.85)'; g.setLineDash([6 * d, 4 * d]); g.beginPath();
+    if (cur.mirror & 1) { const X = ox + pw / 2; g.moveTo(X, oy); g.lineTo(X, oy + ph); }
+    if (cur.mirror & 2) { const Y = oy + ph / 2; g.moveTo(ox, Y); g.lineTo(ox + pw, Y); }
+    g.stroke(); g.setLineDash([]);
+  }
   if (hover && (tool === 'pencil' || tool === 'eraser')) {
     const o = Math.floor((brush - 1) / 2);
     g.strokeStyle = tool === 'eraser' ? '#ff5050' : '#fff'; g.lineWidth = Math.max(1, d);
-    g.strokeRect(ox + (hover[0] - o) * z, oy + (hover[1] - o) * z, brush * z, brush * z);
+    for (const [hx, hy] of mirrors(hover[0] - o, hover[1] - o)) {
+      const fx = (cur.mirror & 1) && hx !== hover[0] - o ? hx - brush + 1 : hx, fy = (cur.mirror & 2) && hy !== hover[1] - o ? hy - brush + 1 : hy;
+      g.strokeRect(ox + fx * z, oy + fy * z, brush * z, brush * z);
+    }
   }
 }
 
@@ -389,6 +412,10 @@ $('rmColor').onclick = () => { const h = rgba2hex(color), i = cur.palette.indexO
 /* 工具 */
 function setTool(t) { tool = t; document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t)); cv.style.cursor = t === 'pan' ? 'grab' : 'crosshair'; draw(); }
 document.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
+const MIRROR_LABEL = ['鏡像：關', '鏡像：左右', '鏡像：上下', '鏡像：四向'];
+function renderMirror() { const b = $('mirrorBtn'), m = cur.mirror || 0; b.textContent = MIRROR_LABEL[m]; b.setAttribute('aria-pressed', m > 0); }
+$('mirrorBtn').onclick = () => { cur.mirror = ((cur.mirror || 0) + 1) % 4; renderMirror(); draw(); markDirty(); };
+$('guides').onchange = () => { cur.guides = $('guides').value; draw(); markDirty(); };
 $('brush').onchange = () => { brush = +$('brush').value; draw(); };
 $('gridBtn').onclick = () => { grid = !grid; $('gridBtn').setAttribute('aria-pressed', grid); draw(); };
 $('fitBtn').onclick = () => { fit(); draw(); };
@@ -396,13 +423,24 @@ $('undoBtn').onclick = doUndo; $('redoBtn').onclick = doRedo;
 $('backBtn').onclick = () => goHome();
 $('docName').onchange = () => { cur.name = $('docName').value.slice(0, 80) || cur.name; markDirty(); };
 
+// 鏡像：0 關、1 左右、2 上下、3 四向；以畫布正中央為軸
+function mirrors(x, y) {
+  const m = cur.mirror || 0, mx = cur.w - 1 - x, my = cur.h - 1 - y, out = [[x, y]];
+  if (m & 1) out.push([mx, y]);
+  if (m & 2) out.push([x, my]);
+  if (m === 3) out.push([mx, my]);
+  return out;
+}
 function plot(L, x, y, c) {
   const o = Math.floor((brush - 1) / 2);
   for (let j = 0; j < brush; j++) for (let i = 0; i < brush; i++) {
-    const X = x - o + i, Y = y - o + j; if (X < 0 || Y < 0 || X >= cur.w || Y >= cur.h) continue;
-    const k = (Y * cur.w + X) * 4; L.px[k] = c[0]; L.px[k + 1] = c[1]; L.px[k + 2] = c[2]; L.px[k + 3] = c[3];
+    for (const [X, Y] of mirrors(x - o + i, y - o + j)) {
+      if (X < 0 || Y < 0 || X >= cur.w || Y >= cur.h) continue;
+      const k = (Y * cur.w + X) * 4; L.px[k] = c[0]; L.px[k + 1] = c[1]; L.px[k + 2] = c[2]; L.px[k + 3] = c[3];
+    }
   }
 }
+function fillM(L, x, y, c) { let any = false; for (const [X, Y] of mirrors(x, y)) if (flood(L, X, Y, c)) any = true; return any; }
 function line(L, x0, y0, x1, y1, c) {
   const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1; let e = dx + dy;
   for (;;) { plot(L, x0, y0, c); if (x0 === x1 && y0 === y1) break; const e2 = 2 * e; if (e2 >= dy) { e += dy; x0 += sx; } if (e2 <= dx) { e += dx; y0 += sy; } }
@@ -456,7 +494,7 @@ cv.addEventListener('pointerdown', e => {
   const t = altDown ? 'picker' : tool;
   if (t === 'picker') { if (inside(p)) pick(...p); return; }
   if (!L.visible) { toast('這個圖層隱藏中，先打開它再畫'); return; }
-  if (t === 'fill') { if (!inside(p)) return; const before = L.px.slice(); if (flood(L, ...p, color)) { pushUndo({type: 'px', uid: L.uid, before, after: L.px.slice()}); markDirty(); refreshLayerThumbs(); draw(); } return; }
+  if (t === 'fill') { if (!inside(p)) return; const before = L.px.slice(); if (fillM(L, ...p, color)) { pushUndo({type: 'px', uid: L.uid, before, after: L.px.slice()}); markDirty(); refreshLayerThumbs(); draw(); } return; }
   stroke = {uid: L.uid, before: L.px.slice(), last: p, changed: true, c: t === 'eraser' ? [0, 0, 0, 0] : color};
   plot(L, ...p, stroke.c); draw();
 });
@@ -493,7 +531,7 @@ addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey) return;
   if (k === ' ') { spaceDown = true; cv.style.cursor = 'grab'; e.preventDefault(); }
   else if (k === 'alt') { altDown = true; e.preventDefault(); }
-  else if (k === 'b') setTool('pencil'); else if (k === 'e') setTool('eraser'); else if (k === 'g') setTool('fill'); else if (k === 'i') setTool('picker'); else if (k === 'h') setTool('pan');
+  else if (k === 'b') setTool('pencil'); else if (k === 'e') setTool('eraser'); else if (k === 'g') setTool('fill'); else if (k === 'i') setTool('picker'); else if (k === 'h') setTool('pan'); else if (k === 'm') $('mirrorBtn').click();
   else if (k === '#') $('gridBtn').click(); else if (k === '0') $('fitBtn').click();
   else if (k === '[' || k === ']') { const o = [...$('brush').options].map(o => +o.value), i = o.indexOf(brush); brush = o[Math.max(0, Math.min(o.length - 1, i + (k === ']' ? 1 : -1)))]; $('brush').value = brush; draw(); }
   else if (k === '+' || k === '=') zoomAt(innerWidth / 2, innerHeight / 2, view.z + 1); else if (k === '-') zoomAt(innerWidth / 2, innerHeight / 2, view.z - 1);
