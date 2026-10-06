@@ -20,7 +20,7 @@ button.on{background:var(--gold);color:var(--gold-ink);border-color:transparent}
 .panel{background:var(--panel);border-top:1px solid var(--line);padding:10px 12px;min-height:96px;font-size:14px}
 .bar{display:flex;gap:6px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line)}
 .bar button{flex:1}
-.status{display:flex;gap:12px;align-items:center;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:var(--panel);border-bottom:1px solid var(--line);font-size:14px;flex-wrap:wrap}
+.status{display:flex;gap:10px;align-items:center;padding:calc(8px + env(safe-area-inset-top)) 10px 8px;background:var(--panel);border-bottom:1px solid var(--line);font-size:13px;flex-wrap:wrap;white-space:nowrap}
 .status b{color:var(--gold)}
 
 /* 標題 */
@@ -79,3 +79,21 @@ button.on{background:var(--gold);color:var(--gold-ink);border-color:transparent}
 #toast.show{opacity:1}
 #banner{position:fixed;left:0;right:0;top:40%;text-align:center;font-family:"Noto Serif TC",serif;font-size:28px;color:var(--gold);text-shadow:0 2px 8px #000;opacity:0;pointer-events:none;transition:opacity .25s;z-index:8}
 #banner.show{opacity:1}
+
+/* 大陸地圖 */
+.floating{position:absolute;right:10px;bottom:10px;min-height:40px;width:40px;padding:0;border-radius:50%;background:#231d16dd;font-size:18px}
+/* 市集貨物 */
+.goods{display:flex;flex-direction:column;gap:6px;margin:6px 0}
+.goodrow{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px;display:grid;grid-template-columns:1fr auto;gap:4px 8px;align-items:center}
+.gname{display:flex;gap:8px;align-items:baseline;font-size:14px}.gname .muted{font-size:12px}
+.gprice{display:flex;gap:10px;font-size:13px}.gprice b{color:var(--gold)}
+.gbtn{grid-column:1/-1;display:flex;gap:4px}.gbtn button{flex:1;min-height:34px;padding:4px;font-size:12px}
+/* 行情表 */
+table.intel{width:100%;border-collapse:collapse;font-size:13px}
+table.intel th{color:var(--muted);font-weight:500;text-align:right;padding:4px 3px;border-bottom:1px solid var(--line)}
+table.intel th:first-child{text-align:left}
+table.intel td{text-align:right;padding:5px 3px;border-bottom:1px solid #4a3d2e66;font-variant-numeric:tabular-nums}
+table.intel td:first-child{text-align:left}table.intel td .muted{font-size:11px}
+table.intel td.lo{color:var(--gold);font-weight:700}table.intel td.hi{color:#f08a74;font-weight:700}table.intel td.none{color:var(--muted)}
+table.intel tr{cursor:pointer}
+h3{font-size:16px;margin:6px 0 2px}

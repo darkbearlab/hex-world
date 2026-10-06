@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="theme-color" content="#17130f">
-<title>戰幫｜切片</title>
+<title>戰幫｜大陸</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&display=swap">
 <link rel="stylesheet" href="style.css">
@@ -15,15 +15,17 @@
   <section id="title" class="screen" hidden>
     <div class="titlebox">
       <h1>戰幫</h1>
-      <p class="sub">分裂時代・垂直切片</p>
+      <p class="sub">舊王國崩解四百年後・切片</p>
       <p class="muted">帶著幾個肯跟你走的人，在這片土地上活下去。<br>你倒下，旅程就結束；他們倒下，就不會再回來。</p>
       <label class="field">你的名字<input id="heroName" maxlength="8" placeholder="無名的騎士"></label>
       <button id="newRun" class="primary">踏上旅程</button>
       <button id="continueRun" hidden>繼續旅程</button>
       <details class="help"><summary>怎麼玩</summary>
         <ul>
-          <li>大地圖：點一格看路程，按「前往」出發。走路會花時間、吃糧食；每 7 天發一次薪餉。</li>
-          <li>鎮上可以買糧、招人、接委託、住旅店養傷。村莊糧食便宜但數量有限。</li>
+          <li>大地圖是舊王國崩解四百年後的大陸：拖曳移動、雙指或滾輪縮放，點一格看路程，按「前往」出發。走路會花時間、吃糧食；每 7 天發一次薪餉。</li>
+          <li>世界自己在動：列國打仗、盜匪聚散、商隊來往，價格每季變一次。</li>
+          <li>城鎮可以買糧、跑商、招人、接委託、住旅店養傷，也能在酒館打聽各地行情。村莊糧食便宜但數量有限。</li>
+          <li>跑商：每人扛 2 包、騾子扛 8 包。貨越多，盜匪越容易盯上你。</li>
           <li>戰鬥：你只操作自己（騎士）。同伴依「命令」和自己的個性行動，他們頭上的箭頭就是這回合的打算。</li>
           <li>點自己 → 點一格移動 → 點紅框的敵人看預測、確認攻擊；或按「待命」。站在地圖邊緣可以撤離。</li>
         </ul>
@@ -36,13 +38,14 @@
       <span id="wTime"></span>
       <span>💰 <b id="wGold"></b></span>
       <span>🍞 <b id="wFood"></b></span>
-      <span id="wWage" class="muted"></span>
+      <span>📦 <b id="wLoad"></b></span>
     </header>
-    <div id="mapWrap"><canvas id="map"></canvas></div>
+    <div id="mapWrap"><canvas id="map"></canvas><button id="btnHome" class="floating" aria-label="回到隊伍">◎</button></div>
     <div id="hexInfo" class="panel"></div>
     <nav class="bar">
       <button id="btnParty">隊伍</button>
       <button id="btnLog">日誌</button>
+      <button id="btnMarket">行情</button>
       <button id="btnJobs">委託</button>
       <button id="btnRest">紮營</button>
     </nav>

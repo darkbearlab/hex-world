@@ -23,7 +23,7 @@ jobs:
       - name: 安裝套件
         run: npm ci
       - name: 規則測試（決定性與平衡）
-        run: node warband/test/battle-sim.mjs
+        run: node warband/test/battle-sim.mjs && node warband/test/world-sim.mjs 8 30
       - name: 部署
         run: npx wrangler deploy --config warband/wrangler.toml
         env:

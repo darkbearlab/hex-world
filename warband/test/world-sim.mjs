@@ -1,5 +1,13 @@
+// 世界層自動遊玩：跑商的戰幫（看得到 8 格內所有市集的行情，作弊版），看一個月下來賺不賺、會不會死
+// 用法：node warband/test/world-sim.mjs [局數] [天數]
+import {readFileSync} from 'node:fs';
+import * as C from '../public/js/cont.js';
 import * as Wd from '../public/js/world.js';
 import * as B from '../public/js/battle.js';
+
+const PACK = JSON.parse(readFileSync(new URL('../public/data/genesis.json', import.meta.url), 'utf8'));
+const RUNS = +(process.argv[2] || 12), DAYS = +(process.argv[3] || 40);
+
 function heroPlan(st) {
   const h = B.hero(st), r = B.reach(st, h), foes = B.living(st, 'enemy');
   let best = null;
@@ -9,42 +17,66 @@ function heroPlan(st) {
   for (const [x, y] of r.tiles) { const de = Math.min(...foes.map(f => Math.abs(f.x - x) + Math.abs(f.y - y))); const da = allies.length ? Math.min(...allies.map(a => Math.abs(a.x - x) + Math.abs(a.y - y))) : 0; const s = h.hp < h.max * 0.4 ? -de + da : Math.abs(de - 3) + da * 0.5; if (s < bs) { bs = s; to = [x, y]; } }
   return {type: 'hero', to, act: {kind: 'wait'}};
 }
-function fight(w, setup) {
+function fight(w) {
+  const setup = w.pendingBattle;
   const st = B.createBattle({seed: setup.seed, biome: setup.biome, party: w.party, foes: setup.foes, order: {stance: 'follow'}});
   let g = 0; while (!st.result && g++ < 60) B.act(st, heroPlan(st));
   if (!st.result) st.result = 'retreat';
   return Wd.applyBattle(w, setup, st);
 }
-const stats = {over: 0, days: [], party: [], gold: [], fallen: 0, deserted: 0, battles: 0, camps: 0};
-for (let s = 1; s <= 40; s++) {
-  const w = Wd.newWorld(s, '測試'); w.allLog = []; const ol = w.log; w.log = new Proxy(ol, {get(t, k) { if (k === 'unshift') return (x) => { w.allLog.push(x.text); return t.unshift(x); }; return Reflect.get(t, k); }});
-  let guard = 0;
-  while (!w.over && w.day < 45 && guard++ < 2000) {
-    if (w.pendingBattle) { fight(w, w.pendingBattle); continue; }
-    const enc = Wd.bandAt(w, w.pos);
-    if (enc) { Wd.worldAct(w, {type: Wd.partyPower(w.party) > Wd.partyPower(enc.foes) * 0.9 ? 'engage' : 'evade', band: enc.id}); continue; }
-    const here = Wd.siteAt(w, w.pos), t = Wd.town(w);
-    try {
-      if (here && here.kind === 'village' && Wd.daysOfFood(w) < 5 && here.food > 0 && w.gold > 5) { Wd.worldAct(w, {type: 'buyFood', n: Math.min(here.food, w.party.length * 5, w.gold - 2)}); continue; }
-      if (here && here.kind === 'town') {
-        if (w.contracts.some(c => c.done && c.taken)) { Wd.worldAct(w, {type: 'claim'}); continue; }
-        if (Wd.daysOfFood(w) < 5 && w.gold > 20) { Wd.worldAct(w, {type: 'buyFood', n: Math.min(Math.floor((w.gold - 10) / here.foodPrice), w.party.length * 6)}); continue; }
-        if (w.party.length < 5 && t.recruits.length && w.gold > t.recruits[0].wage * 2 + 60) { Wd.worldAct(w, {type: 'hire', id: t.recruits[0].id}); continue; }
-        const hurt = w.party.some(m => m.hp < m.max * 0.7);
-        if (hurt && w.gold > w.party.length * 2 + 30) { Wd.worldAct(w, {type: 'rest', days: 1}); continue; }
-        const c = w.contracts.find(c => !c.taken); if (c) Wd.worldAct(w, {type: 'takeContract', id: c.id});
+// 找一筆買賣：這裡買、8 格內某個市集賣，扣掉路上吃掉的糧
+function bestDeal(w) {
+  const k = C.K(), here = w.pos, room = Wd.capacity(w) - Wd.load(w);
+  let best = null;
+  for (const t of Object.keys(k.markets).map(Number)) {
+    if (t === here || k.owner[t] < 0 || C.hdist(t, here) > 8) continue;
+    const path = Wd.findPath(w, here, t); if (!path) continue;
+    const days = Wd.pathHours(path) / 24;
+    for (const g of Wd.GOODS) {
+      const q = Math.min(room, Wd.stockBales(here, g), Math.floor(w.gold * 0.7 / Math.max(1, Wd.basePrice(here, g) * 1.2)));
+      for (let n = q; n >= 1; n = Math.floor(n * 0.6)) {
+        const cost = Wd.quote(w, here, g, 'buy', n), sell = Wd.quote(w, t, g, 'sell', n), gain = sell - cost - days * (w.party.length * 1.5);
+        if (!best || gain > best.gain) best = {t, g, n, gain, path, days};
       }
-      // 目標：有接委託而且夠強 → 去打；否則巡邏村莊
-      const job = w.contracts.find(c => c.taken && !c.done), site = job && w.sites.find(s => s.id === job.site);
-      const strong = Wd.partyPower(w.party) > (site?.kind === 'camp' ? 55 : 30) && w.party.every(m => m.hp > m.max * 0.6);
-      if (site && site.alive && strong) { if (Wd.hexDist(site.pos, w.pos) === 0) Wd.worldAct(w, {type: 'assault', site: site.id}); else Wd.worldAct(w, {type: 'travel', to: Wd.findPath(w, w.pos, site.pos)[0]}); continue; }
-      const dest = Wd.daysOfFood(w) < 3 || w.party.some(m => m.hp < m.max * 0.5) || w.contracts.some(c => c.done) ? t.pos : w.sites.filter(s => s.kind === 'village')[w.day % 3].pos;
-      if (Wd.hexDist(dest, w.pos) === 0) Wd.worldAct(w, {type: 'rest', days: 1, inn: false}); else Wd.worldAct(w, {type: 'travel', to: Wd.findPath(w, w.pos, dest)[0]});
-    } catch (e) { Wd.worldAct(w, {type: 'rest', days: 1, inn: false}); }
+    }
   }
-  stats.over += w.over ? 1 : 0; stats.days.push(w.day); stats.party.push(w.party.length); stats.gold.push(w.gold); stats.fallen += w.fallen.length; stats.battles += w.battles; stats.camps += w.sites.filter(s => s.kind === 'camp' && !s.alive).length;
-  stats.deserted += w.log.filter(l => l.text.includes('不告而別')).length;
-  stats.unpaid = (stats.unpaid || 0) + w.allLog.filter(l => l.includes('發不出來')).length; stats.hungry = (stats.hungry || 0) + w.allLog.filter(l => l.includes('吃光')).length; stats.paid = (stats.paid || 0) + w.allLog.filter(l => l.includes('發了這週')).length;
+  return best && best.gain > 15 ? best : null;
 }
-const avg = a => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1);
-console.log(stats.unpaid, 'unpaid', stats.paid, 'paid', stats.hungry, 'hungry');console.log(`40 局（上限 45 天）：主角陣亡 ${stats.over} 局，平均存活 ${avg(stats.days)} 天，結束時隊伍 ${avg(stats.party)} 人，金幣 ${avg(stats.gold)}；同伴陣亡共 ${stats.fallen}、不告而別 ${stats.deserted}；戰鬥 ${stats.battles} 場、拔掉山寨 ${stats.camps} 個`);
+const sum = {over: 0, gold: [], earned: [], battles: 0, fallen: 0, trades: 0, ambush: 0, days: []};
+for (let s = 1; s <= RUNS; s++) {
+  C.loadPack(PACK);
+  const w = Wd.newWorld(s, '測試'); let plan = null, guard = 0;
+  while (!w.over && w.day < DAYS && guard++ < 4000) {
+    if (w.pendingBattle) { fight(w); continue; }
+    const enc = Wd.bandAt(w, w.pos);
+    if (enc) {
+      sum.ambush++;
+      const strong = Wd.partyPower(w.party) > Wd.partyPower(enc.foes) * 1.1;
+      Wd.worldAct(w, {type: strong ? 'engage' : enc.kind === 'bandits' && Wd.load(w) === 0 ? 'pay' : 'evade', band: enc.id}); continue;
+    }
+    const here = Wd.siteAt(w, w.pos);
+    try {
+      if (here?.kind === 'town') {
+        // 到了目的地就賣
+        for (const g of Wd.GOODS) if (w.cargo[g] > 0 && (!plan || plan.t === w.pos)) { Wd.worldAct(w, {type: 'sell', g, q: w.cargo[g]}); sum.trades++; }
+        if (plan && plan.t === w.pos) plan = null;
+        if (Wd.daysOfFood(w) < 6) Wd.worldAct(w, {type: 'buyFood', n: Math.ceil((w.party.length + w.mules / 2) * 8)});
+        if (w.mules < 4 && w.gold > 180) Wd.worldAct(w, {type: 'buyMule'});
+        if (w.party.some(m => m.hp < m.max * 0.6) && w.gold > 60) { Wd.worldAct(w, {type: 'rest', days: 1}); continue; }
+        if (!plan) { const d = bestDeal(w); if (d) { Wd.worldAct(w, {type: 'buy', g: d.g, q: d.n}); plan = d; } }
+        if (!plan) { // 沒生意就往別的大城走走
+          const k = C.K(), ts = Object.keys(k.markets).map(Number).filter(t => t !== w.pos && k.owner[t] >= 0 && C.hdist(t, w.pos) <= 6);
+          plan = {t: ts[(w.day * 7 + s) % ts.length]};
+        }
+      }
+      if (here?.kind === 'village' && Wd.daysOfFood(w) < 3) Wd.worldAct(w, {type: 'buyFood', n: 10});
+      const path = Wd.findPath(w, w.pos, plan.t);
+      if (!path || !path.length) { plan = null; Wd.worldAct(w, {type: 'rest', days: 1, inn: false}); continue; }
+      Wd.worldAct(w, {type: 'travel', to: path[0]});
+    } catch (e) { plan = null; Wd.worldAct(w, {type: 'rest', days: 1, inn: false}); }
+  }
+  sum.over += w.over ? 1 : 0; sum.gold.push(w.gold + Wd.cargoValue(w)); sum.earned.push(w.earned); sum.battles += w.battles; sum.fallen += w.fallen.length; sum.days.push(w.day);
+  if (s === 1) console.log(w.log.slice(0, 60).reverse().map(l => `第${l.day}天 ${l.text}`).join('\n'));
+}
+const avg = a => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0);
+console.log(`${RUNS} 局 × ${DAYS} 天：主角陣亡 ${sum.over}；結束時身家平均 ${avg(sum.gold)}（開局 200）；賣貨收入平均 ${avg(sum.earned)}；成交 ${sum.trades} 筆；遭遇 ${sum.ambush} 次、戰鬥 ${sum.battles} 場、同伴陣亡 ${sum.fallen}`);
