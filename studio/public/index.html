@@ -56,6 +56,8 @@
     <span class="grow"></span>
     <button id="undoBtn" class="ghost" title="復原 (Ctrl+Z)">↶</button>
     <button id="redoBtn" class="ghost" title="重做 (Ctrl+Shift+Z)">↷</button>
+    <button id="mirrorBtn" class="ghost" title="鏡像編輯 (M)：關 → 左右 → 上下 → 四向">鏡像：關</button>
+    <label class="size" title="等分參考線">參考線<select id="guides"><option value="0">關</option><option value="d2">2 等分</option><option value="d3">3 等分</option><option value="d4">4 等分</option><option value="d8">8 等分</option><option value="s8">每 8 格</option><option value="s16">每 16 格</option></select></label>
     <button id="gridBtn" class="ghost" title="格線 (#)" aria-pressed="true">格線</button>
     <button id="fitBtn" class="ghost" title="置中 (0)">置中</button>
     <button id="histBtn" class="ghost">版本</button>
@@ -86,8 +88,6 @@
       <button data-tool="picker" title="滴管 (I)">💧</button>
       <button data-tool="pan" title="移動畫面 (空白鍵拖曳)">✋</button>
       <label class="size" title="筆刷大小 ([ ])">筆刷<select id="brush"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
-      <button id="mirrorBtn" class="mirror" title="鏡像編輯 (M)：關 → 左右 → 上下 → 四向">鏡像：關</button>
-      <label class="size" title="等分參考線">參考線<select id="guides"><option value="0">關</option><option value="d2">2 等分</option><option value="d3">3 等分</option><option value="d4">4 等分</option><option value="d8">8 等分</option><option value="s8">每 8 格</option><option value="s16">每 16 格</option></select></label>
     </div>
     <div class="colors">
       <span id="cur" class="swatch big" title="目前顏色"></span>
