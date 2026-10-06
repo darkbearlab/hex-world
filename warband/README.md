@@ -35,5 +35,16 @@
 - `public/art/`：由 `tools/slice.py` 從 gpt-image 的 sprite sheet 切出來
 - `test/battle-sim.mjs`：決定性檢查與 1,800 場戰鬥平衡模擬；`test/world-sim.mjs`：跑商機器人（作弊看得到 8 格內行情）跑 N 局 × N 天
 
+## 共享世界（多人）
+- `server/worker.js`：Cloudflare Worker ＋ Durable Object `Realm`。整片大陸只有一份，存在 DO 的 SQLite（gzip 後切 500 KB 一塊）。
+- 世界時鐘：鬧鐘每 `TICK_SECONDS`（預設 120 秒）推進一個時段（6 小時），所以現實 8 分鐘＝遊戲 1 天。
+- 行動點：1 AP＝1 小時，回復速度和世界時鐘一樣，上限 `AP_MAX` 120；離線時戰幫原地不動、不吃糧不發餉。
+- 伺服器說了算：玩家每個行動送 `/api/act`，伺服器跑 `worldAct`。戰鬥在瀏覽器打，打完把操作紀錄送 `/api/battle`，伺服器用同一顆種子重播，結果以伺服器為準。
+- 瀏覽器從 `/api/snapshot` 拿唯讀鏡像來畫地圖、查行情；`/api/world` 有世界時間與其他玩家位置（地圖上會畫出來）。
+- 身分是瀏覽器 localStorage 裡的隨機 token（`warband-mp-token`），伺服器只存它的雜湊。換瀏覽器就是新角色。
+- 開關：`wrangler.toml` 的 `WORLD_VERSION` 改值＝開新世界（舊的不刪但不再用）；`PAUSED = "1"` 暫停時鐘；`TICK_SECONDS` 調速度。
+- 本機：`npx wrangler dev --config warband/wrangler.toml --local --var DEV:1 --port 8790`（`DEV` 開啟 `/api/dev/fight` 測試用）。
+
 ## 目前刻意沒做的
-有名者、肖像、傳奇武器、說故事、伺服器結算（存檔在瀏覽器（戰幫與沙盒分兩個 key，沙盒狀態 gzip 壓縮後約 0.2 MB），所以現在還能用重新整理之外的方式作弊）。這些是第 2–4 階段。
+- 多人：玩家之間還不能互動（交易、結盟、打架）；戰鬥中重新整理會從頭打這一場。
+- 有名者肖像、武器變傳奇、說故事。
