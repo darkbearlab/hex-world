@@ -1,14 +1,14 @@
-# 推送到 main 就自動部署到 Cloudflare
-name: 部署到 Cloudflare
+# warband/ 有變動推送到 main 時，部署奇幻戰幫切片（獨立的 Worker：warband，只有靜態檔案）
+name: 部署戰幫切片
 
 on:
   push:
     branches: [main]
-    paths-ignore: ['studio/**', '.github/workflows/studio.yml', 'warband/**', '.github/workflows/warband.yml']
+    paths: ['warband/**', '.github/workflows/warband.yml']
   workflow_dispatch: {}
 
 concurrency:
-  group: deploy
+  group: warband
   cancel-in-progress: false
 
 jobs:
@@ -22,9 +22,9 @@ jobs:
           cache: npm
       - name: 安裝套件
         run: npm ci
-      - name: 創世（跑開服前的歷史）
-        run: node scripts/genesis.mjs
+      - name: 規則測試（決定性與平衡）
+        run: node warband/test/battle-sim.mjs
       - name: 部署
-        run: npx wrangler deploy
+        run: npx wrangler deploy --config warband/wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#17130f">
+<title>戰幫｜切片</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="app">
+
+  <section id="title" class="screen" hidden>
+    <div class="titlebox">
+      <h1>戰幫</h1>
+      <p class="sub">分裂時代・垂直切片</p>
+      <p class="muted">帶著幾個肯跟你走的人，在這片土地上活下去。<br>你倒下，旅程就結束；他們倒下，就不會再回來。</p>
+      <label class="field">你的名字<input id="heroName" maxlength="8" placeholder="無名的騎士"></label>
+      <button id="newRun" class="primary">踏上旅程</button>
+      <button id="continueRun" hidden>繼續旅程</button>
+      <details class="help"><summary>怎麼玩</summary>
+        <ul>
+          <li>大地圖：點一格看路程，按「前往」出發。走路會花時間、吃糧食；每 7 天發一次薪餉。</li>
+          <li>鎮上可以買糧、招人、接委託、住旅店養傷。村莊糧食便宜但數量有限。</li>
+          <li>戰鬥：你只操作自己（騎士）。同伴依「命令」和自己的個性行動，他們頭上的箭頭就是這回合的打算。</li>
+          <li>點自己 → 點一格移動 → 點紅框的敵人看預測、確認攻擊；或按「待命」。站在地圖邊緣可以撤離。</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <section id="world" class="screen" hidden>
+    <header class="status">
+      <span id="wTime"></span>
+      <span>💰 <b id="wGold"></b></span>
+      <span>🍞 <b id="wFood"></b></span>
+      <span id="wWage" class="muted"></span>
+    </header>
+    <div id="mapWrap"><canvas id="map"></canvas></div>
+    <div id="hexInfo" class="panel"></div>
+    <nav class="bar">
+      <button id="btnParty">隊伍</button>
+      <button id="btnLog">日誌</button>
+      <button id="btnJobs">委託</button>
+      <button id="btnRest">紮營</button>
+    </nav>
+  </section>
+
+  <section id="battle" class="screen" hidden>
+    <header class="status">
+      <span id="bTurn"></span>
+      <span id="bTitle" class="muted"></span>
+      <label class="toggle"><input type="checkbox" id="showDanger"> 危險範圍</label>
+    </header>
+    <div class="orders" id="orders"></div>
+    <div id="fieldWrap"><canvas id="field"></canvas></div>
+    <div id="bInfo" class="panel"></div>
+    <nav class="bar" id="bActions"></nav>
+  </section>
+
+</main>
+
+<div id="sheet" class="sheet" hidden><div class="sheetbody"><button class="close" id="sheetClose" aria-label="關閉">✕</button><div id="sheetContent"></div></div></div>
+<div id="toast"></div>
+<div id="banner"></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# 奇幻戰幫・垂直切片：目前只有靜態檔案（規則在瀏覽器跑；之後搬到伺服器結算）
+name = "warband"
+compatibility_date = "2025-09-01"
+account_id = "beb6f869ff9d765dbf31116243c5b348"
+workers_dev = true
+
+[assets]
+directory = "./public"
