@@ -131,7 +131,8 @@ function passHours(w, hours, mode, out) {
     w.food = Math.max(0, w.food - w.party.length / 24);
     // 療傷：每小時一點點；旅店最快，紮營次之，趕路最慢
     const rate = mode === 'inn' ? 0.5 : mode === 'camp' ? 0.2 : 0.08;
-    for (const m of w.party) m.hp = Math.min(m.max, m.hp + m.max * rate / 24);
+    // 血量一律是整數；零頭先記在 healBuf，湊滿一點再加
+    for (const m of w.party) { m.healBuf = (m.healBuf || 0) + m.max * rate / 24; const whole = Math.floor(m.healBuf); if (whole) { m.hp = Math.min(m.max, Math.round(m.hp) + whole); m.healBuf -= whole; } }
     moveBands(w, out);
     if (w.hour >= 24) { w.hour = 0; w.day++; newDay(w, out, mode); if (w.over) return; }
     const b = bandAt(w, w.pos);
@@ -155,6 +156,16 @@ function newDay(w, out, mode) {
   for (const v of w.sites.filter(s => s.kind === 'village')) v.foodPrice = v.raided > w.day ? 2 : 1;
   for (const v of w.sites.filter(s => s.kind === 'village')) v.food = Math.min(40, v.food + 3);
   if (w.day >= w.nextBand) { spawnBand(w); w.nextBand = w.day + 3 + rngInt(w, 3); }
+  // 被拔掉的山寨與狼穴，過一陣子會在別處重新出現
+  for (const s of w.sites.filter(s => (s.kind === 'camp' || s.kind === 'den') && !s.alive)) {
+    if (!s.respawn) s.respawn = w.day + 12;
+    if (w.day < s.respawn) continue;
+    const tw = town(w).pos, spots = [];
+    for (let r = 0; r < MH; r++) for (let q = 0; q < MW; q++) { const p = [q, r], t = w.tiles[idx(q, r)]; if (HEX[t].hours === Infinity || hexDist(p, tw) < 4 || hexDist(p, w.pos) < 3 || w.sites.some(o => o !== s && (o.alive !== false) && hexDist(o.pos, p) < 2)) continue; if (s.kind === 'den' && t !== 'forest') continue; spots.push(p); }
+    if (!spots.length) continue;
+    s.pos = rngPick(w, spots); s.alive = true; s.respawn = null;
+    say(w, s.kind === 'camp' ? `聽說有一夥山賊在${s.name}的舊名號下重新立寨了。` : '森林深處又傳出狼嚎，有新的狼群築了巢。');
+  }
   refreshContracts(w);
 }
 function payday(w) {
@@ -251,7 +262,7 @@ export function applyBattle(w, setup, bst) {
       const b = w.bands.find(x => x.id === setup.source.ref); out.loot = b ? b.loot : 0; w.bands = w.bands.filter(x => x !== b);
       const c = w.contracts.find(c => c.band === setup.source.ref); if (c) { c.done = true; c.taken = true; out.lines.push(`懸賞「${c.title}」達成，回鎮上領賞。`); }
     } else {
-      const s = w.sites.find(x => x.id === setup.source.ref); s.alive = false; out.loot = s.kind === 'camp' ? 120 + rngInt(w, 80) : 0;
+      const s = w.sites.find(x => x.id === setup.source.ref); s.alive = false; s.respawn = w.day + (s.kind === 'camp' ? 14 : 10) + rngInt(w, 8); out.loot = s.kind === 'camp' ? 120 + rngInt(w, 80) : 0;
       const c = w.contracts.find(c => c.site === s.id && c.taken); if (c) { c.done = true; out.lines.push(`委託「${c.title}」完成，回鎮上領賞。`); }
     }
     w.gold += out.loot;

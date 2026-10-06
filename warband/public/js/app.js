@@ -310,6 +310,7 @@ function drawField() {
   // 同伴的打算
   if (!animating && !st.result && bsel?.plans) for (const p of bsel.plans) {
     const u = uById(p.id); if (!u) continue;
+    if (p.hidden) { g.fillStyle = '#e0a03c'; g.font = `800 ${cell * 0.45}px system-ui`; g.textAlign = 'center'; g.fillText('?', X(u.x) + cell * 0.85, Y(u.y) + cell * 0.38); continue; }
     const c = p.disobey || /膽小/.test(p.why) ? '#e0a03c' : '#8fd0ff';
     const a = [X(u.x) + cell / 2, Y(u.y) + cell / 2], b = p.to ? [X(p.to[0]) + cell / 2, Y(p.to[1]) + cell / 2] : a;
     if (p.to && (p.to[0] !== u.x || p.to[1] !== u.y)) arrow(g, a, b, c, 2);
@@ -367,7 +368,7 @@ function unitInfo(u) {
   if (u.side === 'ally' && !u.hero) { const p = (bsel?.plans || []).find(p => p.id === u.id); wrap.append(el('div', {class: 'muted', style: 'font-size:13px;margin-top:4px'}, `忠誠 ${Math.round(u.loyalty)}・這回合${st.obey[u.id] === false ? '不聽令' : '聽令'}${p ? `・打算：${planText(p)}` : ''}`)); }
   return wrap;
 }
-function planText(p) { const t = p.target && uById(p.target); return p.kind === 'attack' ? `${p.why}→${t?.name}（命中 ${p.f?.aHit ?? '?'}%）` : p.kind === 'heal' ? `包紮 ${t?.name}` : p.why; }
+function planText(p) { if (p.hidden) return '不聽令——看不出他在打算什麼'; const t = p.target && uById(p.target); return p.kind === 'attack' ? `${p.why}→${t?.name}（命中 ${p.f?.aHit ?? '?'}%）` : p.kind === 'heal' ? `包紮 ${t?.name}` : p.why; }
 function bInfo() {
   const st = ST(), box = $('bInfo'), acts = $('bActions'); box.innerHTML = ''; acts.innerHTML = '';
   $('bTurn').textContent = `第 ${st.turn} 回合・敵人 ${B.living(st, 'enemy').length}`;

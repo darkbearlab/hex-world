@@ -58,7 +58,7 @@ export function createBattle({seed, biome, party, foes, order}) {
   return st;
 }
 function toUnit(m, side, [x, y]) {
-  return {id: m.id, side, hero: !!m.hero, leader: !!m.leader, name: m.name, cls: m.cls, sprite: m.sprite, lvl: m.lvl, exp: m.exp || 0, hp: m.hp, max: m.max, str: m.str, skl: m.skl, spd: m.spd, def: m.def, mov: m.mov, weapon: m.weapon, traits: m.traits || [], loyalty: m.loyalty ?? 100, x, y, alive: true, fled: false, captured: false, kills: 0, dealt: 0, levels: []};
+  return {id: m.id, side, hero: !!m.hero, leader: !!m.leader, name: m.name, cls: m.cls, sprite: m.sprite, lvl: m.lvl, exp: m.exp || 0, hp: Math.round(m.hp), max: m.max, str: m.str, skl: m.skl, spd: m.spd, def: m.def, mov: m.mov, weapon: m.weapon, traits: m.traits || [], loyalty: m.loyalty ?? 100, x, y, alive: true, fled: false, captured: false, kills: 0, dealt: 0, levels: []};
 }
 
 /* ───────────── 查詢 ───────────── */
@@ -306,12 +306,16 @@ function execute(st, ev, u, plan) {
 
 /* ───────────── 回合流程 ───────────── */
 function newTurn(st, ev) {
-  st.turn++; st.heroDone = false; st.obey = {};
+  st.turn++; st.heroDone = false; st.obey = {}; st.hidden = {};
   for (const u of living(st, 'ally')) {
     if (u.hero) continue;
     const chance = clamp(50 + u.loyalty * 0.5 + u.traits.reduce((s, t) => s + (TRAITS[t]?.obey || 0), 0), 10, 98);
     st.obey[u.id] = rngNext(st) * 100 < chance;
-    if (!st.obey[u.id]) ev.push({t: 'bark', id: u.id, text: has(u, 'reckless') ? '少囉嗦，我自己來！' : '……我有我的打算。'});
+    if (!st.obey[u.id]) {
+      // 不聽令的人，有些連打算都不讓你看出來：忠誠越低越會藏
+      st.hidden[u.id] = u.loyalty < 35 || rngNext(st) < 0.4;
+      ev.push({t: 'bark', id: u.id, text: st.hidden[u.id] ? '……' : has(u, 'reckless') ? '少囉嗦，我自己來！' : '……我有我的打算。'});
+    }
   }
   ev.push({t: 'turn', n: st.turn});
 }
@@ -329,7 +333,7 @@ export function previewAllies(st, x, y) {
   if (x !== undefined) { h.x = x; h.y = y; }
   const out = [];
   for (const u of living(c, 'ally').filter(u => !u.hero).sort(bySpeed)) {
-    const p = planAlly(c, u); out.push({id: u.id, ...p, disobey: c.obey[u.id] === false});
+    const p = planAlly(c, u); out.push({id: u.id, ...p, disobey: c.obey[u.id] === false, hidden: !!c.hidden?.[u.id]});
     if (p.to) { u.x = p.to[0]; u.y = p.to[1]; }   // 讓後面的人知道這格被佔了
   }
   return out;
