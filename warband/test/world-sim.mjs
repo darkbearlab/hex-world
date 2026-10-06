@@ -29,11 +29,11 @@ function bestDeal(w) {
   const k = C.K(), here = w.pos, room = Wd.capacity(w) - Wd.load(w);
   let best = null;
   for (const t of Object.keys(k.markets).map(Number)) {
-    if (t === here || k.owner[t] < 0 || C.hdist(t, here) > 8) continue;
+    if (t === here || k.owner[t] < 0 || C.hdist(t, here) > 14) continue;
     const path = Wd.findPath(w, here, t); if (!path) continue;
     const days = Wd.pathHours(path) / 24;
-    for (const g of Wd.GOODS) {
-      const q = Math.min(room, Wd.stockBales(here, g), Math.floor(w.gold * 0.7 / Math.max(1, Wd.basePrice(here, g) * 1.2)));
+    for (const g of (Wd.TRADE || Wd.GOODS)) {
+      const q = Math.min(room, Wd.stockBales(here, g, w), Math.floor(w.gold * 0.7 / Math.max(1, Wd.basePrice(here, g) * 1.2)));
       for (let n = q; n >= 1; n = Math.floor(n * 0.6)) {
         const cost = Wd.quote(w, here, g, 'buy', n), sell = Wd.quote(w, t, g, 'sell', n), gain = sell - cost - days * (w.party.length * 1.5);
         if (!best || gain > best.gain) best = {t, g, n, gain, path, days};
@@ -58,12 +58,12 @@ for (let s = 1; s <= RUNS; s++) {
     try {
       if (here?.kind === 'town') {
         // 到了目的地就賣
-        for (const g of Wd.GOODS) if (w.cargo[g] > 0 && (!plan || plan.t === w.pos)) { Wd.worldAct(w, {type: 'sell', g, q: w.cargo[g]}); sum.trades++; }
+        for (const g of (Wd.TRADE || Wd.GOODS)) if (w.cargo[g] > 0 && (!plan || plan.t === w.pos)) { Wd.worldAct(w, {type: 'sell', g, q: w.cargo[g]}); sum.trades++; }
         if (plan && plan.t === w.pos) plan = null;
         if (w.contracts.some(c => Wd.canClaimHere(w, c))) { Wd.worldAct(w, {type: 'claim'}); sum.claims = (sum.claims || 0) + 1; }
         // 有委託先做委託：護送、清狼、夠強就剿匪或從軍
         if (!plan && !w.escort) {
-          const pw = Wd.partyPower(w.party), job = w.contracts.find(c => !c.taken && c.town === w.pos && (c.kind === 'escort' || c.kind === 'wolves' || (c.kind === 'merc' && pw > 70) || (c.kind === 'gang' && pw > 75)));
+          const pw = Wd.partyPower(w.party), job = w.contracts.find(c => !c.taken && c.town === w.pos && (c.kind === 'escort' || (c.kind === 'wolves' && pw > 45) || (c.kind === 'merc' && pw > 70) || (c.kind === 'gang' && pw > 75)));
           if (job) { Wd.worldAct(w, {type: 'takeContract', id: job.id}); sum.jobs = (sum.jobs || 0) + 1; plan = {t: Wd.contractSite(w, job), job: job.id}; }
         }
         if (Wd.daysOfFood(w) < 6) Wd.worldAct(w, {type: 'buyFood', n: Math.ceil(Wd.eaters(w) * 10)});
@@ -84,9 +84,10 @@ for (let s = 1; s <= RUNS; s++) {
       Wd.worldAct(w, {type: 'travel', to: path[0]});
     } catch (e) { if (process.env.DBG) console.log('bot', e.message); plan = null; try { Wd.worldAct(w, {type: 'rest', days: 1, inn: false}); } catch {} }
   }
+  if (w.over) (sum.where ||= []).push(`第${w.over.day}天・${w.over.where}`);
   sum.over += w.over ? 1 : 0; sum.gold.push(w.gold + Wd.cargoValue(w)); sum.earned.push(w.earned); sum.battles += w.battles; sum.fallen += w.fallen.length; sum.days.push(w.day);
   if (s === 1) console.log(w.log.slice(0, 60).reverse().map(l => `第${l.day}天 ${l.text}`).join('\n'));
 }
 const avg = a => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0);
-console.log(`委託 ${sum.jobs || 0} 件、領賞 ${sum.claims || 0} 次`);
+console.log(`委託 ${sum.jobs || 0} 件、領賞 ${sum.claims || 0} 次；主角倒在：${(sum.where || []).join('、')}`);
 console.log(`${RUNS} 局 × ${DAYS} 天：主角陣亡 ${sum.over}；結束時身家平均 ${avg(sum.gold)}（開局 200）；賣貨收入平均 ${avg(sum.earned)}；成交 ${sum.trades} 筆；遭遇 ${sum.ambush} 次、戰鬥 ${sum.battles} 場、同伴陣亡 ${sum.fallen}`);

@@ -4,7 +4,13 @@
 import {CLASSES, RECRUIT_CLASSES, TRAIT_KEYS, NAMES, SURNAMES, rngNext, rngInt, rngPick, hashSeed} from './data.js';
 import * as C from './cont.js';
 
-export const {W, H, N, NBR, BIOMES, GOODS, GN, hdist} = C;
+export const {W, H, N, NBR, BIOMES, GOODS, hdist} = C;
+// 地方特產：沙盒的商隊不跑這些，只有願意穿越荒野的人賺得到。產地便宜，離產地越遠越貴
+export const SPEC = {fur: {n: '毛皮', v: 26}, wine: {n: '葡萄酒', v: 18}, fish: {n: '魚乾', v: 9}, gem: {n: '寶石', v: 40}};
+export const SPECS = Object.keys(SPEC), TRADE = [...GOODS, ...SPECS];
+export const GN = {...C.GN, ...Object.fromEntries(SPECS.map(g => [g, SPEC[g].n]))};
+const isSpec = g => !!SPEC[g];
+export const unitValue = g => isSpec(g) ? SPEC[g].v : C.BASEP[g] * COINP;
 const K = C.K, nm = C.nm;
 
 /* ───────────── 常數 ───────────── */
@@ -51,12 +57,13 @@ const say = (w, text) => { w.log.unshift({day: w.day, text}); if (w.log.length >
 export const passable = i => C.land(i) && K().biome[i] !== 2;
 // 走進一格要花幾小時：依地形；商路上的格子有路可走
 // 一格大約是一兩天的路程。季節：冬天路難走（北地更難），春汛時河邊的格子要繞路（有商路的地方有橋）
+export const HEX_HOURS = 12;   // 大地圖上一格約半天路（平地 12 小時）
 export const ROAD_MUL = 0.5;   // 有路的格子：走一半的時間（之後改 AP 制時，就是省一半 AP）
 export const SEASON_NOTE = ['春汛：河邊不好走', '', '', '冬天：路難走，北地吃得多'];
 export const coldAt = i => (C.WS.temp ? C.WS.temp[i] : 1) < 0.45;
 export function hexHours(i, k = K()) {
   if (!C.land(i) || k.biome[i] === 2) return Infinity;
-  let h = Math.min(72, C.MOVE[k.biome[i]] * 20);
+  let h = Math.min(48, C.MOVE[k.biome[i]] * HEX_HOURS);
   const road = k.routeTiles.has(i);
   if (road) h *= ROAD_MUL;
   if (k.season === 3 && !road) h *= coldAt(i) ? 1.6 : 1.3;
@@ -110,15 +117,34 @@ export function townState(w, i) {
 }
 
 /* ───────────── 市集與貨物 ───────────── */
-export const load = w => GOODS.reduce((s, g) => s + (w.cargo[g] || 0), 0);
+export const load = w => TRADE.reduce((s, g) => s + (w.cargo[g] || 0), 0);
 export const capacity = w => w.party.length * CARRY_MAN + w.mules * MULE_CAP;
-export const cargoValue = w => GOODS.reduce((s, g) => s + (w.cargo[g] || 0) * C.BASEP[g] * COINP, 0);
+export const cargoValue = w => TRADE.reduce((s, g) => s + (w.cargo[g] || 0) * unitValue(g), 0);
 const seasonId = (k = K()) => Math.floor(k.T / SEASON_T);
 // 玩家這一季在這個市集淨買進（正）或賣出（負）多少包：同一季裡會一直推著價格走，換季後沙盒重算價格
 function press(w, i, g) { const p = w.press[i]; return p && p.s === seasonId() ? (p[g] || 0) : 0; }
 function addPress(w, i, g, d) { let p = w.press[i]; if (!p || p.s !== seasonId()) p = w.press[i] = {s: seasonId()}; p[g] = (p[g] || 0) + d; }
-export const basePrice = (i, g, k = K()) => C.BASEP[g] * k.markets[i].price[g] * COINP;
-const depth = (i, g, k = K()) => { const m = k.markets[i]; return Math.max(4, (m.stock[g] + m.need[g]) / BALE * 0.35); };
+export const basePrice = (i, g, k = K()) => isSpec(g) ? specPrice(i, g) : C.BASEP[g] * k.markets[i].price[g] * COINP;
+// 特產的產地：看城周圍兩格的地形與氣候（只算一次）
+const specCache = {};
+export function producers(i) {
+  if (specCache[i]) return specCache[i];
+  const k = K(), near = []; for (let j = 0; j < N; j++) if (hdist(i, j) <= 2) near.push(j);
+  const cnt = f => near.filter(f).length, t = C.WS.temp ? C.WS.temp[i] : .5, out = [];
+  if (t < 0.4 && cnt(j => [5, 6].includes(k.biome[j])) >= 5) out.push('fur');
+  if (t > 0.6 && cnt(j => [4, 7].includes(k.biome[j])) >= 4) out.push('wine');
+  if (NBR[i].filter(n => !C.land(n)).length >= 2) out.push('fish');
+  if (cnt(j => k.biome[j] === 3 || k.biome[j] === 2) >= 3) out.push('gem');
+  return specCache[i] = out;
+}
+const townNoise = (i, g) => 0.88 + ((i * 7919 + g.charCodeAt(0) * 104729) % 1000) / 1000 * 0.24;
+export function specPrice(i, g) {
+  const v = SPEC[g].v; if (producers(i).includes(g)) return v * 0.55 * townNoise(i, g);
+  const k = K(); let d = 14; for (const t of Object.keys(k.markets)) { const tt = +t; if (isTown(tt, k) && producers(tt).includes(g)) d = Math.min(d, hdist(tt, i)); }
+  return Math.min(v * 2.6, v * (0.6 + (globalThis.SSLOPE ?? 0.12) * d)) * townNoise(i, g);
+}
+function specStock(w, i, g) { if (!producers(i).includes(g)) return 0; const st = (w.spec ||= {})[i + g] || {n: 30, day: w.day}; return Math.min(40, Math.floor(st.n + (w.day - st.day) * 3)); }
+const depth = (i, g, k = K()) => { if (isSpec(g)) return globalThis.SDEPTH ?? 40; const m = k.markets[i]; return Math.max(4, (m.stock[g] + m.need[g]) / BALE * 0.35); };
 const factor = x => Math.max(0.25, Math.min(4, x));
 // 單包的價格：第 j 包（從 0 起算）
 function unit(w, i, g, side, j, k) {
@@ -126,7 +152,7 @@ function unit(w, i, g, side, j, k) {
   return side === 'buy' ? b * factor(1 + (p + j + 0.5) / d) * 1.1 : b * factor(1 - (-p + j + 0.5) / d) * 0.9;
 }
 export function quote(w, i, g, side, q) { const k = K(); let s = 0; for (let j = 0; j < q; j++) s += unit(w, i, g, side, j, k); return Math.round(s); }
-export const stockBales = (i, g) => Math.floor(K().markets[i].stock[g] / BALE);
+export const stockBales = (i, g, w = null) => isSpec(g) ? (w ? specStock(w, i, g) : (producers(i).includes(g) ? 30 : 0)) : Math.floor(K().markets[i].stock[g] / BALE);
 export function rationPrice(w, i) {
   const k = K();
   if (isTown(i, k)) return Math.max(1, basePrice(i, 'food', k) / RATIONS_PER_BALE * 1.15);
@@ -170,7 +196,7 @@ export function unitsInView(w) {
 // 記下親眼看到的行情
 function noteIntel(w, i, src) {
   const k = K(), m = k.markets[i]; if (!m) return;
-  const p = {}, s = {}; for (const g of GOODS) { p[g] = Math.round(basePrice(i, g, k)); s[g] = stockBales(i, g); }
+  const p = {}, s = {}; for (const g of TRADE) { p[g] = Math.round(basePrice(i, g, k)); s[g] = stockBales(i, g); }
   w.intel[i] = {day: src === 'seen' ? w.day : w.day - Math.min(12, hdist(i, w.pos)), p, s, src};
   if (src !== 'seen') reveal(w, i, 0);
 }
@@ -318,7 +344,7 @@ function newDay(w, out, mode) {
 function trimCargo(w) {
   let over = load(w) - capacity(w); if (over <= 0) return;
   const lost = [];
-  for (const g of GOODS.slice().sort((a, b) => C.BASEP[a] - C.BASEP[b])) { const d = Math.min(over, w.cargo[g]); if (d > 0) { w.cargo[g] -= d; over -= d; lost.push(`${GN[g]} ${d} 包`); } if (over <= 0) break; }
+  for (const g of TRADE.slice().sort((a, b) => unitValue(a) - unitValue(b))) { const d = Math.min(over, w.cargo[g] || 0); if (d > 0) { w.cargo[g] -= d; over -= d; lost.push(`${GN[g]} ${d} 包`); } if (over <= 0) break; }
   if (lost.length) say(w, `扛不動了，丟下了${lost.join('、')}。`);
 }
 function payday(w) {
@@ -349,16 +375,16 @@ function makeBand(w, kind, pos, opt = {}) {
 function onEnter(w, out) {
   const k = K(), i = w.pos; if (isTown(i, k) || bandAt(w, i)) return;
   const cv = cargoValue(w) + (w.escort ? w.escort.value : 0), near = k.gangs.filter(g => !g.gone && hdist(g.lair, i) <= 3).sort((a, b) => hdist(a.lair, i) - hdist(b.lair, i))[0];
-  const pa = Math.min(0.35, k.bandit[i] / 100 * 0.2 * (0.7 + Math.min(1.5, cv / 400)) * (k.owner[i] >= 0 ? 0.6 : 1));
+  const pa = Math.min(0.25, k.bandit[i] / 100 * 0.12 * (0.7 + Math.min(1, cv / 800)) * (k.owner[i] >= 0 ? 0.6 : 1));
   if (rngNext(w) < pa) { const b = makeBand(w, 'bandits', i, {str: near ? near.str : 60 + k.bandit[i], gang: near?.id, name: near ? `${near.name}的人` : '一夥盜匪', ttl: 1}); out.encounter = b.id; return; }
-  if (k.owner[i] < 0 && k.gameK[i] > 0 && rngNext(w) < 0.06 * k.game[i] / k.gameK[i]) { const b = makeBand(w, 'wolves', i, {ttl: 1}); out.encounter = b.id; }
+  if (k.owner[i] < 0 && k.gameK[i] > 0 && rngNext(w) < 0.035 * k.game[i] / k.gameK[i]) { const b = makeBand(w, 'wolves', i, {ttl: 1}); out.encounter = b.id; }
 }
 // 附近山寨的人盯上帶著貨的戰幫，派人追過來
 function sendBands(w) {
   const k = K(), cv = cargoValue(w) + (w.escort ? w.escort.value : 0);
   // 山寨平常就有人在附近遊蕩：看得到的話可以繞路
   for (const g of k.gangs) {
-    if (g.gone || hdist(g.lair, w.pos) > 6 || w.bands.some(b => b.gang === g.id && !b.hunting) || rngNext(w) > 0.12) continue;
+    if (g.gone || hdist(g.lair, w.pos) > 5 || w.bands.some(b => b.gang === g.id && !b.hunting) || rngNext(w) > 0.06) continue;
     const b = makeBand(w, 'bandits', g.lair, {str: g.str * 0.7, gang: g.id, name: `${g.name}的嘍囉`, ttl: 14}); b.home = g.lair;
   }
   // 各國的巡邏隊：從附近的城出發，在自己的國土上走動，趕走盜匪
@@ -379,7 +405,7 @@ function sendBands(w) {
   if (w.bands.filter(b => b.hunting).length >= 2) return;
   for (const g of k.gangs) {
     if (g.gone || g.str < 100 || hdist(g.lair, w.pos) > 4 || w.bands.some(b => b.gang === g.id)) continue;
-    if (rngNext(w) > 0.02 + Math.min(0.1, cv / 3000)) continue;
+    if (rngNext(w) > 0.01 + Math.min(0.06, cv / 5000)) continue;
     makeBand(w, 'bandits', g.lair, {str: g.str, gang: g.id, name: `${g.name}的人`, ttl: 10, hunting: true});
     say(w, `有人看見${g.name}的手下在附近打探你們的行蹤。`);
   }
@@ -400,7 +426,7 @@ export const fineOf = (w, f) => Math.max(30, Math.round(wantedBy(w, f) * 40));
 // 付錢消災：貨比錢值錢，他們就要貨
 export function tollOf(w) { if (w.escort) return {escort: true}; const cv = cargoValue(w); return cv > w.gold * 0.6 && load(w) > 0 ? {cargo: true} : {gold: Math.max(15, Math.round(w.gold * 0.3))}; }
 function loseCargo(w, frac, why) {
-  const lost = []; for (const g of GOODS) { const d = Math.ceil(w.cargo[g] * frac); if (d > 0) { w.cargo[g] -= d; lost.push(`${GN[g]} ${d} 包`); } }
+  const lost = []; for (const g of TRADE) { const d = Math.ceil((w.cargo[g] || 0) * frac); if (d > 0) { w.cargo[g] -= d; lost.push(`${GN[g]} ${d} 包`); } }
   if (lost.length) say(w, `${why}${lost.join('、')}。`); return lost;
 }
 
@@ -424,7 +450,7 @@ export function battleSetup(w, kind, ref) {
   }
   if (kind === 'contract') {
     const c = w.contracts.find(x => x.id === ref), k = K(), lvl = 1 + Math.floor(w.day / 12), foes = [];
-    if (c.kind === 'wolves') { const n = 3 + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'wolf', lvl)); foes.push(makeMember(w, rngNext(w) < 0.5 ? 'bear' : 'boar', lvl + 1, {leader: true})); return {seed, biome: 'forest', foes, source: {kind, ref}, title: c.title}; }
+    if (c.kind === 'wolves') { const n = 2 + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'wolf', lvl)); foes.push(makeMember(w, rngNext(w) < 0.3 ? 'bear' : 'boar', lvl, {leader: true})); return {seed, biome: 'forest', foes, source: {kind, ref}, title: c.title}; }
     const E = k.fac[c.enemy].n; foes.push(makeMember(w, 'knight', lvl + 2, {leader: true, name: `${E}的隊長`}));
     const n = 3 + Math.min(3, Math.floor(w.day / 15)); for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['swordsman', 'spearman', 'spearman', 'archer', 'axeman']), lvl + (i === 0 ? 1 : 0), {name: `${E}的士兵`}));
     return {seed, biome: battleBiome(w.pos), foes, source: {kind, ref}, title: `${nm(w.pos)}的${E}守軍`};
@@ -553,16 +579,16 @@ export function worldAct(w, a) {
     case 'buy': case 'sell': {
       needTown(); const g = a.g, side = a.type; let q = a.q;
       if (side === 'buy') {
-        q = Math.min(q, stockBales(w.pos, g), capacity(w) - load(w));
+        q = Math.min(q, stockBales(w.pos, g, w), capacity(w) - load(w));
         if (q <= 0) throw new Error(capacity(w) - load(w) <= 0 ? '扛不動了：多雇人或買騾子' : '市集裡沒貨了');
         const cost = quote(w, w.pos, g, 'buy', q); if (cost > w.gold) throw new Error('錢不夠');
-        w.gold -= cost; w.cargo[g] += q; k.markets[w.pos].stock[g] -= q * BALE; addPress(w, w.pos, g, q);
+        w.gold -= cost; w.cargo[g] = (w.cargo[g] || 0) + q; if (isSpec(g)) { w.spec[w.pos + g] = {n: specStock(w, w.pos, g) - q, day: w.day}; } else k.markets[w.pos].stock[g] -= q * BALE; addPress(w, w.pos, g, q);
         w.spent = (w.spent || 0) + cost;
         say(w, `在${nm(w.pos)}買進${GN[g]} ${q} 包，花了 ${cost} 金幣。`);
       } else {
-        q = Math.min(q, w.cargo[g]); if (q <= 0) throw new Error('身上沒有這種貨');
+        q = Math.min(q, w.cargo[g] || 0); if (q <= 0) throw new Error('身上沒有這種貨');
         const got = quote(w, w.pos, g, 'sell', q);
-        w.gold += got; w.cargo[g] -= q; k.markets[w.pos].stock[g] += q * BALE; addPress(w, w.pos, g, -q); w.earned += got;
+        w.gold += got; w.cargo[g] -= q; if (!isSpec(g)) k.markets[w.pos].stock[g] += q * BALE; addPress(w, w.pos, g, -q); w.earned += got;
         say(w, `在${nm(w.pos)}賣出${GN[g]} ${q} 包，得 ${got} 金幣。`);
       }
       noteIntel(w, w.pos, 'seen');

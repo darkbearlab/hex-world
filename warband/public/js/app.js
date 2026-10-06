@@ -5,17 +5,31 @@ import * as B from './battle.js';
 import * as C from './cont.js';
 
 const $ = id => document.getElementById(id);
-const SAVE = 'warband-v2';   // v2：世界換成大陸沙盒，沙盒狀態另存在 SAVE-sim
+const SAVE = 'warband-v3';   // v2：世界換成大陸沙盒，沙盒狀態另存在 SAVE-sim
 let G = {world: null, battle: null};
 
 /* ───────────── 小工具 ───────────── */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 function toast(text, ms = 2200) { const t = $('toast'); t.textContent = text; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms); }
 async function banner(text, ms = 700) { const b = $('banner'); b.textContent = text; b.classList.add('show'); await sleep(ms); b.classList.remove('show'); await sleep(150); }
-function save(sim = true) { try { localStorage.setItem(SAVE, JSON.stringify(G)); if (sim && C.SIM) localStorage.setItem(SAVE + '-sim', JSON.stringify(C.saveState())); } catch (e) { console.warn('存檔失敗', e); } }
-function loadSim() { try { const s = localStorage.getItem(SAVE + '-sim'); return s ? JSON.parse(s) : null; } catch { return null; } }
+// 戰幫的狀態直接存；沙盒狀態（大地圖約 2–3 MB）用 gzip 壓縮後存成 base64
+async function gz(str, dir) {
+  const cs = dir ? new CompressionStream('gzip') : new DecompressionStream('gzip');
+  const data = dir ? new TextEncoder().encode(str) : Uint8Array.from(atob(str), c => c.charCodeAt(0));
+  const out = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(cs)).arrayBuffer());
+  if (!dir) return new TextDecoder().decode(out);
+  let b = ''; for (let i = 0; i < out.length; i += 0x8000) b += String.fromCharCode.apply(null, out.subarray(i, i + 0x8000)); return btoa(b);
+}
+let simSaving = null, simDirty = false;
+async function saveSimNow() {
+  if (simSaving) { simDirty = true; return; }
+  simSaving = (async () => { try { const json = JSON.stringify(C.saveState()); if (typeof CompressionStream === 'function') { localStorage.setItem(SAVE + '-simz', await gz(json, true)); localStorage.removeItem(SAVE + '-sim'); } else localStorage.setItem(SAVE + '-sim', json); } catch (e) { console.warn('沙盒存檔失敗', e); toast('存檔空間不夠，世界的進度可能沒存到'); } })();
+  await simSaving; simSaving = null; if (simDirty) { simDirty = false; saveSimNow(); }
+}
+function save(sim = true) { try { localStorage.setItem(SAVE, JSON.stringify(G)); } catch (e) { console.warn('存檔失敗', e); } if (sim && C.SIM) saveSimNow(); }
+async function loadSim() { try { const z = localStorage.getItem(SAVE + '-simz'); if (z) return JSON.parse(await gz(z, false)); const s = localStorage.getItem(SAVE + '-sim'); return s ? JSON.parse(s) : null; } catch (e) { console.warn(e); return null; } }
 function load() { try { const s = localStorage.getItem(SAVE); return s ? JSON.parse(s) : null; } catch { return null; } }
-function wipe() { try { localStorage.removeItem(SAVE); localStorage.removeItem(SAVE + '-sim'); } catch {} }
+function wipe() { try { localStorage.removeItem(SAVE); localStorage.removeItem(SAVE + '-sim'); localStorage.removeItem(SAVE + '-simz'); } catch {} }
 function show(id) { for (const s of ['title', 'world', 'battle']) $(s).hidden = s !== id; }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const clsName = m => CLASSES[m.cls]?.name || m.cls;
@@ -79,7 +93,7 @@ $('newRun').onclick = async () => {
 };
 $('continueRun').onclick = async () => {
   $('continueRun').disabled = true;
-  try { C.loadPack(await getPack()); const st = loadSim(); if (st) C.loadState(st); } finally { $('continueRun').disabled = false; }
+  try { C.loadPack(await getPack()); const st = await loadSim(); if (st) C.loadState(st); } finally { $('continueRun').disabled = false; }
   G = load(); cam = null; if (G.battle) battleScreen(); else worldScreen();
 };
 
@@ -380,8 +394,11 @@ function townSheet(tab = 'market') {
 }
 function goodsTable(t, again) {
   const w = G.world, wrap = el('div', {class: 'goods'});
-  for (const g of Wd.GOODS) {
-    const stock = Wd.stockBales(t, g), have = w.cargo[g], room = Wd.capacity(w) - Wd.load(w);
+  const prod = Wd.producers(t);
+  wrap.append(el('div', {class: 'muted', style: 'font-size:13px'}, prod.length ? `這裡的特產：${prod.map(g => Wd.GN[g]).join('、')}。特產只有產地買得到，離產地越遠賣得越貴；沙盒的商隊不跑這些。` : '這裡沒有特產可買；特產只在產地買得到，但這裡收。'));
+  for (const g of Wd.TRADE) {
+    if (Wd.SPEC[g] && !prod.includes(g) && !w.cargo[g]) { wrap.append(el('div', {class: 'goodrow spec'}, el('div', {class: 'gname'}, el('b', {}, Wd.GN[g]), el('span', {class: 'muted'}, '不產・只收')), el('div', {class: 'gprice'}, el('span', {}, '賣 ', el('b', {}, Wd.quote(w, t, g, 'sell', 1)))))); continue; }
+    const stock = Wd.stockBales(t, g, w), have = w.cargo[g] || 0, room = Wd.capacity(w) - Wd.load(w);
     const b1 = stock > 0 ? Wd.quote(w, t, g, 'buy', 1) : null, s1 = Wd.quote(w, t, g, 'sell', 1);
     const bq = Math.min(5, stock, room), sq = have;
     wrap.append(el('div', {class: 'goodrow'},
@@ -440,14 +457,18 @@ function marketSheet() {
   const w = G.world, ids = Object.keys(w.intel).map(Number).sort((a, b) => Wd.hdist(a, w.pos) - Wd.hdist(b, w.pos));
   const box = el('div', {}, el('h2', {}, '行情'), el('p', {class: 'muted'}, '只記得親眼看過或在酒館聽來的價格（一包的買價），越久越不準。金色是這張表裡最便宜的，紅色是最貴的。'));
   if (!ids.length) { box.append(el('p', {}, '還沒有任何市集的消息。')); return openSheet(box); }
-  const lo = {}, hi = {}; for (const g of Wd.GOODS) { const v = ids.map(i => w.intel[i].p[g]); lo[g] = Math.min(...v); hi[g] = Math.max(...v); }
-  const tb = el('table', {class: 'intel'}, el('tr', {}, el('th', {}, '市集'), ...Wd.GOODS.map(g => el('th', {}, Wd.GN[g]))));
-  for (const i of ids) {
-    const it = w.intel[i];
-    tb.append(el('tr', {onclick: () => { closeSheet(); showOnMap(i); }}, el('td', {}, el('b', {}, nm(i)), el('div', {class: 'muted'}, `${Wd.hdist(i, w.pos)} 格・${fmtDays(w.day - it.day)}${it.src === 'seen' ? '' : '・聽說'}`)),
-      ...Wd.GOODS.map(g => el('td', {class: it.s && it.s[g] === 0 ? 'none' : it.p[g] === lo[g] ? 'lo' : it.p[g] === hi[g] ? 'hi' : ''}, it.s && it.s[g] === 0 ? `${it.p[g]}*` : it.p[g]))));
-  }
-  box.append(tb, el('p', {class: 'muted', style: 'font-size:12px'}, '＊ 當時沒有存貨，只收不賣。點一列可以在地圖上找到它。'));
+  const table = (goods, title) => {
+    const lo = {}, hi = {}; for (const g of goods) { const v = ids.map(i => w.intel[i].p[g]).filter(x => x != null); lo[g] = Math.min(...v); hi[g] = Math.max(...v); }
+    const tb = el('table', {class: 'intel'}, el('tr', {}, el('th', {}, title), ...goods.map(g => el('th', {}, Wd.GN[g]))));
+    for (const i of ids) {
+      const it = w.intel[i];
+      tb.append(el('tr', {onclick: () => { closeSheet(); showOnMap(i); }}, el('td', {}, el('b', {}, nm(i)), el('div', {class: 'muted'}, `${Wd.hdist(i, w.pos)} 格・${fmtDays(w.day - it.day)}${it.src === 'seen' ? '' : '・聽說'}`)),
+        ...goods.map(g => { const p = it.p[g]; if (p == null) return el('td', {class: 'none'}, '?'); const none = it.s && it.s[g] === 0; return el('td', {class: none ? 'none' : p === lo[g] ? 'lo' : p === hi[g] ? 'hi' : ''}, none ? `${p}*` : p); })));
+    }
+    return tb;
+  };
+  box.append(table(Wd.GOODS, '市集'), el('h3', {style: 'margin-top:12px'}, '特產'), table(Wd.SPECS, '市集'));
+  box.append(el('p', {class: 'muted', style: 'font-size:12px'}, '＊ 當時沒有存貨（特產：不是產地），只收不賣。點一列可以在地圖上找到它。'));
   openSheet(box);
 }
 $('btnParty').onclick = () => {
@@ -706,4 +727,6 @@ function gameOver() {
 addEventListener('resize', () => { if (!$('battle').hidden) { bsel && (bsel.reach = null); } });
 
 /* ───────────── 啟動 ───────────── */
+// 舊版存檔（小地圖）已不相容，清掉省空間
+try { for (const k of ['warband-slice-v1', 'warband-v2', 'warband-v2-sim']) localStorage.removeItem(k); } catch {}
 loadArt().then(titleScreen);
