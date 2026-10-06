@@ -3,3 +3,5 @@ node_modules/
 # 建置時由 scripts/genesis.mjs 產生
 src/genesis.json
 public/sim.js
+.dev.vars
+dist/

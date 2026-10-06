@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#1d1f24">
+<title>像素工作室</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 登入 -->
+<section id="login" class="screen" hidden>
+  <form id="loginForm" class="card narrow">
+    <h1>像素工作室</h1>
+    <p class="muted">輸入你設定的密語</p>
+    <input id="loginKey" type="password" autocomplete="current-password" placeholder="密語" required>
+    <button type="submit" class="primary">進入</button>
+    <p id="loginMsg" class="err" role="alert"></p>
+    <button type="button" id="offlineBtn" class="link" hidden>先離線使用這台裝置上的作品</button>
+  </form>
+</section>
+
+<!-- 作品列表 -->
+<section id="home" class="screen" hidden>
+  <header class="bar">
+    <h1>像素工作室</h1>
+    <span id="net" class="pill"></span>
+    <span class="grow"></span>
+    <button id="trashBtn" class="ghost">垃圾桶</button>
+    <a id="exportAll" class="ghost btn" href="/api/export" download>匯出全部備份</a>
+    <button id="logoutBtn" class="ghost">登出</button>
+  </header>
+  <div class="newrow">
+    <span class="muted">新作品：</span>
+    <button data-size="16">16×16</button>
+    <button data-size="32">32×32</button>
+    <button data-size="64">64×64</button>
+    <button data-size="128">128×128</button>
+    <button data-size="256">256×256</button>
+    <span class="custom"><input id="cw" type="number" min="1" max="512" value="48" aria-label="寬">×<input id="ch" type="number" min="1" max="512" value="48" aria-label="高"><button id="customNew">自訂</button></span>
+  </div>
+  <h2 id="listTitle">我的作品</h2>
+  <div id="docs" class="grid"></div>
+  <p id="empty" class="muted" hidden>還沒有作品。從上面挑個尺寸開始吧。</p>
+</section>
+
+<!-- 編輯器 -->
+<section id="editor" class="screen" hidden>
+  <header class="bar">
+    <button id="backBtn" class="ghost" title="回作品列表">‹ 作品</button>
+    <input id="docName" class="name" aria-label="作品名稱">
+    <span id="saveState" class="pill"></span>
+    <span class="grow"></span>
+    <button id="undoBtn" class="ghost" title="復原 (Ctrl+Z)">↶</button>
+    <button id="redoBtn" class="ghost" title="重做 (Ctrl+Shift+Z)">↷</button>
+    <button id="gridBtn" class="ghost" title="格線 (#)" aria-pressed="true">格線</button>
+    <button id="fitBtn" class="ghost" title="置中 (0)">置中</button>
+    <button id="histBtn" class="ghost">版本</button>
+    <button id="pngBtn" class="ghost">匯出 PNG</button>
+    <button id="layersToggle" class="ghost only-narrow">圖層</button>
+  </header>
+  <div class="work">
+    <div id="stage"><canvas id="view"></canvas></div>
+    <aside id="side">
+      <h3>圖層</h3>
+      <div id="layers"></div>
+      <div class="row">
+        <button id="addLayer" title="新增圖層">＋</button>
+        <button id="dupLayer" title="複製圖層">複製</button>
+        <button id="upLayer" title="上移">↑</button>
+        <button id="downLayer" title="下移">↓</button>
+        <button id="mergeLayer" title="向下合併">合併</button>
+        <button id="delLayer" title="刪除圖層">刪除</button>
+      </div>
+      <label class="row">不透明度 <input id="opacity" type="range" min="0" max="100" value="100"></label>
+    </aside>
+  </div>
+  <footer class="tools">
+    <div class="toolset">
+      <button data-tool="pencil" title="鉛筆 (B)">✏️</button>
+      <button data-tool="eraser" title="橡皮擦 (E)">⌫</button>
+      <button data-tool="fill" title="填色 (G)">🪣</button>
+      <button data-tool="picker" title="滴管 (I)">💧</button>
+      <button data-tool="pan" title="移動畫面 (空白鍵拖曳)">✋</button>
+      <label class="size" title="筆刷大小 ([ ])">筆刷<select id="brush"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
+    </div>
+    <div class="colors">
+      <span id="cur" class="swatch big" title="目前顏色"></span>
+      <div id="palette"></div>
+      <label class="addc" title="加入新顏色">＋<input id="picker" type="color" value="#ff8800"></label>
+      <button id="rmColor" title="從調色盤移除目前顏色">−</button>
+    </div>
+  </footer>
+</section>
+
+<!-- 版本 -->
+<dialog id="histDlg">
+  <h3>歷史版本</h3>
+  <p class="muted">自動存檔時每隔幾分鐘記一個版本，最多保留 50 個。還原後可以再用 ↶ 復原。</p>
+  <div id="versions" class="grid small"></div>
+  <form method="dialog"><button>關閉</button></form>
+</dialog>
+
+<!-- PNG -->
+<dialog id="pngDlg">
+  <h3>匯出 PNG</h3>
+  <p>放大倍率
+    <select id="pngScale"><option>1</option><option>2</option><option>4</option><option selected>8</option><option>16</option></select>
+  </p>
+  <p><label><input type="checkbox" id="pngVisible" checked> 只輸出看得見的圖層</label></p>
+  <form method="dialog" class="row"><button id="pngGo" value="go" class="primary">下載</button><button>取消</button></form>
+</dialog>
+
+<div id="toast" role="status"></div>
+<script src="app.js"></script>
+</body>
+</html>

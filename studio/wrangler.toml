@@ -1,0 +1,23 @@
+# 像素工作室：Cloudflare Workers 設定（和六角世界是分開的 Worker）
+name = "studio"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+account_id = "beb6f869ff9d765dbf31116243c5b348"
+workers_dev = true
+
+# 編輯器的網頁（public/ 底下的靜態檔案；不含任何作品資料）
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# 作品倉庫：一個 Durable Object，作品與版本存在它內建的 SQLite
+[[durable_objects.bindings]]
+name = "STUDIO"
+class_name = "Studio"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Studio"]
+
+# 登入密語放在 secret STUDIO_KEY（不寫在這裡）；沒設定時所有 API 一律拒絕

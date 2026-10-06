@@ -4,6 +4,7 @@ name: 部署到 Cloudflare
 on:
   push:
     branches: [main]
+    paths-ignore: ['studio/**', '.github/workflows/studio.yml']
   workflow_dispatch: {}
 
 concurrency:

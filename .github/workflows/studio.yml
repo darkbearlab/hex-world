@@ -1,0 +1,38 @@
+# studio/ 有變動推送到 main 時，部署像素工作室（獨立的 Worker：studio）
+name: 部署像素工作室
+
+on:
+  push:
+    branches: [main]
+    paths: ['studio/**', '.github/workflows/studio.yml']
+  workflow_dispatch: {}
+
+concurrency:
+  group: studio
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 安裝套件
+        run: npm ci
+      - name: 部署
+        run: npx wrangler deploy --config studio/wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: 設定登入密語（GitHub secret STUDIO_KEY）
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          STUDIO_KEY: ${{ secrets.STUDIO_KEY }}
+        run: |
+          if [ -z "$STUDIO_KEY" ]; then
+            echo "::warning::還沒設定 GitHub secret STUDIO_KEY，工作室會拒絕所有登入"
+          else
+            printf '%s' "$STUDIO_KEY" | npx wrangler secret put STUDIO_KEY --config studio/wrangler.toml
+          fi
