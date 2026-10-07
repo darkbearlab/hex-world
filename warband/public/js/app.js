@@ -1,5 +1,5 @@
 // 奇幻戰幫切片：畫面與操作
-import {CLASSES, TRAITS, ORDERS, WEAPONS, TERRAIN} from './data.js';
+import {CLASSES, TRAITS, ORDERS, WEAPONS, TERRAIN, MALE_NAMES, FEMALE_NAMES, SURNAMES} from './data.js';
 import * as Wd from './world.js';
 import * as B from './battle.js';
 import * as C from './cont.js';
@@ -73,6 +73,30 @@ function sprite(ctx, ref, x, y, size, {flip = false, alpha = 1, gray = false} = 
   else ctx.drawImage(im, p[0], p[1], 64, 64, x, y, size, size);
   ctx.restore();
 }
+// 頭像庫：一張大圖（art/faces.webp）＋清單（art/faces.json：每張的性別、年紀、描述）
+let FACES = null; const FACEIMG = new Image();
+async function loadFaces() { try { FACES = await (await fetch('art/faces.json')).json(); await new Promise(ok => { FACEIMG.onload = ok; FACEIMG.onerror = ok; FACEIMG.src = 'art/faces.webp'; }); } catch { FACES = null; } }
+const strHash = s => { let h = 2166136261; for (const c of String(s)) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; };
+const faceList = g => FACES ? FACES.faces.filter(f => f.g === g) : [];
+function faceOf(m) {
+  if (!FACES || !m || CLASSES[m.cls]?.beast) return null;
+  if (m.face != null && FACES.faces[m.face]) return m.face;
+  const L = faceList(m.g || Wd.genderOf(m.name || '')); if (!L.length) return null;
+  return L[(m.fs ?? strHash(m.id || m.name)) % L.length].i;
+}
+function faceEl(i, size) {
+  const d = document.createElement('div'), c = FACES.cols; d.className = 'face';
+  Object.assign(d.style, {width: size + 'px', height: size + 'px', backgroundImage: 'url(art/faces.webp)', backgroundSize: `${c * size}px auto`, backgroundPosition: `${-(i % c) * size}px ${-Math.floor(i / c) * size}px`});
+  return d;
+}
+// 人物的頭像：有頭像就用頭像，沒有（野獸、舊存檔）就用小人圖
+const portrait = (m, size = 56) => { const f = faceOf(m); return f != null ? faceEl(f, size) : avatar(m.sprite, size); };
+function drawFace(g, i, x, y, r, ring) {
+  const S = FACES.size, c = FACES.cols;
+  g.save(); g.beginPath(); g.arc(x, y, r, 0, 7); g.closePath(); g.fillStyle = '#1b150d'; g.fill(); g.clip();
+  g.drawImage(FACEIMG, (i % c) * S, Math.floor(i / c) * S, S, S, x - r, y - r, r * 2, r * 2); g.restore();
+  g.strokeStyle = ring; g.lineWidth = Math.max(2, r * 0.14); g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke();
+}
 function avatar(ref, size = 56, flip = false) { const c = document.createElement('canvas'); c.width = c.height = 64; sprite(c.getContext('2d'), ref, 0, 0, 64, {flip}); c.style.width = c.style.height = size + 'px'; return c; }
 function fit(canvas) { const r = canvas.getBoundingClientRect(), d = devicePixelRatio || 1; canvas.width = Math.round(r.width * d); canvas.height = Math.round(r.height * d); const g = canvas.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); return {g, w: r.width, h: r.height}; }
 
@@ -88,9 +112,9 @@ const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag)
 function traitTags(m) { return (m.traits || []).map(t => el('span', {class: 'tag trait', onclick: async () => toast(`${TRAITS[t].name}：${TRAITS[t].desc}`, 3500)}, TRAITS[t].name)); }
 function memberCard(m, extra) {
   const hpPct = Math.round(m.hp / m.max * 100);
-  return el('div', {class: 'card'}, avatar(m.sprite),
+  return el('div', {class: 'card'}, portrait(m),
     el('div', {class: 'body'},
-      el('div', {class: 'top'}, el('b', {}, m.name), el('span', {class: 'muted'}, `${clsName(m)} Lv${m.lvl}${m.hero ? '・你' : ''}`)),
+      el('div', {class: 'top'}, el('b', {}, m.name), el('span', {class: 'muted'}, `${m.tags?.length ? m.tags.join('・') + '・' : ''}${clsName(m)} Lv${m.lvl}${m.hero ? '・你' : ''}`)),
       el('div', {class: 'meter'}, el('i', {style: `width:${hpPct}%;background:${hpPct < 40 ? 'var(--enemy)' : hpPct < 70 ? 'var(--warn)' : 'var(--ok)'}`})),
       el('div', {class: 'stats'}, ...[['生命', `${Math.round(m.hp)}/${m.max}`], ['力量', m.str], ['技巧', m.skl], ['速度', m.spd], ['防禦', m.def]].map(([k, v]) => el('span', {}, k + ' ', el('b', {}, v)))),
       el('div', {class: 'muted', style: 'font-size:12px'}, `${m.famous ? '有名者・' : ''}${m.gw || m.ga ? `${Wd.GEAR_NAME.w[m.gw || 0]}、${Wd.GEAR_NAME.a[m.ga || 0]}・` : ''}${WEAPONS[m.weapon].name}・經驗 ${m.exp}/100${m.wage ? `・週薪 ${m.wage}` : ''}${m.deeds ? `・${m.deeds.battles} 戰 ${m.deeds.kills} 殺` : ''}`),
@@ -110,12 +134,48 @@ function titleScreen() {
 }
 $('newRun').onclick = async () => {
   const s = load(); if (s && s.world && !s.world.over && !confirm('會蓋掉目前的旅程，確定重新開始？')) return;
-  $('newRun').disabled = true; $('newRun').textContent = '世界展開中…';
-  try { C.loadPack(await getPack()); } finally { $('newRun').disabled = false; $('newRun').textContent = '踏上旅程'; }
-  const seed = (Math.random() * 2 ** 31) | 0;
-  G = {world: Wd.newWorld(seed, $('heroName').value.trim() || '無名的騎士'), battle: null};
-  cam = null; save(); worldScreen();
+  createScreen('solo');
 };
+/* ───────────── 建立角色：名字、性別、出身、頭像 ───────────── */
+function randomName(g) { const P = g === 'f' ? FEMALE_NAMES : MALE_NAMES; return `${P[Math.floor(Math.random() * P.length)]}・${SURNAMES[Math.floor(Math.random() * SURNAMES.length)]}`; }
+async function suggestName(mode, g) { if (mode === 'mp') { try { const d = await (await fetch('/api/name?g=' + g)).json(); if (d.name) return d.name; } catch {} } return randomName(g); }
+async function createScreen(mode, restart) {
+  const st = {name: '', g: 'm', origin: 'knight', face: null, taken: false};
+  const pickFace = () => { const L = faceList(st.g); if (L.length && !L.some(f => f.i === st.face)) st.face = L[Math.floor(Math.random() * L.length)].i; };
+  st.name = await suggestName(mode, st.g); pickFace();
+  const box = el('div', {class: 'create'});
+  const draw = () => {
+    box.innerHTML = '';
+    box.append(el('h2', {}, '建立角色'), el('p', {class: 'muted', style: 'margin:0 0 6px'}, mode === 'mp' ? '這是你在共享世界裡的戰幫首領。名字不能和別人重複。' : '這次旅程的主角。'));
+    const inp = el('input', {maxlength: 8, value: st.name, placeholder: '名字'});
+    const warn = el('span', {class: 'muted', style: 'font-size:12px'}, st.taken ? '這個名字已經有人用了' : '');
+    if (st.taken) warn.style.color = '#f08a74';
+    let tm = 0; inp.addEventListener('input', () => { st.name = inp.value.trim(); st.taken = false; warn.textContent = ''; if (mode !== 'mp' || !st.name) return; clearTimeout(tm); tm = setTimeout(async () => { try { const d = await (await fetch('/api/name?check=' + encodeURIComponent(st.name))).json(); if (d.name === st.name) { st.taken = d.taken; warn.textContent = d.taken ? '這個名字已經有人用了' : '這個名字可以用'; warn.style.color = d.taken ? '#f08a74' : '#9fd18a'; } } catch {} }, 350); });
+    box.append(el('div', {class: 'crow'}, el('label', {class: 'clab'}, '名字'), inp, el('button', {class: 'pin', title: '換一個', onclick: async () => { st.name = await suggestName(mode, st.g); st.taken = false; draw(); }}, '🎲')), warn);
+    box.append(el('div', {class: 'crow'}, el('label', {class: 'clab'}, '性別'), ...[['m', '男'], ['f', '女']].map(([k, n]) => el('button', {class: st.g === k ? 'on' : '', onclick: async () => { if (st.g === k) return; const auto = !inp.value || [...MALE_NAMES, ...FEMALE_NAMES].includes(st.name.split('・')[0]); st.g = k; pickFace(); if (auto) st.name = await suggestName(mode, k); draw(); }}, n))));
+    box.append(el('h3', {style: 'margin-top:10px'}, '出身'), el('p', {class: 'muted', style: 'font-size:12px;margin:0'}, '出身決定你一開始是什麼職業、帶著什麼人和多少錢，也會成為你身上的標籤。之後怎麼走都看你。'));
+    const og = el('div', {class: 'origins'});
+    for (const [k, O] of Object.entries(Wd.ORIGINS)) og.append(el('button', {class: 'origin' + (st.origin === k ? ' on' : ''), onclick: () => { st.origin = k; draw(); }},
+      el('b', {}, O.n), el('span', {class: 'oc'}, `${CLASSES[O.cls].name}・${O.gold} 金・${O.mates.length} 個同伴`), el('span', {class: 'od'}, O.d)));
+    box.append(og);
+    box.append(el('h3', {style: 'margin-top:10px'}, '頭像'));
+    const fg = el('div', {class: 'faces'});
+    for (const f of faceList(st.g)) { const d = faceEl(f.i, 56); d.classList.add('pick'); if (f.i === st.face) d.classList.add('on'); d.title = f.desc; d.onclick = () => { st.face = f.i; draw(); }; fg.append(d); }
+    if (!FACES) fg.append(el('p', {class: 'muted'}, '頭像庫載入失敗，先用預設的小人圖。'));
+    box.append(fg);
+    const go = el('button', {class: 'primary', style: 'width:100%;margin-top:12px', onclick: async () => {
+      const name = (inp.value || '').trim(); if (!name) return toast('取個名字吧');
+      go.disabled = true; go.textContent = '世界展開中…';
+      try {
+        C.loadPack(await getPack());
+        if (mode === 'solo') { G = {world: Wd.newWorld((Math.random() * 2 ** 31) | 0, name, {origin: st.origin, g: st.g, face: st.face}), battle: null}; cam = null; save(); closeSheet(); worldScreen(); return; }
+        const v = await api('/api/join', {name, origin: st.origin, g: st.g, face: st.face, restart: !!restart}); applyView(v); closeSheet(); startShared();
+      } catch (e) { toast(e.message, 3500); if (/名字/.test(e.message)) { st.taken = true; st.name = name; draw(); } go.disabled = false; go.textContent = '出發'; }
+    }}, '出發');
+    box.append(go);
+  };
+  draw(); openSheet(box, null, true);
+}
 // 帳號：用 Google 登入的話，伺服器發一個工作階段代碼，換裝置登入同一個帳號就是同一個角色；沒登入就用瀏覽器代碼當訪客
 const ACCT_KEY = 'warband-mp-acct';
 let AUTH = {clientId: '', guest: true, inited: false};
@@ -147,21 +207,24 @@ async function onGoogle(resp) {
     const d = await r.json(); if (!r.ok) throw new Error(d.error || '登入失敗');
     localStorage.setItem(TOKEN_KEY, d.token); localStorage.setItem(ACCT_KEY, d.email || 'Google 帳號');
     renderAcct(); toast(d.moved ? `登入了；這個瀏覽器原本的「${d.name}」已經綁到你的帳號上` : d.hasPlayer ? `歡迎回來，${d.name}` : '登入了，取個名字就能出發');
-    if (d.hasPlayer) enterShared();
+    enterShared();
   } catch (e) { toast(e.message, 3500); }
 }
 $('mpRun').onclick = () => enterShared();
 async function enterShared() {
-  const name = $('heroName').value.trim() || '無名的騎士';
   NET.token = localStorage.getItem(TOKEN_KEY); if (!NET.token) { NET.token = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem(TOKEN_KEY, NET.token); }
   $('mpRun').disabled = true; const lab = $('mpRun').textContent; $('mpRun').textContent = '連線中…';
   try {
     C.loadPack(await getPack()); NET.on = true; Wd.MODE.shared = true;
     await refreshMirror(true);
-    const v = await api('/api/join', {name, restart: !!(G.world && G.world.over && NET.on)}); applyView(v);
-    cam = null; worldScreen(); if (NET.battle) startBattle(NET.battle.setup);
-    if (!refreshMirror.timer) refreshMirror.timer = setInterval(() => { if (NET.on && !G.battle && !traveling) refreshMirror().then(() => { if (!$('world').hidden) renderWorld(); }).catch(() => {}); }, 30000);
+    let v = null; try { v = await api('/api/me'); } catch (e) { if (!/還沒加入/.test(e.message)) throw e; }
+    if (!v || v.w.over) return createScreen('mp', !!v);   // 這個帳號還沒有角色（或上一支戰幫已經散了）：建立角色
+    applyView(v); startShared();
   } catch (e) { toast(e.message, 3500); NET.on = false; Wd.MODE.shared = false; } finally { $('mpRun').disabled = false; $('mpRun').textContent = lab; }
+}
+function startShared() {
+  cam = null; worldScreen(); if (NET.battle) startBattle(NET.battle.setup);
+  if (!refreshMirror.timer) refreshMirror.timer = setInterval(() => { if (NET.on && !G.battle && !traveling) refreshMirror().then(() => { if (!$('world').hidden) renderWorld(); }).catch(() => {}); }, 30000);
 }
 $('continueRun').onclick = async () => {
   $('continueRun').disabled = true;
@@ -272,13 +335,16 @@ function renderWorld() {
     if (b.hunting) { label('追兵', x, y - s * 0.7, '#ff8a6e', Math.max(9, s * 0.36)); const [px, py] = scr(w.pos); g.strokeStyle = '#e0402a88'; g.setLineDash([3, 4]); g.lineWidth = 2; g.beginPath(); g.moveTo(x, y); g.lineTo(px, py); g.stroke(); g.setLineDash([]); } }
   // 其他玩家的戰幫（多人）
   if (NET.on) for (const o of NET.others) { if (o.id === NET.me || (o.name === NET.name && o.pos === w.pos)) continue; if (!SEEN(o.pos)) continue; const [x, y] = scr(o.pos); if (o.camp) drawCamp(g, x + s * 0.3, y + s * 0.25, s * 0.8, o.camp);
-    g.strokeStyle = '#8fd0ff'; g.lineWidth = 2; g.beginPath(); g.arc(x + s * 0.3, y + s * 0.25, s * 0.42, 0, 7); g.stroke(); sprite(g, ['people', 'squire'], x + s * 0.3 - s * 0.38, y + s * 0.25 - s * 0.45, s * 0.76); if (s >= 16) label(o.name, x + s * 0.3, y - s * 0.35, '#bfe6ff', Math.max(9, s * 0.34)); }
+    const ring = o.banner != null && k.fac[o.banner] ? k.fac[o.banner].c : '#8fd0ff', of = FACES && o.face != null && FACES.faces[o.face] ? o.face : FACES ? (faceList(o.g || 'm')[strHash(o.id) % Math.max(1, faceList(o.g || 'm').length)]?.i ?? null) : null;
+    if (of != null) drawFace(g, of, x + s * 0.3, y + s * 0.25, Math.max(8, s * 0.42), ring);
+    else { g.strokeStyle = ring; g.lineWidth = 2; g.beginPath(); g.arc(x + s * 0.3, y + s * 0.25, s * 0.42, 0, 7); g.stroke(); sprite(g, ['people', 'squire'], x + s * 0.3 - s * 0.38, y + s * 0.25 - s * 0.45, s * 0.76); } if (s >= 16) label(o.name, x + s * 0.3, y - s * 0.35, '#bfe6ff', Math.max(9, s * 0.34)); }
   // 玩家
   const [px, py] = (() => { const [x, y] = partyXY(); return [(x - cam.x) * cam.s + mapSize.w / 2, (y - cam.y) * cam.s + mapSize.h / 2]; })();
   const ci = !anim && Wd.campInfo(w);
   if (ci) drawCamp(g, px, py, s, ci);
-  g.strokeStyle = w.escort ? '#9fd18a' : '#d9a441'; g.lineWidth = 2.5; g.beginPath(); g.arc(px, py, s * 0.72, 0, 7); g.stroke();
-  sprite(g, ['people', 'knight'], px - s * 0.6, py - s * 0.7, s * 1.2);
+  const hf = faceOf(w.party.find(m => m.hero));
+  if (hf != null) drawFace(g, hf, px, py - s * 0.05, Math.max(10, s * 0.62), w.escort ? '#9fd18a' : '#d9a441');
+  else { g.strokeStyle = w.escort ? '#9fd18a' : '#d9a441'; g.lineWidth = 2.5; g.beginPath(); g.arc(px, py, s * 0.72, 0, 7); g.stroke(); sprite(g, ['people', 'knight'], px - s * 0.6, py - s * 0.7, s * 1.2); }
   if (w.escort && s >= 16) label('護送中', px, py + s * 0.98, '#bfe3b0', Math.max(9, s * 0.36));
   if (wsel) { hexPath(g, ...scr(wsel.pos), s * 0.97); g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke(); }
 }
@@ -355,7 +421,7 @@ function hexInfo() {
   const row = el('div', {class: 'rowbtn'});
   if (here && poi && !Wd.poiDone(w, poi)) row.append(el('button', {class: 'primary', onclick: async () => await doWorld({type: 'explore'})}, `探索${Wd.POI_TYPES[poi.type].n}（半天）`));
   if (here) for (const u of units.filter(u => u.kind === 'caravan' || u.kind === 'cart').slice(0, 2)) row.append(el('button', {class: 'danger', onclick: async () => { if (confirm(`劫${u.label}？${Wd.facName(u.fac)}會通緝你們，巡邏隊看到會來抓人。`)) await doWorld({type: 'raid', what: u.kind, to: u.to}); }}, `劫${u.kind === 'caravan' ? '商隊' : '運貨車'}（往${nm(u.to)}）`));
-  if (here) for (const o of players) {
+  if (here) for (const o of players.filter(o => !o.town)) {
     const lg = Wd.raidLegality(w, o), why = o.town ? '城裡不能動手' : o.busy ? '正在交戰' : (o.shieldT || 0) > NET.T ? '剛被洗劫過' : '';
     row.append(el('button', {class: 'danger', disabled: why ? true : null, onclick: async () => { if (confirm(`襲擊${o.name}的戰幫？（6 行動點）\n${lg.note}。\n他們由 AI 防守${o.camp ? '，營地地形對他們有利' : ''}；打贏了照順序搶：貨、錢、營地、人。`)) { const out = await doWorld({type: 'attackPlayer', target: o.id}); if (out && NET.battle) startBattle(NET.battle.setup); } }}, why ? `襲擊${o.name}（${why}）` : `襲擊${o.name}`));
   }
@@ -475,7 +541,7 @@ function townSheet(tab = 'market') {
     box.append(el('p', {class: 'muted'}, `鐵匠的價錢跟著這座城的鐵價走；打一件第 N 級的裝備要用掉 N 包鐵（鐵匠手上還有 ${iron} 包）。兵器每級力量 +1，護甲每級防禦 +1。`));
     for (const m of w.party) {
       const gw = m.gw || 0, ga = m.ga || 0;
-      box.append(el('div', {class: 'card'}, avatar(m.sprite, 44), el('div', {class: 'body'},
+      box.append(el('div', {class: 'card'}, portrait(m, 44), el('div', {class: 'body'},
         el('div', {class: 'top'}, el('b', {}, m.name), el('span', {class: 'muted'}, `${Wd.GEAR_NAME.w[gw]}・${Wd.GEAR_NAME.a[ga]}`)),
         el('div', {class: 'rowbtn'},
           el('button', {disabled: gw >= 3 || iron < gw + 1 || null, onclick: async () => { await doWorld({type: 'gear', id: m.id, kind: 'w'}); again(); }}, gw >= 3 ? '兵器已頂級' : `${Wd.GEAR_NAME.w[gw + 1]}（${Wd.gearPrice(t, 'w', gw + 1)}）`),
@@ -679,12 +745,12 @@ function renderLeft() {
   const h = w.party.find(m => m.hero) || w.party[0]; if (!h) return;
   const hp = Math.round(h.hp / h.max * 100), fd = Wd.daysOfFood(w), wanted = Math.max(0, ...Object.values(w.wanted || {}));
   const t = $('lToggle'); t.innerHTML = '';
-  t.append(avatar(h.sprite, 34), el('div', {}, el('b', {}, h.name), el('div', {class: 'meter', style: 'width:64px'}, el('i', {style: `width:${hp}%;background:${hpCol(hp)}`})), el('div', {class: 'muted'}, `💰${w.gold}・🍞${fd.toFixed(1)}天`)));
+  t.append(portrait(h, 34), el('div', {}, el('b', {}, h.name), el('div', {class: 'meter', style: 'width:64px'}, el('i', {style: `width:${hp}%;background:${hpCol(hp)}`})), el('div', {class: 'muted'}, `💰${w.gold}・🍞${fd.toFixed(1)}天`)));
   box.append(closeRow('l') || '');
   const chip = (txt, val, on, bad) => el('span', {class: 'chip' + (bad ? ' bad' : ''), onclick: e => { e.stopPropagation(); on(); }}, txt + ' ', el('b', {}, val));
   box.append(el('div', {class: 'hero', onclick: () => openSheet(memberCard(h))},
-    el('div', {class: 'hrow'}, avatar(h.sprite, 56), el('div', {style: 'flex:1;min-width:0'},
-      el('div', {class: 'nm'}, h.name), el('div', {class: 'muted', style: 'font-size:12px'}, `${clsName(h)} Lv${h.lvl}・${Wd.fameWord(w.fame || 0)}`),
+    el('div', {class: 'hrow'}, portrait(h, 56), el('div', {style: 'flex:1;min-width:0'},
+      el('div', {class: 'nm'}, h.name), el('div', {class: 'muted', style: 'font-size:12px'}, `${h.tags?.length ? h.tags.join('・') + '・' : ''}${clsName(h)} Lv${h.lvl}・${Wd.fameWord(w.fame || 0)}`),
       el('div', {class: 'meter'}, el('i', {style: `width:${hp}%;background:${hpCol(hp)}`})), el('div', {class: 'muted', style: 'font-size:11px'}, `生命 ${Math.round(h.hp)}/${h.max}・經驗 ${h.exp}/100`))),
     el('div', {class: 'chips'},
       chip('💰', w.gold, partySheet), chip('⭐', `聲望 ${(w.fame || 0).toFixed(1)}`, partySheet),
@@ -697,10 +763,10 @@ function renderLeft() {
   box.append(el('div', {class: 'rsec'}, `同伴 ${mates.length}/${Wd.MAX_PARTY - 1}`));
   if (!mates.length) box.append(el('p', {class: 'muted', style: 'font-size:13px'}, '還沒有同伴。到城裡的酒館招人。'));
   for (const m of mates) { const p = Math.round(m.hp / m.max * 100);
-    box.append(el('div', {class: 'mate', onclick: () => openSheet(memberCard(m, dismissRow(m)))}, avatar(m.sprite, 32),
+    box.append(el('div', {class: 'mate', onclick: () => openSheet(memberCard(m, dismissRow(m)))}, portrait(m, 32),
       el('div', {class: 'mn'}, el('div', {}, el('b', {}, m.name), el('span', {class: 'muted'}, ` ${clsName(m)} Lv${m.lvl}`)), el('div', {class: 'meter'}, el('i', {style: `width:${p}%;background:${hpCol(p)}`}))),
       el('span', {class: 'muted', style: 'font-size:11px'}, m.loyalty < 30 ? '😠' : ''))); }
-  if (w.captives?.length) { box.append(el('div', {class: 'rsec'}, '被抓走的人')); for (const c of w.captives) box.append(el('div', {class: 'mate'}, avatar(c.m.sprite, 32), el('div', {class: 'mn'}, el('div', {}, c.m.name), el('div', {class: 'muted', style: 'font-size:11px'}, `在${c.by}手上・到城裡酒館贖回（${c.price}）`)))); }
+  if (w.captives?.length) { box.append(el('div', {class: 'rsec'}, '被抓走的人')); for (const c of w.captives) box.append(el('div', {class: 'mate'}, portrait(c.m, 32), el('div', {class: 'mn'}, el('div', {}, c.m.name), el('div', {class: 'muted', style: 'font-size:11px'}, `在${c.by}手上・到城裡酒館贖回（${c.price}）`)))); }
   box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: partySheet}, '隊伍詳情'), el('button', {onclick: cargoSheet}, '行囊')));
 }
 function renderTabs() {
@@ -990,4 +1056,4 @@ addEventListener('resize', () => { if (!$('battle').hidden) { bsel && (bsel.reac
 // 舊版存檔（小地圖）已不相容，清掉省空間
 try { for (const k of ['warband-slice-v1', 'warband-v2', 'warband-v2-sim']) localStorage.removeItem(k); } catch {}
 setInterval(() => { if (NET.on && G.world && !$('world').hidden) { renderStatus(); renderLeft(); } }, 5000);
-loadArt().then(titleScreen);
+Promise.all([loadArt(), loadFaces()]).then(titleScreen);

@@ -11,6 +11,7 @@ import * as C from '../public/js/cont.js';
 import * as Wd from '../public/js/world.js';
 import * as B from '../public/js/battle.js';
 import {verifyGoogle} from './auth.js';
+import {MALE_NAMES, FEMALE_NAMES, SURNAMES} from '../public/js/data.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
@@ -113,7 +114,7 @@ export class Realm extends DurableObject {
     await this.ctx.storage.put('p:' + p.id, p); w.pois = keepPois; w.poiShared = keepShared;
     const ci = Wd.campInfo(w), town = C.K().markets[w.pos] && C.K().owner[w.pos] >= 0;
     this.roster[p.id] = {name: p.name, pos: w.pos, size: w.party.length, fame: +(w.fame || 0).toFixed(1), over: !!w.over, seen: Date.now(),
-      banner: w.banner ?? null, wantedMax: Math.max(0, ...Object.values(w.wanted || {})), shieldT: w.shieldT || 0, town: !!town, busy: !!p.battle,
+      banner: w.banner ?? null, face: w.party.find(m => m.hero)?.face ?? null, g: w.party.find(m => m.hero)?.g || 'm', wantedMax: Math.max(0, ...Object.values(w.wanted || {})), shieldT: w.shieldT || 0, town: !!town, busy: !!p.battle,
       camp: ci ? {stake: ci.stake, watch: ci.watch, fire: ci.fire, ready: ci.ready} : null, power: Math.round(Wd.partyPower(w.party))};
   }
   view(p) { const w = p.w, away = p.away; p.away = null; return {away, me: p.id.slice(0, 6), w: {...w, pois: undefined, poiShared: undefined}, battle: p.battle ? {setup: p.battle.setup, party: p.battle.party, order: p.battle.order} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
@@ -163,6 +164,14 @@ export class Realm extends DurableObject {
       const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && Date.now() - r.seen < 7 * 864e5).map(([id, r]) => ({id: id.slice(0, 6), ...r}));
       return json({clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
     }
+    if (path === '/api/name') {   // 名字：檢查有沒有人用、或抽一個沒人用過的
+      const taken = async n => { const o = this.names[n]; if (!o) return false; const pl = await this.player(o); return !!(pl && !pl.w.over); };
+      const q = url.searchParams.get('check');
+      if (q != null) return json({name: q, taken: await taken(String(q).trim().slice(0, 8))});
+      const pool = url.searchParams.get('g') === 'f' ? FEMALE_NAMES : MALE_NAMES;
+      for (let i = 0; i < 40; i++) { const n = `${pool[Math.floor(Math.random() * pool.length)]}・${SURNAMES[Math.floor(Math.random() * SURNAMES.length)]}`; if (!(await taken(n))) return json({name: n}); }
+      return json({name: ''});
+    }
     if (path === '/api/snapshot') {
       if (!this.snap) this.snap = JSON.stringify({T: C.K().T, state: C.saveState()});
       return new Response(this.snap, {headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
@@ -179,7 +188,7 @@ export class Realm extends DurableObject {
       const name = String(body.name || '').trim().slice(0, 8) || '無名的騎士';
       const owner = this.names[name]; if (owner && owner !== id) { const o = await this.player(owner); if (o && !o.w.over) return bad(`「${name}」這個名字已經有人用了，換一個吧`); }
       this.names[name] = id;
-      const w = Wd.newWorld((Math.random() * 2 ** 31) | 0, name);
+      const w = Wd.newWorld((Math.random() * 2 ** 31) | 0, name, {origin: String(body.origin || ''), g: body.g === 'f' ? 'f' : 'm', face: Number.isInteger(body.face) ? Math.max(0, Math.min(999, body.face)) : undefined});
       w.pois = this.pois; w.ap = 72; w.feedSeq = this.meta.seq;
       p = {id, name, w, battle: null, apAt: Date.now(), created: Date.now()};
       await this.savePlayer(p); this.prep(p);

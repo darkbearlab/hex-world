@@ -1,7 +1,7 @@
 // 奇幻戰幫：世界層——走在大陸沙盒上
 // 地圖、城鎮、村莊、盜匪山寨、商路、價格都來自大陸沙盒（cont.js）；這一層只管戰幫自己的人、錢、糧、貨、委託與遭遇。
 // 純規則；行動入口是 worldAct(w, action)，回傳訊息與（若有）要開打的戰鬥。
-import {CLASSES, RECRUIT_CLASSES, TRAIT_KEYS, NAMES, SURNAMES, rngNext, rngInt, rngPick, hashSeed} from './data.js';
+import {CLASSES, RECRUIT_CLASSES, TRAIT_KEYS, NAMES, SURNAMES, FEMALE_NAMES, rngNext, rngInt, rngPick, hashSeed} from './data.js';
 import * as C from './cont.js';
 
 export const {W, H, N, NBR, BIOMES, GOODS, hdist} = C;
@@ -45,9 +45,20 @@ export function makeMember(w, cls, lvl, opts = {}) {
   for (const s of ['str', 'skl', 'spd', 'def']) m[s] = Math.max(0, m[s] + rngInt(w, 3) - 1);
   m.max += rngInt(w, 4) - 1; m.hp = m.max;
   for (let l = 1; l < lvl; l++) { m.lvl++; for (const s of ['hp', 'str', 'skl', 'spd', 'def']) if (rngNext(w) * 100 < g[s]) { if (s === 'hp') { m.max++; m.hp++; } else m[s]++; } }
-  if (!m.name) m.name = RECRUIT_CLASSES.includes(cls) || cls === 'knight' ? `${rngPick(w, NAMES)}・${rngPick(w, SURNAMES)}` : c.name;
+  if (!m.name) { const human = RECRUIT_CLASSES.includes(cls) || cls === 'knight'; for (let t = 0; t < 6 && (!m.name || (w.party || []).some(x => x.name === m.name)); t++) m.name = human ? `${rngPick(w, NAMES)}・${rngPick(w, SURNAMES)}` : c.name; }
+  if (!c.beast && !m.g) { m.g = genderOf(m.name); m.fs = rngInt(w, 1e6); }   // 性別與頭像種子（畫面依性別從頭像庫挑一張）
   return m;
 }
+export const genderOf = name => FEMALE_NAMES.includes(String(name).split('・')[0]) ? 'f' : 'm';
+// 主角的出身：只影響開局（職業、錢、同伴、名聲……）和角色身上的標籤
+export const ORIGINS = {
+  knight: {n: '落魄騎士', cls: 'knight', d: '家道中落的騎士。一匹老馬、一套鎖子甲，還有兩個不肯走的老部下。', gold: 150, horses: 1, ga: 2, mates: ['spearman', 'spearman']},
+  veteran: {n: '老兵', cls: 'swordsman', d: '打過好幾場仗，在軍中小有名氣。帶著三個舊袍澤，缺的是錢。', gold: 110, fame: 0.8, mates: ['spearman', 'archer', 'axeman'], trait: 'veteran'},
+  merchant: {n: '商家子弟', cls: 'spearman', d: '家裡跑商的。本錢厚、有騾子、知道附近的行情；能打的人卻不多。', gold: 420, mules: 2, mates: ['herbalist'], intel: 4},
+  hunter: {n: '獵戶', cls: 'archer', d: '在林子裡長大，認得路也認得獸。附近的地形都熟，糧也多帶了一些。', gold: 160, food: 32, mates: ['spearman', 'archer'], reveal: 6},
+  cloister: {n: '修道院出身', cls: 'herbalist', d: '在修道院長大的醫者。跟著你的人比較死心塌地。', gold: 180, mates: ['spearman', 'swordsman', 'archer'], loyal: 20},
+  outlaw: {n: '亡命之徒', cls: 'axeman', d: '背著一條人命逃出來的。手下都是狠角色，但鄰國正在通緝你。', gold: 220, mates: ['axeman', 'swordsman'], wanted: 1.5},
+};
 function makeRecruit(w, cls, lvl) {
   const m = makeMember(w, cls, lvl);
   const n = rngNext(w) < 0.55 ? 1 : 2;
@@ -217,7 +228,7 @@ function noteIntel(w, i, src) {
 }
 
 /* ───────────── 新世界 ───────────── */
-export function newWorld(seed, heroName) {
+export function newWorld(seed, heroName, opt = {}) {
   const k = K();
   const w = {v: 2, seed, rng: hashSeed('world', seed), nextId: 1, day: 1, hour: 8, gold: 200, food: 16, log: [], battles: 0, kills: 0, fallen: [], over: null,
     contracts: [], bands: [], towns: {}, vill: {}, press: {}, intel: {}, cargo: {food: 0, wood: 0, iron: 0, stone: 0, salt: 0}, mules: 0, relics: [], leads: [], escort: null, pins: [], wanted: {}, poi: {}, seen: new Array(N).fill(0), tick: 0, rumorDay: 0, earned: 0};
@@ -225,15 +236,23 @@ export function newWorld(seed, heroName) {
   const towns = Object.keys(k.markets).map(Number).filter(i => k.owner[i] >= 0).sort((a, b) => k.markets[b].pop - k.markets[a].pop).slice(0, 5);
   w.pos = towns[rngInt(w, towns.length)];
   w.party = [];
-  const h = makeMember(w, 'knight', 2, {id: 'hero', hero: true, name: heroName || '無名的騎士'});
-  h.loyalty = 100; h.wage = 0; h.deeds = {battles: 0, kills: 0, joinedDay: 1}; h.sprite = ['people', 'knight'];
+  const O = ORIGINS[opt.origin] || ORIGINS.knight, okey = ORIGINS[opt.origin] ? opt.origin : 'knight';
+  const h = makeMember(w, O.cls, 2, {id: 'hero', hero: true, name: heroName || '無名的騎士'});
+  h.loyalty = 100; h.wage = 0; h.deeds = {battles: 0, kills: 0, joinedDay: 1}; h.sprite = O.cls === 'knight' ? ['people', 'knight'] : CLASSES[O.cls].sprites[0];
+  h.max += 3; h.hp = h.max; h.str++; h.def++;   // 主角比同職業的傭兵強一點
+  h.origin = okey; h.tags = [O.n]; h.g = opt.g === 'f' ? 'f' : 'm'; if (Number.isInteger(opt.face) && opt.face >= 0) h.face = opt.face;
+  if (O.trait) h.traits = [O.trait]; if (O.ga) h.ga = O.ga;
   w.party.push(h);
-  for (const cls of ['spearman', 'archer', 'herbalist']) w.party.push(makeRecruit(w, cls, 1));
+  for (const cls of O.mates) { const m = makeRecruit(w, cls, 1); if (O.loyal) m.loyalty = Math.min(100, m.loyalty + O.loyal); w.party.push(m); }
+  w.gold = O.gold; if (O.horses) w.horses = O.horses; if (O.mules) w.mules = O.mules; if (O.food) w.food = O.food; if (O.fame) w.fame = O.fame;
   w.nextWage = 8;
   w.pois = genPOIs();
-  reveal(w, w.pos, 3);
+  reveal(w, w.pos, O.reveal || 3);
+  if (O.intel) Object.keys(k.markets).map(Number).filter(i => i !== w.pos && k.owner[i] >= 0).sort((a, b) => hdist(a, w.pos) - hdist(b, w.pos)).slice(0, O.intel).forEach(i => noteIntel(w, i, 'rumor'));
+  if (O.wanted) { const f = k.fac.findIndex((F, i) => F.alive && i !== k.owner[w.pos] && Object.keys(k.markets).some(t => k.owner[t] === i && hdist(+t, w.pos) <= 12)); if (f >= 0) w.wanted[f] = O.wanted; }
   arrive(w);
-  say(w, `${h.name}帶著三個夥伴，在${facName(k.owner[w.pos])}的${nm(w.pos)}落腳。這是 ${k.stamp.replace(/ \S+$/, '')}。`);
+  const mates = ['', '一個', '兩個', '三個', '四個'][w.party.length - 1];
+  say(w, `${O.n}${h.name}${mates ? `帶著${mates}夥伴，` : ''}在${facName(k.owner[w.pos])}的${nm(w.pos)}落腳。這是 ${k.stamp.replace(/ \S+$/, '')}。`);
   return w;
 }
 // 走到委託地點：護送抵達就結算；傭兵、狼害就開打
