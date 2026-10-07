@@ -205,3 +205,15 @@ html,body{overflow:hidden;overscroll-behavior:none}
 .rtoggle b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rtoggle .meter{width:100%!important}
 .rtoggle .l2{display:block;white-space:nowrap}
+/* 選取格子的小卡：貼在格子旁邊，一行一項 */
+#hexPop{position:absolute;z-index:3;width:172px;background:#231d16f4;border:1px solid var(--line);border-radius:12px;padding:8px;display:flex;flex-direction:column;gap:4px;font-size:13px;box-shadow:0 6px 18px #0009}
+#hexPop .phead{display:flex;align-items:center;gap:6px}#hexPop .phead b{flex:1;font-size:15px;font-family:"Noto Serif TC",serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#hexPop .px{min-height:0;width:28px;height:28px;padding:0;border-radius:8px;flex:none;font-size:13px}
+#hexPop .pline{line-height:1.35}#hexPop .pline.good{color:#bfe3b0}#hexPop .pline.bad{color:#f3b2a6}
+#hexPop>button{min-height:34px;padding:4px 8px;font-size:13px;width:100%}
+#hexPop .pmore{background:transparent;border-style:dashed;color:var(--muted)}
+.hexdetail .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.hexdetail .fold{display:none}.hexdetail>div{margin:4px 0}
+/* 置中、危險地帶的按鈕放右下角 */
+#mapWrap .floating{top:auto;bottom:24px;right:12px}
+#mapWrap .floating.f2{top:auto;bottom:74px}
+@media (max-width:899px){#mapWrap .floating{right:12px;bottom:110px}#mapWrap .floating.f2{bottom:160px}}
