@@ -146,7 +146,7 @@ function memberCard(m, extra) {
       el('div', {class: 'muted', style: 'font-size:12px'}, `${m.famous ? '有名者・' : ''}擅長${(CLASSES[m.cls]?.skill || []).map(t => Wd.WTYPE_NAME[t]).join('、') || '雜兵器'}・經驗 ${m.exp}/100${m.wage ? `・週薪 ${m.wage}` : ''}${m.deeds ? `・${m.deeds.battles} 戰 ${m.deeds.kills} 殺` : ''}`),
       gearRow(m),
       m.hero ? null : el('div', {style: 'display:flex;gap:6px;align-items:center;font-size:12px'}, el('span', {class: 'muted'}, '忠誠'), el('div', {class: 'meter loy', style: 'flex:1'}, el('i', {style: `width:${Math.max(0, m.loyalty)}%`})), el('span', {}, Math.round(m.loyalty))),
-      el('div', {}, ...traitTags(m)),
+      el('div', {}, ...traitTags(m), ...(m.wounds || []).map(x => el('span', {class: 'tag bad', onclick: async () => toast(`${Wd.WOUND[x.s]}的傷：${Wd.STAT_NAME[x.s]} -${x.n}。住旅店約 ${Wd.woundDays(x)} 天養好；紮營慢一些，趕路更慢，急行軍養不好。`, 4000)}, `🩹${Wd.WOUND[x.s]}傷 ${Wd.STAT_NAME[x.s]}-${x.n}`))),
       extra || null));
 }
 
@@ -845,9 +845,10 @@ function contractList(t, pins) {
     if (c.kind === 'deliver') info = `把${Wd.GN[c.g]}送到${nm(c.at)}（離你 ${dist} 格）的官倉，還收 ${c.left} 包。不用接，到了在告示板交貨。`;
     if (c.kind === 'merc') info = `${c.desc}目標：${nm(c.target)}（離你 ${dist} 格）。`;
     if (c.kind === 'wolves') info = `狼窩在${nm(c.target)}（離你 ${dist} 格）。`;
+    const need = Wd.contractNeed(c), short = !c.taken && need > 1 && Wd.hands(w) < need; if (need > 1 && !c.taken) info = (info && !info.endsWith('。') ? info + '。' : info) + `至少要 ${need} 個人手${short ? `（你只有 ${Wd.hands(w)} 個）` : ''}。`;
     if (c.kind === 'letter') info = `送到${nm(c.to)}（離你 ${dist} 格），到了當場付錢。${c.secret ? '密信：收下之後會有人來截，被搶走就失敗。' : '一封信，不佔載重。'}`;
     const btns = el('div', {class: 'rowbtn'});
-    if (!c.taken && t != null && c.kind !== 'deliver') btns.append(el('button', {onclick: async () => { await doWorld({type: 'takeContract', id: c.id}); townSheet('board'); }}, c.kind === 'escort' ? '接下，帶商隊出發' : '接下'));
+    if (!c.taken && t != null && c.kind !== 'deliver') btns.append(el('button', {disabled: short, onclick: async () => { await doWorld({type: 'takeContract', id: c.id}); townSheet('board'); }}, c.kind === 'escort' ? '接下，帶商隊出發' : '接下'));
     if (c.kind === 'deliver' && c.at === w.pos && w.cargo[c.g] > 0) btns.append(el('button', {class: 'primary', onclick: async () => { await doWorld({type: 'deliver', id: c.id}); townSheet('board'); }}, `交貨（${Math.min(c.left, w.cargo[c.g])} 包，${Math.min(c.left, w.cargo[c.g]) * c.pay}）`));
     if (site >= 0 && site !== w.pos) btns.append(el('button', {onclick: async () => { closeSheet(); if (!wide()) setRail('r', false); showOnMap(site); }}, '在地圖上看'));
     if (pins) btns.append(pinBtn(`${Wd.KIND_NAME[c.kind]}「${c.title}」${info ? '：' + info.split('。')[0] : ''}・期限${dayText(c.until)}`, site >= 0 ? site : c.town, `委託`));
@@ -877,7 +878,7 @@ function gatherSheet() {
   openSheet(box);
 }
 function villageSheet(v) {
-  const w = G.world, eat = Math.ceil(w.party.length + w.mules * Wd.MULE_FEED), pr = Wd.rationPrice(w, v), have = Wd.villageFood(w, v);
+  const w = G.world, eat = Math.ceil(w.party.length + w.mules * Wd.MULE_FEED + (w.horses || 0) * Wd.HORSE_FEED), pr = Wd.rationPrice(w, v), have = Wd.villageFood(w, v);
   const box = el('div', {}, el('h2', {}, nm(v)), el('p', {}, `村裡能匀出 ${have} 份口糧，每份約 ${pr.toFixed(1)} 金幣，比城裡便宜。`),
     el('div', {class: 'rowbtn'}, ...[1, 3, 7].map(d => el('button', {disabled: !have || null, onclick: async () => { await doWorld({type: 'buyFood', n: Math.min(eat * d, have)}); villageSheet(v); }}, `${d} 天份`))),
     el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await doWorld({type: 'rest', days: 1}); closeSheet(); }}, '在村邊紮營一天')));

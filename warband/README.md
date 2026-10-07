@@ -93,6 +93,10 @@
 ## 城市設施
 - `world.js` 的 `facilities(t)` 由人口推出每座城的設施等級（市集、馬廄、鐵匠、酒館、告示板、旅店、倉庫、圖書館，0～3），首都 +1，用 `hashSeed('fac',t)` 做固定的隨機少一級。各系統用 `facAt(t,key)` 查等級，常數表 `INN_PRICE`、`INN_HEAL`、`TAVERN_DAYS`、`STORE_CAP`、`MARKET_STOCK`。細節見 DESIGN.md。
 
+## 傷、人手
+- 傷存在 `m.wounds`（`{s, n, left}`）：帶傷時直接扣那項數值，養好（`healWounds`）再加回來，所以戰鬥和升級不用另外處理。戰後在 `applyBattle` 裡由 `woundCheck` 判定。
+- `hands(w)` 是人手（不算野獸），`nightMul(w)` 給回血和夜襲的倍率，`contractNeed(c)` 是委託要的人手。
+
 ## 目前刻意沒做的
 - 多人：玩家之間還不能交易、結盟；戰鬥中重新整理會從頭打這一場。
 - 有名者肖像、武器變傳奇、說故事。

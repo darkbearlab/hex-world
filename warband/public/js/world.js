@@ -42,7 +42,7 @@ export const BALE = 0.02;           // 一包貨 = 沙盒裡 0.02 單位（戰�
 export const COINP = 3;             // 沙盒基準價 × 3 = 一包的金幣價
 export const RATIONS_PER_BALE = 3;  // 一包糧 = 三份口糧
 export const MAP_PRICE = 25;
-export const HORSE_PRICE = 110, HORSE_FEED = 1;
+export const HORSE_PRICE = 110, HORSE_FEED = 2;
 export const CARRY_MAN = 1, MULE_CAP = 8, MULE_FEED = 0.5, MULE_PRICE = 45, MAX_MULES = 8, MAX_PARTY = 8;
 export const GOOD_DESC = {food: '糧', wood: '木材', iron: '鐵', stone: '石材', salt: '鹽'};
 const SEASON_T = 28;
@@ -499,7 +499,9 @@ function passHours(w, hours, mode, out) {
     if (march) marchHour(w); else if (mode === 'camp' || mode === 'inn') w.fatigue = Math.max(0, (w.fatigue || 0) - 2);
     w.food = Math.max(0, w.food - eaters(w) / 24 * ((K().season === 3 && coldAt(w.pos) && !(ci && ci.fire) ? 1.3 : 1) + (ci && ci.watch ? 0.25 : 0)));
     const rate = march ? 0 : mode === 'inn' ? INN_HEAL[facAt(w.pos, 'inn')] || 0.4 : mode === 'camp' ? 0.2 + (ci && ci.fire ? 0.1 : 0) - (chill && !(ci && ci.fire) ? 0.12 : 0) : 0.08;
-    for (const m of w.party) { m.healBuf = (m.healBuf || 0) + m.max * rate / 24; const whole = Math.floor(m.healBuf); if (whole) { m.hp = Math.min(m.max, Math.round(m.hp) + whole); m.healBuf -= whole; } }
+    const nm2 = mode === 'camp' ? nightMul(w).heal : 1;
+    healWounds(w, 1, march ? 0 : mode === 'inn' ? 1 : mode === 'camp' ? 0.6 * nm2 : 0.3);
+    for (const m of w.party) { m.healBuf = (m.healBuf || 0) + m.max * rate * nm2 / 24; const whole = Math.floor(m.healBuf); if (whole) { m.hp = Math.min(m.max, Math.round(m.hp) + whole); m.healBuf -= whole; } }
     if (w.hour % 6 === 0) { worldTick(w, out); denRisk(w); }
     if (w.hour >= 24) { w.hour = 0; w.day++; newDay(w, out, mode); if (w.over) return; }
     guardCheck(w);
@@ -605,7 +607,7 @@ function sendBands(w) {
   if (w.bands.filter(b => b.hunting).length >= 2) return;
   for (const g of k.gangs) {
     if (g.gone || g.str < 100 || hdist(g.lair, w.pos) > 4 || w.bands.some(b => b.gang === g.id)) continue;
-    if (rngNext(w) > (0.01 + Math.min(0.06, cv / 5000)) * (campInfo(w)?.fire ? 1.6 : 1) * (w.guard ? 0.3 : 1)) continue;
+    if (rngNext(w) > (0.01 + Math.min(0.06, cv / 5000)) * (campInfo(w)?.fire ? 1.6 : 1) * (campHere(w) ? nightMul(w).raid : 1) * (w.guard ? 0.3 : 1)) continue;
     makeBand(w, 'bandits', g.lair, {str: g.str, gang: g.id, name: `${g.name}的人`, ttl: 10, hunting: true});
     say(w, `有人看見${g.name}的手下在附近打探你們的行蹤。`);
   }
@@ -1059,7 +1061,7 @@ export function applyBattle(w, setup, bst) {
   for (const m of w.party.slice()) {
     const u = units.get(m.id); if (!u) continue;
     if (!u.alive) {
-      if (m.hero) { m.hp = 1; continue; }   // 主角的下場在 heroDowned 決定
+      if (m.hero) { m.hp = 1; const t = woundCheck(w, m, true); if (t) out.lines.push(t); continue; }   // 主角的下場在 heroDowned 決定
       w.party = w.party.filter(x => x !== m);
       heroGone(w, m, `隨一支戰幫戰死於${setup.title}`, true);
       w.fallen.push({name: m.name, cls: m.cls, day: w.day, how: u.captured ? '撤退時被俘' : `戰死於${setup.title}`, kills: (m.deeds?.kills || 0) + u.kills});
@@ -1071,6 +1073,7 @@ export function applyBattle(w, setup, bst) {
     m.deeds = m.deeds || {battles: 0, kills: 0}; m.deeds.battles++; m.deeds.kills += u.kills;
     if (u.levels.length && !m.hero) m.wage = wageOf(m);
     w.kills += u.kills;
+    { const t = woundCheck(w, m, m.hero && (downed || u.yielded)); if (t) out.lines.push(t); }
   }
   if (w.guard) { w.guard.men = w.guard.men.filter(m => { const u = units.get(m.id); if (!u) return true; m.hp = u.hp; m.exp = u.exp; return u.alive; }); if (!w.guard.men.length) { out.lines.push(`${w.guard.name}的人全倒下了。`); w.guard = null; } }
   const deaths = bst.units.filter(u => u.side === 'ally' && !u.alive && !u.hero && !gIds.has(u.id)).length;
@@ -1154,7 +1157,7 @@ export function campOptions(w) {
   const c = campHere(w), wood = w.cargo.wood || 0, forest = woody(w.pos), cold = coldNight(w);
   const opt = (key, ok, cost, why, hours, woodUse = 0) => out.push({key, ...CAMP_OPTS[key], ok, cost, why, hours, wood: woodUse, on: key === 'basic' ? !!c : !!(c && c[key])});
   opt('basic', !c, '免費・1 小時', c ? '已經紮好營了' : '', 1);
-  opt('watch', !(c && c.watch), '每天多吃 1/4 的糧', c && c.watch ? '已經排好班了' : '', 1);
+  opt('watch', !(c && c.watch) && hands(w) >= 2, '每天多吃 1/4 的糧', c && c.watch ? '已經排好班了' : hands(w) < 2 ? '一個人沒法輪班守夜' : '', 1);
   const sw = w.kit ? 1 : 2, sh = forest ? (w.kit ? 2 : 4) : (w.kit ? 1 : 2), canS = forest || wood >= sw;
   opt('stake', !(c && c.stake) && canS, forest ? `就地砍樹・${sh} 小時` : `木材 ${sw} 包・${sh} 小時`, c && c.stake ? '已經圍好了' : canS ? '' : `要 ${sw} 包木材，或在林地紮營`, sh, forest ? 0 : sw);
   const fw = cold && !forest ? 1 : 0, canF = wood >= fw;
@@ -1206,16 +1209,16 @@ export function idle(w, hours, T) {
   const due = companions(w).reduce((s, m) => s + m.wage, 0);
   while (w.idleBuf >= 6) {
     w.idleBuf -= 6; rep.hours += 6; let hungry = false, cost = due / 168 * 6 / 2; w.fatigue = Math.max(0, (w.fatigue || 0) - 12);
-    if (lodgedHere(w) && favorAt(w, w.pos) > 0) { rep.lodged = true; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.4 * 6 / 24)); w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost); if (pay && w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } continue; }
-    if (town) { const L = facAt(w.pos, 'inn'); cost += w.party.length * INN_PRICE[L] * 6 / 24; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * INN_HEAL[L] * 6 / 24)); }
-    else { const need = eaters(w) / 24 * 6 / 3; if (w.food >= need) { w.food -= need; rep.food += need; } else { w.food = 0; hungry = true; } if (!hungry) for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.1 * 6 / 24)); }
+    if (lodgedHere(w) && favorAt(w, w.pos) > 0) { rep.lodged = true; healWounds(w, 6, 1); for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.4 * 6 / 24)); w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost); if (pay && w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } continue; }
+    if (town) { const L = facAt(w.pos, 'inn'); healWounds(w, 6, INN_HEAL[L] / 0.4); cost += w.party.length * INN_PRICE[L] * 6 / 24; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * INN_HEAL[L] * 6 / 24)); }
+    else { const need = eaters(w) / 24 * 6 / 3; if (w.food >= need) { w.food -= need; rep.food += need; } else { w.food = 0; hungry = true; } if (!hungry) { const hm = nightMul(w).heal; healWounds(w, 6, 0.5 * hm); for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.1 * hm * 6 / 24)); } }
     w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost);
     if (pay) { if (w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } else { rep.gold += w.gold; w.gold = 0; w.idleCost = 0; hungry = true; } }
     if (hungry) for (const m of companions(w)) m.loyalty -= m.traits.includes('loyal') ? 1 : 2;
     desertCheck(w);
     if (!town && !w.captive && (w.shieldT || 0) <= T && !(w.idleRaid > 0)) {
       const ci = campInfo(w), cv = concealment(w), base = cv === 'den' ? (poiDone(w, poiAt(w, w.pos) || {}) ? 0.04 : 0.12) : Math.min(0.12, tileRisk(w.pos, k) * 0.15 + (load(w) > 0 ? 0.02 : 0)) * (cv ? 0.2 : 1);
-      if (rngNext(w) < base * (ci ? (ci.watch ? 0.5 : 1) * (ci.fire ? 1.4 : 1) * (ci.stake ? 0.8 : 1) : 1.6)) {
+      if (rngNext(w) < base * nightMul(w).raid * (ci ? (ci.watch ? 0.5 : 1) * (ci.fire ? 1.4 : 1) * (ci.stake ? 0.8 : 1) : 1.6)) {
         const near = k.gangs.filter(g => !g.gone && hdist(g.lair, w.pos) <= 4)[0], by = near ? `${near.name}的人` : '一夥盜匪';
         const r = autoDefend(w, partyPower(banditFoes(w, near ? near.str : 60 + k.bandit[w.pos])), by); rep.raids.push(r.text);
         w.idleRaid = r.win ? 1 : 3;
@@ -1556,6 +1559,7 @@ export function worldAct(w, a) {
       if (wantedBy(w, k.owner[w.pos]) >= 3) throw new Error('城裡的人認得你們，沒人肯把差事交給通緝犯');
       const c = w.contracts.find(x => x.id === a.id); if (!c || c.taken) throw new Error('沒有這份委託');
       if (c.kind === 'deliver') throw new Error('收購不用接，直接把貨送到就行');
+      { const need = contractNeed(c); if (hands(w) < need) throw new Error(`這份差事至少要 ${need} 個人手（現在 ${hands(w)} 個）`); }
       if (c.kind === 'escort') { if (w.escort) throw new Error('一次只能護送一支商隊'); if (w.pos !== c.town) throw new Error('要在出發的城接'); w.escort = {cid: c.id, to: c.to, value: c.value}; }
       if (c.kind === 'letter' && w.pos !== c.town) throw new Error('要在寄信的城接');
       c.taken = true; say(w, `接下委託：${c.title}。`);
@@ -1845,6 +1849,27 @@ export const relicPrice = (w, r) => { const k = K(), m = k.markets[w.pos]; retur
 const HOURS = ['深夜', '深夜', '凌晨', '凌晨', '清晨', '清晨', '早上', '早上', '上午', '上午', '上午', '中午', '中午', '下午', '下午', '下午', '傍晚', '傍晚', '黃昏', '晚上', '晚上', '晚上', '深夜', '深夜'];
 export const timeText = w => { const m = K().stamp.match(/^(\d+) 年 (\S+) 第(\d+)日/); return `${m[1]}年${m[2]}${m[3]}日・${HOURS[Math.floor(w.hour) % 24]}`; };
 export const fameWord = f => !f ? '沒沒無聞' : f < 1 ? '小有耳聞' : f < 3 ? '有些名氣' : f < 6 ? '遠近馳名' : '名震一方';
+// 人手：會守夜、會扛事的人（不算野獸）。一個人睡不安穩、沒法輪班；兩個人輪流睡，各睡半夜
+export const hands = w => w.party.filter(m => !CLASSES[m.cls]?.beast).length;
+export const nightMul = w => { const n = hands(w); return n <= 1 ? {heal: 0.6, raid: 1.5} : n === 2 ? {heal: 0.85, raid: 1.2} : {heal: 1, raid: 1}; };
+// 委託要的人手：一個人押不了車隊、端不了大寨子
+export function contractNeed(c, k = K()) { if (c.kind === 'escort') return 3; if (c.kind === 'merc') return 4; if (c.kind === 'gang') { const s = k.gangs.find(x => x.id === c.gang)?.str || 0; return s >= 300 ? 4 : s >= 180 ? 3 : 2; } return 1; }
+// 傷：被打得很慘可能留下傷，某項數值暫時降低，要養一陣子（旅店最快、趕路最慢）
+export const WOUND = {str: '手臂', skl: '手掌', spd: '腿', def: '肋骨'}, STAT_NAME = {str: '力量', skl: '技巧', spd: '速度', def: '防禦'};
+function woundCheck(w, m, sure) {
+  const r = m.hp / m.max, p = sure ? 1 : r <= 0.1 ? 0.7 : r <= 0.25 ? 0.4 : 0;
+  if (!p || rngNext(w) >= p || (m.wounds ||= []).length >= 3) return null;
+  const s = rngPick(w, Object.keys(WOUND)), n = Math.min(sure || r <= 0.1 ? 2 : 1, m[s] - (s === 'def' ? 0 : 1)); if (n <= 0) return null;
+  m[s] -= n; m.wounds.push({s, n, left: 72 + rngInt(w, 96) + (n - 1) * 48});
+  return `${m.name}的${WOUND[s]}受了傷（${STAT_NAME[s]} -${n}），要養一陣子。`;
+}
+// rate：每小時養好幾小時的傷（旅店 1、紮營 0.6、趕路 0.3、急行軍 0）
+function healWounds(w, hours, rate) {
+  if (!rate) return;
+  for (const m of w.party) { if (!m.wounds?.length) continue;
+    m.wounds = m.wounds.filter(x => { x.left -= hours * rate; if (x.left > 0) return true; m[x.s] += x.n; say(w, `${m.name}${WOUND[x.s]}的傷養好了。`); return false; }); }
+}
+export const woundDays = (x, rate = 1) => Math.max(1, Math.ceil(x.left / rate / 24));
 export const eaters = w => w.party.length + (w.bound ? 1 : 0) + w.mules * MULE_FEED + (w.horses || 0) * HORSE_FEED;
 export const daysOfFood = w => w.food / Math.max(1, eaters(w));
 
