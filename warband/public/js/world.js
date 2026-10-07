@@ -26,6 +26,9 @@ export function apCost(w, a) {
   if (a.type === 'search') return 24;
   if (a.type === 'camp') return campOptions(w).find(o => o.key === a.opt)?.hours || 1;
   if (a.type === 'attackPlayer') return 6;
+  if (a.type === 'gather') return gatherOptions(w).find(o => o.key === a.kind)?.hours || 12;
+  if (a.type === 'pick') return 2;
+  if (a.type === 'work') return 24 * (a.days || 1);
   return 0;
 }
 /* ───────────── 常數 ───────────── */
@@ -258,6 +261,10 @@ export function newWorld(seed, heroName, opt = {}) {
 // 走到委託地點：護送抵達就結算；傭兵、狼害就開打
 function arriveJob(w, out) {
   const k = K();
+  for (const c of w.contracts.slice()) if (c.kind === 'letter' && c.taken && c.to === w.pos) {
+    w.gold += c.reward; w.contracts = w.contracts.filter(x => x !== c); if (c.secret) w.fame = (w.fame || 0) + 0.3;
+    say(w, `把${c.secret ? '密信' : '信'}送到了${nm(c.to)}，收信的人付了 ${c.reward} 金幣。`); out.lines.push(`送達，拿到 ${c.reward} 金幣。`);
+  }
   if (w.escort) { const c = w.contracts.find(x => x.id === w.escort.cid);
     if (c && c.to === w.pos) { const m = k.markets[c.to]; if (m) m.stock[c.g] += c.q * BALE; w.gold += c.reward; w.fame = (w.fame || 0) + 0.5; w.contracts = w.contracts.filter(x => x !== c); w.escort = null;
       for (const p of companions(w)) p.loyalty = Math.min(100, p.loyalty + 3); say(w, `把${GN[c.g]}商隊平安送到${nm(c.to)}，商人付了 ${c.reward} 金幣。`); out.lines.push(`護送完成，拿到 ${c.reward} 金幣。`); } }
@@ -277,6 +284,7 @@ function refreshContracts(w, t) {
     if (c.kind === 'gang' && !c.done) { const g = k.gangs.find(x => x.id === c.gang); if (!g || g.gone) c.void = true; }
     if (c.kind === 'merc' && !c.done) { const a = Math.min(c.fac, c.enemy), b = Math.max(c.fac, c.enemy); if (!k.war[a][b] || !k.fac[c.fac].alive || k.owner[c.target] !== c.enemy) c.void = true; }
     if (c.kind === 'deliver' && (!isTown(c.at, k) || c.left <= 0)) c.void = true;
+    if (c.kind === 'letter' && !isTown(c.to, k)) c.void = true;
   }
   if (w.escort && !w.contracts.some(c => c.id === w.escort.cid)) w.escort = null;
   w.contracts = w.contracts.filter(c => !c.void || c.done);
@@ -319,6 +327,13 @@ function refreshContracts(w, t) {
       break;
     }
   }
+  // 送信：輕、快、錢少；偶爾是密信——錢多，但有人會來截
+  if (w.contracts.filter(c => c.kind === 'letter' && c.town === t && !c.taken).length < 2 && rngNext(w) < 0.85) {
+    const dests = Object.keys(k.markets).map(Number).filter(i => i !== t && isTown(i, k) && hdist(i, t) >= 3 && hdist(i, t) <= 10);
+    if (dests.length) { const to = rngPick(w, dests), path = findPath(w, t, to);
+      if (path) { const days = pathHours(path, k) / 24, secret = rngNext(w) < 0.25, base = Math.round(days * 9 + 12);
+        add({kind: 'letter', to, secret, title: secret ? `把一封密信送到${nm(to)}` : `替人捎信到${nm(to)}`, reward: secret ? base * 3 : base, until: w.day + Math.ceil(days * 1.5) + 3}); } }
+  }
   // 狼害：附近村莊旁的荒野
   if (!w.contracts.some(c => c.kind === 'wolves' && c.town === t && !c.taken) && rngNext(w) < 0.6) {
     const spots = []; for (let i = 0; i < N; i++) if (k.owner[i] < 0 && C.land(i) && k.gameK[i] > 0 && hdist(i, t) <= 5 && NBR[i].some(n => k.owner[n] >= 0 && k.pop[n] >= 8)) spots.push(i);
@@ -329,9 +344,9 @@ function refreshContracts(w, t) {
 export const canClaimHere = (w, c) => { const k = K(); return c.done && c.taken && isTown(w.pos, k) && (c.town === w.pos || (k.owner[c.town] >= 0 && k.owner[c.town] === k.owner[w.pos])); };
 export const contractSite = (w, c) => {
   if (c.kind === 'gang') { const g = K().gangs.find(x => x.id === c.gang); return g && !g.gone ? g.lair : -1; }
-  return c.kind === 'escort' ? c.to : c.kind === 'deliver' ? c.at : c.target ?? -1;
+  return c.kind === 'escort' || c.kind === 'letter' ? c.to : c.kind === 'deliver' ? c.at : c.target ?? -1;
 };
-export const KIND_NAME = {gang: '剿匪', escort: '護送', deliver: '收購', merc: '傭兵', wolves: '狼害'};
+export const KIND_NAME = {gang: '剿匪', escort: '護送', deliver: '收購', merc: '傭兵', wolves: '狼害', letter: '送信'};
 
 /* ───────────── 興趣點：荒野裡值得繞路去看看的地方 ───────────── */
 // 由世界種子決定，同一個世界裡每個人看到的都一樣（多人時共用探索狀態）
@@ -410,11 +425,12 @@ function explorePOI(w, p, out) {
 /* ───────────── 時間流逝 ───────────── */
 const RUMOR_TYPES = new Set(['war', 'bandit', 'econ', 'disaster', 'legend', 'hero', 'found']);
 function passHours(w, hours, mode, out) {
-  const ci = mode === 'camp' ? campInfo(w) : null, chill = coldNight(w);
+  const ci = mode === 'camp' ? campInfo(w) : null, chill = coldNight(w), march = mode === 'travel' && w.march;
   for (let i = 0; i < hours; i++) {
     w.hour++;
+    if (march) marchHour(w); else if (mode === 'camp' || mode === 'inn') w.fatigue = Math.max(0, (w.fatigue || 0) - 2);
     w.food = Math.max(0, w.food - eaters(w) / 24 * ((K().season === 3 && coldAt(w.pos) && !(ci && ci.fire) ? 1.3 : 1) + (ci && ci.watch ? 0.25 : 0)));
-    const rate = mode === 'inn' ? 0.5 : mode === 'camp' ? 0.2 + (ci && ci.fire ? 0.1 : 0) - (chill && !(ci && ci.fire) ? 0.12 : 0) : 0.08;
+    const rate = march ? 0 : mode === 'inn' ? 0.5 : mode === 'camp' ? 0.2 + (ci && ci.fire ? 0.1 : 0) - (chill && !(ci && ci.fire) ? 0.12 : 0) : 0.08;
     for (const m of w.party) { m.healBuf = (m.healBuf || 0) + m.max * rate / 24; const whole = Math.floor(m.healBuf); if (whole) { m.hp = Math.min(m.max, Math.round(m.hp) + whole); m.healBuf -= whole; } }
     if (w.hour % 6 === 0) worldTick(w, out);
     if (w.hour >= 24) { w.hour = 0; w.day++; newDay(w, out, mode); if (w.over) return; }
@@ -435,6 +451,7 @@ function worldTick(w, out) {
   }
   moveBands(w, out);
   sendBands(w);
+  if (!MODE.shared) { decayCaches(w.caches ||= [], 0.25); simCaches(w.caches, evs, () => rngNext(w), w.day); }
 }
 function newDay(w, out, mode) {
   for (const m of w.party) m.hp = Math.round(m.hp);
@@ -456,8 +473,9 @@ function desertCheck(w) { for (const m of companions(w).slice()) if (m.loyalty <
 function trimCargo(w) {
   let over = load(w) - capacity(w); if (over <= 0) return;
   const lost = [];
-  for (const g of TRADE.slice().sort((a, b) => unitValue(a) - unitValue(b))) { const d = Math.min(over, w.cargo[g] || 0); if (d > 0) { w.cargo[g] -= d; over -= d; lost.push(`${GN[g]} ${d} 包`); } if (over <= 0) break; }
-  if (lost.length) say(w, `扛不動了，丟下了${lost.join('、')}。`);
+  const dropped = {};
+  for (const g of TRADE.slice().sort((a, b) => unitValue(a) - unitValue(b))) { const d = Math.min(over, w.cargo[g] || 0); if (d > 0) { w.cargo[g] -= d; over -= d; dropped[g] = d; lost.push(`${GN[g]} ${d} 包`); } if (over <= 0) break; }
+  if (lost.length) { addCache(w, w.pos, dropped, '扛不動丟下的'); say(w, `扛不動了，把${lost.join('、')}丟在${nm(w.pos)}的路邊。`); }
 }
 function payday(w) {
   const due = companions(w).reduce((s, m) => s + m.wage, 0);
@@ -537,8 +555,9 @@ export const wantedBy = (w, f) => (w.wanted && w.wanted[f]) || 0;
 export const fineOf = (w, f) => Math.max(30, Math.round(wantedBy(w, f) * 40));
 // 付錢消災：貨比錢值錢，他們就要貨
 export function tollOf(w) { if (w.escort) return {escort: true}; const cv = cargoValue(w); return cv > w.gold * 0.6 && load(w) > 0 ? {cargo: true} : {gold: Math.max(15, Math.round(w.gold * 0.3))}; }
-function loseCargo(w, frac, why) {
-  const lost = []; for (const g of TRADE) { const d = Math.ceil((w.cargo[g] || 0) * frac); if (d > 0) { w.cargo[g] -= d; lost.push(`${GN[g]} ${d} 包`); } }
+function loseCargo(w, frac, why, drop) {
+  const lost = [], gone = {}; for (const g of TRADE) { const d = Math.ceil((w.cargo[g] || 0) * frac); if (d > 0) { w.cargo[g] -= d; gone[g] = d; lost.push(`${GN[g]} ${d} 包`); } }
+  if (drop && lost.length) addCache(w, w.pos, gone, drop);
   if (lost.length) say(w, `${why}${lost.join('、')}。`); return lost;
 }
 
@@ -652,7 +671,8 @@ export function applyBattle(w, setup, bst) {
     for (const m of companions(w)) m.loyalty = Math.max(0, m.loyalty - 3 - deaths * 4);
     out.lines.unshift('撤退了。');
     if (setup.source.kind === 'band' && w.escort) failEscort(w, '撤退時丟下了商隊，貨被搶光。');
-    if (setup.source.kind === 'band') { const b = w.bands.find(x => x.id === setup.source.ref); if (b && b.kind === 'bandits' && load(w) > 0 && !setup.camp) { loseCargo(w, 0.5, '撤退時丟下了'); out.lines.push('撤退時丟下了一半的貨。'); } if (b) { b.ttl = 1; b.pos = -1; w.bands = w.bands.filter(x => x !== b); } }
+    if (setup.source.kind === 'band') { const b = w.bands.find(x => x.id === setup.source.ref), c = b?.letter && w.contracts.find(x => x.id === b.letter); if (c) { w.contracts = w.contracts.filter(x => x !== c); out.lines.push(`撤退時密信被搶走了，委託「${c.title}」失敗。`); } }
+    if (setup.source.kind === 'band') { const b = w.bands.find(x => x.id === setup.source.ref); if (b && b.kind === 'bandits' && load(w) > 0 && !setup.camp) { loseCargo(w, 0.5, '撤退時丟下了', '撤退時丟下的'); out.lines.push('撤退時丟下了一半的貨，散在戰場上。'); } if (b) { b.ttl = 1; b.pos = -1; w.bands = w.bands.filter(x => x !== b); } }
     if (setup.camp && setup.source.kind === 'band') { const b = w.bands.find(x => x.id === setup.source.ref); out.lines.push(defeatStep(w, setup.title, true).text); if (b) w.bands = w.bands.filter(x => x !== b); }
     else { const back = NBR[w.pos].find(p => passable(p) && !bandAt(w, p)); if (back !== undefined) { w.pos = back; w.camp = null; } }
   }
@@ -742,6 +762,109 @@ export function idle(w, hours, T) {
   return rep;
 }
 
+/* ───────────── 急行軍 ───────────── */
+export const tired = w => (w.fatigue || 0) > 0;
+// 急行軍的每一小時：全隊扣血、傭兵心浮氣躁、騾子可能倒下、馬可能跛腳
+function marchHour(w) {
+  w.fatigue = Math.min(96, (w.fatigue || 0) + 1);
+  for (const m of w.party) m.hp = Math.max(1, m.hp - m.max * 0.006);
+  for (const m of companions(w)) m.loyalty -= m.traits.includes('coward') || m.traits.includes('greedy') ? 0.2 : 0.1;
+  for (let i = 0; i < w.mules; i++) if (rngNext(w) < 0.003) { w.mules--; say(w, `一頭騾子在${nm(w.pos)}口吐白沫，倒下就再也沒起來。`); trimCargo(w); break; }
+  if ((w.horses || 0) > 0 && rngNext(w) < 0.0015 * w.horses) { w.horses--; say(w, '一匹馬跛了腳，只好放牠走。'); }
+}
+
+/* ───────────── 地上的貨（丟下的、散落的） ───────────── */
+// 單人：存在 w.caches；共享世界：伺服器把共用的陣列掛在 w.caches 上（所有人看到同一份）
+const ROT = {food: 0.25, wood: 0.01, stone: 0, iron: 0.01, salt: 0.02, fur: 0.04, wine: 0.02, fish: 0.12, gem: 0};   // 每天爛掉的比例
+export const cachesAt = (w, i) => (w.caches || []).filter(c => c.tile === i && cacheTotal(c) > 0);
+export const cacheTotal = c => Object.values(c.goods).reduce((s, v) => s + Math.floor(v), 0);
+export function addCache(w, tile, goods, why) {
+  const list = (w.caches ||= []); let c = list.find(x => x.tile === tile);
+  if (!c) { c = {id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4), tile, goods: {}, why, day: w.day ?? 0}; list.push(c); }
+  for (const [g, n] of Object.entries(goods)) if (n > 0) c.goods[g] = (c.goods[g] || 0) + n;
+  c.why = why || c.why; return c;
+}
+// 時間過去：貨會爛；離村子、城近的會被人撿走（撿走的算進最近的市集存貨）
+export function decayCaches(list, days) {
+  const k = K();
+  for (const c of list) {
+    const near = k.owner[c.tile] >= 0 && [c.tile, ...NBR[c.tile]].some(n => k.pop[n] >= 8 || k.markets[n]);
+    for (const g of Object.keys(c.goods)) {
+      const rot = c.goods[g] * (1 - Math.exp(-(ROT[g] || 0.02) * days)), take = near ? c.goods[g] * (1 - Math.exp(-0.3 * days)) : 0;
+      c.goods[g] = Math.max(0, c.goods[g] - rot - take);
+      if (take > 0 && !isSpec(g)) { const m = nearestMarket(c.tile, k); if (m >= 0) k.markets[m].stock[g] += take * BALE; }
+    }
+  }
+  for (let i = list.length - 1; i >= 0; i--) if (cacheTotal(list[i]) <= 0) list.splice(i, 1);
+}
+function nearestMarket(t, k) { let best = -1, bd = 99; for (const i of Object.keys(k.markets).map(Number)) { if (k.owner[i] < 0) continue; const d = hdist(i, t); if (d < bd) { bd = d; best = i; } } return bd <= 6 ? best : -1; }
+// 沙盒裡的劫案：劫匪帶不走的貨散落在原地；被盜匪盯上的商隊偶爾丟下一部分貨逃命
+export function simCaches(list, evs, rand, day) {
+  const k = K(), W = {caches: list, day};
+  for (const e of evs || []) {
+    if (e.type !== 'bandit' || e.tile == null || e.tile < 0 || !/劫/.test(e.text) || !passable(e.tile)) continue;
+    const g = GOODS.find(x => e.text.includes(GN[x])) || rngPickR(rand, GOODS);
+    addCache(W, e.tile, {[g]: 3 + Math.floor(rand() * 8)}, '被劫的商隊散落的');
+  }
+  for (const c of k.caravans || []) {
+    if (c.wait > 0) continue; const i = c.path[c.pos]; if (i == null || k.bandit[i] < 50 || rand() > 0.004) continue;
+    const q = Math.max(1, Math.round(c.amt / BALE * (0.1 + rand() * 0.15))); c.amt = Math.max(0, c.amt - q * BALE);
+    addCache(W, i, {[c.g]: q}, '商隊逃命時丟下的');
+  }
+  if (list.length > 300) list.splice(0, list.length - 300);
+}
+const rngPickR = (rand, arr) => arr[Math.floor(rand() * arr.length)];
+
+/* ───────────── 採集 ───────────── */
+// 選項依這一格的地形與沙盒裡的資源出現：打獵（獵物）、伐木（林木）、採石（丘陵山地）、挖礦（礦脈）、曬鹽（海岸鹽地）
+export const GATHER = {
+  hunt: {n: '打獵', icon: '🏹', d: '口糧，運氣好有毛皮。可能驚動狼群或熊。'},
+  chop: {n: '伐木', icon: '🪓', d: '幾包木材。便宜又重，賺不賺看騾子夠不夠。'},
+  quarry: {n: '採石', icon: '🪨', d: '幾包石材。'},
+  mine: {n: '挖礦', icon: '⛏', d: '少量的鐵。要紮營工具。'},
+  salt: {n: '曬鹽', icon: '🧂', d: '一兩包鹽，要花一整天。'},
+};
+export function gatherOptions(w) {
+  const k = K(), i = w.pos, out = []; if (siteAt(w, i)?.kind === 'town') return out;
+  const b = k.biome[i], hands = w.party.length, kit = w.kit ? 1.4 : 1, room = capacity(w) - load(w);
+  const opt = (key, ok, why, hours, est) => out.push({key, ...GATHER[key], ok: ok && (key === 'hunt' || room > 0), why: ok ? (key === 'hunt' || room > 0 ? '' : '扛不動了') : why, hours, est});
+  if (k.gameK[i] > 0) opt('hunt', k.game[i] > 3, '獵物被打光了', 12, `約 ${Math.round(Math.min(k.game[i] * 0.3, 3 + hands * 1.5))} 份口糧`);
+  if (k.timber && (k.timber[i] > 8 || b === 6 || b === 9)) opt('chop', k.timber[i] > 8, '樹都砍光了', 12, `約 ${Math.min(Math.floor(k.timber[i] / 6), Math.round((1 + hands * 0.8) * kit))} 包木材`);
+  if (b === 3 || b === 4) opt('quarry', true, '', 12, `約 ${Math.round((1 + hands * 0.6) * kit)} 包石材`);
+  if (k.vein && k.vein[i] > 0 && (k.known[i] || w.kit)) opt('mine', !!w.kit, '要紮營工具才挖得動', 12, `約 ${1 + Math.floor(hands / 3)} 包鐵`);
+  const sk = C.WS.saltK ? C.WS.saltK[i] : 0; if (sk > 0.5) opt('salt', true, '', 24, `約 ${Math.max(1, Math.round(hands * 0.35 * sk))} 包鹽`);
+  return out;
+}
+// 在有主的土地上採：盜伐、盜獵。附近有巡邏隊就很容易被撞見
+function poachCheck(w, out) {
+  const k = K(), f = k.owner[w.pos]; if (f < 0) return false;
+  const near = (w.patrols || []).some(p => p.fac === f && hdist(p.pos, w.pos) <= 2);
+  if (rngNext(w) > (near ? 0.45 : 0.08)) return false;
+  w.wanted = w.wanted || {}; w.wanted[f] = (w.wanted[f] || 0) + 1;
+  out.lines.push(`被${facName(f)}的巡守撞見了：這是${facName(f)}的地，你們在盜採。`); say(w, `在${nm(w.pos)}盜採時被${facName(f)}的巡守撞見，被記上一筆。`);
+  return true;
+}
+function gather(w, kind, out) {
+  const o = gatherOptions(w).find(x => x.key === kind); if (!o) throw new Error('這裡不能這樣採'); if (!o.ok) throw new Error(o.why);
+  const k = K(), i = w.pos, hands = w.party.length, kit = w.kit ? 1.4 : 1, luck = 0.7 + rngNext(w) * 0.6;
+  passHours(w, o.hours, 'camp', out); if (w.over || out.encounter) return;
+  const caught = poachCheck(w, out), keep = caught ? 0.5 : 1, got = {};
+  if (kind === 'hunt') {
+    const n = Math.max(1, Math.round(Math.min(k.game[i] * 0.3, 3 + hands * 1.5) * luck * keep)); k.game[i] = Math.max(0, k.game[i] - n * 0.25); w.food += n; got.food = n;
+    if (rngNext(w) < 0.2 + k.game[i] / 250 && capacity(w) > load(w)) { w.cargo.fur = (w.cargo.fur || 0) + 1; got.fur = 1; }
+    if (rngNext(w) < 0.12) { const b = makeBand(w, 'wolves', i, {ttl: 1}); out.encounter = b.id; out.lines.push('血腥味引來了狼群！'); }
+  } else {
+    let g, n;
+    if (kind === 'chop') { g = 'wood'; n = Math.min(Math.floor(k.timber[i] / 6), Math.round((1 + hands * 0.8) * kit * luck)); k.timber[i] = Math.max(0, k.timber[i] - n * 0.4); }
+    if (kind === 'quarry') { g = 'stone'; n = Math.round((1 + hands * 0.6) * kit * luck); }
+    if (kind === 'mine') { g = 'iron'; n = Math.min(Math.floor(k.vein[i]), 1 + Math.floor(hands / 3 * luck)); k.vein[i] = Math.max(0, k.vein[i] - n); if (!k.known[i]) { k.known[i] = 1; k.ev.push({y: k.curY, type: 'econ', text: `一支戰幫在${nm(i)}挖出了鐵礦脈。`, tile: i, ts: k.stamp}); } if (k.vein[i] <= 0.5) { k.vein[i] = 0; k.ev.push({y: k.curY, type: 'econ', text: `${nm(i)}的鐵礦脈被挖空了。`, tile: i, ts: k.stamp}); } }
+    if (kind === 'salt') { g = 'salt'; n = Math.max(1, Math.round(hands * 0.35 * (C.WS.saltK[i] || 1) * luck)); }
+    n = Math.max(0, Math.min(Math.round(n * keep), capacity(w) - load(w))); w.cargo[g] = (w.cargo[g] || 0) + n; got[g] = n;
+  }
+  const txt = Object.entries(got).map(([g, n]) => g === 'food' ? `${n} 份口糧` : `${GN[g]} ${n} 包`).join('、') || '什麼也沒有';
+  say(w, `在${nm(i)}${GATHER[kind].n}，得到${txt}。`); out.lines.unshift(`${GATHER[kind].n}：得到${txt}。`);
+}
+
 /* ───────────── 共享世界：襲擊其他玩家 ───────────── */
 // 合不合法：無主之地沒人管；對方掛著與這裡交戰的國旗，或正被通緝，就不算犯法；否則這裡的國家會通緝你
 export function raidLegality(w, target) {
@@ -763,8 +886,9 @@ export function pvpSetup(w, target) {
 export function worldAct(w, a) {
   const out = {lines: []};
   if (w.over) throw new Error('這段旅程已經結束');
-  const apNeed = MODE.shared ? apCost(w, a) : 0;
-  if (apNeed > (w.ap ?? 0) + 1e-9) throw new Error(`行動點不夠：要 ${apNeed}，剩 ${Math.floor(w.ap ?? 0)}。休息一下，時間會慢慢補回來。`);
+  const apNeed = MODE.shared ? apCost(w, a) : 0, debtOk = a.type === 'travel' && w.march;
+  if ((w.ap ?? 0) < 0 && apNeed > 0 && !debtOk) throw new Error(`還在硬撐的債裡（${Math.floor(w.ap)}）。等行動點回到 0 以上才能做別的事。`);
+  if (apNeed > (w.ap ?? 0) + (debtOk ? DEBT_MAX : 0) + 1e-9) throw new Error(debtOk ? `再撐下去就要倒了：最多只能欠 ${DEBT_MAX} 點行動點。` : `行動點不夠：要 ${apNeed}，剩 ${Math.floor(w.ap ?? 0)}。休息一下，時間會慢慢補回來；或開急行軍硬撐。`);
   w.leads ||= []; if (w.escort === undefined) w.escort = null;
   const k = K(), here = siteAt(w, w.pos), town = here?.kind === 'town';
   const needTown = () => { if (!town) throw new Error('要在城鎮的市集'); };
@@ -934,7 +1058,10 @@ export function worldAct(w, a) {
       const c = w.contracts.find(x => x.id === a.id); if (!c || c.taken) throw new Error('沒有這份委託');
       if (c.kind === 'deliver') throw new Error('收購不用接，直接把貨送到就行');
       if (c.kind === 'escort') { if (w.escort) throw new Error('一次只能護送一支商隊'); if (w.pos !== c.town) throw new Error('要在出發的城接'); w.escort = {cid: c.id, to: c.to, value: c.value}; }
+      if (c.kind === 'letter' && w.pos !== c.town) throw new Error('要在寄信的城接');
       c.taken = true; say(w, `接下委託：${c.title}。`);
+      if (c.kind === 'letter' && c.secret) { const spots = []; for (let i = 0; i < N; i++) if (passable(i) && !isTown(i, k) && hdist(i, w.pos) === 3) spots.push(i);
+        if (spots.length) { const b = makeBand(w, 'bandits', rngPick(w, spots), {str: 90 + w.day * 3, name: '截信的人', ttl: 24, hunting: true}); b.letter = c.id; b.loot = 30 + rngInt(w, 30); say(w, '收下密信時，你注意到酒館角落有人起身離開。'); } }
       break;
     }
     case 'claim': {
@@ -972,6 +1099,7 @@ export function worldAct(w, a) {
     case 'pay': {
       const b = w.bands.find(x => x.id === a.band); if (!b || b.kind !== 'bandits') break;
       const t = tollOf(w);
+      if (b.letter) { const c = w.contracts.find(x => x.id === b.letter); if (c) { w.contracts = w.contracts.filter(x => x !== c); say(w, `把密信交給了${b.name}，委託「${c.title}」失敗了。`); } out.lines.push('交出了密信，他們放你們走了。'); w.bands = w.bands.filter(x => x !== b); break; }
       if (t.escort) { failEscort(w, `${b.name}劫走了護送的貨，`); out.lines.push('他們拉走了商隊的貨，放你們走了。'); }
       else if (t.cargo) { loseCargo(w, 0.5, `${b.name}拿走了一半的貨：`); out.lines.push('他們搬走了一半的貨，讓你們過去了。'); }
       else { if (w.gold < t.gold) { out.lines.push('身上的錢不夠買路。'); out.battle = battleSetup(w, 'band', b.id); break; } w.gold -= t.gold; say(w, `付了 ${t.gold} 金幣的過路費。`); }
@@ -988,6 +1116,28 @@ export function worldAct(w, a) {
       passHours(w, o.hours, 'camp', out);
       say(w, o.key === 'basic' ? `在${nm(w.pos)}紮營。` : `營地${o.key === 'stake' ? '圍上了木柵' : o.key === 'watch' ? '排好了守夜的班' : '生起了營火'}。`);
       break;
+    }
+    case 'march': { w.march = !!a.on; say(w, w.march ? '下令急行軍：走得快，但人和牲口都會吃不消。' : '恢復正常行軍。'); break; }
+    case 'drop': {
+      const g = a.g, q = Math.min(Math.floor(a.q || 0), w.cargo[g] || 0); if (!TRADE.includes(g) || q <= 0) throw new Error('身上沒有這種貨');
+      w.cargo[g] -= q; addCache(w, w.pos, {[g]: q}, '有人丟下的'); say(w, `把${GN[g]} ${q} 包丟在${nm(w.pos)}。`); break;
+    }
+    case 'pick': {
+      const cs = cachesAt(w, w.pos); if (!cs.length) throw new Error('這裡沒有東西可撿');
+      let room = capacity(w) - load(w); const took = [];
+      for (const c of cs) for (const g of Object.keys(c.goods).sort((x, y) => unitValue(y) - unitValue(x))) {
+        if (a.g && a.g !== g) continue; const n = Math.min(room, Math.floor(c.goods[g])); if (n <= 0) continue;
+        c.goods[g] -= n; room -= n; if (g === 'food' && a.eat) w.food += n * RATIONS_PER_BALE; else w.cargo[g] = (w.cargo[g] || 0) + n; took.push(`${GN[g]} ${n} 包`);
+      }
+      if (!took.length) throw new Error(room <= 0 ? '扛不動了' : '能撿的都撿完了');
+      passHours(w, 2, 'travel', out); say(w, `在${nm(w.pos)}撿起了${took.join('、')}。`); out.lines.push(`撿起了${took.join('、')}。`); break;
+    }
+    case 'gather': { gather(w, a.kind, out); break; }
+    case 'work': {
+      needTown(); const d = Math.max(1, Math.min(7, a.days || 1)), pay = Math.round(w.party.length * (2.5 + Math.min(3, k.markets[w.pos].pop / 200)) * d);
+      passHours(w, 24 * d, 'camp', out); if (w.over) break; w.gold += pay; w.earned += pay;
+      for (const m of companions(w)) m.loyalty = Math.min(100, m.loyalty + 0.5 * d);
+      say(w, `在${nm(w.pos)}打了 ${d} 天零工（碼頭、倉庫、田裡），全隊賺了 ${pay} 金幣。`); out.lines.push(`打零工 ${d} 天，賺了 ${pay} 金幣。`); break;
     }
     case 'breakCamp': { if (!campHere(w)) throw new Error('沒有紮營'); w.camp = null; say(w, '拔營。'); break; }
     case 'buyKit': { needTown(); if (w.kit) throw new Error('已經有一套了'); if (w.gold < KIT_PRICE) throw new Error('錢不夠'); w.gold -= KIT_PRICE; w.kit = 1; say(w, `買了一套紮營工具（${KIT_PRICE} 金幣）：斧頭、繩索、帳篷。`); break; }
@@ -1022,13 +1172,17 @@ export const GEAR_NAME = {w: ['舊兵器', '精鐵兵器', '名匠兵器', '大�
 export function gearBonus(w, m) {
   const b = {str: m.gw || 0, def: m.ga || 0};
   if ((w.relics || []).some(r => r.equip === m.id) || m.relicW) b.str += 2;
+  if (tired(w)) { b.def -= 1; b.skl = -5; }   // 疲憊：防禦 -1、命中 -10
   return b;
 }
 export const battleParty = w => w.party.map(m => { const b = gearBonus(w, m); return {...m, str: m.str + b.str, def: m.def + b.def}; });
 const ironMul = (i, k = K()) => Math.max(0.6, Math.min(2.5, k.markets[i].price.iron));
 export const gearPrice = (i, kind, tier) => Math.round((kind === 'w' ? 35 : 45) * tier * (0.5 + 0.5 * ironMul(i)));
 export const mounted = w => (w.horses || 0) >= w.party.length && w.party.length > 0;
-export const legHours = (w, i, k = K()) => { const h = hexHours(i, k); if (!mounted(w) || h === Infinity) return h; const b = k.biome[i]; return Math.round(h * (b === 6 || b === 3 || b === 9 ? 0.85 : 0.65)); };
+// 載重：貨裝到七成五以上開始變慢，滿載時每格多花四成時間
+export const loadMul = w => { const r = load(w) / Math.max(1, capacity(w)); return r <= 0.75 ? 1 : 1 + Math.min(1, (r - 0.75) / 0.25) * 0.4; };
+export const MARCH_MUL = 0.7, DEBT_MAX = 24;
+export const legHours = (w, i, k = K()) => { let h = hexHours(i, k); if (h === Infinity) return h; const b = k.biome[i]; if (mounted(w)) h *= (b === 6 || b === 3 || b === 9 ? 0.85 : 0.65); h *= loadMul(w); if (w.march) h *= MARCH_MUL; return Math.max(1, Math.round(h)); };
 export const pathHoursW = (w, path, k = K()) => path.reduce((s, i) => s + legHours(w, i, k), 0);
 // 沙盒裡真實存在的有名者：這座城所屬國家裡打過幾場勝仗、不是國君的人
 export function famousHere(w, t) {

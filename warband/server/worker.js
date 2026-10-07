@@ -43,11 +43,12 @@ export class Realm extends DurableObject {
       } else {
         await st.deleteAll();
         this.meta = {version: this.env.WORLD_VERSION || '1', seq: 0, startedAt: Date.now(), chunks: 0};
-        this.feed = []; this.poiState = {}; this.roster = {}; this.names = {};
+        this.feed = []; this.poiState = {}; this.roster = {}; this.names = {}; this.caches = [];
         await st.put('pois', Wd.genPOIs());
         await this.persist(true);
       }
       this.pois = await st.get('pois'); this.poiState = await st.get('poiState') || {}; this.feed = await st.get('feed') || []; this.roster = await st.get('roster') || {};
+      this.caches = await st.get('caches') || [];
       this.names = await st.get('names'); if (!this.names) { this.names = {}; for (const [id, r] of Object.entries(this.roster)) if (!this.names[r.name]) this.names[r.name] = id; }
       this.evLen = C.K().ev.length;
       Wd.MODE.shared = true;
@@ -59,17 +60,18 @@ export class Realm extends DurableObject {
     if (!force && Date.now() - this.lastPersist < 30000) { this.dirty = true; return; }
     const st = this.ctx.storage, z = await gzip(JSON.stringify(C.saveState())), n = Math.ceil(z.length / CHUNK);
     for (let i = 0; i < n; i++) await st.put('simz:' + i, z.slice(i * CHUNK, (i + 1) * CHUNK));
-    this.meta.chunks = n; await st.put('meta', this.meta); await st.put('feed', this.feed.slice(-400)); await st.put('poiState', this.poiState); await st.put('roster', this.roster); await st.put('names', this.names || {});
+    this.meta.chunks = n; await st.put('meta', this.meta); await st.put('feed', this.feed.slice(-400)); await st.put('poiState', this.poiState); await st.put('roster', this.roster); await st.put('names', this.names || {}); await st.put('caches', this.caches || []);
     this.lastPersist = Date.now(); this.dirty = false;
   }
   // 沙盒新產生的事件收進共用的事件流（每個玩家的「聽說」從這裡讀）
-  pump() { const ev = C.K().ev; for (let i = this.evLen; i < ev.length; i++) this.feed.push({seq: ++this.meta.seq, e: ev[i]}); this.evLen = ev.length; if (this.feed.length > 600) this.feed = this.feed.slice(-400); this.snap = null; }
+  pump(tick) { const ev = C.K().ev, fresh = ev.slice(this.evLen); for (let i = this.evLen; i < ev.length; i++) this.feed.push({seq: ++this.meta.seq, e: ev[i]}); this.evLen = ev.length;
+    if (tick) { Wd.decayCaches(this.caches, 0.25); Wd.simCaches(this.caches, fresh, Math.random, 0); } if (this.feed.length > 600) this.feed = this.feed.slice(-400); this.snap = null; }
 
   /* ───── 世界時鐘 ───── */
   async alarm() {
     await this.init();
     if (this.env.PAUSED === '1' || this.meta.paused) { await this.ctx.storage.setAlarm(Date.now() + this.tickMs()); return; }
-    C.SIM.periodTick(); this.pump();
+    C.SIM.periodTick(); this.pump(true);
     await this.persist(true);
     await this.ctx.storage.setAlarm(Date.now() + this.tickMs());
   }
@@ -116,7 +118,8 @@ export class Realm extends DurableObject {
   }
   // 行動點回復；超過上限、沒用掉的時間就是「離線」：照離線的規則結算（吃得少、發一半的餉、野外可能被夜襲）
   regen(p) {
-    const now = Date.now(), w = p.w, got = (w.ap ?? 0) + (now - (p.apAt || now)) / this.apMs(), over = Math.max(0, got - Wd.AP_MAX);
+    const now = Date.now(), w = p.w, gain = (now - (p.apAt || now)) / this.apMs(), got = (w.ap ?? 0) + gain, over = Math.max(0, got - Wd.AP_MAX);
+    if (w.fatigue) w.fatigue = Math.max(0, w.fatigue - gain);   // 等行動點回復的時間就是在休息
     w.ap = Math.min(Wd.AP_MAX, got); p.apAt = now;
     if (over >= 6 && !p.battle && !w.over) {
       this.prep(p); const r = Wd.idle(w, over, C.K().T);
@@ -124,16 +127,16 @@ export class Realm extends DurableObject {
       if (r.raids.some(t => !/擊退/.test(t))) w.shieldT = C.K().T + Wd.SHIELD_T;
     }
   }
-  prep(p) { const w = p.w; w.poiShared = this.poiState; w.pois = this.pois; Wd.MODE.worldT = C.K().T; Wd.MODE.bandName = `${p.name}的戰幫`; }
+  prep(p) { const w = p.w; w.poiShared = this.poiState; w.pois = this.pois; w.caches = this.caches; Wd.MODE.worldT = C.K().T; Wd.MODE.bandName = `${p.name}的戰幫`; }
   async savePlayer(p) {
-    const w = p.w, keepPois = w.pois, keepShared = w.poiShared; delete w.pois; delete w.poiShared;
-    await this.ctx.storage.put('p:' + p.id, p); w.pois = keepPois; w.poiShared = keepShared;
+    const w = p.w, keepPois = w.pois, keepShared = w.poiShared, keepC = w.caches; delete w.pois; delete w.poiShared; delete w.caches;
+    await this.ctx.storage.put('p:' + p.id, p); w.pois = keepPois; w.poiShared = keepShared; w.caches = keepC;
     const ci = Wd.campInfo(w), town = C.K().markets[w.pos] && C.K().owner[w.pos] >= 0;
     this.roster[p.id] = {name: p.name, pos: w.pos, size: w.party.length, fame: +(w.fame || 0).toFixed(1), over: !!w.over, seen: Date.now(),
       banner: w.banner ?? null, face: w.party.find(m => m.hero)?.face ?? null, g: w.party.find(m => m.hero)?.g || 'm', wantedMax: Math.max(0, ...Object.values(w.wanted || {})), shieldT: w.shieldT || 0, town: !!town, busy: !!p.battle,
       camp: ci ? {stake: ci.stake, watch: ci.watch, fire: ci.fire, ready: ci.ready} : null, power: Math.round(Wd.partyPower(w.party))};
   }
-  view(p) { const w = p.w, away = p.away; p.away = null; return {away, me: p.id.slice(0, 6), w: {...w, pois: undefined, poiShared: undefined}, battle: p.battle ? {setup: p.battle.setup, party: p.battle.party, order: p.battle.order} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
+  view(p) { const w = p.w, away = p.away; p.away = null; return {away, me: p.id.slice(0, 6), caches: this.caches, w: {...w, pois: undefined, poiShared: undefined, caches: undefined}, battle: p.battle ? {setup: p.battle.setup, party: p.battle.party, order: p.battle.order} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
 
   /* ───── 襲擊其他玩家：防守方由 AI 操作，打完由伺服器結算 ───── */
   async findPlayer(prefix) { const id = Object.keys(this.roster).find(k => k.startsWith(prefix)); return id ? await this.player(id) : null; }
@@ -178,7 +181,7 @@ export class Realm extends DurableObject {
     const url = new URL(req.url), path = url.pathname;
     if (path === '/api/world') {
       const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && Date.now() - r.seen < 7 * 864e5).map(([id, r]) => ({id: id.slice(0, 6), ...r}));
-      return json({clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
+      return json({caches: this.caches, clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
     }
     if (path === '/api/name') {   // 名字：檢查有沒有人用、或抽一個沒人用過的
       const taken = async n => { const o = this.names[n]; if (!o) return false; const pl = await this.player(o); return !!(pl && !pl.w.over); };
@@ -262,7 +265,7 @@ export class Realm extends DurableObject {
     }
     if (path === '/api/dev/age' && this.env.DEV === '1') { p.w.ap = Wd.AP_MAX; p.apAt = Date.now() - (+body.hours || 48) * this.apMs(); this.regen(p); await this.savePlayer(p); return json(this.view(p)); }
     if (path === '/api/dev/tp' && this.env.DEV === '1') { p.w.pos = +body.pos; p.w.camp = null; Wd.reveal(p.w, p.w.pos, 2); await this.savePlayer(p); return json(this.view(p)); }
-    if (path === '/api/notes') { p.notes = String(body.notes || '').slice(0, 20000); await this.ctx.storage.put('p:' + id, p); return json({ok: true}); }
+    if (path === '/api/notes') { p.notes = String(body.notes || '').slice(0, 20000); await this.savePlayer(p); return json({ok: true}); }
     return bad('找不到這個 API', 404);
   }
 }
