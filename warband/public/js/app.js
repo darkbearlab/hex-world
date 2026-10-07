@@ -97,9 +97,12 @@ function faceOf(m) {
   const L = faceList(m.g || Wd.genderOf(m.name || '')); if (!L.length) return null;
   return L[(m.fs ?? strHash(m.id || m.name)) % L.length].i;
 }
+// 頭像畫在 canvas 上、照螢幕的實際像素放大且不平滑：像素圖才不會糊（CSS 的 image-rendering 在部分手機上不可靠）
 function faceEl(i, size) {
-  const d = document.createElement('div'), c = FACES.cols; d.className = 'face';
-  Object.assign(d.style, {width: size + 'px', height: size + 'px', backgroundImage: `url(art/faces.webp?v=${FACES.size})`, backgroundSize: `${c * size}px auto`, backgroundPosition: `${-(i % c) * size}px ${-Math.floor(i / c) * size}px`});
+  const d = document.createElement('canvas'), S = FACES.size, c = FACES.cols, px = Math.round(size * (devicePixelRatio || 1));
+  d.className = 'face'; d.width = px; d.height = px; d.style.width = size + 'px'; d.style.height = size + 'px';
+  const g = d.getContext('2d'), draw = () => { g.imageSmoothingEnabled = false; g.clearRect(0, 0, px, px); g.drawImage(FACEIMG, (i % c) * S, Math.floor(i / c) * S, S, S, 0, 0, px, px); };
+  if (FACEIMG.complete && FACEIMG.naturalWidth) draw(); else FACEIMG.addEventListener('load', draw, {once: true});
   return d;
 }
 // 人物的頭像：有頭像就用頭像，沒有（野獸、舊存檔）就用小人圖

@@ -260,3 +260,6 @@ html,body{overflow:hidden;overscroll-behavior:none}
 .odrop button.on{border-color:var(--gold,#d9a441)}
 .odrop .toggle{margin:4px 6px}
 .odrop button.on small{color:#3b2e1e}
+
+/* 像素圖：所有畫布與圖片一律不平滑放大 */
+canvas,img,.face{image-rendering:-moz-crisp-edges;image-rendering:-webkit-optimize-contrast;image-rendering:crisp-edges;image-rendering:pixelated}
