@@ -103,7 +103,7 @@ function fit(canvas) { const r = canvas.getBoundingClientRect(), d = devicePixel
 /* ───────────── 抽屜 ───────────── */
 let sheetOnClose = null;
 function openSheet(html, onClose, full = false) { $('sheet').classList.toggle('full', !!full); $('sheetContent').innerHTML = ''; if (typeof html === 'string') $('sheetContent').innerHTML = html; else $('sheetContent').append(html); $('sheet').hidden = false; sheetOnClose = onClose || null; $('sheetClose').hidden = !!(onClose && onClose.locked); }
-function closeSheet() { $('sheet').hidden = true; const f = sheetOnClose; sheetOnClose = null; if (f) f(); }
+function closeSheet() { scrollTo(0, 0); document.scrollingElement && (document.scrollingElement.scrollLeft = 0); $('sheet').hidden = true; const f = sheetOnClose; sheetOnClose = null; if (f) f(); }
 $('sheetClose').onclick = closeSheet;
 $('sheet').addEventListener('click', e => { if (e.target === $('sheet') && !(sheetOnClose && sheetOnClose.locked)) closeSheet(); });
 const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k === 'onclick') e.onclick = v; else if (k === 'html') e.innerHTML = v; else if (k === 'class') e.className = v; else if (v !== false && v != null) e.setAttribute(k, v); } for (const c of kids.flat()) if (c != null) e.append(c); return e; };
@@ -795,7 +795,7 @@ function renderLeft() {
   const h = w.party.find(m => m.hero) || w.party[0]; if (!h) return;
   const hp = Math.round(h.hp / h.max * 100), fd = Wd.daysOfFood(w), wanted = Math.max(0, ...Object.values(w.wanted || {}));
   const t = $('lToggle'); t.innerHTML = '';
-  t.append(portrait(h, 34), el('div', {}, el('b', {}, h.name), el('div', {class: 'meter', style: 'width:64px'}, el('i', {style: `width:${hp}%;background:${hpCol(hp)}`})), el('div', {class: 'muted'}, `💰${w.gold}・🍞${fd.toFixed(1)}天`)));
+  t.append(portrait(h, 34), el('div', {}, el('b', {}, h.name), el('div', {class: 'meter'}, el('i', {style: `width:${hp}%;background:${hpCol(hp)}`})), el('span', {class: 'muted l2'}, `💰 ${w.gold}`), el('span', {class: 'muted l2', style: fd < 2 ? 'color:#f08a74' : ''}, `🍞 ${fd.toFixed(1)} 天`)));
   box.append(closeRow('l') || '');
   const chip = (txt, val, on, bad) => el('span', {class: 'chip' + (bad ? ' bad' : ''), onclick: e => { e.stopPropagation(); on(); }}, txt + ' ', el('b', {}, val));
   box.append(el('div', {class: 'hero', onclick: () => openSheet(memberCard(h))},
@@ -878,6 +878,7 @@ function findPlace(n) { const w = G.world, k = C.K(); let best = null; for (let 
 $('btnDanger').onclick = () => { showDanger = !showDanger; $('btnDanger').classList.toggle('on', showDanger); renderWorld(); };
 $('btnHome').onclick = () => { const [x, y] = wxy(G.world.pos); cam.x = x; cam.y = y; renderWorld(); };
 addEventListener('resize', () => { if (!$('world').hidden) { renderWorld(); renderRails(); } });
+addEventListener('scroll', () => { if (scrollX || scrollY) scrollTo(0, 0); }, {passive: true});
 
 /* ═════════════ 戰鬥 ═════════════ */
 let bsel = null, disp = null, popups = [], animating = false, bubbles = [], picking = null, cell = 32, fo = {x: 0, y: 0};

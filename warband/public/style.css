@@ -195,3 +195,13 @@ h3{font-size:16px;margin:6px 0 2px}
 .face.pick{cursor:pointer;opacity:.75;outline:2px solid transparent}.face.pick.on{opacity:1;outline-color:var(--gold)}
 .card .face{border-radius:10px}
 .pin.on{background:var(--gold);color:var(--gold-ink)}
+/* 側欄收起時藏在畫面外：不能讓整頁因此可以左右捲動（手機上會整個畫面被推走） */
+html,body{overflow:hidden;overscroll-behavior:none}
+#app,#world,#wbody{overflow:hidden}
+/* 左上的主角小卡：名字一行、錢和糧分兩行 */
+.rtoggle{min-width:160px;max-width:min(72vw,270px)}
+.rtoggle>div:not(.face){min-width:0;flex:1}
+.rtoggle .face{flex:none;width:38px!important;height:38px!important}
+.rtoggle b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtoggle .meter{width:100%!important}
+.rtoggle .l2{display:block;white-space:nowrap}
