@@ -77,6 +77,7 @@
 - 羅賓漢：`give` 接濟村子換人情（`giftFavor`、`foodNeed`），貨真的進市集；借宿＝藏身（`hidden`、`hideCharge` 照世界時間付遞增的人情），名單 `hidden` 的人不出現在 `/api/world`，也不能被襲擊。
 - 躲藏（`concealment`：village／den／forest／deep）：`hidden` 給名單、巡邏隊、盜匪用；`expose` 打劫單挑後半天藏不住；`hideIn` 躲進 `HIDE_POI`，`denRisk` 每六小時可能出事；伺服器 `seek` 在 `searchTile`／`explore` 時依 `findOdds` 找出同格躲著的戰幫，設 `exposedH`。
 - 裝備（data.js `ITEMS`、`weaponOf`、`gearAdd`、`armorSprite`；world.js `kitOf`、`fixGear`、`smithStock`、`itemPrice`、`battleLoot`）：`toUnit` 把裝備加成算進數值並記在 `u.gearAdd`，`applyBattle` 扣回。動作 `equip`、`unequip`、`dropItem`、`buyItem`、`sellItem`、`upgradeItem`。貨堆可以有 `items`。
+- 戰場（battle.js）：`st.W`、`st.H` 隨戰況決定（`sizeFor`、`LAYOUTS`、`spawns`、`genMap(seed, biome, W, H, layout)`），最短路用桶子佇列。騎馬 `mounted`（`moveCost`）。撤離看 `exitAt`。共享世界的戰鬥狀態在伺服器 `p.battle.st`，每步走 `/api/battle/act`；`test/layout-sim.mjs` 跑各種戰場的勝率與耗時。
 - 通緝要有人報信：劫車隊或打巡邏兵，打贏但有敵人逃走、或自己撤退，才記通緝；全殲沒人知道。
 
 ## 紮營與防守

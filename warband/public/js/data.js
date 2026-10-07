@@ -106,6 +106,8 @@ export const TERRAIN = {
   water: {name: '水', avo: 0, def: 0, cost: Infinity},
   wall: {name: '木柵', avo: 0, def: 0, cost: Infinity},
   camp: {name: '營地', avo: 10, def: 1, cost: 1},
+  cart: {name: '車', avo: 0, def: 0, cost: Infinity},
+  crowd: {name: '圍觀的人', avo: 0, def: 0, cost: Infinity},
 };
 
 // 特性：每個都有好有壞

@@ -548,7 +548,7 @@ function payday(w) {
 const bandLvl = (w, str) => 1 + Math.floor(w.day / 14) + (str > 220 ? 1 : 0);
 function makeBand(w, kind, pos, opt = {}) {
   const foes = [];
-  if (kind === 'soldiers') { const l = 1 + Math.floor(w.day / 12); foes.push(makeMember(w, 'knight', l + 1, {leader: true, name: '巡邏隊長'})); for (let i = 1; i < (opt.size || 4); i++) foes.push(makeMember(w, rngPick(w, ['spearman', 'spearman', 'swordsman', 'archer']), l, {name: '巡邏兵'})); }
+  if (kind === 'soldiers') { const l = 1 + Math.floor(w.day / 12); foes.push(makeMember(w, 'knight', l + 1, {leader: true, name: '巡邏隊長', mounted: true})); for (let i = 1; i < (opt.size || 4); i++) foes.push(makeMember(w, rngPick(w, ['spearman', 'spearman', 'swordsman', 'archer']), l, {name: '巡邏兵'})); }
   else if (kind === 'wolves') { const n = 2 + rngInt(w, 2), l = 1 + Math.floor(w.day / 16); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'wolf', l)); if (rngNext(w) < 0.25) foes.push(makeMember(w, rngNext(w) < 0.5 ? 'bear' : 'boar', l + 1, {leader: true})); }
   else { const str = opt.str || 80, n = Math.min(w.day < 10 ? 4 : 6, 2 + Math.min(3, Math.floor(str / 120) + rngInt(w, 2))), l = bandLvl(w, str); for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['bandit', 'bandit', 'cutthroat', 'poacher']), l + (rngNext(w) < 0.25 ? 1 : 0))); }
   const b = {id: 'b' + w.nextId++, kind, fac: opt.fac, name: kind === 'wolves' ? '狼群' : opt.name || '一夥盜匪', pos, foes, loot: kind === 'wolves' ? 0 : 15 + rngInt(w, 30), gang: opt.gang || 0, ttl: opt.ttl || 8, hunting: !!opt.hunting};
@@ -559,7 +559,7 @@ function onEnter(w, out) {
   const k = K(), i = w.pos; if (isTown(i, k) || bandAt(w, i)) return;
   const cv = cargoValue(w) + (w.escort ? w.escort.value : 0), near = k.gangs.filter(g => !g.gone && hdist(g.lair, i) <= 3).sort((a, b) => hdist(a.lair, i) - hdist(b.lair, i))[0];
   const pa = Math.min(0.25, k.bandit[i] / 100 * 0.12 * (0.7 + Math.min(1, cv / 800)) * (k.owner[i] >= 0 ? 0.6 : 1));
-  if (rngNext(w) < pa * (w.guard ? 0.25 : 1) * (hidden(w) ? 0.3 : 1)) { const b = makeBand(w, 'bandits', i, {str: near ? near.str : 60 + k.bandit[i], gang: near?.id, name: near ? `${near.name}的人` : '一夥盜匪', ttl: 1}); out.encounter = b.id; return; }
+  if (rngNext(w) < pa * (w.guard ? 0.25 : 1) * (hidden(w) ? 0.3 : 1)) { const b = makeBand(w, 'bandits', i, {str: near ? near.str : 60 + k.bandit[i], gang: near?.id, name: near ? `${near.name}的人` : '一夥盜匪', ttl: 1}); b.ambush = true; out.encounter = b.id; return; }
   if (k.owner[i] < 0 && k.gameK[i] > 0 && rngNext(w) < (w.guard ? 0.5 : 1) * 0.035 * k.game[i] / k.gameK[i]) { const b = makeBand(w, 'wolves', i, {ttl: 1}); out.encounter = b.id; }
 }
 // 附近山寨的人盯上帶著貨的戰幫，派人追過來
@@ -689,24 +689,27 @@ const battleBiome = i => { const b = K().biome[i]; return b === 6 || b === 9 ? '
 export function battleSetup(w, kind, ref) {
   w.battles++;
   const seed = hashSeed(w.seed, 'b', w.battles);
-  if (kind === 'band') { const b = w.bands.find(x => x.id === ref), ci = campInfo(w); return {seed, biome: battleBiome(w.pos), foes: b.foes, source: {kind, ref}, title: b.name, camp: ci ? {side: 'ally', stake: ci.stake, watch: ci.watch, ready: ci.ready, def: ci.ready ? 1 : 0} : null}; }
+  if (kind === 'band') {   // 營地被摸上來是夜襲；埋伏、追上來的、狼群是夾擊（林子裡的狼是零散遭遇）；其他是路上遭遇
+    const b = w.bands.find(x => x.id === ref), ci = campInfo(w), bio = battleBiome(w.pos);
+    const layout = ci ? 'night' : b.kind === 'soldiers' ? 'field' : b.kind === 'wolves' ? (bio === 'forest' ? 'scatter' : 'ambush') : (b.ambush || b.hunting) ? 'ambush' : 'field';
+    return {seed, biome: bio, layout, foes: b.foes, source: {kind, ref}, title: b.name, camp: ci ? {side: 'ally', stake: ci.stake, watch: ci.watch, ready: ci.ready, def: ci.ready ? 1 : 0} : null}; }
   if (kind === 'raid') {
     const u = ref, lvl = 1 + Math.floor(w.day / 14), foes = [];
     if (u.kind === 'caravan') { foes.push(makeMember(w, 'swordsman', lvl + 1, {leader: true, name: '護衛隊長'})); const n = 2 + Math.min(3, u.n) + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['spearman', 'swordsman', 'archer']), lvl, {name: '商隊護衛'})); }
     else { const n = 1 + Math.min(3, u.n) + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'spearman', Math.max(1, lvl - 1), {name: '押車的民兵'})); }
-    return {seed, biome: battleBiome(w.pos), foes, source: {kind: 'raid', what: u.kind, to: u.to, fac: u.fac}, title: u.label};
+    return {seed, biome: battleBiome(w.pos), layout: 'caravan', foes, source: {kind: 'raid', what: u.kind, to: u.to, fac: u.fac}, title: u.label};
   }
   if (kind === 'poi') {
     const {p, fight, L} = ref, lvl = 1 + Math.floor(w.day / 14), foes = [];
     if (fight.leader) foes.push(makeMember(w, fight.leader, lvl + 1, {leader: true}));
     for (const c of fight.foes) foes.push(makeMember(w, c, lvl, CLASSES[c].beast ? {} : {name: fight.name}));
-    return {seed, biome: fight.biome || battleBiome(w.pos), foes, source: {kind: 'poi', id: p.id, loot: L}, title: `${POI_TYPES[p.type].n}的${fight.name}`};
+    return {seed, biome: fight.biome || battleBiome(w.pos), layout: foes.every(f => CLASSES[f.cls].beast) ? 'scatter' : 'field', foes, source: {kind: 'poi', id: p.id, loot: L}, title: `${POI_TYPES[p.type].n}的${fight.name}`};
   }
   if (kind === 'contract') {
     const c = w.contracts.find(x => x.id === ref), k = K(), lvl = 1 + Math.floor(w.day / 12), foes = [];
-    if (c.kind === 'wolves') { const n = 2 + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'wolf', lvl)); foes.push(makeMember(w, rngNext(w) < 0.3 ? 'bear' : 'boar', lvl, {leader: true})); return {seed, biome: 'forest', foes, source: {kind, ref}, title: c.title}; }
+    if (c.kind === 'wolves') { const n = 2 + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'wolf', lvl)); foes.push(makeMember(w, rngNext(w) < 0.3 ? 'bear' : 'boar', lvl, {leader: true})); return {seed, biome: 'forest', layout: 'scatter', foes, source: {kind, ref}, title: c.title}; }
     if (c.kind === 'thugs') { foes.push(makeMember(w, 'cutthroat', lvl, {leader: true, name: '惡霸頭子'})); const n = 1 + rngInt(w, 3); for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['bandit', 'bandit', 'poacher']), Math.max(1, lvl - 1), {name: '打手'})); return {seed, biome: battleBiome(w.pos), foes, source: {kind, ref}, title: c.title}; }
-    const E = k.fac[c.enemy].n; foes.push(makeMember(w, 'knight', lvl + 2, {leader: true, name: `${E}的隊長`}));
+    const E = k.fac[c.enemy].n; foes.push(makeMember(w, 'knight', lvl + 2, {leader: true, name: `${E}的隊長`, mounted: true}));
     const n = 3 + Math.min(3, Math.floor(w.day / 15)); for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['swordsman', 'spearman', 'spearman', 'archer', 'axeman']), lvl + (i === 0 ? 1 : 0), {name: `${E}的士兵`}));
     return {seed, biome: battleBiome(w.pos), foes, source: {kind, ref}, title: `${nm(w.pos)}的${E}守軍`};
   }
@@ -714,7 +717,7 @@ export function battleSetup(w, kind, ref) {
   const foes = [makeMember(w, 'chief', lvl + 1, {leader: true, name: `頭目${g.name}`})];
   const n = 3 + Math.min(3, Math.floor(g.str / 100));
   for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['bandit', 'bandit', 'cutthroat', 'poacher']), lvl + (i === 0 ? 1 : 0)));
-  return {seed, biome: 'camp', foes, source: {kind: 'gang', ref}, title: `${g.name}的山寨`};
+  return {seed, biome: 'camp', layout: 'fort', foes, source: {kind: 'gang', ref}, title: `${g.name}的山寨`};
 }
 /* ───────────── 人情：記在地方上（一座城加上周圍歸它的村子算一區） ───────────── */
 export function regionOf(i, k = K()) {
@@ -1190,7 +1193,7 @@ export function pvpSetup(w, target) {
   w.battles++;
   const foes = target.party.map(m => ({...m, id: 'd' + m.id, leader: !!m.hero, hero: false, name: m.name, loyalty: 100}));
   const ci = target.camp, camp = {side: 'enemy', stake: !!(ci && ci.stake), watch: !!(ci && ci.watch), ready: !!(ci && ci.ready), def: 1 + (ci ? (ci.ready ? 1 : 0) : 0)};
-  return {seed: hashSeed(w.seed, 'pvp', w.battles), biome: battleBiome(w.pos), foes, camp: ci ? camp : {side: 'enemy', def: 1, open: true}, source: {kind: 'pvp', target: target.id, name: target.name}, title: `${target.name}的戰幫${ci ? '營地' : ''}`};
+  return {seed: hashSeed(w.seed, 'pvp', w.battles), biome: battleBiome(w.pos), layout: ci && ci.stake ? 'fort' : 'field', foes, camp: ci ? camp : {side: 'enemy', def: 1, open: true}, source: {kind: 'pvp', target: target.id, name: target.name}, title: `${target.name}的戰幫${ci ? '營地' : ''}`};
 }
 
 /* ───────────── 行動入口 ───────────── */
@@ -1423,12 +1426,12 @@ export function worldAct(w, a) {
       if (d.band) {
         d.band.duelAsked = true;
         if (rngNext(w) >= duelOdds(w, d.foes)) { out.lines.push(`${d.leader.name}哈哈大笑：「單挑？我們人多，何必。」——他們圍了上來。`); out.battle = battleSetup(w, 'band', d.band.id); break; }
-        const s = battleSetup(w, 'band', d.band.id); s.foes = [{...d.leader, leader: true}]; s.source = {kind: 'duel', band: d.band.id}; s.duel = true; s.camp = null; s.title = `與${d.leader.name}單挑`;
+        const s = battleSetup(w, 'band', d.band.id); s.foes = [{...d.leader, leader: true}]; s.source = {kind: 'duel', band: d.band.id}; s.duel = true; s.camp = null; s.layout = 'duel'; s.title = `與${d.leader.name}單挑`;
         out.lines.push(`${d.leader.name}接下了戰帖。其他人退開，圍成一圈。`); out.battle = s;
       } else {
         (w.duelNo ||= {})[d.gang.id] = w.day;
         if (rngNext(w) >= d.odds) { out.lines.push(`寨門上的人朝你們吐了口水：頭目不跟無名小卒單挑。`); break; }
-        const s = battleSetup(w, 'gang', d.gang.id); s.foes = s.foes.filter(f => f.leader); s.source = {kind: 'duel', gang: d.gang.id}; s.duel = true; s.biome = battleBiome(w.pos); s.title = `與頭目${d.gang.name}單挑`;
+        const s = battleSetup(w, 'gang', d.gang.id); s.foes = s.foes.filter(f => f.leader); s.source = {kind: 'duel', gang: d.gang.id}; s.duel = true; s.biome = battleBiome(w.pos); s.layout = 'duel'; s.title = `與頭目${d.gang.name}單挑`;
         out.lines.push(`頭目${d.gang.name}走出寨門，接下了戰帖。`); out.battle = s;
       }
       break;
@@ -1666,7 +1669,12 @@ export function gearBonus(w, m) {
   if (tired(w)) { b.def -= 1; b.skl = -5; }   // 疲憊：防禦 -1、命中 -10
   return b;
 }
-export const battleParty = (w, setup) => setup?.duel ? w.party.filter(m => m.hero).map(m => { const b = gearBonus(w, m); return {...m, str: m.str + b.str, def: m.def + b.def}; }) : w.party.map(m => { const b = gearBonus(w, m); return {...m, str: m.str + b.str, def: m.def + b.def}; }).concat(w.guard ? w.guard.men.map(m => ({...m, guard: true})) : []);
+// 上場的人：有馬的照順序騎上去（主角先）；單挑只有主角，而且下馬
+export const battleParty = (w, setup) => {
+  const list = setup?.duel ? w.party.filter(m => m.hero) : w.party; let horses = setup?.duel ? 0 : (w.horses || 0);
+  const out = list.slice().sort((a, b) => (b.hero ? 1 : 0) - (a.hero ? 1 : 0)).map(m => { const b = gearBonus(w, m), ride = horses > 0 && !CLASSES[m.cls]?.beast; if (ride) horses--; return {...m, str: m.str + b.str, def: m.def + b.def, mounted: ride}; });
+  return setup?.duel ? out : out.concat(w.guard ? w.guard.men.map(m => ({...m, guard: true})) : []);
+};
 const ironMul = (i, k = K()) => Math.max(0.6, Math.min(2.5, k.markets[i].price.iron));
 export const mounted = w => (w.horses || 0) >= w.party.length && w.party.length > 0;
 // 載重：貨裝到七成五以上開始變慢，滿載時每格多花四成時間

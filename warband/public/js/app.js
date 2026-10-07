@@ -88,6 +88,7 @@ function drawUnit(g, u, x, y, alpha) {
   g.save(); g.globalAlpha = alpha; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = `${Math.max(10, c * 0.3)}px system-ui`;
   if (u.wpn?.icon) g.fillText(u.wpn.icon, x + c * 0.82, y + c * 0.7);
   if (u.shield) g.fillText(u.shield, x + c * 0.18, y + c * 0.7);
+  if (u.mounted) { g.font = `${Math.max(9, c * 0.26)}px system-ui`; g.fillText('🐎', x + c * 0.18, y + c * 0.18); }
   g.restore();
 }
 function faceOf(m) {
@@ -1203,8 +1204,9 @@ addEventListener('scroll', () => { if (scrollX || scrollY) scrollTo(0, 0); }, {p
 let bsel = null, disp = null, popups = [], animating = false, bubbles = [], picking = null, cell = 32, fo = {x: 0, y: 0};
 function startBattle(setup) {
   const w = G.world, mp = NET.on && NET.battle;
-  const st = B.createBattle({seed: setup.seed, biome: setup.biome, party: mp ? NET.battle.party : Wd.battleParty(w, setup), foes: setup.foes, order: mp ? NET.battle.order : (w.lastOrder || {stance: 'follow', focus: null}), camp: setup.camp});
-  G.battle = {setup, st, log: []}; save(false); battleScreen(true);
+  // 共享世界：戰鬥狀態在伺服器上，這裡拿到的是拿掉亂數的副本；單人照舊在本機算
+  const st = mp ? JSON.parse(JSON.stringify(NET.battle.st)) : B.createBattle({seed: setup.seed, biome: setup.biome, layout: setup.layout, party: Wd.battleParty(w, setup), foes: setup.foes, order: w.lastOrder || {stance: 'follow', focus: null}, camp: setup.camp});
+  G.battle = {setup, st, log: []}; bcam = null; save(false); battleScreen(true);
 }
 function battleScreen(fresh) {
   show('battle'); bsel = null; picking = null; syncDisp(); renderOrders(); bInfo();
@@ -1217,25 +1219,63 @@ let lastSt = null;
 const ST = () => (G.battle ? G.battle.st : lastSt);
 // 戰鬥中的每一步都記下來；多人時打完送給伺服器重播
 const bAct = (st, a) => { const ev = B.act(st, a); if (G.battle) (G.battle.log ||= []).push(a); return ev; };
+// 共享世界的一步：送給伺服器擲骰，拿回這一步的事件和新的狀態
+async function serverAct(a) { const d = await api('/api/battle/act', {action: a}); if (d.error) throw new Error(d.error); return d; }
 const uById = id => ST().units.find(u => u.id === id);
+// 命令收在一顆選單裡：點開才列出各種命令和「危險範圍」
+let ordersOpen = false;
 function renderOrders() {
-  const box = $('orders'); box.innerHTML = ''; const o = ST().order;
-  for (const [k, v] of Object.entries(ORDERS)) box.append(el('button', {class: o.stance === k ? 'on' : '', onclick: async () => setOrder(k)}, k === 'focus' && o.focus && o.stance === 'focus' ? `集火：${uById(o.focus)?.name || ''}` : v.name));
+  const box = $('orders'); box.innerHTML = ''; const o = ST().order, cur = o.stance === 'focus' && o.focus ? `集火：${uById(o.focus)?.name || ''}` : ORDERS[o.stance].name;
+  box.append(el('button', {class: 'omenu', onclick: () => { ordersOpen = !ordersOpen; renderOrders(); }}, `命令：${cur} ${ordersOpen ? '▴' : '▾'}`),
+    el('button', {class: 'pin', title: '看全場', onclick: () => { bcam = null; }}, '全場'), el('button', {class: 'pin', title: '回到主角', onclick: () => focusHero()}, '主角'));
+  if (!ordersOpen) return;
+  const menu = el('div', {class: 'odrop'});
+  for (const [k, v] of Object.entries(ORDERS)) menu.append(el('button', {class: o.stance === k ? 'on' : '', onclick: async () => { ordersOpen = false; await setOrder(k); }}, el('b', {}, v.name), el('small', {}, v.desc)));
+  menu.append(el('label', {class: 'toggle'}, (() => { const c = el('input', {type: 'checkbox'}); c.checked = $('showDanger').checked; c.onchange = () => { $('showDanger').checked = c.checked; $('showDanger').onchange(); }; return c; })(), ' 顯示危險範圍與敵人意圖'));
+  box.append(menu);
 }
-function setOrder(k) {
+async function setOrder(k, focus) {
   if (animating) return;
-  if (k === 'focus') { picking = 'focus'; toast('點一個敵人當集火目標'); return; }
-  bAct(ST(), {type: 'order', stance: k}); G.world.lastOrder = ST().order; save(false); renderOrders(); bInfo(); toast(`${ORDERS[k].name}：${ORDERS[k].desc}`);
+  if (k === 'focus' && !focus) { picking = 'focus'; renderOrders(); toast('點一個敵人當集火目標'); return; }
+  const a = {type: 'order', stance: k, focus};
+  if (NET.on) { try { await serverAct(a); } catch (e) { return toast(e.message); } }
+  bAct(ST(), a); G.world.lastOrder = ST().order; save(false); renderOrders(); refreshPlans(); bInfo(); toast(focus ? `集火：${uById(focus)?.name}` : `${ORDERS[k].name}：${ORDERS[k].desc}`);
 }
 // 版面
-function layout() { const c = $('field').getBoundingClientRect(); cell = Math.floor(Math.min(c.width / B.W, c.height / B.H)); fo = {x: Math.floor((c.width - cell * B.W) / 2), y: Math.floor((c.height - cell * B.H) / 2)}; }
-const TILECOL = {grass: '#4f6034', road: '#87744f', bush: '#4f6034', forest: '#3d5530', hill: '#7a6a45', rock: '#4f6034', water: '#2e5672', wall: '#4f6034', camp: '#6b5a3e'};
+// 戰場鏡頭：一開始縮到看得見全場（格子太小就以主角為中心）；可以拖曳、雙指或滾輪縮放
+let bcam = null;
+function layout() {
+  const c = $('field').getBoundingClientRect(), st = ST(), W = st.W ?? 10, H = st.H ?? 12, fitS = Math.min(c.width / W, c.height / H);
+  if (!bcam) { bcam = {s: Math.max(fitS, 22), x: W / 2, y: H / 2}; if (bcam.s > fitS + 0.5) { const h = B.hero(st); if (h) { bcam.x = h.x + 0.5; bcam.y = h.y + 0.5; } } }
+  bcam.s = Math.max(Math.min(fitS, 18), Math.min(72, bcam.s)); cell = bcam.s;
+  bcam.x = Math.max(Math.min(W / 2, c.width / cell / 2), Math.min(W - Math.min(W / 2, c.width / cell / 2), bcam.x));
+  bcam.y = Math.max(Math.min(H / 2, c.height / cell / 2), Math.min(H - Math.min(H / 2, c.height / cell / 2), bcam.y));
+  fo = {x: c.width / 2 - bcam.x * cell, y: c.height / 2 - bcam.y * cell};
+}
+function focusHero() { const h = B.hero(ST()); if (!h) return; const c = $('field').getBoundingClientRect(); bcam = {s: Math.max(cell, Math.min(40, c.width / 9)), x: h.x + 0.5, y: h.y + 0.5}; }
+{ // 拖曳與縮放（沒有拖動就當成點擊）
+  const f = $('field'), ptrs = new Map(); let moved = 0, pinch = null;
+  f.addEventListener('pointerdown', e => { f.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); moved = ptrs.size > 1 ? 99 : 0; if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = {d: Math.hypot(a[0] - b[0], a[1] - b[1]), s: cell}; } });
+  f.addEventListener('pointermove', e => { if (!ptrs.has(e.pointerId) || !bcam) return; const [ox, oy] = ptrs.get(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 1) { moved += Math.abs(e.clientX - ox) + Math.abs(e.clientY - oy); if (moved > 6) { bcam.x -= (e.clientX - ox) / cell; bcam.y -= (e.clientY - oy) / cell; } }
+    else if (ptrs.size === 2 && pinch) { const [a, b] = [...ptrs.values()]; bcam.s = pinch.s * Math.hypot(a[0] - b[0], a[1] - b[1]) / pinch.d; } });
+  const up = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; };
+  f.addEventListener('pointerup', up); f.addEventListener('pointercancel', e => { up(e); moved = 99; });
+  f.addEventListener('click', e => { if (moved > 6) { e.stopImmediatePropagation(); moved = 0; } }, true);
+  f.addEventListener('wheel', e => { e.preventDefault(); if (!bcam) return; bcam.s *= e.deltaY < 0 ? 1.15 : 1 / 1.15; }, {passive: false});
+}
+const TILECOL = {grass: '#4f6034', road: '#87744f', bush: '#4f6034', forest: '#3d5530', hill: '#7a6a45', rock: '#4f6034', water: '#2e5672', wall: '#4f6034', camp: '#6b5a3e', cart: '#87744f', crowd: '#3a3026'};
 function drawField() {
   const st = ST(); if (!st) return; const {g, w: cw, h: ch} = fit($('field')); layout();
   g.fillStyle = '#17130f'; g.fillRect(0, 0, cw, ch);
   const X = x => fo.x + x * cell, Y = y => fo.y + y * cell;
-  for (let y = 0; y < B.H; y++) for (let x = 0; x < B.W; x++) {
-    const t = st.tiles[y * B.W + x]; g.fillStyle = TILECOL[t]; g.fillRect(X(x), Y(y), cell, cell);
+  const SW = st.W ?? 10, SH = st.H ?? 12;
+  for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+    if (X(x) > cw || Y(y) > ch || X(x) + cell < 0 || Y(y) + cell < 0) continue;
+    const t = st.tiles[y * SW + x]; g.fillStyle = TILECOL[t]; g.fillRect(X(x), Y(y), cell, cell);
+    if (t === 'cart') sprite(g, ['props', 'cart'], X(x) + cell * 0.05, Y(y) + cell * 0.05, cell * 0.9);
+    if (t === 'crowd') { g.fillStyle = '#8a7a5e'; for (let i = 0; i < 3; i++) { g.beginPath(); g.arc(X(x) + cell * (0.25 + i * 0.25), Y(y) + cell * (0.4 + (i % 2) * 0.2), cell * 0.1, 0, 7); g.fill(); } }
+    if (!st.result && B.exitAt(st, x, y) && (x === 0 || y === 0 || x === SW - 1 || y === SH - 1)) { g.fillStyle = '#9fd18a22'; g.fillRect(X(x), Y(y), cell, cell); }
     if ((x + y) % 2) { g.fillStyle = '#00000014'; g.fillRect(X(x), Y(y), cell, cell); }
     if (t === 'forest') sprite(g, ['props', 'tree'], X(x) + cell * 0.05, Y(y), cell * 0.9);
     if (t === 'bush') sprite(g, ['props', 'bush'], X(x) + cell * 0.15, Y(y) + cell * 0.2, cell * 0.7);
@@ -1245,7 +1285,7 @@ function drawField() {
     if (t === 'water') { g.strokeStyle = '#ffffff22'; g.beginPath(); g.moveTo(X(x) + cell * 0.2, Y(y) + cell * 0.5); g.quadraticCurveTo(X(x) + cell * 0.5, Y(y) + cell * 0.35, X(x) + cell * 0.8, Y(y) + cell * 0.5); g.stroke(); }
   }
   // 危險範圍
-  if ($('showDanger').checked && !animating) { const d = bsel?.danger || B.dangerTiles(st); if (bsel) bsel.danger = d; g.fillStyle = '#d0533f33'; for (const k of d) g.fillRect(X(k % B.W), Y((k / B.W) | 0), cell, cell); }
+  if ($('showDanger').checked && !animating) { const d = bsel?.danger || B.dangerTiles(st); if (bsel) bsel.danger = d; g.fillStyle = '#d0533f33'; for (const k of d) g.fillRect(X(k % SW), Y((k / SW) | 0), cell, cell); }
   // 主角可走範圍
   const h = B.hero(st);
   if (!animating && !st.result && h.alive) {
@@ -1304,11 +1344,11 @@ function refreshPlans() { if (!bsel) bsel = {}; const h = B.hero(ST()), to = bse
 $('field').addEventListener('click', e => {
   if (animating || ST().result) return;
   const r = $('field').getBoundingClientRect(), x = Math.floor((e.clientX - r.left - fo.x) / cell), y = Math.floor((e.clientY - r.top - fo.y) / cell);
-  if (x < 0 || y < 0 || x >= B.W || y >= B.H) return;
+  if (x < 0 || y < 0 || x >= (ST().W ?? 10) || y >= (ST().H ?? 12)) return;
   const st = ST(), h = B.hero(st), u = B.unitAt(st, x, y);
   if (!bsel) bsel = {};
   if (picking === 'focus') {
-    if (u && u.side === 'enemy') { bAct(st, {type: 'order', stance: 'focus', focus: u.id}); G.world.lastOrder = st.order; picking = null; save(false); renderOrders(); refreshPlans(); bInfo(); toast(`集火：${u.name}`); }
+    if (u && u.side === 'enemy') { picking = null; setOrder('focus', u.id); }
     else { picking = null; toast('取消集火'); }
     return;
   }
@@ -1359,7 +1399,7 @@ function bInfo() {
     box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `命令：${ORDERS[st.order.stance].name}——${ORDERS[st.order.stance].desc}。點藍色格子移動，點敵人看預測。`));
     for (const p of bsel.plans) { const u = uById(p.id); box.append(el('div', {class: 'plan' + (p.disobey ? ' dis' : '')}, el('b', {}, u.name), el('span', {}, planText(p)))); }
   }
-  const to = bsel.to || [h.x, h.y], edge = to[0] === 0 || to[1] === 0 || to[0] === B.W - 1 || to[1] === B.H - 1;
+  const to = bsel.to || [h.x, h.y], edge = B.exitAt(st, to[0], to[1]);
   acts.append(el('button', {class: 'primary', onclick: async () => commit({type: 'hero', to, act: {kind: 'wait'}})}, bsel.to ? '移動並待命' : '待命'));
   if (edge) acts.append(el('button', {class: 'danger', onclick: async () => { if (confirm('撤離戰場？還跟敵人貼身纏鬥的同伴會被丟下。')) commit({type: 'flee', to}); }}, '撤離'));
   if (bsel.to || bsel.inspect) acts.append(el('button', {onclick: async () => { bsel = null; refreshPlans(); bInfo(); }}, '取消'));
@@ -1367,13 +1407,14 @@ function bInfo() {
 $('showDanger').onchange = () => { if (bsel) { bsel.danger = null; bsel.eplans = null; } };
 async function commit(action) {
   if (animating) return;
-  const st = ST(); let ev;
-  try { ev = bAct(st, action); } catch (e) { toast(e.message); return; }
+  let st = ST(), ev, done = null;
   animating = true; $('bActions').innerHTML = ''; $('bInfo').innerHTML = '';
-  save(false);
+  if (NET.on) { try { const d = await serverAct(action); ev = d.ev; st = d.st; if (d.out) done = d; } catch (e) { animating = false; toast(e.message); bInfo(); return; } }
+  else { try { ev = bAct(st, action); } catch (e) { animating = false; toast(e.message); bInfo(); return; } save(false); }
   await play(ev);
+  if (NET.on) G.battle.st = st;
   animating = false; bsel = null; syncDisp();
-  if (st.result) return battleOver();
+  if (st.result) return battleOver(done);
   refreshPlans(); bInfo();
 }
 async function play(events) {
@@ -1397,11 +1438,11 @@ async function play(events) {
   }
 }
 function tween(d, x, y, ms) { return new Promise(res => { const x0 = d.x, y0 = d.y, t0 = performance.now(); const step = () => { const k = Math.min(1, (performance.now() - t0) / ms); d.x = x0 + (x - x0) * k; d.y = y0 + (y - y0) * k; if (k < 1) requestAnimationFrame(step); else res(); }; requestAnimationFrame(step); }); }
-async function battleOver() {
-  const {setup, st, log} = G.battle; lastSt = st;
+async function battleOver(done) {
+  const {setup, st} = G.battle; lastSt = st;
   const lvBefore = new Map(G.world.party.map(m => [m.id, m.lvl]));
   let out;
-  if (NET.on) { try { const d = await api('/api/battle', {log}); applyView(d); out = d.out; if (d.error) { toast(d.error); out = {lines: [d.error]}; } } catch (e) { toast(e.message); out = {lines: ['連線失敗，戰果之後會再同步。']}; } refreshMirror(true).catch(() => {}); }
+  if (NET.on) { if (done) { applyView(done); out = done.out; } else out = {lines: ['戰果之後會再同步。']}; refreshMirror(true).catch(() => {}); }
   else out = Wd.applyBattle(G.world, setup, st);
   const w = G.world;
   G.battle = null; save();

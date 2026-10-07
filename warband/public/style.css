@@ -249,3 +249,14 @@ html,body{overflow:hidden;overscroll-behavior:none}
 .gear .slot small{font-size:10px;color:var(--muted)}
 .gear .slot.empty{color:var(--muted)}
 .gear .slot:disabled{opacity:1;cursor:default}
+
+/* 戰鬥：命令收成選單 */
+.orders{position:relative;align-items:center;overflow:visible;z-index:5}
+.orders .omenu{flex:1;text-align:left;font-weight:600}
+.orders .pin{flex:none;min-height:36px}
+.odrop{position:absolute;left:8px;right:8px;top:100%;margin-top:4px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:4px;box-shadow:0 6px 18px #000b}
+.odrop button{display:flex;flex-direction:column;align-items:flex-start;text-align:left;white-space:normal;min-height:0;padding:6px 10px}
+.odrop button small{color:var(--muted);font-size:12px}
+.odrop button.on{border-color:var(--gold,#d9a441)}
+.odrop .toggle{margin:4px 6px}
+.odrop button.on small{color:#3b2e1e}

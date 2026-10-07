@@ -7,6 +7,7 @@
 // - 戰鬥在瀏覽器裡跑（規則是決定性的），打完把每一步的操作送回來，伺服器照同樣的種子重播一次，結果以伺服器為準（防作弊）。
 // - 瀏覽器保有一份唯讀的沙盒鏡像（/api/snapshot）用來畫地圖、查價格；真正的狀態只在這裡。
 import {DurableObject} from 'cloudflare:workers';
+const hashMix = (a, b) => (Math.imul(a ^ b, 2654435761) ^ (b >>> 7)) | 0;   // 戰鬥的亂數再混一把伺服器的真亂數：同一個種子也猜不到
 import * as C from '../public/js/cont.js';
 import * as Wd from '../public/js/world.js';
 import * as B from '../public/js/battle.js';
@@ -138,7 +139,11 @@ export class Realm extends DurableObject {
       banner: w.banner ?? null, face: w.party.find(m => m.hero)?.face ?? null, g: w.party.find(m => m.hero)?.g || 'm', wantedMax: Math.max(0, ...Object.values(w.wanted || {})), shieldT: w.shieldT || 0, town: !!town, busy: !!p.battle,
       hidden: Wd.hidden(w), camp: ci ? {stake: ci.stake, watch: ci.watch, fire: ci.fire, ready: ci.ready} : null, power: Math.round(Wd.partyPower(w.party))};
   }
-  view(p) { const w = p.w, away = p.away; p.away = null; if (away) queueMicrotask(() => this.savePlayer(p)); return {away, me: p.id.slice(0, 6), caches: this.caches, w: {...w, pois: undefined, poiShared: undefined, caches: undefined}, battle: p.battle ? {setup: p.battle.setup, party: p.battle.party, order: p.battle.order} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
+  // 戰鬥狀態只在伺服器上：每回合由伺服器擲骰。給瀏覽器的版本拿掉亂數狀態，事先算不出命中
+  newBattle(w, setup) { return B.createBattle({seed: setup.seed, biome: setup.biome, layout: setup.layout, party: Wd.battleParty(w, setup), foes: setup.foes, order: w.lastOrder || {stance: 'follow', focus: null}, camp: setup.camp}); }
+  battleSt(p) { const b = p.battle; if (!b.st) { b.st = b.party ? B.createBattle({seed: b.setup.seed, biome: b.setup.biome, layout: b.setup.layout, party: b.party, foes: b.setup.foes, order: b.order, camp: b.setup.camp}) : this.newBattle(p.w, b.setup); b.st.rng = hashMix(b.st.rng, crypto.getRandomValues(new Uint32Array(1))[0]); delete b.party; delete b.order; } return b.st; }
+  pubSt(st) { return {...st, rng: 0}; }
+  view(p) { const w = p.w, away = p.away; p.away = null; if (away) queueMicrotask(() => this.savePlayer(p)); return {away, me: p.id.slice(0, 6), caches: this.caches, w: {...w, pois: undefined, poiShared: undefined, caches: undefined}, battle: p.battle ? {setup: p.battle.setup, st: this.pubSt(this.battleSt(p))} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
 
   /* ───── 襲擊其他玩家：防守方由 AI 操作，打完由伺服器結算 ───── */
   async findPlayer(prefix) { const id = Object.keys(this.roster).find(k => k.startsWith(prefix)); return id ? await this.player(id) : null; }
@@ -160,7 +165,7 @@ export class Realm extends DurableObject {
     const legal = Wd.raidLegality(w, target);
     if (!legal.ok) { w.wanted = w.wanted || {}; w.wanted[legal.fac] = (w.wanted[legal.fac] || 0) + 3; }
     const setup = Wd.pvpSetup(w, target); setup.source.legal = legal.note; w.ap -= need;
-    p.battle = {setup, party: Wd.battleParty(w), order: w.lastOrder || {stance: 'follow', focus: null}};
+    p.battle = {setup}; this.battleSt(p);
     await this.savePlayer(p); await this.persist(false);
     return json({out: {lines: [`襲擊${t.name}的戰幫！${legal.note}。`], battle: true}, ...this.view(p)});
   }
@@ -292,16 +297,25 @@ export class Realm extends DurableObject {
       try { out = Wd.worldAct(p.w, body.action || {}); } catch (e) { await this.savePlayer(p); return json({error: e.message, ...this.view(p)}, 400); }
       for (const k in p.w.poi || {}) if (!before[k]) this.poiState[k] = {T: C.K().T, by: p.name};
       if (body.action.type === 'searchTile' || body.action.type === 'explore') { const f = await this.seek(p, body.action.type === 'explore'); out.lines.push(f.length ? `找到了躲著的人：${f.join('、')}的戰幫。` : body.action.type === 'searchTile' ? '什麼也沒找到。' : ''); out.lines = out.lines.filter(Boolean); }
-      if (out.battle) p.battle = {setup: out.battle, party: Wd.battleParty(p.w, out.battle), order: p.w.lastOrder || {stance: 'follow', focus: null}};
+      if (out.battle) { p.battle = {setup: out.battle}; this.battleSt(p); }
       this.pump(); await this.savePlayer(p); await this.persist(false);
       return json({out: {lines: out.lines, encounter: out.encounter || null, battle: !!out.battle}, mk: C.K().markets[p.w.pos] || null, ...this.view(p)});
     }
-    if (path === '/api/battle') {   // 打完的戰鬥：照操作紀錄重播一次
+    if (path === '/api/battle/act') {   // 戰鬥的一步：伺服器擲骰，回傳這一步發生的事
       if (!p.battle) return bad('沒有進行中的戰鬥');
-      const {setup, party, order} = p.battle, st = B.createBattle({seed: setup.seed, biome: setup.biome, party, foes: setup.foes, order, camp: setup.camp});
-      try { for (const a of body.log || []) { if (st.result) break; B.act(st, a); } } catch (e) { return bad('戰鬥紀錄對不上：' + e.message); }
-      if (!st.result && !body.giveUp) return bad('戰鬥還沒結束');
-      if (!st.result) st.result = 'retreat';
+      const st = this.battleSt(p), setup = p.battle.setup; let ev;
+      try { ev = B.act(st, body.action || {}); } catch (e) { await this.savePlayer(p); return bad(e.message); }
+      if (body.action?.type === 'order') p.w.lastOrder = st.order;
+      if (!st.result) { await this.savePlayer(p); return json({ev, st: this.pubSt(st)}); }
+      const out = Wd.applyBattle(p.w, setup, st); p.battle = null;
+      if (setup.source.kind === 'pvp') await this.settlePvp(p, setup, st, out);
+      this.pump(); await this.savePlayer(p); await this.persist(false);
+      return json({ev, st: this.pubSt(st), out: {lines: out.lines, result: st.result}, ...this.view(p)});
+    }
+    if (path === '/api/battle') {   // 舊版畫面：直接放棄（算撤退）
+      if (!p.battle) return bad('沒有進行中的戰鬥');
+      if (!body.giveUp) return bad('遊戲更新了，請重新整理頁面');
+      const st = this.battleSt(p), setup = p.battle.setup; st.result = 'retreat';
       const out = Wd.applyBattle(p.w, setup, st); p.battle = null;
       if (setup.source.kind === 'pvp') await this.settlePvp(p, setup, st, out);
       this.pump(); await this.savePlayer(p); await this.persist(false);
@@ -311,7 +325,8 @@ export class Realm extends DurableObject {
       p.w.bands.push({id: 'b' + p.w.nextId++, kind: 'wolves', name: '測試狼群', pos: p.w.pos, foes: [Wd.makeMember(p.w, 'wolf', 1), Wd.makeMember(p.w, 'wolf', 1)], loot: 0, ttl: 1});
       const out = Wd.worldAct(p.w, {type: 'engage', band: p.w.bands[p.w.bands.length - 1].id});
       if (body.camp) out.battle.camp = {side: 'ally', stake: true, watch: true, ready: true, def: 1};
-      p.battle = {setup: out.battle, party: Wd.battleParty(p.w), order: p.w.lastOrder || {stance: 'follow', focus: null}};
+      if (body.layout) out.battle.layout = body.layout;
+      p.battle = {setup: out.battle}; this.battleSt(p);
       await this.savePlayer(p); return json(this.view(p));
     }
     if (path === '/api/dev/captive' && this.env.DEV === '1') { p.w.captive = {by: '測試盜匪', soldier: false, fac: -1, ransom: 99, day: p.w.day, tries: 0, lastTry: -1}; await this.savePlayer(p); return json(this.view(p)); }
