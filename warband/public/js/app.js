@@ -11,7 +11,7 @@ async function api(path, body) {
   const d = await r.json().catch(() => ({error: '伺服器沒有回應'})); if (!r.ok && !d.w) throw new Error(d.error || '連線失敗'); return d;
 }
 async function refreshMirror(force) {
-  const d = await api('/api/world'); NET.others = d.others || []; NET.T = d.T;
+  const d = await api('/api/world'); lostTrack(NET.others || [], d.others || []); NET.others = d.others || []; NET.T = d.T;
   if (G.world) { G.world.poiShared = d.poiState; if (d.caches) G.world.caches = d.caches; } if (d.tnotes) NET.tnotes = d.tnotes;
   if (force || d.T - NET.mirrorT >= 2) { const s = await (await fetch('/api/snapshot')).json(); C.loadState(s.state); NET.mirrorT = s.T; Wd.MODE.worldT = s.T; }
 }
@@ -847,6 +847,11 @@ const hubClick = () => { if (traveling) return; if (campOpen) { campOpen = false
 $('btnCamp').onclick = hubClick;
 const closeHub = () => { hubOpen = false; renderHub(); };
 const UNIT_ICON = {caravan: '🐫', cart: '🛒', patrol: '🛡', army: '⚑'};
+// 追丟了：剛剛還在視野裡的戰幫忽然從名單上消失（躲起來了）
+function lostTrack(before, after) {
+  const w = G.world; if (!w || !NET.on) return; const now = new Set(after.map(o => o.id));
+  for (const o of before) if (o.id !== NET.me && !now.has(o.id) && Wd.hdist(o.pos, w.pos) <= Wd.viewRadius(w) && Wd.seen(w, o.pos)) toast(`${o.name}的戰幫在${nm(o.pos)}一帶不見了蹤影。`, 3500);
+}
 // 這格上的人：盜匪、路過的車隊、巡邏隊、別人的戰幫
 function hereFolks() {
   const w = G.world, out = [], b = Wd.bandAt(w, w.pos);
@@ -866,6 +871,8 @@ function hereDoes() {
   if (site && site.kind !== 'camp' && Wd.favorAt(w, p) >= Wd.FAVOR.ask) add('👂', `打聽附近的消息（人情 ${Wd.FAVOR.ask}）`, () => doWorld({type: 'askLocal'}));
   if (poi && !Wd.poiDone(w, poi)) add('🔍', `探索${Wd.POI_TYPES[poi.type].n}（半天）`, () => doWorld({type: 'explore'}));
   if (Wd.cachesAt(w, p).length) add('📦', '撿起地上的貨（2 小時）', () => doWorld({type: 'pick'}));
+  if (poi && Wd.HIDE_POI.has(poi.type) && w.den !== p) add('🕳', `躲進${Wd.POI_TYPES[poi.type].n}`, () => doWorld({type: 'hideIn'}));
+  if (NET.on && site?.kind !== 'town') add('🔎', '搜索這一格（半天）', () => doWorld({type: 'searchTile'}));
   if (Wd.gatherOptions(w).length) add('🪓', '採集…', () => gatherSheet());
   for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) add('🗺', `搜尋「${L.name}」（一天）`, () => doWorld({type: 'search', id: L.id}));
   const ci = Wd.campInfo(w);
@@ -994,9 +1001,15 @@ function renderRails() { renderLeft(); renderRight(); }
 const hpCol = p => p < 40 ? 'var(--enemy)' : p < 70 ? 'var(--warn)' : 'var(--ok)';
 const closeRow = side => wide() ? null : el('div', {style: 'display:flex;justify-content:flex-end;margin-bottom:4px'}, el('button', {class: 'pin', onclick: () => setRail(side, false)}, side === 'l' ? '◂ 收起' : '收起 ▸'));
 let leftSig = '';
+function hideHelp(w) {
+  const cv = Wd.concealment(w), tail = NET.on ? '別的戰幫看不到你們，名單上也沒有；但他們可以在這一格花半天搜索。' : '';
+  if (cv === 'village') return `藏在村民家：巡邏隊、盜匪都找不到你們。${tail}照世界的時間用掉人情，藏得越久每天要得越多${Math.max(0, ...Object.values(w.wanted || {})) >= 1 ? '（被通緝，村民要的更多）' : ''}。這一帶的人情還有 ${Wd.favorAt(w, w.pos).toFixed(1)}。`;
+  if (cv === 'den') return `躲在洞裡：外面的人找不到你們。${tail}裡面可能有東西，隨時會找上門${Wd.poiDone(w, Wd.poiAt(w, w.pos) || {}) ? '；這裡被人探索過，大家都知道這個地方，追兵會先來這裡找' : ''}。一離開就不算了。`;
+  return `${cv === 'deep' ? '躲在深林裡，很難被找到' : '躲在林子裡（林子邊緣，比深林容易被找到）'}。${tail}條件：三人以內、不帶騾馬、不生火；打劫、單挑之後半天內藏不住。`;
+}
 function renderLeft() {
   const w = G.world; if (!w) return; const box = $('lbody');
-  const sig = JSON.stringify([Wd.hidden(w), Math.round(Wd.favorAt(w, w.pos) * 10), !!w.captive, w.bound?.name, w.guard?.men.length, w.gold, Math.round(w.food), w.fame, w.march, Math.ceil(w.fatigue || 0), w.banner, w.mules, w.horses, Wd.load(w), NET.on ? Math.floor(apNow()) : 0, w.wanted, w.party.map(m => [m.id, Math.round(m.hp), m.lvl, m.exp, Math.round(m.loyalty / 10), m.face]), (w.captives || []).length, wide()]);
+  const sig = JSON.stringify([Wd.concealment(w), Math.round(Wd.favorAt(w, w.pos) * 10), !!w.captive, w.bound?.name, w.guard?.men.length, w.gold, Math.round(w.food), w.fame, w.march, Math.ceil(w.fatigue || 0), w.banner, w.mules, w.horses, Wd.load(w), NET.on ? Math.floor(apNow()) : 0, w.wanted, w.party.map(m => [m.id, Math.round(m.hp), m.lvl, m.exp, Math.round(m.loyalty / 10), m.face]), (w.captives || []).length, wide()]);
   if (sig === leftSig && box.childElementCount) return; leftSig = sig; box.innerHTML = '';
   const h = w.party.find(m => m.hero) || w.party[0]; if (!h) return;
   const hp = Math.round(h.hp / h.max * 100), fd = Wd.daysOfFood(w), wanted = Math.max(0, ...Object.values(w.wanted || {}));
@@ -1016,7 +1029,7 @@ function renderLeft() {
       chip('🚩', w.banner != null ? (Wd.facName(w.banner) || '—') : '中立', () => toast(w.banner != null ? `掛著${Wd.facName(w.banner)}的旗：在跟它交戰的國家境內，你們就是敵人。` : '沒有掛旗：誰也不靠。到城裡的旅店可以掛上那一國的旗。', 3500)),
       wanted >= 0.5 ? chip('⚠', '通緝', partySheet, true) : null,
       w.captive ? chip('⛓', '被俘', captiveSheet, true) : null,
-      Wd.hidden(w) ? chip('🫥', `藏在${nm(w.pos)}`, () => toast(`藏在村民家：巡邏隊、盜匪、別的戰幫都找不到你們，地圖上也看不到。照世界的時間用掉人情，藏得越久每天要得越多${Math.max(0, ...Object.values(w.wanted || {})) >= 1 ? '（被通緝，村民要的更多）' : ''}；一離開村子就不算了。這一帶的人情還有 ${Wd.favorAt(w, w.pos).toFixed(1)}。`, 4500)) : null,
+      Wd.concealment(w) ? chip('🫥', Wd.HIDE_NAME[Wd.concealment(w)], () => toast(hideHelp(w), 5000)) : null,
       w.bound ? chip('🪢', w.bound.name, () => { if (confirm(`押著${w.bound.name}：進城交給官府可以換 ${w.bound.value} 金幣以上。路上多吃一份糧，他也可能逃掉。\n要放了他嗎？`)) doWorld({type: 'release'}); }) : null,
       w.guard ? chip('🛡', `${w.guard.name} ${w.guard.men.length} 人`, () => toast(`${w.guard.name}跟著你們（只在${Wd.facName(w.guard.fac)}境內）：被埋伏的機會小很多，打起來會出手。約好的時間：${Math.max(0, Math.round(w.guard.untilP - (w.day * 24 + w.hour)))} 小時。`, 4000)) : null,
       w.march ? chip('🏃', '急行軍', () => toast('急行軍中：走得快，但人和牲口都在硬撐。在路線資訊裡可以關掉。', 3500), true) : null,

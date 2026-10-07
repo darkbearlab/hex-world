@@ -164,6 +164,19 @@ export class Realm extends DurableObject {
     await this.savePlayer(p); await this.persist(false);
     return json({out: {lines: [`襲擊${t.name}的戰幫！${legal.note}。`], battle: true}, ...this.view(p)});
   }
+  // 搜索：同一格裡藏起來的戰幫，照各自的藏法比機率；找到的半天內藏不住（名單和地圖上都看得到）
+  async seek(p, denOnly) {
+    const w = p.w, found = [];
+    for (const [id, r] of Object.entries(this.roster)) {
+      if (id === p.id || r.over || !r.hidden || r.pos !== w.pos) continue;
+      const t = await this.player(id); if (!t || t.w.over) continue; this.regen(t); this.prep(t);
+      const cv = Wd.concealment(t.w); if (!cv || (denOnly && cv !== 'den')) continue;
+      if (Math.random() >= Wd.findOdds(w, cv, t.w.party.length, (t.w.horses || 0) > 0)) continue;
+      t.w.exposedH = this.worldHours() + 12; t.w.log.unshift({day: t.w.day, text: `${p.name}的戰幫在${C.nm(w.pos)}搜到了你們的藏身處。`});
+      await this.savePlayer(t); found.push(t.name);
+    }
+    this.prep(p); return found;
+  }
   async settlePvp(p, setup, st, out) {
     const t = await this.player(setup.source.target); if (!t) return;
     const k = C.K();
@@ -278,6 +291,7 @@ export class Realm extends DurableObject {
       let out;
       try { out = Wd.worldAct(p.w, body.action || {}); } catch (e) { await this.savePlayer(p); return json({error: e.message, ...this.view(p)}, 400); }
       for (const k in p.w.poi || {}) if (!before[k]) this.poiState[k] = {T: C.K().T, by: p.name};
+      if (body.action.type === 'searchTile' || body.action.type === 'explore') { const f = await this.seek(p, body.action.type === 'explore'); out.lines.push(f.length ? `找到了躲著的人：${f.join('、')}的戰幫。` : body.action.type === 'searchTile' ? '什麼也沒找到。' : ''); out.lines = out.lines.filter(Boolean); }
       if (out.battle) p.battle = {setup: out.battle, party: Wd.battleParty(p.w, out.battle), order: p.w.lastOrder || {stance: 'follow', focus: null}};
       this.pump(); await this.savePlayer(p); await this.persist(false);
       return json({out: {lines: out.lines, encounter: out.encounter || null, battle: !!out.battle}, mk: C.K().markets[p.w.pos] || null, ...this.view(p)});
@@ -302,7 +316,7 @@ export class Realm extends DurableObject {
     }
     if (path === '/api/dev/captive' && this.env.DEV === '1') { p.w.captive = {by: '測試盜匪', soldier: false, fac: -1, ransom: 99, day: p.w.day, tries: 0, lastTry: -1}; await this.savePlayer(p); return json(this.view(p)); }
     if (path === '/api/dev/age' && this.env.DEV === '1') { p.w.ap = Wd.AP_MAX; p.apAt = Date.now() - (+body.hours || 48) * this.apMs(); this.regen(p); await this.savePlayer(p); return json(this.view(p)); }
-    if (path === '/api/dev/tp' && this.env.DEV === '1') { p.w.pos = +body.pos; p.w.camp = null; Wd.reveal(p.w, p.w.pos, 2); await this.savePlayer(p); return json(this.view(p)); }
+    if (path === '/api/dev/tp' && this.env.DEV === '1') { p.w.pos = +body.pos; p.w.camp = null; if (body.light) { p.w.mules = 0; p.w.horses = 0; for (const g in p.w.cargo) p.w.cargo[g] = 0; } Wd.reveal(p.w, p.w.pos, 2); await this.savePlayer(p); return json(this.view(p)); }
     if (path === '/api/tilenote') {   // 在這一格留一句話：保留三天，之後路過的人看得到
       const text = String(body.text || '').replace(/\s+/g, ' ').trim().slice(0, 140); if (!text) return bad('寫點什麼吧');
       if (!id.startsWith('g') && this.env.ALLOW_GUEST_CHAT !== '1') return bad('訪客不能留言，用 Google 帳號登入才行');

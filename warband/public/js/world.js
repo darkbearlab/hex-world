@@ -30,7 +30,8 @@ export function apCost(w, a) {
   if (a.type === 'pick') return 2;
   if (a.type === 'work') return 24 * (a.days || 1);
   if (a.type === 'trade' || a.type === 'ask' || a.type === 'hirePatrol' || a.type === 'askLocal') return 1;
-  if (a.type === 'escape') return 12;
+  if (a.type === 'escape' || a.type === 'searchTile') return 12;
+  if (a.type === 'hideIn') return 1;
   if (a.type === 'waitCaptive' || a.type === 'lodge') return 24;
   return 0;
 }
@@ -439,7 +440,7 @@ function passHours(w, hours, mode, out) {
     w.food = Math.max(0, w.food - eaters(w) / 24 * ((K().season === 3 && coldAt(w.pos) && !(ci && ci.fire) ? 1.3 : 1) + (ci && ci.watch ? 0.25 : 0)));
     const rate = march ? 0 : mode === 'inn' ? 0.5 : mode === 'camp' ? 0.2 + (ci && ci.fire ? 0.1 : 0) - (chill && !(ci && ci.fire) ? 0.12 : 0) : 0.08;
     for (const m of w.party) { m.healBuf = (m.healBuf || 0) + m.max * rate / 24; const whole = Math.floor(m.healBuf); if (whole) { m.hp = Math.min(m.max, Math.round(m.hp) + whole); m.healBuf -= whole; } }
-    if (w.hour % 6 === 0) worldTick(w, out);
+    if (w.hour % 6 === 0) { worldTick(w, out); denRisk(w); }
     if (w.hour >= 24) { w.hour = 0; w.day++; newDay(w, out, mode); if (w.over) return; }
     guardCheck(w);
     const b = bandAt(w, w.pos);
@@ -515,7 +516,7 @@ function onEnter(w, out) {
   const k = K(), i = w.pos; if (isTown(i, k) || bandAt(w, i)) return;
   const cv = cargoValue(w) + (w.escort ? w.escort.value : 0), near = k.gangs.filter(g => !g.gone && hdist(g.lair, i) <= 3).sort((a, b) => hdist(a.lair, i) - hdist(b.lair, i))[0];
   const pa = Math.min(0.25, k.bandit[i] / 100 * 0.12 * (0.7 + Math.min(1, cv / 800)) * (k.owner[i] >= 0 ? 0.6 : 1));
-  if (rngNext(w) < pa * (w.guard ? 0.25 : 1)) { const b = makeBand(w, 'bandits', i, {str: near ? near.str : 60 + k.bandit[i], gang: near?.id, name: near ? `${near.name}的人` : '一夥盜匪', ttl: 1}); out.encounter = b.id; return; }
+  if (rngNext(w) < pa * (w.guard ? 0.25 : 1) * (hidden(w) ? 0.3 : 1)) { const b = makeBand(w, 'bandits', i, {str: near ? near.str : 60 + k.bandit[i], gang: near?.id, name: near ? `${near.name}的人` : '一夥盜匪', ttl: 1}); out.encounter = b.id; return; }
   if (k.owner[i] < 0 && k.gameK[i] > 0 && rngNext(w) < (w.guard ? 0.5 : 1) * 0.035 * k.game[i] / k.gameK[i]) { const b = makeBand(w, 'wolves', i, {ttl: 1}); out.encounter = b.id; }
 }
 // 附近山寨的人盯上帶著貨的戰幫，派人追過來
@@ -530,7 +531,7 @@ function sendBands(w) {
   w.patrols = (w.patrols || []).filter(p => --p.ttl > 0);
   for (const f in w.wanted || {}) { w.wanted[f] = Math.max(0, w.wanted[f] - 0.025); if (!w.wanted[f]) delete w.wanted[f]; }
   for (const p of w.patrols) {
-    const hunt = !hidden(w) && (wantedBy(w, p.fac) >= 2 || hostileBanner(w, p.fac)) && hdist(p.pos, w.pos) <= 4;
+    const cv = concealment(w), hunt = (!cv || (cv !== 'village' && rngNext(w) < findOdds({party: []}, cv, w.party.length, 0) * 0.4)) && (wantedBy(w, p.fac) >= 2 || hostileBanner(w, p.fac)) && hdist(p.pos, w.pos) <= 4;
     if (hunt) { const path = findPath(w, p.pos, w.pos); if (path && path.length) p.pos = path[0]; if (p.pos === w.pos) { makeBand(w, 'soldiers', w.pos, {fac: p.fac, size: p.size, name: `${k.fac[p.fac]?.n}的巡邏隊`, ttl: 1}); p.ttl = 0; continue; } }
     else { const nb = NBR[p.pos].filter(n => k.owner[n] === p.fac && passable(n)); if (nb.length) p.pos = rngPick(w, nb); }
     k.bandit[p.pos] *= 0.9;
@@ -692,10 +693,41 @@ export const favorList = w => Object.keys(w.favor || {}).map(Number).map(r => ({
 export const FAVOR = {lodge: 1, ask: 1, hide: 2, ransom: 5};
 // 藏身村中：借宿就是藏起來（巡邏隊、官兵、盜匪、別的戰幫都找不到）。照世界的時間付人情，
 // 藏得越久每天要得越多（第 t 天要 1+t 點），被通緝得越兇村民冒的險越大。人情用完就得走。
-export const hidden = w => w.lodged != null && w.lodged === w.pos;
+export const lodgedHere = w => w.lodged != null && w.lodged === w.pos;
+// 從大家眼前消失的三種方法：藏在村民家（花人情）、輕裝躲進深林（三人以內、不帶騾馬、不生火）、躲進洞窟廢墟（裡面有東西）
+export const HIDE_POI = new Set(['cave', 'ruin', 'fort', 'wreck']);
+export const forestAt = i => K().biome[i] === 6;
+export const deepForest = i => forestAt(i) && NBR[i].filter(forestAt).length >= 4;
+export function concealment(w) {
+  if (w.captive || w.over || (w.exposedH || 0) > worldHourOf(w)) return null;
+  if (lodgedHere(w)) return 'village';
+  if (w.den != null && w.den === w.pos) return 'den';
+  const ci = campInfo(w);
+  if (forestAt(w.pos) && w.party.length + (w.bound ? 1 : 0) <= 3 && !w.mules && !(w.horses > 0) && !w.guard && !w.escort && !(ci && ci.fire)) return deepForest(w.pos) ? 'deep' : 'forest';
+  return null;
+}
+export const hidden = w => !!concealment(w);
+export const HIDE_NAME = {village: '藏在村民家', den: '躲在洞裡', forest: '躲在林子裡', deep: '躲在深林裡'};
+// 洞裡的東西：每六小時可能找上門（沒探索過的比較危險）
+function denRisk(w) {
+  if (concealment(w) !== 'den' || bandAt(w, w.pos)) return;
+  const p = poiAt(w, w.pos); if (!p) { w.den = null; return; }
+  if (rngNext(w) >= (poiDone(w, p) ? 0.04 : 0.12)) return;
+  const beast = p.type === 'cave' || p.type === 'wreck';
+  makeBand(w, beast ? 'wolves' : 'bandits', w.pos, beast ? {ttl: 1} : {str: 70 + K().bandit[w.pos], name: '躲在裡面的逃兵', ttl: 1});
+  say(w, beast ? `${POI_TYPES[p.type].n}深處有東西醒了。` : `${POI_TYPES[p.type].n}裡還躲著別人。`);
+}
+// 鬧出動靜（打劫、襲擊、單挑）：半天之內藏不住
+export const expose = (w, h = 6) => { w.exposedH = Math.max(w.exposedH || 0, worldHourOf(w) + h); };
+// 搜索：跟探索興趣點同一套，只是找的是藏起來的人。機會看對方怎麼藏、幾個人、有沒有帶馬，以及搜的人
+export function findOdds(searcher, kind, size, horses) {
+  const base = {village: 0.05, den: 0.35, forest: 0.35, deep: 0.15}[kind] ?? 0;
+  const hunter = searcher.party.some(m => (m.tags || []).includes('獵戶') || m.traits.includes('tracker'));
+  return Math.max(0.05, Math.min(0.85, base + Math.max(0, size - 1) * 0.06 + (horses ? 0.15 : 0) + (hunter && kind !== 'village' ? 0.15 : 0) + Math.min(0.12, (searcher.party.length - 1) * 0.03)));
+}
 export function hideRate(w) { const wm = Math.max(0, ...Object.values(w.wanted || {})); return 1 + wm / 2; }
 export function hideCharge(w) {
-  if (!hidden(w)) { w.lodged = null; return; }
+  if (!lodgedHere(w)) { w.lodged = null; return; }
   const now = worldHourOf(w); if (w.hideAt == null) { w.hideAt = now; w.hideT0 = now; return; }
   const dt = Math.max(0, now - w.hideAt) / 24, t = Math.max(0, w.hideAt - w.hideT0) / 24; w.hideAt = now; if (!dt) return;
   const cost = hideRate(w) * (dt + ((t + dt) ** 2 - t ** 2) / 2), have = favorAt(w, w.pos);
@@ -973,7 +1005,7 @@ export function idle(w, hours, T) {
   const due = companions(w).reduce((s, m) => s + m.wage, 0);
   while (w.idleBuf >= 6) {
     w.idleBuf -= 6; rep.hours += 6; let hungry = false, cost = due / 168 * 6 / 2; w.fatigue = Math.max(0, (w.fatigue || 0) - 12);
-    if (hidden(w) && favorAt(w, w.pos) > 0) { rep.lodged = true; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.4 * 6 / 24)); w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost); if (pay && w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } continue; }
+    if (lodgedHere(w) && favorAt(w, w.pos) > 0) { rep.lodged = true; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.4 * 6 / 24)); w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost); if (pay && w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } continue; }
     if (town) { cost += w.party.length * 2 * 6 / 24; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.5 * 6 / 24)); }
     else { const need = eaters(w) / 24 * 6 / 3; if (w.food >= need) { w.food -= need; rep.food += need; } else { w.food = 0; hungry = true; } if (!hungry) for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.1 * 6 / 24)); }
     w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost);
@@ -981,7 +1013,7 @@ export function idle(w, hours, T) {
     if (hungry) for (const m of companions(w)) m.loyalty -= m.traits.includes('loyal') ? 1 : 2;
     desertCheck(w);
     if (!town && !w.captive && (w.shieldT || 0) <= T && !(w.idleRaid > 0)) {
-      const ci = campInfo(w), base = Math.min(0.12, tileRisk(w.pos, k) * 0.15 + (load(w) > 0 ? 0.02 : 0));
+      const ci = campInfo(w), cv = concealment(w), base = cv === 'den' ? (poiDone(w, poiAt(w, w.pos) || {}) ? 0.04 : 0.12) : Math.min(0.12, tileRisk(w.pos, k) * 0.15 + (load(w) > 0 ? 0.02 : 0)) * (cv ? 0.2 : 1);
       if (rngNext(w) < base * (ci ? (ci.watch ? 0.5 : 1) * (ci.fire ? 1.4 : 1) * (ci.stake ? 0.8 : 1) : 1.6)) {
         const near = k.gangs.filter(g => !g.gone && hdist(g.lair, w.pos) <= 4)[0], by = near ? `${near.name}的人` : '一夥盜匪';
         const r = autoDefend(w, partyPower(banditFoes(w, near ? near.str : 60 + k.bandit[w.pos])), by); rep.raids.push(r.text);
@@ -1127,7 +1159,7 @@ export function worldAct(w, a) {
   switch (a.type) {
     case 'travel': {   // 只走一格（相鄰）；長途由畫面一格一格呼叫
       if (!NBR[w.pos].includes(a.to) || !passable(a.to)) throw new Error('到不了');
-      const h = legHours(w, a.to, k); w.pos = a.to; w.camp = null; w.lodged = null; reveal(w, w.pos, sightOf(w.pos)); passHours(w, h, 'travel', out);
+      const h = legHours(w, a.to, k); w.pos = a.to; w.camp = null; w.lodged = null; w.den = null; reveal(w, w.pos, sightOf(w.pos)); passHours(w, h, 'travel', out);
       if (!w.over && !out.encounter) onEnter(w, out);
       if (!out.encounter) { arriveJob(w, out); arrive(w); }
       break;
@@ -1309,6 +1341,7 @@ export function worldAct(w, a) {
     }
     case 'engage': { out.battle = battleSetup(w, 'band', a.band); break; }
     case 'duel': {   // 向頭目下戰帖
+      expose(w);
       const d = duelTarget(w); if (!d) throw new Error('這裡沒有人可以下戰帖'); if (d.asked) throw new Error('他們已經拒絕過了');
       if (d.band) {
         d.band.duelAsked = true;
@@ -1342,9 +1375,18 @@ export function worldAct(w, a) {
     }
     case 'lodge': {   // 借宿：用人情換一晚（吃住都由村民招待），同時藏了起來
       if (here?.kind !== 'village') throw new Error('要在村子裡');
-      spendFavor(w, w.pos, FAVOR.lodge); const f0 = w.food; if (!hidden(w)) { w.lodged = w.pos; w.hideAt = w.hideT0 = null; hideCharge(w); }
+      spendFavor(w, w.pos, FAVOR.lodge); const f0 = w.food; if (!lodgedHere(w)) { w.lodged = w.pos; w.hideAt = w.hideT0 = null; hideCharge(w); }
       passHours(w, 24, 'inn', out); w.food = Math.max(w.food, f0);
       say(w, `借住在${nm(w.pos)}的村民家，吃了頓熱飯、睡了個好覺。`); break;
+    }
+    case 'searchTile': {   // 搜索這一格：找藏起來的人（共享世界由伺服器比對名單）
+      if (town) throw new Error('城裡人來人往，沒辦法這樣搜');
+      passHours(w, 12, 'wait', out); say(w, `在${nm(w.pos)}仔細搜了半天。`); break;
+    }
+    case 'hideIn': {   // 躲進洞窟、廢墟、哨堡、沉船
+      const p = poiAt(w, w.pos); if (!p || !HIDE_POI.has(p.type)) throw new Error('這裡沒有地方可以躲');
+      w.den = w.pos; w.camp = null; passHours(w, 1, 'wait', out);
+      say(w, `躲進了${POI_TYPES[p.type].n}。${poiDone(w, p) ? '這裡被人探索過，大家都知道這個地方。' : '裡面還沒人探過，不知道有什麼。'}`); break;
     }
     case 'give': {   // 接濟村子
       if (here?.kind !== 'village') throw new Error('要在村子裡');
@@ -1398,6 +1440,7 @@ export function worldAct(w, a) {
       break;
     }
     case 'raid': {   // 劫運貨車或商隊：先跟護衛打一場
+      expose(w);
       const u = unitsInView(w).find(x => x.pos === w.pos && x.kind === a.what && (a.to == null || x.to === a.to));
       if (!u) throw new Error('這裡沒有可以劫的車隊');
       if (w.guard && w.guard.fac === u.fac) throw new Error(`${w.guard.name}就在旁邊看著`);
@@ -1453,6 +1496,7 @@ export function worldAct(w, a) {
       passHours(w, 1, 'wait', out); break;
     }
     case 'attackPatrol': {   // 對巡邏隊動手
+      expose(w);
       const p = (w.patrols || []).find(x => x.id === a.id && x.pos === w.pos); if (!p) throw new Error('巡邏隊已經走了');
       if (w.guard && w.guard.fac === p.fac) throw new Error(`${w.guard.name}不會跟自己人動手`);
       w.patrols = w.patrols.filter(x => x !== p);
