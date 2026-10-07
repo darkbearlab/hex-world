@@ -562,7 +562,7 @@ function slide(from, to, dur) {
     requestAnimationFrame(step); });
 }
 async function travel(path) {
-  traveling = true; wsel = null; campOpen = false; renderCamp();
+  traveling = true; wsel = null; campOpen = false; renderCamp(); renderPop();
   { const [x, y] = wxy(G.world.pos); cam.x = x; cam.y = y; }
   for (const p of path) {
     const from = G.world.pos, out = await doWorld({type: 'travel', to: p}, true, true);
