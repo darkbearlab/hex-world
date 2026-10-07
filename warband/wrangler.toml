@@ -29,3 +29,7 @@ WORLD_VERSION = "1"
 TICK_SECONDS = "120"
 # 設成 "1" 世界就暫停（時鐘停下、進度保留）
 PAUSED = "0"
+# Google 登入（DarkBearLab 專案的「戰幫 網頁版」用戶端 ID；公開的，不是密鑰）
+GOOGLE_CLIENT_ID = "761557729646-spe24525vg4fcju3ihqjtm5v6l15leni.apps.googleusercontent.com"
+# "1" = 沒登入的人也能用瀏覽器代碼當訪客玩；"0" = 一定要用 Google 帳號登入
+ALLOW_GUEST = "1"

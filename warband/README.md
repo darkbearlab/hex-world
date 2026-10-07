@@ -41,7 +41,7 @@
 - 行動點：1 AP＝1 小時，回復速度和世界時鐘一樣，上限 `AP_MAX` 120；離線時戰幫原地不動、不吃糧不發餉。
 - 伺服器說了算：玩家每個行動送 `/api/act`，伺服器跑 `worldAct`。戰鬥在瀏覽器打，打完把操作紀錄送 `/api/battle`，伺服器用同一顆種子重播，結果以伺服器為準。
 - 瀏覽器從 `/api/snapshot` 拿唯讀鏡像來畫地圖、查行情；`/api/world` 有世界時間與其他玩家位置（地圖上會畫出來）。
-- 身分是瀏覽器 localStorage 裡的隨機 token（`warband-mp-token`），伺服器只存它的雜湊。換瀏覽器就是新角色。
+- 身分：用 Google 帳號登入（`server/auth.js` 驗 Google 的 ID token，不需要密鑰；用戶端 ID 在 `wrangler.toml` 的 `GOOGLE_CLIENT_ID`），伺服器發一個工作階段代碼，一個 Google 帳號一個角色、跨裝置。第一次登入會把這個瀏覽器原本的訪客角色搬過去。`ALLOW_GUEST = "0"` 可以關掉訪客（訪客＝瀏覽器 localStorage 裡的隨機代碼）。名字不能重複。隱私權政策在 `public/privacy.html`。
 - 開關：`wrangler.toml` 的 `WORLD_VERSION` 改值＝開新世界（舊的不刪但不再用）；`PAUSED = "1"` 暫停時鐘；`TICK_SECONDS` 調速度。
 - 本機：`npx wrangler dev --config warband/wrangler.toml --local --var DEV:1 --port 8790`（`DEV` 開啟 `/api/dev/fight` 測試用）。
 

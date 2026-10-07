@@ -10,6 +10,7 @@ import {DurableObject} from 'cloudflare:workers';
 import * as C from '../public/js/cont.js';
 import * as Wd from '../public/js/world.js';
 import * as B from '../public/js/battle.js';
+import {verifyGoogle} from './auth.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
@@ -41,11 +42,12 @@ export class Realm extends DurableObject {
       } else {
         await st.deleteAll();
         this.meta = {version: this.env.WORLD_VERSION || '1', seq: 0, startedAt: Date.now(), chunks: 0};
-        this.feed = []; this.poiState = {}; this.roster = {};
+        this.feed = []; this.poiState = {}; this.roster = {}; this.names = {};
         await st.put('pois', Wd.genPOIs());
         await this.persist(true);
       }
       this.pois = await st.get('pois'); this.poiState = await st.get('poiState') || {}; this.feed = await st.get('feed') || []; this.roster = await st.get('roster') || {};
+      this.names = await st.get('names'); if (!this.names) { this.names = {}; for (const [id, r] of Object.entries(this.roster)) if (!this.names[r.name]) this.names[r.name] = id; }
       this.evLen = C.K().ev.length;
       Wd.MODE.shared = true;
       Wd.MODE.events = w => { const out = this.feed.filter(f => f.seq > (w.feedSeq || 0)).map(f => f.e); w.feedSeq = this.meta.seq; return out; };
@@ -56,7 +58,7 @@ export class Realm extends DurableObject {
     if (!force && Date.now() - this.lastPersist < 30000) { this.dirty = true; return; }
     const st = this.ctx.storage, z = await gzip(JSON.stringify(C.saveState())), n = Math.ceil(z.length / CHUNK);
     for (let i = 0; i < n; i++) await st.put('simz:' + i, z.slice(i * CHUNK, (i + 1) * CHUNK));
-    this.meta.chunks = n; await st.put('meta', this.meta); await st.put('feed', this.feed.slice(-400)); await st.put('poiState', this.poiState); await st.put('roster', this.roster);
+    this.meta.chunks = n; await st.put('meta', this.meta); await st.put('feed', this.feed.slice(-400)); await st.put('poiState', this.poiState); await st.put('roster', this.roster); await st.put('names', this.names || {});
     this.lastPersist = Date.now(); this.dirty = false;
   }
   // 沙盒新產生的事件收進共用的事件流（每個玩家的「聽說」從這裡讀）
@@ -73,6 +75,28 @@ export class Realm extends DurableObject {
 
   /* ───── 玩家 ───── */
   async player(id) { return await this.ctx.storage.get('p:' + id); }
+  // 身分：Google 登入發的工作階段代碼對到帳號；沒有的話就是舊的「瀏覽器代碼」訪客
+  async who(token) { const h = await sha(token), s = await this.ctx.storage.get('sess:' + h); return s ? s.pid : h; }
+  async googleLogin(body) {
+    const cid = this.env.GOOGLE_CLIENT_ID; if (!cid) return bad('伺服器沒有設定 Google 登入');
+    let g; try { g = this.env.DEV === '1' && body.devSub ? {sub: String(body.devSub), email: 'dev@test', name: 'dev'} : await verifyGoogle(body.credential, cid); } catch (e) { return bad(e.message, 401); }
+    const gid = 'g' + (await sha('google:' + g.sub)).slice(0, 23), st = this.ctx.storage;
+    const token = [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2, '0')).join('');
+    await st.put('sess:' + await sha(token), {pid: gid, at: Date.now()});
+    await st.put('acct:' + gid, {email: g.email, name: g.name, last: Date.now()});
+    let p = await this.player(gid), moved = false;
+    // 第一次用 Google 登入：把這個瀏覽器原本的訪客角色搬過來
+    if (!p && body.legacy && String(body.legacy).length >= 16) {
+      const lid = await this.who(body.legacy), lp = lid !== gid ? await this.player(lid) : null;
+      if (lp && !lp.w.over) {
+        lp.id = gid; await st.put('p:' + gid, lp); await st.delete('p:' + lid);
+        if (this.roster[lid]) { this.roster[gid] = this.roster[lid]; delete this.roster[lid]; }
+        if (this.names[lp.name] === lid) this.names[lp.name] = gid;
+        p = lp; moved = true; await this.persist(true);
+      }
+    }
+    return json({token, email: g.email, hasPlayer: !!(p && !p.w.over), name: p?.name || null, moved});
+  }
   // 行動點回復；超過上限、沒用掉的時間就是「離線」：照離線的規則結算（吃得少、發一半的餉、野外可能被夜襲）
   regen(p) {
     const now = Date.now(), w = p.w, got = (w.ap ?? 0) + (now - (p.apAt || now)) / this.apMs(), over = Math.max(0, got - Wd.AP_MAX);
@@ -137,20 +161,24 @@ export class Realm extends DurableObject {
     const url = new URL(req.url), path = url.pathname;
     if (path === '/api/world') {
       const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && Date.now() - r.seen < 7 * 864e5).map(([id, r]) => ({id: id.slice(0, 6), ...r}));
-      return json({T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
+      return json({clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
     }
     if (path === '/api/snapshot') {
       if (!this.snap) this.snap = JSON.stringify({T: C.K().T, state: C.saveState()});
       return new Response(this.snap, {headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
     }
-    const token = req.headers.get('x-token') || ''; if (token.length < 16) return bad('沒有身分', 401);
-    const id = await sha(token);
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
+    if (path === '/api/auth/google') return this.googleLogin(body);
+    const token = req.headers.get('x-token') || ''; if (token.length < 16) return bad('沒有身分', 401);
+    const id = await this.who(token);
+    if (!id.startsWith('g') && this.env.ALLOW_GUEST === '0' && path === '/api/join') return bad('請先用 Google 帳號登入', 401);
     let p = await this.player(id);
 
     if (path === '/api/join') {
       if (p && !p.w.over && !body.restart) { this.regen(p); this.prep(p); return json(this.view(p)); }
       const name = String(body.name || '').trim().slice(0, 8) || '無名的騎士';
+      const owner = this.names[name]; if (owner && owner !== id) { const o = await this.player(owner); if (o && !o.w.over) return bad(`「${name}」這個名字已經有人用了，換一個吧`); }
+      this.names[name] = id;
       const w = Wd.newWorld((Math.random() * 2 ** 31) | 0, name);
       w.pois = this.pois; w.ap = 72; w.feedSeq = this.meta.seq;
       p = {id, name, w, battle: null, apAt: Date.now(), created: Date.now()};

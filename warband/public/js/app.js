@@ -105,7 +105,7 @@ async function getPack() { if (!PACK) PACK = await (await fetch('data/genesis.js
 
 /* ───────────── 標題 ───────────── */
 function titleScreen() {
-  show('title');
+  show('title'); setupLogin();
   const s = load(); $('continueRun').hidden = !(s && s.world && !s.world.over);
 }
 $('newRun').onclick = async () => {
@@ -116,18 +116,53 @@ $('newRun').onclick = async () => {
   G = {world: Wd.newWorld(seed, $('heroName').value.trim() || '無名的騎士'), battle: null};
   cam = null; save(); worldScreen();
 };
-$('mpRun').onclick = async () => {
+// 帳號：用 Google 登入的話，伺服器發一個工作階段代碼，換裝置登入同一個帳號就是同一個角色；沒登入就用瀏覽器代碼當訪客
+const ACCT_KEY = 'warband-mp-acct';
+let AUTH = {clientId: '', guest: true, inited: false};
+const acct = () => { try { return localStorage.getItem(ACCT_KEY) || ''; } catch { return ''; } };
+async function setupLogin() {
+  try { const d = await (await fetch('/api/world')).json(); AUTH.clientId = d.clientId || ''; AUTH.guest = d.guest !== false; } catch { return; }
+  renderAcct();
+  if (!AUTH.clientId || AUTH.inited) return;
+  await new Promise(ok => { const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.onload = ok; sc.onerror = ok; document.head.append(sc); });
+  if (!window.google?.accounts?.id) return;
+  google.accounts.id.initialize({client_id: AUTH.clientId, callback: onGoogle, ux_mode: 'popup'});
+  AUTH.inited = true; renderAcct();
+}
+function renderAcct() {
+  const box = $('acctBox'), note = $('acctNote'), email = acct();
+  box.hidden = !AUTH.clientId; $('gsiBtn').innerHTML = '';
+  if (email) { note.innerHTML = ''; note.append(`已用 ${email} 登入。`, el('a', {onclick: () => { try { localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); } catch {} renderAcct(); }}, '登出')); }
+  else {
+    if (AUTH.inited) google.accounts.id.renderButton($('gsiBtn'), {theme: 'filled_black', text: 'signin_with', shape: 'pill', locale: 'zh-TW'});
+    note.textContent = AUTH.guest ? '用 Google 登入，換手機或電腦都能接著玩同一支戰幫。也可以不登入，用這個瀏覽器當訪客。' : '共享世界要用 Google 帳號登入。';
+  }
+  $('mpRun').hidden = !email && !AUTH.guest;
+  $('mpRun').textContent = email || !AUTH.clientId ? '進入共享世界' : '以訪客身分進入共享世界';
+}
+async function onGoogle(resp) {
+  try {
+    const legacy = acct() ? null : localStorage.getItem(TOKEN_KEY);
+    const r = await fetch('/api/auth/google', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({credential: resp.credential, legacy})});
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || '登入失敗');
+    localStorage.setItem(TOKEN_KEY, d.token); localStorage.setItem(ACCT_KEY, d.email || 'Google 帳號');
+    renderAcct(); toast(d.moved ? `登入了；這個瀏覽器原本的「${d.name}」已經綁到你的帳號上` : d.hasPlayer ? `歡迎回來，${d.name}` : '登入了，取個名字就能出發');
+    if (d.hasPlayer) enterShared();
+  } catch (e) { toast(e.message, 3500); }
+}
+$('mpRun').onclick = () => enterShared();
+async function enterShared() {
   const name = $('heroName').value.trim() || '無名的騎士';
   NET.token = localStorage.getItem(TOKEN_KEY); if (!NET.token) { NET.token = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem(TOKEN_KEY, NET.token); }
-  $('mpRun').disabled = true; $('mpRun').textContent = '連線中…';
+  $('mpRun').disabled = true; const lab = $('mpRun').textContent; $('mpRun').textContent = '連線中…';
   try {
     C.loadPack(await getPack()); NET.on = true; Wd.MODE.shared = true;
     await refreshMirror(true);
     const v = await api('/api/join', {name, restart: !!(G.world && G.world.over && NET.on)}); applyView(v);
     cam = null; worldScreen(); if (NET.battle) startBattle(NET.battle.setup);
     if (!refreshMirror.timer) refreshMirror.timer = setInterval(() => { if (NET.on && !G.battle && !traveling) refreshMirror().then(() => { if (!$('world').hidden) renderWorld(); }).catch(() => {}); }, 30000);
-  } catch (e) { toast(e.message); NET.on = false; Wd.MODE.shared = false; } finally { $('mpRun').disabled = false; $('mpRun').textContent = '進入共享世界'; }
-};
+  } catch (e) { toast(e.message, 3500); NET.on = false; Wd.MODE.shared = false; } finally { $('mpRun').disabled = false; $('mpRun').textContent = lab; }
+}
 $('continueRun').onclick = async () => {
   $('continueRun').disabled = true;
   try { C.loadPack(await getPack()); const st = await loadSim(); if (st) C.loadState(st); } finally { $('continueRun').disabled = false; }

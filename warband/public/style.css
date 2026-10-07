@@ -179,3 +179,4 @@ h3{font-size:16px;margin:6px 0 2px}
 .copts button small{color:var(--muted);font-size:10px}
 .copts button.done{border-color:#3f6a33;color:#bfe3b0}
 @media (max-width:899px){#mapWrap .floating{right:40px}}
+.acct{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.acct p{margin:0;font-size:13px;text-align:center}.acct a{color:var(--gold);cursor:pointer}
