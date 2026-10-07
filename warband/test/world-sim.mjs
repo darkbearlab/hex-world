@@ -19,7 +19,7 @@ function heroPlan(st) {
 }
 function fight(w) {
   const setup = w.pendingBattle;
-  const st = B.createBattle({seed: setup.seed, biome: setup.biome, party: Wd.battleParty(w), foes: setup.foes, order: {stance: 'follow'}});
+  const st = B.createBattle({seed: setup.seed, biome: setup.biome, party: Wd.battleParty(w, setup), foes: setup.foes, order: {stance: 'follow'}});
   let g = 0; while (!st.result && g++ < 60) B.act(st, heroPlan(st));
   if (!st.result) st.result = 'retreat';
   return Wd.applyBattle(w, setup, st);

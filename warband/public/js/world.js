@@ -29,7 +29,9 @@ export function apCost(w, a) {
   if (a.type === 'gather') return gatherOptions(w).find(o => o.key === a.kind)?.hours || 12;
   if (a.type === 'pick') return 2;
   if (a.type === 'work') return 24 * (a.days || 1);
-  if (a.type === 'trade' || a.type === 'ask' || a.type === 'hirePatrol') return 1;
+  if (a.type === 'trade' || a.type === 'ask' || a.type === 'hirePatrol' || a.type === 'askLocal') return 1;
+  if (a.type === 'escape') return 12;
+  if (a.type === 'waitCaptive' || a.type === 'lodge') return 24;
   return 0;
 }
 /* ───────────── 常數 ───────────── */
@@ -268,8 +270,12 @@ function arriveJob(w, out) {
   }
   if (w.escort) { const c = w.contracts.find(x => x.id === w.escort.cid);
     if (c && c.to === w.pos) { const m = k.markets[c.to]; if (m) m.stock[c.g] += c.q * BALE; w.gold += c.reward; w.fame = (w.fame || 0) + 0.5; w.contracts = w.contracts.filter(x => x !== c); w.escort = null;
-      for (const p of companions(w)) p.loyalty = Math.min(100, p.loyalty + 3); say(w, `把${GN[c.g]}商隊平安送到${nm(c.to)}，商人付了 ${c.reward} 金幣。`); out.lines.push(`護送完成，拿到 ${c.reward} 金幣。`); } }
-  for (const c of w.contracts) if (c.taken && !c.done && (c.kind === 'merc' || c.kind === 'wolves') && c.target === w.pos && !out.battle) { out.battle = battleSetup(w, 'contract', c.id); break; }
+      for (const p of companions(w)) p.loyalty = Math.min(100, p.loyalty + 3); say(w, `把${GN[c.g]}商隊平安送到${nm(c.to)}，商人付了 ${c.reward} 金幣。`); out.lines.push(`護送完成，拿到 ${c.reward} 金幣。`); addFavor(w, c.town, 1, out); } }
+  for (const c of w.contracts) if (c.taken && !c.done && c.kind === 'missing' && c.target === w.pos) {
+    if (rngNext(w) < 0.35 && !out.battle) { out.lines.push('循著腳印找過去，先撞上了一群狼。'); c.kind = 'wolves'; c.wasMissing = true; out.battle = battleSetup(w, 'contract', c.id); break; }
+    c.done = true; say(w, `在${nm(w.pos)}找到了${nm(c.vill)}失蹤的人，${rngPick(w, ['腿摔斷了', '迷了路', '躲在樹洞裡發抖', '被困在溪對岸'])}。帶他回村吧。`); out.lines.push('找到失蹤的人了。');
+  }
+  for (const c of w.contracts) if (c.taken && !c.done && (c.kind === 'merc' || c.kind === 'wolves' || c.kind === 'thugs') && c.target === w.pos && !out.battle) { out.battle = battleSetup(w, 'contract', c.id); break; }
 }
 // 走進城鎮：看行情、刷新告示板
 function arrive(w) {
@@ -347,7 +353,7 @@ export const contractSite = (w, c) => {
   if (c.kind === 'gang') { const g = K().gangs.find(x => x.id === c.gang); return g && !g.gone ? g.lair : -1; }
   return c.kind === 'escort' || c.kind === 'letter' ? c.to : c.kind === 'deliver' ? c.at : c.target ?? -1;
 };
-export const KIND_NAME = {gang: '剿匪', escort: '護送', deliver: '收購', merc: '傭兵', wolves: '狼害', letter: '送信'};
+export const KIND_NAME = {gang: '剿匪', escort: '護送', deliver: '收購', merc: '傭兵', wolves: '狼害', letter: '送信', thugs: '惡霸', missing: '尋人'};
 
 /* ───────────── 興趣點：荒野裡值得繞路去看看的地方 ───────────── */
 // 由世界種子決定，同一個世界裡每個人看到的都一樣（多人時共用探索狀態）
@@ -457,6 +463,7 @@ function worldTick(w, out) {
 }
 function newDay(w, out, mode) {
   for (const m of w.party) m.hp = Math.round(m.hp);
+  if (w.bound && rngNext(w) < 0.04 + (w.party.length < 2 ? 0.04 : 0)) { say(w, `夜裡${w.bound.name}掙開繩子逃了。`); w.bound = null; }
   if (w.food <= 0) {
     say(w, '糧食吃光了，大家餓著肚子。');
     for (const m of w.party) { m.hp = Math.max(1, m.hp - Math.ceil(m.max * 0.15)); if (!m.hero) m.loyalty -= 8; }
@@ -653,6 +660,7 @@ export function battleSetup(w, kind, ref) {
   if (kind === 'contract') {
     const c = w.contracts.find(x => x.id === ref), k = K(), lvl = 1 + Math.floor(w.day / 12), foes = [];
     if (c.kind === 'wolves') { const n = 2 + rngInt(w, 2); for (let i = 0; i < n; i++) foes.push(makeMember(w, 'wolf', lvl)); foes.push(makeMember(w, rngNext(w) < 0.3 ? 'bear' : 'boar', lvl, {leader: true})); return {seed, biome: 'forest', foes, source: {kind, ref}, title: c.title}; }
+    if (c.kind === 'thugs') { foes.push(makeMember(w, 'cutthroat', lvl, {leader: true, name: '惡霸頭子'})); const n = 1 + rngInt(w, 3); for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['bandit', 'bandit', 'poacher']), Math.max(1, lvl - 1), {name: '打手'})); return {seed, biome: battleBiome(w.pos), foes, source: {kind, ref}, title: c.title}; }
     const E = k.fac[c.enemy].n; foes.push(makeMember(w, 'knight', lvl + 2, {leader: true, name: `${E}的隊長`}));
     const n = 3 + Math.min(3, Math.floor(w.day / 15)); for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['swordsman', 'spearman', 'spearman', 'archer', 'axeman']), lvl + (i === 0 ? 1 : 0), {name: `${E}的士兵`}));
     return {seed, biome: battleBiome(w.pos), foes, source: {kind, ref}, title: `${nm(w.pos)}的${E}守軍`};
@@ -663,10 +671,136 @@ export function battleSetup(w, kind, ref) {
   for (let i = 0; i < n; i++) foes.push(makeMember(w, rngPick(w, ['bandit', 'bandit', 'cutthroat', 'poacher']), lvl + (i === 0 ? 1 : 0)));
   return {seed, biome: 'camp', foes, source: {kind: 'gang', ref}, title: `${g.name}的山寨`};
 }
+/* ───────────── 人情：記在地方上（一座城加上周圍歸它的村子算一區） ───────────── */
+export function regionOf(i, k = K()) {
+  if (i < 0) return -1; if (isTown(i, k)) return i; if (k.mkt[i] >= 0 && k.markets[k.mkt[i]]) return k.mkt[i];
+  let best = -1, bd = 4; for (const t of Object.keys(k.markets).map(Number)) { const d = hdist(t, i); if (d <= bd && isTown(t, k)) { bd = d; best = t; } } return best;
+}
+const FAVOR_FADE = 0.97;   // 每天淡掉 3%
+export function favorAt(w, i) { const r = regionOf(i), f = (w.favor || {})[r]; return f ? f.v * FAVOR_FADE ** Math.max(0, w.day - f.day) : 0; }
+export function addFavor(w, i, n, out) {
+  const r = regionOf(i); if (r < 0 || !n) return; const v = Math.max(0, favorAt(w, i) + n);
+  (w.favor ||= {})[r] = {v, day: w.day}; if (v < 0.05) delete w.favor[r];
+  if (n >= 1 && out) out.lines.push(`${nm(r)}一帶的人記下了這份人情。`);
+}
+const gangWordOf = str => str > 260 ? '人多勢眾' : str > 160 ? '有一定規模' : '人不多';
+// 附近（這格或相鄰）有欠你們人情的村子，就能躲
+export function canHide(w) { for (const i of [w.pos, ...NBR[w.pos]]) { const s = siteAt(w, i); if ((s?.kind === 'village') && favorAt(w, i) >= FAVOR.hide) return i; } return null; }
+export const spendFavor = (w, i, n) => { if (favorAt(w, i) + 1e-9 < n) throw new Error(`${nm(regionOf(i))}一帶欠你們的人情不夠`); addFavor(w, i, -n); };
+export const favorList = w => Object.keys(w.favor || {}).map(Number).map(r => ({r, v: favorAt(w, r)})).filter(x => x.v >= 0.1).sort((a, b) => b.v - a.v);
+export const FAVOR = {lodge: 1, ask: 1, hide: 2, ransom: 5};
+// 村子的請託：每個村子一週換一次；錢少，主要換人情
+export const PLEA_NAME = {wolves: '狼害', thugs: '惡霸', missing: '尋人'};
+export function villagePleas(w, v) {
+  const k = K(), s = siteAt(w, v); if (s?.kind !== 'village') return [];
+  w.pleaDay ||= {}; const mine = () => w.contracts.filter(c => c.vill === v && (!c.taken || !c.paid));
+  if ((w.pleaDay[v] ?? -99) > w.day - 7) return mine();
+  w.pleaDay[v] = w.day;
+  const near = []; for (let i = 0; i < N; i++) if (passable(i) && !isTown(i, k) && hdist(i, v) >= 1 && hdist(i, v) <= 3 && !siteAt(w, i)) near.push(i);
+  if (!near.length) return mine();
+  const add = (kind, target, title, reward, favor) => w.contracts.push({id: 'k' + w.nextId++, kind, town: v, vill: v, target, title, reward, favor, until: w.day + 10, taken: false, done: false});
+  const wild = near.filter(i => k.owner[i] < 0 || k.gameK[i] > 0), rough = near.filter(i => k.bandit[i] > 10);
+  if (wild.length && rngNext(w) < 0.6) { const i = rngPick(w, wild); add('wolves', i, `${nm(v)}的羊被咬死了：清掉${nm(i)}的狼群`, 20 + rngInt(w, 20), 2); }
+  if (rough.length && rngNext(w) < 0.6) { const i = rngPick(w, rough); add('thugs', i, `趕走在${nm(i)}勒索${nm(v)}村民的惡霸`, 25 + rngInt(w, 25), 3); }
+  if (rngNext(w) < 0.5) { const i = rngPick(w, near); add('missing', i, `${nm(v)}有人去${nm(i)}之後就沒回來`, 15 + rngInt(w, 15), 2); }
+  return mine();
+}
+/* ───────────── 主角被打倒：被俘 ───────────── */
+export const CAPTIVE_DAYS = {bandit: 7, soldier: 4};
+function heroDowned(w, setup, out) {
+  const k = K(), S = setup.source, h = w.party.find(m => m.hero), b = S.kind === 'band' && w.bands.find(x => x.id === S.ref);
+  const c = S.kind === 'contract' && w.contracts.find(x => x.id === S.ref);
+  const beast = (b && b.kind === 'wolves') || S.kind === 'poi' || (c && (c.kind === 'wolves' || c.wasMissing));
+  if (b) w.bands = w.bands.filter(x => x !== b);
+  w.camp = null; if (w.escort) failEscort(w, '主角倒下，商隊的貨被搶光，');
+  w.fame = Math.max(0, (w.fame || 0) - 0.5);
+  if (beast || S.kind === 'pvp') {   // 沒有人抓人：被路過的人救起，貨都丟了
+    if (load(w) > 0) loseCargo(w, 1, '', '倒下時丟下的');
+    out.lines.push(beast ? `${h.name}倒在血泊裡，被路過的獵戶拖了回來。隊伍丟下了貨，總算撿回一條命。` : `${h.name}被打倒，對方沒有趕盡殺絕。`);
+    return;
+  }
+  const soldier = (b && b.kind === 'soldiers') || S.kind === 'raid' || (c && c.kind === 'merc');
+  const fac = b ? b.fac : S.kind === 'raid' ? S.fac : c && c.kind === 'merc' ? c.enemy : -1;
+  const by = soldier && fac >= 0 ? `${facName(fac)}的官兵` : setup.title.replace(/^與|單挑$/g, '');
+  const took = Math.round(w.gold * 0.8); w.gold -= took;
+  if (load(w) > 0) loseCargo(w, 1, '', null);
+  let gear = ''; if (h.ga > 0) { h.ga--; gear = '護甲'; } else if (h.gw > 0) { h.gw--; gear = '兵器'; }
+  const ransom = soldier ? fineOf(w, fac) + 60 : 40 + h.lvl * 15 + Math.round((w.fame || 0) * 8);
+  w.captive = {by, soldier, fac, ransom, day: w.day, tries: 0, lastTry: -1};
+  out.lines.push(`${h.name}被打倒，醒來時已經被${by}綁著${soldier ? '，關進了牢裡' : '，他們要贖金'}。身上的錢${took ? `（${took} 金幣）` : ''}、貨${gear ? '和' + gear : ''}都被拿走了。`);
+  k.ev.push({y: k.curY, type: 'bandit', text: `${MODE.bandName}的首領在${nm(w.pos)}被${by}俘虜了。`, tile: w.pos, ts: k.stamp});
+}
+// 被關著：時間到了對方就放人（盜匪榨乾了你、官府關夠了）
+function captiveCheck(w) {
+  const c = w.captive; if (!c) return;
+  if (w.day - c.day >= CAPTIVE_DAYS[c.soldier ? 'soldier' : 'bandit']) {
+    if (c.soldier) { if (c.fac >= 0) w.wanted[c.fac] = (w.wanted[c.fac] || 0) / 2; say(w, `關滿了日子，${c.by}把你們放了出來。`); }
+    else { w.gold = 0; say(w, `${c.by}榨不出更多的錢，把你們丟在荒野裡。`); }
+    w.captive = null;
+  }
+}
+export const escapeOdds = w => { const h = w.party.find(m => m.hero), c = w.captive; return Math.max(0.1, Math.min(0.8, 0.25 + (h?.spd || 5) * 0.01 + (w.party.length - 1) * 0.06 - (c?.tries || 0) * 0.05)); };
+const CAPTIVE_OK = new Set(['payRansom', 'favorRansom', 'escape', 'waitCaptive', 'eat', 'release']);
+/* ───────────── 單挑與俘虜 ───────────── */
+// 拔掉一座山寨：賞金、名聲、委託完成、寨裡的寶物。單挑贏的話嘍囉帶著東西散了，搜到的少一些
+function breakGang(w, g, out, mul) {
+  const k = K();
+  out.loot = Math.round((100 + (g.loot || 0) * 2 + g.str * 0.4 + rngInt(w, 60)) * mul);
+  g.gone = 1; g.to = undefined; w.fame = (w.fame || 0) + 2; k.bandit[g.lair] *= 0.25; for (const n of NBR[g.lair]) k.bandit[n] *= 0.4;
+  k.ev.push({y: k.curY, type: 'bandit', text: mul < 1 ? `${MODE.bandName}的首領單挑擊倒了${g.name}，山寨一夜之間散了。` : `${MODE.bandName}攻破了${g.name}的山寨。`, tile: g.lair, ts: k.stamp});
+  for (const c of w.contracts) if (c.gang === g.id) { if (c.taken) { c.done = true; out.lines.push(`委託「${c.title}」完成，回${nm(c.town)}（或${facName(k.owner[c.town])}的其他城）領賞。`); } else c.void = true; }
+  addFavor(w, g.lair, 4, out);
+  for (const wp of k.weapons) if (wp.gang === g.id) {   // 山寨裡藏著的傳奇武器
+    wp.gang = 0; wp.holder = 0; wp.fac = -1; wp.lost = false; wp.loc = -1; wp.player = 1;
+    wp.hist.push({y: k.curY, t: `${MODE.bandName}攻破${g.name}的山寨，從寨裡搜出了「${wp.name}」。`});
+    w.relics.push({id: wp.id, name: wp.name, kind: wp.kind, wins: wp.wins, owners: wp.owners});
+    out.lines.push(`在寨子深處搜出一把${wp.kind}——是傳說中的「${wp.name}」！`);
+  }
+}
+// 把打倒的頭目綁起來：押進城交給官府，賞金比較高；路上多吃一份糧，他也可能逃掉或被同夥劫走
+function bindChief(w, g, out, name) {
+  if (w.bound) { out.lines.push('手上已經押著一個人，這個只好放了。'); return; }
+  w.bound = {name: name || `頭目${g.name}`, gang: g ? g.id : 0, value: g ? Math.round(60 + g.str * 0.3) : 40 + rngInt(w, 30), day: w.day};
+  out.lines.push(`把${w.bound.name}綁了起來，押進城可以換賞金。`);
+}
+// 對方接不接戰帖：聲望越高越不敢拒絕；人多勢眾的一方懶得跟你單挑
+export function duelOdds(w, foes) {
+  const mine = partyPower(battleParty(w)), theirs = partyPower(foes);
+  return Math.max(0.1, Math.min(0.95, 0.35 + (w.fame || 0) * 0.06 + (mine / Math.max(1, theirs) - 1) * 0.4));
+}
+const leaderOf = foes => foes.find(f => f.leader) || foes.slice().sort((a, b) => partyPower([b]) - partyPower([a]))[0];
+export function duelTarget(w) {
+  const k = K(), b = bandAt(w, w.pos);
+  if (b && b.kind === 'bandits') return {band: b, foes: b.foes, leader: leaderOf(b.foes), asked: !!b.duelAsked, name: b.name};
+  const g = gangAt(w.pos, k); if (g) return {gang: g, leader: {name: `頭目${g.name}`}, asked: (w.duelNo || {})[g.id] === w.day, name: `${g.name}的山寨`, odds: Math.max(0.1, Math.min(0.9, 0.2 + (w.fame || 0) * 0.06))};
+  return null;
+}
+function duelOutcome(w, setup, bst, out) {
+  const k = K(), S = setup.source, foe = bst.units.find(u => u.side === 'enemy'), hero = bst.units.find(u => u.hero);
+  const b = S.band && w.bands.find(x => x.id === S.band), g = S.gang && k.gangs.find(x => x.id === S.gang);
+  if (bst.result === 'win') {
+    w.fame = (w.fame || 0) + (g ? 1 : 0.5);
+    if (b) { out.loot = b.loot; w.bands = w.bands.filter(x => x !== b); out.lines.push(`${foe.name}倒下了，${b.name}一哄而散。`); if (b.gang) { const gg = k.gangs.find(x => x.id === b.gang); if (gg && !gg.gone) gg.str *= 0.9; } k.bandit[w.pos] *= 0.7; }
+    if (g) breakGang(w, g, out, 0.6);
+    if (!foe.alive) bindChief(w, g, out, g ? null : `${b?.name || '盜匪'}的頭目${foe.name}`);
+    w.gold += out.loot || 0;
+    out.lines.unshift(`單挑贏了。${out.loot ? `搜到 ${out.loot} 金幣。` : ''}`);
+  } else {
+    w.fame = Math.max(0, (w.fame || 0) - (hero.yielded ? 0.2 : 0.4));
+    out.lines.unshift(hero.yielded ? `${hero.name}被打倒在地，認輸了。` : `${hero.name}退出了單挑，旁觀的人噓聲一片。`);
+    if (b) { const t = tollOf(w);
+      if (t.cargo) { loseCargo(w, 0.5, `${b.name}拿走了一半的貨：`, null); out.lines.push('照規矩，他們搬走了一半的貨。'); }
+      else if (t.gold && w.gold >= t.gold) { w.gold -= t.gold; out.lines.push(`照規矩，交出了 ${t.gold} 金幣。`); }
+      else if (t.escort) { failEscort(w, `${b.name}劫走了護送的貨，`); }
+      w.bands = w.bands.filter(x => x !== b); }
+  }
+}
 export function applyBattle(w, setup, bst) {
   const out = {lines: [], loot: 0}, k = K();
   const units = new Map(bst.units.map(u => [u.id, u]));
   const gIds = new Set((w.guard?.men || []).map(m => m.id));
+  let downed = false;
+  for (const u of bst.units) if (u.hero && !u.alive) { u.alive = true; u.hp = 1; if (setup.duel) u.yielded = true; else downed = true; }   // 主角倒下不會死：單挑就是認輸，其他是被俘
   for (const m of w.party.slice()) {
     const u = units.get(m.id); if (!u) continue;
     if (!u.alive) {
@@ -686,7 +820,8 @@ export function applyBattle(w, setup, bst) {
   if (w.guard) { w.guard.men = w.guard.men.filter(m => { const u = units.get(m.id); if (!u) return true; m.hp = u.hp; m.exp = u.exp; return u.alive; }); if (!w.guard.men.length) { out.lines.push(`${w.guard.name}的人全倒下了。`); w.guard = null; } }
   const deaths = bst.units.filter(u => u.side === 'ally' && !u.alive && !u.hero && !gIds.has(u.id)).length;
   const hero = bst.units.find(u => u.hero);
-  if (!hero.alive) { w.over = {day: w.day, where: setup.title}; return out; }
+  if (downed) { heroDowned(w, setup, out); w.pendingBattle = null; trimCargo(w); for (const l of out.lines) say(w, l); return out; }
+  if (setup.duel) { duelOutcome(w, setup, bst, out); w.pendingBattle = null; trimCargo(w); for (const l of out.lines) say(w, l); return out; }
   if (bst.result === 'win') {
     const fled = bst.units.filter(u => u.side === 'enemy' && u.fled).length;
     if (setup.source.kind === 'poi') { grantLoot(w, setup.source.loot, out); w.fame = (w.fame || 0) + 0.3; }
@@ -707,7 +842,7 @@ export function applyBattle(w, setup, bst) {
       for (const m of companions(w)) if (m.traits.includes('loyal') || m.traits.includes('guardian')) m.loyalty -= 6;
     } else if (setup.source.kind === 'contract') {
       const c = w.contracts.find(x => x.id === setup.source.ref), k = K();
-      if (c) { c.done = true; w.fame = (w.fame || 0) + (c.kind === 'merc' ? 1 : 0.5); out.lines.push(`委託「${c.title}」完成，回${nm(c.town)}（或${facName(k.owner[c.town])}的其他城）領賞。`);
+      if (c) { c.done = true; if (c.wasMissing) { c.kind = 'missing'; say(w, `趕跑了狼，在${nm(w.pos)}找到了${nm(c.vill)}失蹤的人。`); } w.fame = (w.fame || 0) + (c.kind === 'merc' ? 1 : c.vill ? 0.2 : 0.5); out.lines.push(c.vill ? `「${c.title}」辦好了，回${nm(c.vill)}說一聲。` : `委託「${c.title}」完成，回${nm(c.town)}（或${facName(k.owner[c.town])}的其他城）領賞。`);
         if (c.kind === 'merc') { const a = Math.min(c.fac, c.enemy), b = Math.max(c.fac, c.enemy), Wr = k.war[a][b]; if (Wr) Wr.score = (Wr.score || 0) + (Wr.att === c.fac ? 2 : -2);
           k.ev.push({y: k.curY, type: 'war', text: `一支傭兵戰幫替${k.fac[c.fac].n}在${nm(w.pos)}擊潰了${k.fac[c.enemy].n}的守軍。`, tile: w.pos, ts: k.stamp}); }
         else { k.game[w.pos] *= 0.5; } }
@@ -715,21 +850,12 @@ export function applyBattle(w, setup, bst) {
     } else if (setup.source.kind === 'band') {
       const b = w.bands.find(x => x.id === setup.source.ref); out.loot = b ? b.loot : 0; w.bands = w.bands.filter(x => x !== b);
       if (b && b.gang) { const g = k.gangs.find(x => x.id === b.gang); if (g && !g.gone) { k.bandit[g.lair] *= 0.85; g.loot = (g.loot || 0) * 0.8; } }
-      if (b && b.kind === 'bandits') k.bandit[w.pos] *= 0.7;
+      if (b && b.kind === 'bandits') { k.bandit[w.pos] *= 0.7; if (k.owner[w.pos] >= 0) addFavor(w, w.pos, 0.3); }
       if (b && b.kind === 'soldiers' && b.fac >= 0) { if (fled) { w.wanted[b.fac] = (w.wanted[b.fac] || 0) + 2; out.lines.push(`有巡邏兵逃回去報信，${k.fac[b.fac]?.n}的通緝更緊了。`); } else out.lines.push('巡邏兵一個也沒能回去報信。'); }
     } else {
       const g = k.gangs.find(x => x.id === setup.source.ref);
-      out.loot = Math.round(100 + (g.loot || 0) * 2 + g.str * 0.4 + rngInt(w, 60));
-      g.gone = 1; g.to = undefined; w.fame = (w.fame || 0) + 2; k.bandit[g.lair] *= 0.25; for (const n of NBR[g.lair]) k.bandit[n] *= 0.4;
-      k.ev.push({y: k.curY, type: 'bandit', text: `${MODE.bandName}攻破了${g.name}的山寨。`, tile: g.lair, ts: k.stamp});
-      for (const c of w.contracts) if (c.gang === g.id) { if (c.taken) { c.done = true; out.lines.push(`委託「${c.title}」完成，回${nm(c.town)}（或${facName(k.owner[c.town])}的其他城）領賞。`); } else c.void = true; }
-      // 山寨裡藏著的傳奇武器
-      for (const wp of k.weapons) if (wp.gang === g.id) {
-        wp.gang = 0; wp.holder = 0; wp.fac = -1; wp.lost = false; wp.loc = -1; wp.player = 1;
-        wp.hist.push({y: k.curY, t: `${MODE.bandName}攻破${g.name}的山寨，從寨裡搜出了「${wp.name}」。`});
-        w.relics.push({id: wp.id, name: wp.name, kind: wp.kind, wins: wp.wins, owners: wp.owners});
-        out.lines.push(`在寨子深處搜出一把${wp.kind}——是傳說中的「${wp.name}」！`);
-      }
+      breakGang(w, g, out, 1);
+      const ch = bst.units.find(u => u.side === 'enemy' && u.leader); if (ch && !ch.alive) bindChief(w, g, out);
     }
     w.gold += out.loot;
     for (const m of companions(w)) m.loyalty = Math.min(100, m.loyalty + 4 + (out.loot && m.traits.includes('greedy') ? 3 : 0) - deaths * 4);
@@ -817,18 +943,21 @@ export function syncClock(w, worldHours) {
   return jump;
 }
 export function idle(w, hours, T) {
-  const k = K(), town = siteAt(w, w.pos)?.kind === 'town', rep = {hours: 0, food: 0, gold: 0, raids: []};
+  const k = K(), rep = {hours: 0, food: 0, gold: 0, raids: []}; let town = siteAt(w, w.pos)?.kind === 'town';
+  if (w.lodged !== w.pos) w.lodged = null;
   w.idleBuf = (w.idleBuf || 0) + Math.min(hours, 24 * 30);
   const due = companions(w).reduce((s, m) => s + m.wage, 0);
   while (w.idleBuf >= 6) {
     w.idleBuf -= 6; rep.hours += 6; let hungry = false, cost = due / 168 * 6 / 2; w.fatigue = Math.max(0, (w.fatigue || 0) - 12);
+    if (w.lodged != null && favorAt(w, w.pos) >= 0.25) { addFavor(w, w.pos, -0.25); rep.lodged = true; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.4 * 6 / 24)); w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost); if (pay && w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } continue; }
+    else if (w.lodged != null) { w.lodged = null; say(w, `${nm(w.pos)}的人情用完了，村民客氣地請你們出去紮營。`); }
     if (town) { cost += w.party.length * 2 * 6 / 24; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.5 * 6 / 24)); }
     else { const need = eaters(w) / 24 * 6 / 3; if (w.food >= need) { w.food -= need; rep.food += need; } else { w.food = 0; hungry = true; } if (!hungry) for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.1 * 6 / 24)); }
     w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost);
     if (pay) { if (w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } else { rep.gold += w.gold; w.gold = 0; w.idleCost = 0; hungry = true; } }
     if (hungry) for (const m of companions(w)) m.loyalty -= m.traits.includes('loyal') ? 1 : 2;
     desertCheck(w);
-    if (!town && (w.shieldT || 0) <= T && !(w.idleRaid > 0)) {
+    if (!town && !w.captive && (w.shieldT || 0) <= T && !(w.idleRaid > 0)) {
       const ci = campInfo(w), base = Math.min(0.12, tileRisk(w.pos, k) * 0.15 + (load(w) > 0 ? 0.02 : 0));
       if (rngNext(w) < base * (ci ? (ci.watch ? 0.5 : 1) * (ci.fire ? 1.4 : 1) * (ci.stake ? 0.8 : 1) : 1.6)) {
         const near = k.gangs.filter(g => !g.gone && hdist(g.lair, w.pos) <= 4)[0], by = near ? `${near.name}的人` : '一夥盜匪';
@@ -837,7 +966,7 @@ export function idle(w, hours, T) {
       }
     } else if (w.idleRaid > 0) w.idleRaid--;
   }
-  if (rep.hours >= 24) say(w, `離開的這段時間（約 ${Math.round(rep.hours / 24)} 天），${town ? '住在旅店' : '在原地等著'}，${rep.food ? `吃掉 ${Math.round(rep.food)} 份糧、` : ''}花掉 ${rep.gold} 金幣。`);
+  if (rep.hours >= 24) say(w, `離開的這段時間（約 ${Math.round(rep.hours / 24)} 天），${town ? '住在旅店' : rep.lodged ? `借住在${nm(w.pos)}的村民家` : '在原地等著'}，${rep.food ? `吃掉 ${Math.round(rep.food)} 份糧、` : ''}花掉 ${rep.gold} 金幣。`);
   return rep;
 }
 
@@ -968,7 +1097,8 @@ export function worldAct(w, a) {
   const apNeed = MODE.shared ? apCost(w, a) : 0;
   if (apNeed > (w.ap ?? 0) + 1e-9) throw new Error(`行動點不夠：要 ${apNeed}，剩 ${Math.floor(w.ap ?? 0)}。時間會慢慢補回來${a.type === 'travel' && !w.march ? '；或開急行軍，用更少的行動點走同一段路' : ''}。`);
   w.leads ||= []; if (w.escort === undefined) w.escort = null;
-  guardCheck(w);
+  guardCheck(w); captiveCheck(w);
+  if (w.captive && !CAPTIVE_OK.has(a.type)) throw new Error(`你們還被${w.captive.by}關著`);
   const k = K(), here = siteAt(w, w.pos), town = here?.kind === 'town';
   const needTown = () => { if (!town) throw new Error('要在城鎮的市集'); };
   switch (a.type) {
@@ -1146,7 +1276,7 @@ export function worldAct(w, a) {
     case 'claim': {
       needTown();
       const done = w.contracts.filter(c => canClaimHere(w, c)); if (!done.length) { const far = w.contracts.find(c => c.done && c.taken); throw new Error(far ? `賞金要回${C.nm(far.town)}（或${facName(K().owner[far.town])}的其他城）領` : '沒有可以領的賞金'); }
-      for (const c of done) { const r = rewardOf(w, c); w.gold += r; say(w, `領了「${c.title}」的賞金 ${r}${r > c.reward ? '（自己人，多給了一些）' : ''}。`); }
+      for (const c of done) { const r = rewardOf(w, c); w.gold += r; say(w, `領了「${c.title}」的賞金 ${r}${r > c.reward ? '（自己人，多給了一些）' : ''}。`); addFavor(w, c.town, c.kind === 'gang' ? 2 : 1, out); }
       w.contracts = w.contracts.filter(c => !done.includes(c));
       break;
     }
@@ -1155,6 +1285,76 @@ export function worldAct(w, a) {
       out.battle = battleSetup(w, 'gang', g.id); break;
     }
     case 'engage': { out.battle = battleSetup(w, 'band', a.band); break; }
+    case 'duel': {   // 向頭目下戰帖
+      const d = duelTarget(w); if (!d) throw new Error('這裡沒有人可以下戰帖'); if (d.asked) throw new Error('他們已經拒絕過了');
+      if (d.band) {
+        d.band.duelAsked = true;
+        if (rngNext(w) >= duelOdds(w, d.foes)) { out.lines.push(`${d.leader.name}哈哈大笑：「單挑？我們人多，何必。」——他們圍了上來。`); out.battle = battleSetup(w, 'band', d.band.id); break; }
+        const s = battleSetup(w, 'band', d.band.id); s.foes = [{...d.leader, leader: true}]; s.source = {kind: 'duel', band: d.band.id}; s.duel = true; s.camp = null; s.title = `與${d.leader.name}單挑`;
+        out.lines.push(`${d.leader.name}接下了戰帖。其他人退開，圍成一圈。`); out.battle = s;
+      } else {
+        (w.duelNo ||= {})[d.gang.id] = w.day;
+        if (rngNext(w) >= d.odds) { out.lines.push(`寨門上的人朝你們吐了口水：頭目不跟無名小卒單挑。`); break; }
+        const s = battleSetup(w, 'gang', d.gang.id); s.foes = s.foes.filter(f => f.leader); s.source = {kind: 'duel', gang: d.gang.id}; s.duel = true; s.biome = battleBiome(w.pos); s.title = `與頭目${d.gang.name}單挑`;
+        out.lines.push(`頭目${d.gang.name}走出寨門，接下了戰帖。`); out.battle = s;
+      }
+      break;
+    }
+    case 'handOver': {   // 把押著的頭目交給官府
+      needTown(); if (!w.bound) throw new Error('沒有押著人');
+      if (wantedBy(w, k.owner[w.pos]) >= 3) throw new Error('官府先要抓的是你們');
+      const c = w.contracts.find(x => x.kind === 'gang' && x.gang === w.bound.gang && x.done), bonus = c ? Math.round(c.reward * 0.5) : 0;
+      w.gold += w.bound.value + bonus; w.fame = (w.fame || 0) + 0.5; addFavor(w, w.pos, 1, out);
+      say(w, `把${w.bound.name}交給了${nm(w.pos)}的官府，領了 ${w.bound.value + bonus} 金幣${bonus ? '（活捉，懸賞加倍）' : ''}。`);
+      w.bound = null; break;
+    }
+    case 'takePlea': {
+      const c = w.contracts.find(x => x.id === a.id && x.vill === w.pos); if (!c || c.taken) throw new Error('沒有這件事');
+      c.taken = true; say(w, `答應了${nm(c.vill)}的村民：${c.title}。`); break;
+    }
+    case 'thankPlea': {   // 回村裡交差：錢少，主要是人情
+      const done = w.contracts.filter(c => c.vill === w.pos && c.done); if (!done.length) throw new Error('沒有辦好的事');
+      for (const c of done) { w.gold += c.reward; say(w, `${nm(c.vill)}的村民湊了 ${c.reward} 金幣謝你們：${c.title}。`); addFavor(w, w.pos, c.favor || 2, out); }
+      w.contracts = w.contracts.filter(c => !done.includes(c)); break;
+    }
+    case 'lodge': {   // 借宿：用人情換一晚（吃住都由村民招待）；離線時留在這裡也算安全
+      if (here?.kind !== 'village') throw new Error('要在村子裡');
+      spendFavor(w, w.pos, FAVOR.lodge); const f0 = w.food; w.lodged = w.pos;
+      passHours(w, 24, 'inn', out); w.food = Math.max(w.food, f0);
+      say(w, `借住在${nm(w.pos)}的村民家，吃了頓熱飯、睡了個好覺。`); break;
+    }
+    case 'askLocal': {   // 打聽：附近的山寨、懸賞的下落
+      if (here?.kind !== 'village' && !town) throw new Error('要在村子或城裡');
+      spendFavor(w, w.pos, FAVOR.ask); const lines = [];
+      for (const g of k.gangs.filter(g => !g.gone && hdist(g.lair, w.pos) <= 7).sort((a, b) => hdist(a.lair, w.pos) - hdist(b.lair, w.pos)).slice(0, 3)) { reveal(w, g.lair, 0); lines.push(`${g.name}的山寨在${nm(g.lair)}（${gangWordOf(g.str)}）`); w.pins = (w.pins || []).slice(-30); w.pins.push({tile: g.lair, text: `${g.name}的山寨`, day: w.day, type: 'bandit'}); }
+      const hot = []; for (let i = 0; i < N; i++) if (hdist(i, w.pos) <= 4 && k.bandit[i] > 40) hot.push(i);
+      if (hot.length) lines.push(`${hot.slice(0, 3).map(nm).join('、')}一帶不太平`);
+      say(w, lines.length ? `村民壓低聲音說：${lines.join('；')}。` : '村民說這一帶最近還算太平。'); passHours(w, 1, 'wait', out); break;
+    }
+    case 'hide': {   // 被巡邏隊攔下：請欠你人情的村民把你們藏起來
+      const b = w.bands.find(x => x.id === a.band); if (!b || b.kind !== 'soldiers') break;
+      if (!canHide(w)) throw new Error('附近沒有欠你們人情的村子');
+      const v = canHide(w); spendFavor(w, v, FAVOR.hide); w.bands = w.bands.filter(x => x !== b);
+      say(w, `${nm(v)}的村民把你們藏進穀倉，${b.name}搜了一圈，罵罵咧咧地走了。`); break;
+    }
+    case 'payRansom': {
+      const c = w.captive; if (!c) break; if (w.gold < c.ransom) throw new Error(`贖金要 ${c.ransom}，身上不夠`);
+      w.gold -= c.ransom; w.captive = null; say(w, `付了 ${c.ransom} 金幣，${c.by}放了人。`); break;
+    }
+    case 'favorRansom': {
+      const c = w.captive; if (!c) break; spendFavor(w, w.pos, FAVOR.ransom);
+      w.captive = null; say(w, `${nm(regionOf(w.pos))}一帶的人湊了錢，把你們從${c.by}手上贖了出來。`); break;
+    }
+    case 'escape': {
+      const c = w.captive; if (!c) break; if (c.lastTry === w.day) throw new Error('今天才剛試過，看守盯得很緊');
+      c.lastTry = w.day; c.tries++; const ok = rngNext(w) < escapeOdds(w);
+      passHours(w, 12, 'wait', out);
+      if (ok) { w.captive = null; if (c.soldier && c.fac >= 0) w.wanted[c.fac] = (w.wanted[c.fac] || 0) + 1; say(w, `趁夜裡撬開了鎖，${c.soldier ? '翻出牢房' : '摸黑溜出了寨子'}。${c.soldier ? '越獄的事很快就會傳開。' : ''}`); out.lines.push('逃出來了！'); }
+      else { c.ransom = Math.round(c.ransom * 1.2); say(w, `逃跑被抓了回來，挨了一頓打；贖金漲到 ${c.ransom}。`); out.lines.push('沒逃成。'); }
+      break;
+    }
+    case 'waitCaptive': { passHours(w, 24, 'wait', out); captiveCheck(w); if (w.captive) say(w, `又被關了一天。`); break; }
+    case 'release': { if (!w.bound) break; say(w, `放了${w.bound.name}。他頭也不回地跑了。`); w.bound = null; break; }
     case 'evade': {
       const b = w.bands.find(x => x.id === a.band); if (!b) break;
       const forest = [6, 9, 3].includes(k.biome[w.pos]);
@@ -1299,7 +1499,7 @@ export const relicPrice = (w, r) => { const k = K(), m = k.markets[w.pos]; retur
 const HOURS = ['深夜', '深夜', '凌晨', '凌晨', '清晨', '清晨', '早上', '早上', '上午', '上午', '上午', '中午', '中午', '下午', '下午', '下午', '傍晚', '傍晚', '黃昏', '晚上', '晚上', '晚上', '深夜', '深夜'];
 export const timeText = w => { const m = K().stamp.match(/^(\d+) 年 (\S+) 第(\d+)日/); return `${m[1]}年${m[2]}${m[3]}日・${HOURS[Math.floor(w.hour) % 24]}`; };
 export const fameWord = f => !f ? '沒沒無聞' : f < 1 ? '小有耳聞' : f < 3 ? '有些名氣' : f < 6 ? '遠近馳名' : '名震一方';
-export const eaters = w => w.party.length + w.mules * MULE_FEED + (w.horses || 0) * HORSE_FEED;
+export const eaters = w => w.party.length + (w.bound ? 1 : 0) + w.mules * MULE_FEED + (w.horses || 0) * HORSE_FEED;
 export const daysOfFood = w => w.food / Math.max(1, eaters(w));
 
 /* ───────────── 裝備、馬、傳奇武器 ───────────── */
@@ -1311,7 +1511,7 @@ export function gearBonus(w, m) {
   if (tired(w)) { b.def -= 1; b.skl = -5; }   // 疲憊：防禦 -1、命中 -10
   return b;
 }
-export const battleParty = w => w.party.map(m => { const b = gearBonus(w, m); return {...m, str: m.str + b.str, def: m.def + b.def}; }).concat(w.guard ? w.guard.men.map(m => ({...m, guard: true})) : []);
+export const battleParty = (w, setup) => setup?.duel ? w.party.filter(m => m.hero).map(m => { const b = gearBonus(w, m); return {...m, str: m.str + b.str, def: m.def + b.def}; }) : w.party.map(m => { const b = gearBonus(w, m); return {...m, str: m.str + b.str, def: m.def + b.def}; }).concat(w.guard ? w.guard.men.map(m => ({...m, guard: true})) : []);
 const ironMul = (i, k = K()) => Math.max(0.6, Math.min(2.5, k.markets[i].price.iron));
 export const gearPrice = (i, kind, tier) => Math.round((kind === 'w' ? 35 : 45) * tier * (0.5 + 0.5 * ironMul(i)));
 export const mounted = w => (w.horses || 0) >= w.party.length && w.party.length > 0;

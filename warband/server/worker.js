@@ -146,6 +146,7 @@ export class Realm extends DurableObject {
     const w = p.w, t = await this.findPlayer(String(a.target || '')), k = C.K();
     if (!t || t.id === p.id) return bad('找不到這支戰幫');
     if (t.w.over) return bad('他們已經散了');
+    if (t.w.captive) return bad('他們的首領被關著，現在動手太難看了');
     if (t.w.pos !== w.pos) return bad('他們不在這一格');
     if (k.markets[w.pos] && k.owner[w.pos] >= 0) return bad('城裡不能動手');
     if (t.battle) return bad('他們正在跟別人交戰');
@@ -276,7 +277,7 @@ export class Realm extends DurableObject {
       let out;
       try { out = Wd.worldAct(p.w, body.action || {}); } catch (e) { await this.savePlayer(p); return json({error: e.message, ...this.view(p)}, 400); }
       for (const k in p.w.poi || {}) if (!before[k]) this.poiState[k] = {T: C.K().T, by: p.name};
-      if (out.battle) p.battle = {setup: out.battle, party: Wd.battleParty(p.w), order: p.w.lastOrder || {stance: 'follow', focus: null}};
+      if (out.battle) p.battle = {setup: out.battle, party: Wd.battleParty(p.w, out.battle), order: p.w.lastOrder || {stance: 'follow', focus: null}};
       this.pump(); await this.savePlayer(p); await this.persist(false);
       return json({out: {lines: out.lines, encounter: out.encounter || null, battle: !!out.battle}, mk: C.K().markets[p.w.pos] || null, ...this.view(p)});
     }
@@ -298,6 +299,7 @@ export class Realm extends DurableObject {
       p.battle = {setup: out.battle, party: Wd.battleParty(p.w), order: p.w.lastOrder || {stance: 'follow', focus: null}};
       await this.savePlayer(p); return json(this.view(p));
     }
+    if (path === '/api/dev/captive' && this.env.DEV === '1') { p.w.captive = {by: '測試盜匪', soldier: false, fac: -1, ransom: 99, day: p.w.day, tries: 0, lastTry: -1}; await this.savePlayer(p); return json(this.view(p)); }
     if (path === '/api/dev/age' && this.env.DEV === '1') { p.w.ap = Wd.AP_MAX; p.apAt = Date.now() - (+body.hours || 48) * this.apMs(); this.regen(p); await this.savePlayer(p); return json(this.view(p)); }
     if (path === '/api/dev/tp' && this.env.DEV === '1') { p.w.pos = +body.pos; p.w.camp = null; Wd.reveal(p.w, p.w.pos, 2); await this.savePlayer(p); return json(this.view(p)); }
     if (path === '/api/tilenote') {   // 在這一格留一句話：保留三天，之後路過的人看得到
