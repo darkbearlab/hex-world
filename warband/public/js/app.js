@@ -592,7 +592,7 @@ function hexDetailInto(box) {
   if (o >= 0 && Wd.wantedBy(w, o) >= 1) box.append(el('div', {}, el('span', {class: 'tag bad'}, '通緝'), ` ${Wd.facName(o)}正在通緝你們${Wd.wantedBy(w, o) >= 3 ? '：城裡的人不會跟你們打交道' : ''}`));
   if (Wd.hdist(p, w.pos) > Wd.viewRadius(w)) box.append(el('div', {class: 'muted', style: 'font-size:12px'}, '在你的視野外：那裡現在有誰經過，你看不到。'));
   for (const pin of (w.pins || []).filter(x => x.tile === p && w.day - x.day < 12)) box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `${dayText(pin.day)}聽說：${pin.text}`));
-  if (site?.kind === 'town') { const wars = Wd.atWarWith(site.fac); box.append(el('div', {class: 'muted'}, `市鎮。市集、酒館、告示板、旅店。${k.fac[site.fac].hardy ? `${Wd.facName(site.fac)}是北地之國，耐寒。` : ''}${wars.length ? `${Wd.facName(site.fac)}正與${wars.join('、')}交戰。` : ''}`)); const it = w.intel[p]; if (it && !here) box.append(intelLine(p)); }
+  if (site?.kind === 'town') { const wars = Wd.atWarWith(site.fac), FF = Wd.facilities(p); box.append(facChips(p)); box.append(el('div', {class: 'muted'}, `${FF?.cap ? '首都' : FF?.size || '市鎮'}。${k.fac[site.fac].hardy ? `${Wd.facName(site.fac)}是北地之國，耐寒。` : ''}${wars.length ? `${Wd.facName(site.fac)}正與${wars.join('、')}交戰。` : ''}`)); const it = w.intel[p]; if (it && !here) box.append(intelLine(p)); }
   if (site?.kind === 'village') box.append(el('div', {class: 'muted'}, `村莊。可以買到 ${Wd.villageFood(w, p)} 份口糧，每份約 ${Wd.rationPrice(w, p).toFixed(1)} 金幣。`));
   if (site?.kind === 'camp') { const g = k.gangs.find(x => x.id === site.gang); box.append(el('div', {class: 'muted'}, `盜匪${g.name}的山寨，${gangWord(g.str)}。拔掉它能拿到寨裡的財物；告示板上可能有人出賞金。`)); }
   for (const c of w.contracts) if (Wd.contractSite(w, c) === p && (c.taken || c.kind === 'deliver')) box.append(el('div', {}, el('span', {class: 'tag warn'}, Wd.KIND_NAME[c.kind]), ' ', c.title));
@@ -701,11 +701,14 @@ function encounterSheet(b) {
 /* ───────────── 城鎮 ───────────── */
 const fmtDays = d => d <= 0 ? '今天' : `${d} 天前`;
 function intelLine(i) { const it = G.world.intel[i]; return el('div', {class: 'muted', style: 'font-size:13px'}, `${it.src === 'seen' ? '上次來' : '聽說'}（${fmtDays(G.world.day - it.day)}）：` + Wd.GOODS.map(g => `${Wd.GN[g]} ${it.p[g]}`).join('・')); }
+// 設施清單：Lv0 是沒有；圖書館之後才開放
+function facChips(t) { const F = Wd.facilities(t); if (!F) return null; return el('div', {class: 'facs'}, ...Object.entries(Wd.FAC_NAME).map(([key, n]) => el('span', {class: 'tag' + (F[key] ? '' : ' off')}, F[key] ? `${n} Lv${F[key]}` : `沒有${n}`))); }
 function townSheet(tab = 'market') {
-  const w = G.world, t = w.pos, k = C.K(), box = el('div', {});
-  box.append(el('h2', {}, nm(t)), el('p', {class: 'muted', style: 'margin:-4px 0 4px'}, `${Wd.facName(k.owner[t])}的市鎮・人口約 ${Math.round(k.markets[t].pop * 10)}`));
-  const tabs = el('div', {class: 'tabs'});
-  for (const [key, n] of [['market', '市集'], ['smith', '鐵匠'], ['store', '倉庫'], ['tavern', '酒館'], ['board', '告示'], ['inn', '旅店']]) tabs.append(el('button', {class: key === tab ? 'on' : '', onclick: async () => townSheet(key)}, n));
+  const w = G.world, t = w.pos, k = C.K(), box = el('div', {}), F = Wd.facilities(t);
+  box.append(el('h2', {}, nm(t)), el('p', {class: 'muted', style: 'margin:-4px 0 4px'}, `${Wd.facName(k.owner[t])}的${F.cap ? '首都' : F.size}・人口約 ${Math.round(k.markets[t].pop * 10)}`), facChips(t));
+  const tabs = el('div', {class: 'tabs'}), TABS = [['market', '市集', 'market'], ['smith', '鐵匠', 'smith'], ['store', '倉庫', 'store'], ['tavern', '酒館', 'tavern'], ['board', '告示', 'board'], ['inn', '旅店', 'inn']].filter(([, , f]) => F[f] > 0);
+  if (!TABS.some(([key]) => key === tab)) tab = 'market';
+  for (const [key, n, f] of TABS) tabs.append(el('button', {class: key === tab ? 'on' : '', onclick: async () => townSheet(key)}, `${n}${F[f] ? ` ${'★'.repeat(F[f])}` : ''}`));
   box.append(tabs);
   const n = w.party.length, again = () => townSheet(tab);
   if (tab === 'market') {
@@ -715,10 +718,10 @@ function townSheet(tab = 'market') {
     box.append(el('h3', {style: 'margin-top:10px'}, '貨物'), el('p', {class: 'muted'}, `載重 ${+Wd.load(w).toFixed(1)}/${Wd.capacity(w)} 包：每人扛 ${Wd.CARRY_MAN} 包、每頭騾子 ${Wd.MULE_CAP} 包。買得越多越貴、賣得越多越便宜；換季後行情會重新變動。`));
     box.append(goodsTable(t, again));
     box.append(el('div', {class: 'rowbtn'},
-      el('button', {onclick: async () => { await doWorld({type: 'buyMule'}); again(); }}, `買騾子（${Wd.MULE_PRICE}）・有 ${w.mules} 頭`),
+      F.stable ? el('button', {onclick: async () => { await doWorld({type: 'buyMule'}); again(); }}, `買騾子（${Wd.animalPrice(t, 'mule')}）・有 ${w.mules} 頭`) : el('span', {class: 'muted'}, '這裡沒有馬廄，買不到騾馬。'),
       el('button', {onclick: async () => { await doWorld({type: 'buyMap'}); again(); }}, `買附近的地圖（${Wd.MAP_PRICE}）`)));
     box.append(el('h3', {style: 'margin-top:10px'}, '馬'), el('p', {class: 'muted'}, `人人有馬才走得快（平地快三成五，林地山地快一成五），也比較甩得掉追兵。一匹馬一天吃 ${Wd.HORSE_FEED} 份糧。現在有 ${w.horses || 0} 匹，隊伍 ${n} 人${Wd.mounted(w) ? '，全員騎馬' : ''}。`));
-    box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await doWorld({type: 'buyHorse'}); again(); }}, `買馬（${Wd.HORSE_PRICE}）`),
+    box.append(el('div', {class: 'rowbtn'}, F.stable >= 2 ? el('button', {onclick: async () => { await doWorld({type: 'buyHorse'}); again(); }}, `買馬（${Wd.animalPrice(t, 'horse')}）`) : el('span', {class: 'muted'}, '這裡的馬廄小，沒有馬可賣。'),
       w.horses ? el('button', {onclick: async () => { await doWorld({type: 'sellHorse'}); again(); }}, `賣馬（${Math.round(Wd.HORSE_PRICE / 2)}）`) : null,
       w.mules ? el('button', {onclick: async () => { await doWorld({type: 'sellMule'}); again(); }}, `賣騾子（${Math.round(Wd.MULE_PRICE / 2)}）`) : null,
       w.cargo.food > 0 ? el('button', {onclick: async () => { await doWorld({type: 'eat'}); again(); }}, `拆一包糧當口糧`) : null));
@@ -777,7 +780,7 @@ function townSheet(tab = 'market') {
   }
   if (tab === 'store') {
     const st = Wd.storeAt(w, t), room = Wd.capacity(w) - Wd.load(w);
-    box.append(el('p', {class: 'muted'}, `${nm(t)}的倉庫：東西放著不會壞也不會被偷，鐵匠做好的東西也送到這裡。行囊還放得下 ${+room.toFixed(1)} 包。`));
+    box.append(el('p', {class: 'muted'}, `${nm(t)}的倉庫：東西放著不會壞也不會被偷，鐵匠做好的東西也送到這裡。${Wd.STORE_CAP[F.store] === Infinity ? '' : `這間倉庫小，最多放 ${Wd.STORE_CAP[F.store]} 包（現在 ${+Wd.storeUsed(st).toFixed(1)}）。`}行囊還放得下 ${+room.toFixed(1)} 包。`));
     box.append(el('h3', {}, '倉庫裡的'));
     const has = Object.entries(st.goods).filter(([, n]) => n > 0);
     if (!has.length && !st.items.length) box.append(el('p', {class: 'muted'}, '空的。'));
@@ -790,8 +793,9 @@ function townSheet(tab = 'market') {
     if (!cg.length && !w.pack.length) box.append(el('p', {class: 'muted'}, '身上沒有貨或備用的裝備。'));
   }
   if (tab === 'inn') {
-    box.append(el('p', {}, `每人每晚 2 金幣，一天能養好一半的傷，大家的心情也會好一點。`));
-    box.append(el('div', {class: 'rowbtn'}, ...[1, 3].map(d => el('button', {onclick: async () => { await doWorld({type: 'rest', days: d}); again(); }}, `住 ${d} 晚（${n * 2 * d}）`))));
+    const ip = Wd.INN_PRICE[F.inn], ih = Wd.INN_HEAL[F.inn];
+    box.append(el('p', {}, `${['', '簡陋的小旅店', '普通的旅店', '舒適的大旅店'][F.inn]}：每人每晚 ${ip} 金幣，一天養好 ${Math.round(ih * 100)}% 的傷，大家的心情也會好一點。${F.inn < 2 ? '這裡沒地方掛旗。' : ''}`));
+    box.append(el('div', {class: 'rowbtn'}, ...[1, 3].map(d => el('button', {onclick: async () => { await doWorld({type: 'rest', days: d}); again(); }}, `住 ${d} 晚（${n * ip * d}）`))));
     box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await doWorld({type: 'rest', days: 1, inn: false}); again(); }}, '在城外紮營一天（免費）')));
     const pay = Math.round(n * (2.5 + Math.min(3, k.markets[t].pop / 200)));
     box.append(el('h3', {style: 'margin-top:10px'}, '打零工'), el('p', {class: 'muted'}, `碼頭搬貨、倉庫理貨、幫忙收成。全隊一天大約能賺 ${pay} 金幣（城越大工越多），伙食自理，同伴拿到工錢心情會好一點。`),
@@ -1095,7 +1099,7 @@ const untilDawn = w => ((30 - Math.floor(w.hour)) % 24) || 24;
 function campChoices() {
   const w = G.world, L = [], R = [], town = Wd.siteAt(w, w.pos)?.kind === 'town', ci = Wd.campInfo(w);
   if (town) {
-    L.push({label: '🛏 住旅店', sub: `一晚 ${w.party.length * 2}`, act: {type: 'rest', days: 1}});
+    L.push({label: '🛏 住旅店', sub: `一晚 ${w.party.length * Wd.INN_PRICE[Wd.facilities(w.pos)?.inn || 2]}`, act: {type: 'rest', days: 1}});
     R.push({label: '⛺ 城外紮營', sub: '一天・免費', act: {type: 'rest', days: 1, inn: false}});
     return [L, R];
   }
@@ -1123,7 +1127,7 @@ function renderCamp() {
 function campInfoPanel(box) {
   const w = G.world, ci = Wd.campInfo(w), town = Wd.siteAt(w, w.pos)?.kind === 'town';
   box.append(el('div', {class: 'row'}, el('b', {}, town ? `在${nm(w.pos)}過夜` : ci ? `營地・${nm(w.pos)}` : `在${nm(w.pos)}紮營？`), ci ? el('span', {class: 'tag ' + (ci.ready ? 'good' : 'warn')}, ci.ready ? '紮穩了' : `再 ${(w.kit ? 6 : 12) - ci.age} 小時紮穩`) : null));
-  if (town) { box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `旅店一人一晚 2 金幣，一天養好一半的傷。${NET.on ? '要離線很久的話，待在城裡最安全：城裡不能動手，離線時付旅店錢、不吃糧。' : ''}`)); return; }
+  if (town) { box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `旅店一人一晚 ${Wd.INN_PRICE[Wd.facilities(w.pos)?.inn || 2]} 金幣。${NET.on ? '要離線很久的話，待在城裡最安全：城裡不能動手，離線時付旅店錢、不吃糧。' : ''}`)); return; }
   if (!ci) box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `紮了營，再移動之前：被盜匪${NET.on ? '或其他戰幫' : ''}襲擊時在營地裡迎戰，比較好守。選項會依手上的東西和這裡的環境改變。${NET.on ? '離線時待在野外，紮得越好越不容易被夜襲得手。' : ''}`));
   for (const o of Wd.campOptions(w)) box.append(el('div', {style: 'font-size:13px'}, el('b', {}, `${o.icon} ${o.n}`), el('span', {class: 'muted'}, `　${o.d}`), o.on ? el('span', {class: 'tag good'}, '已有') : null));
   const cold = C.K().season === 3 || Wd.coldAt(w.pos);

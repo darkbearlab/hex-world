@@ -80,7 +80,7 @@ export const sellPrice = (w, i, it) => Math.max(1, Math.round(itemPrice(w, i, it
 // 鐵匠鋪的貨：每座城每週換一批；大城、鐵便宜的地方有好貨
 export function smithStock(w, t) {
   const k = K(), m = k.markets[t]; if (!m) return [];
-  const seed = {rng: hashSeed(w.seed, 'smith', t, Math.floor(w.day / 7))}, out = [], big = m.pop >= 600, S = smithInfo(t);
+  const seed = {rng: hashSeed(w.seed, 'smith', t, Math.floor(w.day / 7))}, out = [], big = m.pop >= 600, S = smithInfo(t); if (!S) return [];
   for (const b of Object.keys(ITEMS)) { const I = ITEMS[b]; if (I.rare) continue; out.push({b, t: 0}); if (I.k !== 'a' || !I.soft) { if (rngNext(seed) < 0.12 * S.skill) out.push({b, t: 1}); if (S.skill >= 4 && rngNext(seed) < 0.1 * S.skill) out.push({b, t: 2}); } }   // 現貨的品質看鐵匠的手藝
   if (rngNext(seed) < 0.3) out.push({b: rngPick(seed, ['charm', 'coin', 'badge']), t: 0});
   return out.filter(x => !(w.smithSold || {})[`${t}:${Math.floor(w.day / 7)}:${x.b}:${x.t}`]);
@@ -185,9 +185,9 @@ export function townState(w, i) {
   let t = w.towns[i];
   if (!t) t = w.towns[i] = {recruits: [], nextRecruit: 0};
   if (w.day >= t.nextRecruit) {
-    t.recruits = []; const n = 2 + (K().markets[i].pop > 300 ? 1 : 0) + rngInt(w, 2);
+    const L = facAt(i, 'tavern'); t.recruits = []; const n = L ? L + rngInt(w, 2) : 0;
     for (let j = 0; j < n; j++) t.recruits.push(makeRecruit(w, rngPick(w, RECRUIT_CLASSES), 1 + (rngNext(w) < 0.3 ? 1 : 0) + (rngNext(w) < 0.1 ? 1 : 0)));
-    t.nextRecruit = w.day + 5;
+    t.nextRecruit = w.day + (TAVERN_DAYS[L] || 10);
   }
   return t;
 }
@@ -222,13 +222,28 @@ export function specPrice(i, g) {
 function specStock(w, i, g) { if (!producers(i).includes(g)) return 0; const st = (w.spec ||= {})[i + g] || {n: 30, day: w.day}; return Math.min(40, Math.floor(st.n + (w.day - st.day) * 3)); }
 const depth = (i, g, k = K()) => { if (isSpec(g)) return globalThis.SDEPTH ?? 40; const m = k.markets[i]; return Math.max(4, (m.stock[g] + m.need[g]) / BALE * 0.35); };
 const factor = x => Math.max(0.25, Math.min(4, x));
-// 單包的價格：第 j 包（從 0 起算）
+/* ───────────── 城市設施：等級跟著人口走（城市興衰、被戰爭打殘，設施會跟著升降） ─────────────
+   0 = 沒有；3 = 齊全。大城大多 3、城鎮 2、小鎮 1；各城有點偏重（某樣差一級）；首都全部 +1、有圖書館 */
+export const FAC_NAME = {market: '市集', stable: '馬廄', smith: '鐵匠', tavern: '酒館', board: '告示板', inn: '旅店', store: '倉庫', library: '圖書館'};
+export function facilities(t, k = K()) {
+  const m = k.markets[t]; if (!m || !isTown(t, k)) return null;
+  const pop = m.pop || 0, base = pop >= 600 ? 3 : pop >= 250 ? 2 : 1, cap = k.owner[t] >= 0 && k.fac[k.owner[t]]?.cap === t;
+  const r = {rng: hashSeed('fac', t)}, wob = () => rngNext(r) < 0.3 ? -1 : 0, L = x => Math.max(0, Math.min(3, x + (cap ? 1 : 0)));
+  const f = {market: Math.max(1, L(base)), stable: L(base + wob()), smith: L(base + wob() - (base === 1 && rngNext(r) < 0.35 ? 1 : 0)), tavern: L(base + wob()), board: Math.max(1, L(base + wob())), inn: Math.max(1, L(base)), store: L(base + wob()), library: cap && base >= 2 ? 1 : 0};
+  return {...f, cap, base, size: base === 3 ? '大城' : base === 2 ? '城鎮' : '小鎮'};
+}
+const facAt = (t, key) => facilities(t)?.[key] ?? 0;
+export const INN_PRICE = [0, 1, 2, 3], INN_HEAL = [0, 0.3, 0.4, 0.5], TAVERN_DAYS = [0, 10, 7, 5], STORE_CAP = [0, 15, 40, Infinity];
+export const MARKET_STOCK = [0, 0.4, 0.7, 1];
+export const animalPrice = (t, kind) => { const L = facAt(t, 'stable'); return Math.round((kind === 'horse' ? HORSE_PRICE : MULE_PRICE) * (1 + (3 - L) * 0.15)); };
+// 單包的價格：第 j 包（從 0 起算）。市集小，買賣的價差大
 function unit(w, i, g, side, j, k) {
-  const b = basePrice(i, g, k), d = depth(i, g, k), p = press(w, i, g);
-  return side === 'buy' ? b * factor(1 + (p + j + 0.5) / d) * 1.1 : b * factor(1 - (-p + j + 0.5) / d) * 0.9;
+  const b = basePrice(i, g, k), d = depth(i, g, k), p = press(w, i, g), sp = (3 - (facAt(i, 'market') || 3)) * 0.06;
+  return side === 'buy' ? b * factor(1 + (p + j + 0.5) / d) * 1.1 * (1 + sp) : b * factor(1 - (-p + j + 0.5) / d) * 0.9 * (1 - sp);
 }
 export function quote(w, i, g, side, q) { const k = K(); let s = 0; for (let j = 0; j < q; j++) s += unit(w, i, g, side, j, k); return Math.round(s); }
-export const stockBales = (i, g, w = null) => isSpec(g) ? (w ? specStock(w, i, g) : (producers(i).includes(g) ? 30 : 0)) : Math.floor(K().markets[i].stock[g] / BALE);
+// 市集賣得出來的量：小市集只擺得出一部分；特產要城鎮以上的市集才有
+export const stockBales = (i, g, w = null) => { const L = facAt(i, 'market') || 3; if (isSpec(g)) return L < 2 ? 0 : (w ? specStock(w, i, g) : (producers(i).includes(g) ? 30 : 0)); return Math.floor(K().markets[i].stock[g] / BALE * MARKET_STOCK[L]); };
 export function rationPrice(w, i) {
   const k = K();
   if (isTown(i, k)) return Math.max(1, basePrice(i, 'food', k) / RATIONS_PER_BALE * 1.15);
@@ -340,16 +355,17 @@ function refreshContracts(w, t) {
   }
   if (w.escort && !w.contracts.some(c => c.id === w.escort.cid)) w.escort = null;
   w.contracts = w.contracts.filter(c => !c.void || c.done);
-  const here = w.contracts.filter(c => c.town === t && !c.taken).length;
-  if (here >= 6) return;
+  const here = w.contracts.filter(c => c.town === t && !c.taken).length, BL = facAt(t, 'board');
+  if (here >= BL * 2) return;   // 告示板小，貼得少；大案子（剿匪、護送、傭兵）要去大城接
   const add = c => { c.id = 'k' + w.nextId++; c.town = c.town ?? t; c.taken = false; c.done = false; w.contracts.push(c); };
   // 山寨懸賞
   for (const g of k.gangs) {
+    if (BL < 2) break;
     if (g.gone || hdist(g.lair, t) > 7 || w.contracts.some(c => c.gang === g.id)) continue;
     add({kind: 'gang', gang: g.id, title: `剿滅${g.name}的山寨`, reward: Math.round(120 + g.str * 0.6), until: w.day + 24});
   }
   // 護送商隊：這座城的商人要把貨送去 4–9 格外的城；路上越亂賞金越高
-  if (!w.contracts.some(c => c.kind === 'escort' && c.town === t && !c.taken) && rngNext(w) < 0.8) {
+  if (BL >= 2 && !w.contracts.some(c => c.kind === 'escort' && c.town === t && !c.taken) && rngNext(w) < 0.8) {
     const dests = Object.keys(k.markets).map(Number).filter(i => i !== t && isTown(i, k) && hdist(i, t) >= 4 && hdist(i, t) <= 9);
     if (dests.length) {
       const to = rngPick(w, dests), path = findPath(w, t, to);
@@ -370,7 +386,7 @@ function refreshContracts(w, t) {
     add({kind: 'deliver', town: i, at: i, g, left: q, q, pay, title: `${nm(i)}收${GN[g]}：每包 ${pay}，收 ${q} 包`, reward: pay * q, until: w.day + 14});
   }
   // 傭兵：這座城的國家正在打仗，招人去前線
-  if (f >= 0 && !w.contracts.some(c => c.kind === 'merc' && c.fac === f && !c.taken)) {
+  if (BL >= 3 && f >= 0 && !w.contracts.some(c => c.kind === 'merc' && c.fac === f && !c.taken)) {
     for (let e = 0; e < k.fac.length; e++) {
       if (e === f || !k.fac[e].alive) continue; const a = Math.min(e, f), b = Math.max(e, f); if (!k.war[a][b]) continue;
       let best = -1, bd = 99; for (let i = 0; i < N; i++) if (k.owner[i] === e && NBR[i].some(n => k.owner[n] === f)) { const d = hdist(i, t); if (d < bd) { bd = d; best = i; } }
@@ -482,7 +498,7 @@ function passHours(w, hours, mode, out) {
     w.hour++;
     if (march) marchHour(w); else if (mode === 'camp' || mode === 'inn') w.fatigue = Math.max(0, (w.fatigue || 0) - 2);
     w.food = Math.max(0, w.food - eaters(w) / 24 * ((K().season === 3 && coldAt(w.pos) && !(ci && ci.fire) ? 1.3 : 1) + (ci && ci.watch ? 0.25 : 0)));
-    const rate = march ? 0 : mode === 'inn' ? 0.5 : mode === 'camp' ? 0.2 + (ci && ci.fire ? 0.1 : 0) - (chill && !(ci && ci.fire) ? 0.12 : 0) : 0.08;
+    const rate = march ? 0 : mode === 'inn' ? INN_HEAL[facAt(w.pos, 'inn')] || 0.4 : mode === 'camp' ? 0.2 + (ci && ci.fire ? 0.1 : 0) - (chill && !(ci && ci.fire) ? 0.12 : 0) : 0.08;
     for (const m of w.party) { m.healBuf = (m.healBuf || 0) + m.max * rate / 24; const whole = Math.floor(m.healBuf); if (whole) { m.hp = Math.min(m.max, Math.round(m.hp) + whole); m.healBuf -= whole; } }
     if (w.hour % 6 === 0) { worldTick(w, out); denRisk(w); }
     if (w.hour >= 24) { w.hour = 0; w.day++; newDay(w, out, mode); if (w.over) return; }
@@ -614,16 +630,17 @@ export function tollOf(w) { if (w.escort) return {escort: true}; const cv = carg
 /* ───────────── 城裡的倉庫 ───────────── */
 // 每座城一格倉庫：放貨、放裝備；鐵匠打好的東西也送進來。共享世界記在自己的戰幫上
 export const storeAt = (w, t) => (w.store ||= {})[t] ||= {goods: {}, items: []};
+export const storeUsed = st => Object.values(st.goods).reduce((s, n) => s + (n || 0), 0) + st.items.reduce((s, it) => s + itemWeight(it), 0);
 export const storeEmpty = st => !st || (!Object.values(st.goods).some(n => n > 0) && !st.items.length);
 export const storeList = w => Object.entries(w.store || {}).filter(([, st]) => !storeEmpty(st)).map(([t, st]) => ({t: +t, st}));
 
 /* ───────────── 鐵匠：手藝、排單、工期 ───────────── */
 // 手藝 1～5：看城的大小、附近有沒有鐵礦，加一點運氣；少數城有名匠（5）。大城手藝好但要排很久，小城排得短
 export function smithInfo(t, k = K()) {
-  const m = k.markets[t]; if (!m) return null;
+  const m = k.markets[t]; if (!m) return null; const FL = facAt(t, 'smith'); if (!FL) return null;
   const r = {rng: hashSeed('smith', t)}, pop = m.pop || 0, vein = [t, ...NBR[t]].some(i => (k.vein?.[i] || 0) > 0) || NBR[t].some(n => NBR[n].some(j => (k.vein?.[j] || 0) > 0));
   let skill = 1 + (pop >= 250 ? 1 : 0) + (pop >= 600 ? 1 : 0) + (vein ? 1 : 0) + (rngNext(r) < 0.25 ? 1 : 0) - (rngNext(r) < 0.2 ? 1 : 0);
-  skill = Math.max(1, Math.min(4, skill)); const master = rngNext(r) < 0.07 && pop >= 150; if (master) skill = 5;
+  skill = Math.max(1, Math.min(4, skill, FL + 1)); const master = rngNext(r) < 0.07 && pop >= 150 && FL >= 2; if (master) skill = 5;
   const busy = pop >= 600 ? 3 : pop >= 250 ? 1.5 : 0.3;   // 平常要排幾天
   return {skill, master, busy, name: master ? `${nm(t)}的名匠` : `${nm(t)}的鐵匠`, word: ['', '粗手藝', '還算可以', '老練', '手藝出眾', '名匠'][skill]};
 }
@@ -1190,7 +1207,7 @@ export function idle(w, hours, T) {
   while (w.idleBuf >= 6) {
     w.idleBuf -= 6; rep.hours += 6; let hungry = false, cost = due / 168 * 6 / 2; w.fatigue = Math.max(0, (w.fatigue || 0) - 12);
     if (lodgedHere(w) && favorAt(w, w.pos) > 0) { rep.lodged = true; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.4 * 6 / 24)); w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost); if (pay && w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } continue; }
-    if (town) { cost += w.party.length * 2 * 6 / 24; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.5 * 6 / 24)); }
+    if (town) { const L = facAt(w.pos, 'inn'); cost += w.party.length * INN_PRICE[L] * 6 / 24; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * INN_HEAL[L] * 6 / 24)); }
     else { const need = eaters(w) / 24 * 6 / 3; if (w.food >= need) { w.food -= need; rep.food += need; } else { w.food = 0; hungry = true; } if (!hungry) for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.1 * 6 / 24)); }
     w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost);
     if (pay) { if (w.gold >= pay) { w.gold -= pay; rep.gold += pay; w.idleCost -= pay; } else { rep.gold += w.gold; w.gold = 0; w.idleCost = 0; hungry = true; } }
@@ -1351,7 +1368,7 @@ export function worldAct(w, a) {
       break;
     }
     case 'rest': {
-      const inn = town && a.inn !== false, cost = inn ? w.party.length * 2 * a.days : 0;
+      const inn = town && a.inn !== false, cost = inn ? w.party.length * INN_PRICE[facAt(w.pos, 'inn')] * a.days : 0;
       if (cost > w.gold) throw new Error('錢不夠住旅店');
       if (!inn && !campHere(w)) w.camp = {pos: w.pos, since: hourNow(w)};
       w.gold -= cost; passHours(w, a.hours || 24 * a.days, inn ? 'inn' : 'camp', out);
@@ -1462,12 +1479,13 @@ export function worldAct(w, a) {
       say(w, `${nm(w.pos)}的鐵匠把${m.name}的${I.n}改良成${itemName(it)}（${cost} 金幣）。`); break;
     }
     case 'buyHorse': {
-      needTown(); if ((w.horses || 0) >= MAX_PARTY) throw new Error('夠多了'); if (w.gold < HORSE_PRICE) throw new Error('錢不夠');
-      w.gold -= HORSE_PRICE; w.horses = (w.horses || 0) + 1; say(w, `買了一匹馬（${HORSE_PRICE} 金幣）。${mounted(w) ? '人人有馬，走得快多了。' : `還差 ${w.party.length - w.horses} 匹才能全員騎馬。`}`); break;
+      needTown(); if (facAt(w.pos, 'stable') < 2) throw new Error('這裡的馬廄沒有馬可賣'); const HP = animalPrice(w.pos, 'horse');
+      if ((w.horses || 0) >= MAX_PARTY) throw new Error('夠多了'); if (w.gold < HP) throw new Error('錢不夠');
+      w.gold -= HP; w.horses = (w.horses || 0) + 1; say(w, `買了一匹馬（${HP} 金幣）。${mounted(w) ? '人人有馬，走得快多了。' : `還差 ${w.party.length - w.horses} 匹才能全員騎馬。`}`); break;
     }
     case 'sellHorse': { needTown(); if (!w.horses) throw new Error('沒有馬'); w.horses--; w.gold += Math.round(HORSE_PRICE / 2); say(w, `賣掉一匹馬（${Math.round(HORSE_PRICE / 2)} 金幣）。`); break; }
     case 'hireFamous': {
-      needTown(); const h = famousHere(w, w.pos).find(x => x.id === a.id); if (!h) throw new Error('人已經不在了');
+      needTown(); if (!facAt(w.pos, 'tavern')) throw new Error('這裡沒有酒館'); const h = famousHere(w, w.pos).find(x => x.id === a.id); if (!h) throw new Error('人已經不在了');
       if (w.party.length >= MAX_PARTY) throw new Error(`隊伍最多 ${MAX_PARTY} 人`);
       const o = famousOffer(w, h); if (o.fee > w.gold) throw new Error('錢不夠');
       if ((w.fame || 0) < (h.legend ? 3 : h.famed ? 1 : 0)) throw new Error(`${h.name}看不上沒沒無聞的戰幫`);
@@ -1484,15 +1502,16 @@ export function worldAct(w, a) {
       w.cargo.food--; w.food += RATIONS_PER_BALE; say(w, `拆了一包糧，多了 ${RATIONS_PER_BALE} 份口糧。`); break;
     }
     case 'buyMule': {
-      needTown(); if (w.mules >= MAX_MULES) throw new Error(`最多 ${MAX_MULES} 頭`); if (w.gold < MULE_PRICE) throw new Error('錢不夠');
-      w.gold -= MULE_PRICE; w.mules++; say(w, `買了一頭騾子（${MULE_PRICE} 金幣），能多扛 ${MULE_CAP} 包。`); break;
+      needTown(); if (!facAt(w.pos, 'stable')) throw new Error('這裡沒有馬廄'); const MP = animalPrice(w.pos, 'mule');
+      if (w.mules >= MAX_MULES) throw new Error(`最多 ${MAX_MULES} 頭`); if (w.gold < MP) throw new Error('錢不夠');
+      w.gold -= MP; w.mules++; say(w, `買了一頭騾子（${MP} 金幣），能多扛 ${MULE_CAP} 包。`); break;
     }
     case 'sellMule': {
       needTown(); if (!w.mules) throw new Error('沒有騾子'); if (load(w) > capacity(w) - MULE_CAP) throw new Error('先把貨賣掉一些，不然沒地方放');
       w.mules--; w.gold += Math.round(MULE_PRICE / 2); say(w, `賣掉一頭騾子（${Math.round(MULE_PRICE / 2)} 金幣）。`); break;
     }
     case 'rumor': {   // 酒館裡請人喝一輪，聽聽各地的行情
-      needTown(); if (w.gold < 3) throw new Error('連一輪酒都請不起'); if (w.rumorDay === w.day && w.rumorAt === w.pos) throw new Error('今天該聽的都聽過了');
+      needTown(); if (!facAt(w.pos, 'tavern')) throw new Error('這裡沒有酒館'); if (w.gold < 3) throw new Error('連一輪酒都請不起'); if (w.rumorDay === w.day && w.rumorAt === w.pos) throw new Error('今天該聽的都聽過了');
       w.gold -= 3; w.rumorDay = w.day; w.rumorAt = w.pos;
       const cand = Object.keys(k.markets).map(Number).filter(i => i !== w.pos && k.owner[i] >= 0 && hdist(i, w.pos) <= 10);
       const heard = [];
@@ -1518,6 +1537,7 @@ export function worldAct(w, a) {
       break;
     }
     case 'hire': {
+      if (!facAt(w.pos, 'tavern')) throw new Error('這裡沒有酒館');
       if (wantedBy(w, k.owner[w.pos]) >= 3) throw new Error('酒館裡的人一看到你們就走開了');
       needTown(); const t = townState(w, w.pos);
       const r = t.recruits.find(x => x.id === a.id); if (!r) throw new Error('人已經不在了');
@@ -1631,7 +1651,8 @@ export function worldAct(w, a) {
     case 'detach': { if (w.captive) throw new Error('被關著'); detach(w, a); break; }
     case 'recall': { recallHere(w, a.id); break; }
     case 'storePut': {   // 存進倉庫
-      needTown(); const st = storeAt(w, w.pos);
+      needTown(); const SL = facAt(w.pos, 'store'); if (!SL) throw new Error('這裡沒有倉庫'); const st = storeAt(w, w.pos), used = storeUsed(st), add = a.item ? itemWeight(w.pack.find(x => x.id === a.item) || {}) : Math.floor(+a.q || 0);
+      if (used + add > STORE_CAP[SL]) throw new Error(`倉庫放不下了（最多 ${STORE_CAP[SL]} 包）`);
       if (a.item) { const it = w.pack.find(x => x.id === a.item); if (!it) throw new Error('行囊裡沒有這件'); w.pack = w.pack.filter(x => x !== it); st.items.push(it); say(w, `把${itemName(it)}存進${nm(w.pos)}的倉庫。`); }
       else { const q = Math.min(w.cargo[a.g] || 0, Math.floor(+a.q || 0)); if (q <= 0) throw new Error('身上沒那麼多'); w.cargo[a.g] -= q; st.goods[a.g] = (st.goods[a.g] || 0) + q; say(w, `把${GN[a.g]} ${q} 包存進${nm(w.pos)}的倉庫。`); }
       break;
@@ -1803,13 +1824,13 @@ export function worldAct(w, a) {
     case 'breakCamp': { if (!campHere(w)) throw new Error('沒有紮營'); w.camp = null; say(w, '拔營。'); break; }
     case 'buyKit': { needTown(); if (w.kit) throw new Error('已經有一套了'); if (w.gold < KIT_PRICE) throw new Error('錢不夠'); w.gold -= KIT_PRICE; w.kit = 1; say(w, `買了一套紮營工具（${KIT_PRICE} 金幣）：斧頭、繩索、帳篷。`); break; }
     case 'banner': {
-      needTown(); const f = a.fac == null ? null : +a.fac;
+      needTown(); if (facAt(w.pos, 'inn') < 2) throw new Error('這間小旅店沒地方掛旗'); const f = a.fac == null ? null : +a.fac;
       if (f != null && f !== k.owner[w.pos]) throw new Error('只能在那個國家的城裡掛它的旗');
       if (f != null && wantedBy(w, f) >= 1) throw new Error('通緝犯不能掛這面旗');
       w.banner = f; say(w, f == null ? '收起了旗子，當個誰也不靠的中立戰幫。' : `掛上了${facName(f)}的旗子。`); break;
     }
     case 'ransom': {
-      needTown(); const c = (w.captives || [])[a.i]; if (!c) throw new Error('沒有這個人');
+      needTown(); if (!facAt(w.pos, 'tavern')) throw new Error('這裡沒有酒館，找不到人去說情'); const c = (w.captives || [])[a.i]; if (!c) throw new Error('沒有這個人');
       if (w.party.length >= MAX_PARTY) throw new Error(`隊伍最多 ${MAX_PARTY} 人`); if (w.gold < c.price) throw new Error('錢不夠');
       w.gold -= c.price; w.captives.splice(a.i, 1); c.m.loyalty = Math.max(30, c.m.loyalty - 10); w.party.push(c.m);
       say(w, `托人花了 ${c.price} 金幣，把${c.m.name}從${c.by}手上贖了回來。`); break;
