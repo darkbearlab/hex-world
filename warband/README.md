@@ -79,6 +79,7 @@
 - 裝備（data.js `ITEMS`、`weaponOf`、`gearAdd`、`armorSprite`；world.js `kitOf`、`fixGear`、`smithStock`、`itemPrice`、`battleLoot`）：`toUnit` 把裝備加成算進數值並記在 `u.gearAdd`，`applyBattle` 扣回。動作 `equip`、`unequip`、`dropItem`、`buyItem`、`sellItem`、`upgradeItem`。貨堆可以有 `items`。
 - 戰場（battle.js）：`st.W`、`st.H` 隨戰況決定（`sizeFor`、`LAYOUTS`、`spawns`、`genMap(seed, biome, W, H, layout)`），最短路用桶子佇列。騎馬 `mounted`（`moveCost`）。撤離看 `exitAt`。共享世界的戰鬥狀態在伺服器 `p.battle.st`，每步走 `/api/battle/act`；`test/layout-sim.mjs` 跑各種戰場的勝率與耗時。
 - 頭像（art/faces.webp＋faces.json）：48×48 像素版，由原本 128px 的頭像表逐格跑 asset_generator 的 sprite_quantize（`--target-long-edge 48 --colors 16 --bg none`，保留底色）後重新拼成；畫面一律不平滑放大（`image-rendering: pixelated`、`imageSmoothingEnabled = false`），圖片網址帶 `?v=尺寸` 避免舊快取對不上。
+- 時鐘：伺服器在畫面資料裡附上 `nextTickAt`、`tickMs`、`paused`，上方狀態列每秒倒數；時段一過就自動跟伺服器同步。管理員（ADMIN_EMAILS）在遊戲畫面上方有 ⚙：可以把一個時段調成 30／15／10／5 秒（`/api/admin/speed`，存在 meta.tickSec，0 = 回到預設），或立刻推進 1 個時段／1 天／1 週（`/api/admin/tick`）。
 - 通緝要有人報信：劫車隊或打巡邏兵，打贏但有敵人逃走、或自己撤退，才記通緝；全殲沒人知道。
 
 ## 紮營與防守

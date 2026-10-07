@@ -11,14 +11,17 @@ async function api(path, body) {
   const d = await r.json().catch(() => ({error: '伺服器沒有回應'})); if (!r.ok && !d.w) throw new Error(d.error || '連線失敗'); return d;
 }
 async function refreshMirror(force) {
-  const d = await api('/api/world'); lostTrack(NET.others || [], d.others || []); NET.others = d.others || []; NET.T = d.T;
+  const d = await api('/api/world'); lostTrack(NET.others || [], d.others || []); NET.others = d.others || []; NET.T = d.T; clockFrom(d);
   if (G.world) { G.world.poiShared = d.poiState; if (d.caches) G.world.caches = d.caches; } if (d.tnotes) NET.tnotes = d.tnotes;
   if (force || d.T - NET.mirrorT >= 2) { const s = await (await fetch('/api/snapshot')).json(); C.loadState(s.state); NET.mirrorT = s.T; Wd.MODE.worldT = s.T; }
 }
+// 伺服器的時鐘：下一個時段什麼時候到、一個時段幾秒、是否暫停
+function clockFrom(d) { if (d.nextTickAt !== undefined) NET.nextTickAt = d.nextTickAt; if (d.tickMs) NET.tickMs = d.tickMs; if (d.paused !== undefined) NET.paused = d.paused; }
+const mmss = ms => { const t = Math.max(0, Math.ceil(ms / 1000)); return t >= 3600 ? `${Math.floor(t / 3600)}:${String(Math.floor(t / 60) % 60).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}` : `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 function applyView(v) {
   const notes = G.world?.notes;
   G.world = v.w; G.world.pois = v.pois || G.world.pois; G.world.poiShared = v.poiState || {}; G.world.notes = v.notes ?? notes; G.world.caches = v.caches || [];
-  NET.apMs = v.apMs || NET.apMs; NET.apAt = Date.now(); NET.battle = v.battle; NET.name = v.name || NET.name; NET.me = v.me || NET.me; Wd.MODE.worldT = v.T ?? Wd.MODE.worldT; if (v.T != null) NET.T = v.T;
+  clockFrom(v); NET.apMs = v.apMs || NET.apMs; NET.apAt = Date.now(); NET.battle = v.battle; NET.name = v.name || NET.name; NET.me = v.me || NET.me; Wd.MODE.worldT = v.T ?? Wd.MODE.worldT; if (v.T != null) NET.T = v.T;
   if (v.away && v.away.hours >= 24 && !noAway()) setTimeout(() => awaySheet(v.away), 300);
 }
 const noAway = () => { try { return localStorage.getItem('warband-no-away') === '1'; } catch { return false; } };
@@ -255,7 +258,7 @@ function renderAcct() {
   box.hidden = !AUTH.clientId; $('gsiBtn').innerHTML = '';
   if (email) {
     note.innerHTML = ''; note.append(`已用 ${email} 登入。`, el('a', {onclick: () => { try { localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); } catch {} renderAcct(); }}, '登出'), '・', el('a', {onclick: deleteAccount}, '刪除帳號'));
-    fetch('/api/account', {headers: {'x-token': localStorage.getItem(TOKEN_KEY) || ''}}).then(r => r.json()).then(a => { if (!a.email) { try { localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); } catch {} toast('登入已失效（世界可能重開了），請重新登入', 3500); return renderAcct(); } if (a.admin && !$('adminBtn')) note.append('・', el('a', {id: 'adminBtn', onclick: adminSheet}, '管理')); }).catch(() => {});
+    fetch('/api/account', {headers: {'x-token': localStorage.getItem(TOKEN_KEY) || ''}}).then(r => r.json()).then(a => { if (!a.email) { try { localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); } catch {} toast('登入已失效（世界可能重開了），請重新登入', 3500); return renderAcct(); } NET.admin = !!a.admin; if (a.admin && !$('adminBtn')) note.append('・', el('a', {id: 'adminBtn', onclick: adminSheet}, '管理')); }).catch(() => {});
   }
   else {
     if (AUTH.inited) google.accounts.id.renderButton($('gsiBtn'), {theme: 'filled_black', text: 'signin_with', shape: 'pill', locale: 'zh-TW'});
@@ -276,6 +279,10 @@ async function adminSheet() {
     el('p', {class: 'muted'}, `世界版本 ${d.version}・${d.stamp}・第 ${d.T} 時段・${d.paused ? '暫停中' : `每 ${d.tickMs / 1000} 秒推進一個時段`}・從 ${new Date(d.startedAt).toLocaleString('zh-TW')} 開始`),
     el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await api('/api/admin/pause', {on: !d.paused}); adminSheet(); }}, d.paused ? '讓世界繼續走' : '暫停世界'),
       el('button', {class: 'danger', onclick: async () => { if (prompt('重開世界會清空所有東西：世界的進度、所有人的戰幫、帳號與登入。大家要重新登入、重新建角色。\n確定的話請輸入「重開」') !== '重開') return; try { await api('/api/admin/reset', {confirm: '重開'}); closeSheet(); localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); toast('世界重開了，請重新登入', 4000); NET.on = false; G = {world: null, battle: null}; titleScreen(); } catch (e) { toast(e.message); } }}, '重開世界')),
+    el('h3', {style: 'margin-top:12px'}, '測試用：世界速度'),
+    el('p', {class: 'muted', style: 'font-size:13px'}, `一個時段（遊戲裡 6 小時）現在是 ${d.tickMs / 1000} 秒${d.tickSec ? `（預設 ${d.defaultSec} 秒）` : '（預設）'}。行動點回復跟著一起變快。調快之前累積、還沒結算的時間，會照新的速度算。`),
+    el('div', {class: 'rowbtn'}, ...[[0, '預設'], [30, '30 秒'], [15, '15 秒'], [10, '10 秒'], [5, '5 秒']].map(([sec, lab]) => el('button', {class: (d.tickSec || 0) === sec ? 'primary' : '', onclick: async () => { await api('/api/admin/speed', {sec}); if (NET.on) { const v = await api('/api/me'); if (!v.error) applyView(v); refreshMirror().catch(() => {}); } adminSheet(); }}, lab))),
+    el('div', {class: 'rowbtn'}, ...[[1, '推進 1 個時段'], [4, '推進 1 天'], [28, '推進 1 週']].map(([n, lab]) => el('button', {onclick: async () => { const r = await api('/api/admin/tick', {n}); toast(`現在是 ${r.stamp}`); if (NET.on) { const v = await api('/api/me'); if (!v.error) applyView(v); await refreshMirror(true); renderWorld(); renderRails(); } adminSheet(); }}, lab))),
     el('h3', {style: 'margin-top:12px'}, `戰幫（${d.players.length}）`));
   for (const p of d.players) box.append(el('div', {class: 'plan'}, el('b', {}, p.name), el('span', {class: 'muted'}, `${p.size} 人・聲望 ${p.fame}・${p.google ? 'Google' : '訪客'}・${p.over ? '已散・' : ''}${ago(p.seen)}`),
     el('button', {class: 'pin', onclick: async () => { await api('/api/admin/mute', {id: p.id, on: !p.muted}); adminSheet(); }}, p.muted ? '解除禁言' : '禁言'),
@@ -339,7 +346,17 @@ function renderStatus() {
   $('wTime').textContent = nowText(w);
   const ci = Wd.campInfo(w); $('wCampTag').hidden = !ci; if (ci) $('wCampTag').textContent = `⛺ ${ci.ready ? '營地紮穩了' : `紮營中（再 ${(w.kit ? 6 : 12) - ci.age} 小時紮穩）`}${ci.stake ? '・木柵' : ''}${ci.watch ? '・哨' : ''}${ci.fire ? '・營火' : ''}`;
   $('wAP').hidden = !NET.on; if (NET.on) $('wAPv').textContent = `${Math.floor(apNow())}/${Wd.AP_MAX}`;
+  $('wAdmin').hidden = !(NET.on && NET.admin);
+  if (NET.on) { const ap = apNow(), nextAp = ap >= Wd.AP_MAX ? null : (1 - (ap % 1)) * NET.apMs;
+    $('wClock').textContent = `${nextAp == null ? '行動點滿了' : `+1 ${mmss(nextAp)}`}・${NET.paused ? '世界暫停中' : NET.nextTickAt ? `下個時段 ${mmss(NET.nextTickAt - Date.now())}` : ''}`; }
 }
+// 每秒更新倒數；時段到了就跟伺服器同步一次
+setInterval(() => {
+  if (!NET.on || !G.world || $('world').hidden) return; renderStatus();
+  if (NET.nextTickAt && Date.now() > NET.nextTickAt + 1500 && !NET.syncing && !traveling && !NET.busy) { NET.syncing = true;
+    api('/api/me').then(d => { if (!d.error) { applyView(d); renderRails(); } return refreshMirror(); }).then(() => renderWorld()).catch(() => {}).finally(() => { NET.syncing = false; }); }
+}, 1000);
+$('wAdmin').onclick = () => adminSheet();
 let showDanger = false;
 const RISKCOL = r => r < 0.15 ? '#9fd18a' : r < 0.4 ? '#f1c45c' : '#f0705a';
 // 地圖的大小一變就重畫（避免舊畫面被拉伸變形）
@@ -508,7 +525,7 @@ function popActions(p) {
   const w = G.world, k = C.K(), here = p === w.pos, out = [];
   const add = (label, fn, cls) => out.push(el('button', {class: cls || '', onclick: async () => { await fn(); }}, label));
   if (!here) {
-    if (wsel?.path) { add('前往', () => travel(wsel.path), 'primary'); add(w.march ? '急行軍：開' : '急行軍：關', async () => { await doWorld({type: 'march', on: !w.march}, true); wsel = {pos: p, path: Wd.findPath(G.world, G.world.pos, p)}; renderWorld(); renderPop(); renderLeft(); }, w.march ? 'danger' : ''); }
+    if (wsel?.path) { const hrs = Wd.pathHoursW(w, wsel.path); add(NET.on ? `前往（${hrs} 行動點${hrs > apNow() ? '，不夠' : ''}）` : `前往（${hrs} 小時）`, () => travel(wsel.path), 'primary'); add(w.march ? '急行軍：開' : '急行軍：關', async () => { await doWorld({type: 'march', on: !w.march}, true); wsel = {pos: p, path: Wd.findPath(G.world, G.world.pos, p)}; renderWorld(); renderPop(); renderLeft(); }, w.march ? 'danger' : ''); }
     return out;
   }
   add('此地…', () => { wsel = null; renderWorld(); renderPop(); hubOpen = true; renderHub(); }, 'primary');   // 自己這格的事都收在中間的按鈕
@@ -579,7 +596,7 @@ function hexDetailInto(box) {
     const need = Wd.eaters(w) * hrs / 24;
     box.append(el('div', {}, `${wsel.path.length} 格，約 ${hrs < 30 ? hrs + ' 小時' : (hrs / 24).toFixed(1) + ' 天'}，吃掉 ${need.toFixed(0)} 份糧食`, need > w.food ? el('span', {class: 'tag bad'}, '糧食不夠') : null));
     box.append(el('div', {class: 'muted', style: 'font-size:13px'}, `沿路：${bad ? `危險 ${bad} 格・` : ''}${mid ? `不太平 ${mid} 格・` : ''}${!bad && !mid ? '看起來還算太平・' : ''}${wsel.path.some(i => !Wd.seen(w, i)) ? '有些路段沒走過・' : ''}${Wd.SEASON_NOTE[k.season] || '天氣不錯'}`));
-    row.append(el('button', {class: 'primary', onclick: async () => travel(wsel.path)}, '前往'));
+    row.append(el('button', {class: 'primary', onclick: async () => travel(wsel.path)}, NET.on ? `前往（${hrs} 行動點）` : '前往'));
     row.append(el('button', {class: w.march ? 'danger' : '', onclick: async () => { await doWorld({type: 'march', on: !w.march}, true); wsel = {pos: wsel.pos, path: Wd.findPath(G.world, G.world.pos, wsel.pos)}; renderWorld(); hexInfo(); renderLeft(); }}, w.march ? '急行軍：開' : '急行軍：關'));
     if (Wd.loadMul(w) > 1) box.append(el('div', {class: 'muted', style: 'font-size:12px'}, `貨太重：每格多花 ${Math.round((Wd.loadMul(w) - 1) * 100)}% 的時間。丟掉一些貨（行囊）可以走快一點。`));
     if (w.march) box.append(el('div', {style: 'font-size:12px;color:#f1cf8a'}, `急行軍：同一段路少花三成${NET.on ? '行動點' : '時間'}，代價是每小時全隊扣血、傭兵心浮氣躁、騾子可能倒下。疲憊時打仗防禦 −1、命中 −10。`));

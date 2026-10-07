@@ -24,7 +24,9 @@ async function gunzip(u8) { return new TextDecoder().decode(await new Response(n
 
 export class Realm extends DurableObject {
   constructor(ctx, env) { super(ctx, env); this.ready = null; this.snap = null; this.lastPersist = 0; this.dirty = false; }
-  tickMs() { return Math.max(30, +(this.env.TICK_SECONDS || 120)) * 1000; }
+  // 一個時段幾秒：預設看設定（TICK_SECONDS，最少 30 秒）；管理員可以為了測試暫時調快（meta.tickSec，最少 5 秒）
+  tickMs() { const t = this.meta?.tickSec; return (t ? Math.max(5, t) : Math.max(30, +(this.env.TICK_SECONDS || 120))) * 1000; }
+  async arm(ms = this.tickMs()) { this.nextTickAt = Date.now() + ms; await this.ctx.storage.setAlarm(this.nextTickAt); }
   apMs() { return this.tickMs() / 6; }
   // 世界現在是第幾小時（時段 × 6，再加上這個時段已經過了多久）
   worldHours() { const f = Math.max(0, Math.min(1, (Date.now() - (this.lastTick || Date.now())) / this.tickMs())); return C.K().T * 6 + f * 6; }   // 一個時段 6 小時 → 每 tickMs/6 毫秒回 1 AP，和世界時鐘同速
@@ -56,7 +58,7 @@ export class Realm extends DurableObject {
       this.evLen = C.K().ev.length;
       Wd.MODE.shared = true;
       Wd.MODE.events = w => { const out = this.feed.filter(f => f.seq > (w.feedSeq || 0)).map(f => f.e); w.feedSeq = this.meta.seq; return out; };
-      if (!(await st.getAlarm()) && this.env.PAUSED !== '1') await st.setAlarm(Date.now() + this.tickMs());
+      const al = await st.getAlarm(); if (al) this.nextTickAt = al; else if (this.env.PAUSED !== '1') await this.arm();
     } catch (e) { this.ready = null; throw e; } })();
   }
   async persist(force) {
@@ -73,10 +75,13 @@ export class Realm extends DurableObject {
   /* ───── 世界時鐘 ───── */
   async alarm() {
     await this.init();
-    if (this.env.PAUSED === '1' || this.meta.paused) { await this.ctx.storage.setAlarm(Date.now() + this.tickMs()); return; }
+    if (this.env.PAUSED === '1' || this.meta.paused) { await this.arm(); return; }
+    await this.tick();
+    await this.arm();
+  }
+  async tick() {
     C.SIM.periodTick(); this.pump(true); this.lastTick = Date.now();
     await this.persist(true);
-    await this.ctx.storage.setAlarm(Date.now() + this.tickMs());
   }
 
   /* ───── 玩家 ───── */
@@ -143,7 +148,7 @@ export class Realm extends DurableObject {
   newBattle(w, setup) { return B.createBattle({seed: setup.seed, biome: setup.biome, layout: setup.layout, party: Wd.battleParty(w, setup), foes: setup.foes, order: w.lastOrder || {stance: 'follow', focus: null}, camp: setup.camp}); }
   battleSt(p) { const b = p.battle; if (!b.st) { b.st = b.party ? B.createBattle({seed: b.setup.seed, biome: b.setup.biome, layout: b.setup.layout, party: b.party, foes: b.setup.foes, order: b.order, camp: b.setup.camp}) : this.newBattle(p.w, b.setup); b.st.rng = hashMix(b.st.rng, crypto.getRandomValues(new Uint32Array(1))[0]); delete b.party; delete b.order; } return b.st; }
   pubSt(st) { return {...st, rng: 0}; }
-  view(p) { const w = p.w, away = p.away; p.away = null; if (away) queueMicrotask(() => this.savePlayer(p)); return {away, me: p.id.slice(0, 6), caches: this.caches, w: {...w, pois: undefined, poiShared: undefined, caches: undefined}, battle: p.battle ? {setup: p.battle.setup, st: this.pubSt(this.battleSt(p))} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
+  view(p) { const w = p.w, away = p.away; p.away = null; if (away) queueMicrotask(() => this.savePlayer(p)); return {away, me: p.id.slice(0, 6), caches: this.caches, w: {...w, pois: undefined, poiShared: undefined, caches: undefined}, battle: p.battle ? {setup: p.battle.setup, st: this.pubSt(this.battleSt(p))} : null, apMs: this.apMs(), tickMs: this.tickMs(), nextTickAt: this.nextTickAt || null, paused: !!this.meta.paused || this.env.PAUSED === '1', T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
 
   /* ───── 襲擊其他玩家：防守方由 AI 操作，打完由伺服器結算 ───── */
   async findPlayer(prefix) { const id = Object.keys(this.roster).find(k => k.startsWith(prefix)); return id ? await this.player(id) : null; }
@@ -235,7 +240,7 @@ export class Realm extends DurableObject {
     if (path === '/api/world') {
       const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && !r.hidden && Date.now() - r.seen < 7 * 864e5).map(([id, r]) => ({id: id.slice(0, 6), ...r}));
       this.tnotes = (this.tnotes || []).filter(n => Date.now() - n.at < NOTE_MS);
-      return json({tnotes: this.tnotes, caches: this.caches, clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
+      return json({tnotes: this.tnotes, caches: this.caches, clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), nextTickAt: this.nextTickAt || null, paused: !!this.meta.paused || this.env.PAUSED === '1', players: others.length, others, poiState: this.poiState, version: this.meta.version});
     }
     if (path === '/api/name') {   // 名字：檢查有沒有人用、或抽一個沒人用過的
       const taken = async n => { const o = this.names[n]; if (!o) return false; const pl = await this.player(o); return !!(pl && !pl.w.over); };
@@ -265,8 +270,13 @@ export class Realm extends DurableObject {
       if (!(await this.isAdmin(id))) return bad('你不是管理者', 403);
       if (path === '/api/admin/status') {
         const list = await Promise.all(Object.entries(this.roster).map(async ([pid, r]) => ({id: pid.slice(0, 6), name: r.name, size: r.size, fame: r.fame, over: r.over, seen: r.seen, google: pid.startsWith('g'), muted: (this.meta.muted || []).includes(pid)})));
-        return json({T: C.K().T, stamp: C.K().stamp, version: this.meta.version, startedAt: this.meta.startedAt, paused: !!this.meta.paused || this.env.PAUSED === '1', tickMs: this.tickMs(), players: list.sort((a, b) => b.seen - a.seen)});
+        return json({T: C.K().T, stamp: C.K().stamp, version: this.meta.version, startedAt: this.meta.startedAt, paused: !!this.meta.paused || this.env.PAUSED === '1', tickMs: this.tickMs(), tickSec: this.meta.tickSec || 0, defaultSec: Math.max(30, +(this.env.TICK_SECONDS || 120)), players: list.sort((a, b) => b.seen - a.seen)});
       }
+      if (path === '/api/admin/speed') {   // 測試用：調整世界的速度（一個時段幾秒）；0 = 回到預設
+        const sec = Math.round(+body.sec || 0); this.meta.tickSec = sec ? Math.max(5, Math.min(3600, sec)) : 0; await this.persist(true); await this.arm();
+        return json({tickMs: this.tickMs()});
+      }
+      if (path === '/api/admin/tick') { const n = Math.max(1, Math.min(40, Math.round(+body.n || 1))); for (let i = 0; i < n; i++) await this.tick(); await this.arm(); return json({T: C.K().T, stamp: C.K().stamp}); }
       if (path === '/api/admin/pause') { this.meta.paused = !!body.on; await this.persist(true); return json({paused: this.meta.paused}); }
       if (path === '/api/admin/mute') { const t = await this.findPlayer(String(body.id || '')); if (!t) return bad('找不到'); const m = new Set(this.meta.muted || []); body.on === false ? m.delete(t.id) : m.add(t.id); this.meta.muted = [...m]; await this.persist(true); return json({ok: true, muted: m.has(t.id)}); }
       if (path === '/api/admin/kick') { const t = await this.findPlayer(String(body.id || '')); if (!t) return bad('找不到'); await this.dropPlayer(t.id); return json({ok: true}); }
