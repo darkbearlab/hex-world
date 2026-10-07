@@ -140,8 +140,8 @@ $('newRun').onclick = async () => {
 function randomName(g) { const P = g === 'f' ? FEMALE_NAMES : MALE_NAMES; return `${P[Math.floor(Math.random() * P.length)]}・${SURNAMES[Math.floor(Math.random() * SURNAMES.length)]}`; }
 async function suggestName(mode, g) { if (mode === 'mp') { try { const d = await (await fetch('/api/name?g=' + g)).json(); if (d.name) return d.name; } catch {} } return randomName(g); }
 async function createScreen(mode, restart) {
-  const st = {name: '', g: 'm', origin: 'knight', face: null, taken: false};
-  const pickFace = () => { const L = faceList(st.g); if (L.length && !L.some(f => f.i === st.face)) st.face = L[Math.floor(Math.random() * L.length)].i; };
+  const st = {name: '', g: 'm', origin: 'knight', face: null, taken: false, ff: 'all'};
+  const pickFace = () => { if (st.face != null) return; const L = faceList(st.g); if (L.length) st.face = L[Math.floor(Math.random() * L.length)].i; };
   st.name = await suggestName(mode, st.g); pickFace();
   const box = el('div', {class: 'create'});
   const draw = () => {
@@ -158,9 +158,9 @@ async function createScreen(mode, restart) {
     for (const [k, O] of Object.entries(Wd.ORIGINS)) og.append(el('button', {class: 'origin' + (st.origin === k ? ' on' : ''), onclick: () => { st.origin = k; draw(); }},
       el('b', {}, O.n), el('span', {class: 'oc'}, `${CLASSES[O.cls].name}・${O.gold} 金・${O.mates.length} 個同伴`), el('span', {class: 'od'}, O.d)));
     box.append(og);
-    box.append(el('h3', {style: 'margin-top:10px'}, '頭像'));
+    box.append(el('div', {class: 'crow', style: 'margin-top:10px'}, el('h3', {style: 'margin:0;flex:1'}, '頭像'), ...[['all', '全部'], ['m', '偏男性'], ['f', '偏女性']].map(([k, n]) => el('button', {class: 'pin' + (st.ff === k ? ' on' : ''), onclick: () => { st.ff = k; draw(); }}, n))));
     const fg = el('div', {class: 'faces'});
-    for (const f of faceList(st.g)) { const d = faceEl(f.i, 56); d.classList.add('pick'); if (f.i === st.face) d.classList.add('on'); d.title = f.desc; d.onclick = () => { st.face = f.i; draw(); }; fg.append(d); }
+    for (const f of (FACES ? FACES.faces : []).filter(f => st.ff === 'all' || f.g === st.ff)) { const d = faceEl(f.i, 56); d.classList.add('pick'); if (f.i === st.face) d.classList.add('on'); d.title = f.desc; d.onclick = () => { st.face = f.i; draw(); }; fg.append(d); }
     if (!FACES) fg.append(el('p', {class: 'muted'}, '頭像庫載入失敗，先用預設的小人圖。'));
     box.append(fg);
     const go = el('button', {class: 'primary', style: 'width:100%;margin-top:12px', onclick: async () => {
@@ -192,13 +192,34 @@ async function setupLogin() {
 function renderAcct() {
   const box = $('acctBox'), note = $('acctNote'), email = acct();
   box.hidden = !AUTH.clientId; $('gsiBtn').innerHTML = '';
-  if (email) { note.innerHTML = ''; note.append(`已用 ${email} 登入。`, el('a', {onclick: () => { try { localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); } catch {} renderAcct(); }}, '登出')); }
+  if (email) {
+    note.innerHTML = ''; note.append(`已用 ${email} 登入。`, el('a', {onclick: () => { try { localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); } catch {} renderAcct(); }}, '登出'), '・', el('a', {onclick: deleteAccount}, '刪除帳號'));
+    fetch('/api/account', {headers: {'x-token': localStorage.getItem(TOKEN_KEY) || ''}}).then(r => r.json()).then(a => { if (!a.email) { try { localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); } catch {} toast('登入已失效（世界可能重開了），請重新登入', 3500); return renderAcct(); } if (a.admin && !$('adminBtn')) note.append('・', el('a', {id: 'adminBtn', onclick: adminSheet}, '管理')); }).catch(() => {});
+  }
   else {
     if (AUTH.inited) google.accounts.id.renderButton($('gsiBtn'), {theme: 'filled_black', text: 'signin_with', shape: 'pill', locale: 'zh-TW'});
     note.textContent = AUTH.guest ? '用 Google 登入，換手機或電腦都能接著玩同一支戰幫。也可以不登入，用這個瀏覽器當訪客。' : '共享世界要用 Google 帳號登入。';
   }
   $('mpRun').hidden = !email && !AUTH.guest;
   $('mpRun').textContent = email || !AUTH.clientId ? '進入共享世界' : '以訪客身分進入共享世界';
+}
+async function deleteAccount() {
+  if (prompt('刪除帳號會一併刪掉你在共享世界裡的戰幫，而且救不回來。\n確定的話請輸入「刪除」') !== '刪除') return;
+  try { NET.token = localStorage.getItem(TOKEN_KEY); await api('/api/me/delete', {what: 'account'}); localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); toast('帳號已刪除'); renderAcct(); } catch (e) { toast(e.message); }
+}
+async function adminSheet() {
+  NET.token = localStorage.getItem(TOKEN_KEY);
+  let d; try { d = await api('/api/admin/status'); } catch (e) { return toast(e.message); }
+  const ago = t => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${m} 分鐘前` : m < 1440 ? `${Math.round(m / 60)} 小時前` : `${Math.round(m / 1440)} 天前`; };
+  const box = el('div', {}, el('h2', {}, '管理共享世界'),
+    el('p', {class: 'muted'}, `世界版本 ${d.version}・${d.stamp}・第 ${d.T} 時段・${d.paused ? '暫停中' : `每 ${d.tickMs / 1000} 秒推進一個時段`}・從 ${new Date(d.startedAt).toLocaleString('zh-TW')} 開始`),
+    el('div', {class: 'rowbtn'}, el('button', {onclick: async () => { await api('/api/admin/pause', {on: !d.paused}); adminSheet(); }}, d.paused ? '讓世界繼續走' : '暫停世界'),
+      el('button', {class: 'danger', onclick: async () => { if (prompt('重開世界會清空所有東西：世界的進度、所有人的戰幫、帳號與登入。大家要重新登入、重新建角色。\n確定的話請輸入「重開」') !== '重開') return; try { await api('/api/admin/reset', {confirm: '重開'}); closeSheet(); localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); toast('世界重開了，請重新登入', 4000); NET.on = false; G = {world: null, battle: null}; titleScreen(); } catch (e) { toast(e.message); } }}, '重開世界')),
+    el('h3', {style: 'margin-top:12px'}, `戰幫（${d.players.length}）`));
+  for (const p of d.players) box.append(el('div', {class: 'plan'}, el('b', {}, p.name), el('span', {class: 'muted'}, `${p.size} 人・聲望 ${p.fame}・${p.google ? 'Google' : '訪客'}・${p.over ? '已散・' : ''}${ago(p.seen)}`),
+    el('button', {class: 'pin', onclick: async () => { if (!confirm(`刪掉「${p.name}」的戰幫？`)) return; await api('/api/admin/kick', {id: p.id}); adminSheet(); }}, '刪除')));
+  if (!d.players.length) box.append(el('p', {class: 'muted'}, '還沒有人。'));
+  openSheet(box, null, true);
 }
 async function onGoogle(resp) {
   try {
@@ -673,6 +694,11 @@ function partySheet() {
     box.append(el('div', {class: 'rowbtn'}, el('span', {style: 'flex:2;align-self:center'}, `「${r.name}」${r.kind}：${who ? who.name + '佩帶（力量 +2）' : '收在行囊裡'}`), el('button', {onclick: async () => { await doWorld({type: 'equipRelic', id: r.id}); partySheet(); }}, who ? '換人' : '交給人佩帶'))); }
   for (const m of w.party) box.append(memberCard(m, m.hero ? null : dismissRow(m)));
   if (w.fallen.length) { box.append(el('h3', {style: 'margin-top:12px'}, '倒下的人')); for (const f of w.fallen) box.append(el('p', {class: 'muted'}, `${f.name}（${CLASSES[f.cls].name}）・第 ${f.day} 天・${f.how}`)); }
+  box.append(el('div', {class: 'rowbtn', style: 'margin-top:16px'}, el('button', {class: 'danger', onclick: async () => {
+    if (prompt(`解散${NET.on ? '戰幫' : '這趟旅程'}，刪掉這個角色，回到標題重新建立。救不回來。\n確定的話請輸入「解散」`) !== '解散') return;
+    if (NET.on) { try { await api('/api/me/delete', {what: 'char'}); } catch (e) { return toast(e.message); } NET.on = false; Wd.MODE.shared = false; } else wipe();
+    closeSheet(); G = {world: null, battle: null}; titleScreen();
+  }}, NET.on ? '解散戰幫（刪除角色）' : '放棄這趟旅程')));
   openSheet(box);
 }
 const dismissRow = m => el('div', {class: 'rowbtn'}, el('button', {class: 'danger', onclick: async () => { if (confirm(`讓${m.name}離開隊伍？`)) { await doWorld({type: 'dismiss', id: m.id}); closeSheet(); } }}, '遣散'));

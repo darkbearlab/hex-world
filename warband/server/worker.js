@@ -68,7 +68,7 @@ export class Realm extends DurableObject {
   /* ───── 世界時鐘 ───── */
   async alarm() {
     await this.init();
-    if (this.env.PAUSED === '1') return;
+    if (this.env.PAUSED === '1' || this.meta.paused) { await this.ctx.storage.setAlarm(Date.now() + this.tickMs()); return; }
     C.SIM.periodTick(); this.pump();
     await this.persist(true);
     await this.ctx.storage.setAlarm(Date.now() + this.tickMs());
@@ -76,6 +76,22 @@ export class Realm extends DurableObject {
 
   /* ───── 玩家 ───── */
   async player(id) { return await this.ctx.storage.get('p:' + id); }
+  /* ───── 刪角色、刪帳號、管理 ───── */
+  async dropPlayer(id) { await this.ctx.storage.delete('p:' + id); delete this.roster[id]; for (const n in this.names) if (this.names[n] === id) delete this.names[n]; await this.persist(true); }
+  async dropAccount(id) {
+    await this.dropPlayer(id); await this.ctx.storage.delete('acct:' + id);
+    const all = await this.ctx.storage.list({prefix: 'sess:'}); for (const [k, v] of all) if (v.pid === id) await this.ctx.storage.delete(k);
+  }
+  async isAdmin(id) {
+    if (!id.startsWith('g')) return false;
+    const a = await this.ctx.storage.get('acct:' + id), list = String(this.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+    return !!(a && a.email && list.includes(a.email.toLowerCase()));
+  }
+  // 重開世界：清空所有東西（世界、角色、帳號、登入），從創世檔重新開始
+  async resetWorld() {
+    await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll();
+    this.ready = null; this.snap = null; this.meta = null; await this.init();
+  }
   // 身分：Google 登入發的工作階段代碼對到帳號；沒有的話就是舊的「瀏覽器代碼」訪客
   async who(token) { const h = await sha(token), s = await this.ctx.storage.get('sess:' + h); return s ? s.pid : h; }
   async googleLogin(body) {
@@ -182,6 +198,23 @@ export class Realm extends DurableObject {
     const id = await this.who(token);
     if (!id.startsWith('g') && this.env.ALLOW_GUEST === '0' && path === '/api/join') return bad('請先用 Google 帳號登入', 401);
     let p = await this.player(id);
+    if (path === '/api/account') { const a = id.startsWith('g') ? await this.ctx.storage.get('acct:' + id) : null; return json({admin: await this.isAdmin(id), email: a?.email || '', hasPlayer: !!(p && !p.w.over), name: p?.name || null}); }
+    if (path === '/api/me/delete') {
+      if (body.what === 'account') { if (!id.startsWith('g')) { await this.dropPlayer(id); return json({ok: true}); } await this.dropAccount(id); return json({ok: true}); }
+      if (p) { if (p.battle) return bad('還在戰鬥中，打完再說'); await this.dropPlayer(id); }
+      return json({ok: true});
+    }
+    if (path.startsWith('/api/admin/')) {
+      if (!(await this.isAdmin(id))) return bad('你不是管理者', 403);
+      if (path === '/api/admin/status') {
+        const list = await Promise.all(Object.entries(this.roster).map(async ([pid, r]) => ({id: pid.slice(0, 6), name: r.name, size: r.size, fame: r.fame, over: r.over, seen: r.seen, google: pid.startsWith('g')})));
+        return json({T: C.K().T, stamp: C.K().stamp, version: this.meta.version, startedAt: this.meta.startedAt, paused: !!this.meta.paused || this.env.PAUSED === '1', tickMs: this.tickMs(), players: list.sort((a, b) => b.seen - a.seen)});
+      }
+      if (path === '/api/admin/pause') { this.meta.paused = !!body.on; await this.persist(true); return json({paused: this.meta.paused}); }
+      if (path === '/api/admin/kick') { const t = await this.findPlayer(String(body.id || '')); if (!t) return bad('找不到'); await this.dropPlayer(t.id); return json({ok: true}); }
+      if (path === '/api/admin/reset') { if (body.confirm !== '重開') return bad('要輸入「重開」才會執行'); await this.resetWorld(); return json({ok: true, T: C.K().T}); }
+      return bad('找不到這個 API', 404);
+    }
 
     if (path === '/api/join') {
       if (p && !p.w.over && !body.restart) { this.regen(p); this.prep(p); return json(this.view(p)); }

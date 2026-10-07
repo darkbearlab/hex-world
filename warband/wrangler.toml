@@ -24,7 +24,7 @@ cpu_ms = 30000
 
 [vars]
 # 改這個數字並推送，共享世界就從創世檔重新開始（所有玩家的戰幫也一起重來）
-WORLD_VERSION = "1"
+WORLD_VERSION = "2"
 # 現實中幾秒推進一個時段（6 小時）。120 = 兩分鐘，一天 8 分鐘；玩家的行動點以同樣速度回復
 TICK_SECONDS = "120"
 # 設成 "1" 世界就暫停（時鐘停下、進度保留）
@@ -33,3 +33,5 @@ PAUSED = "0"
 GOOGLE_CLIENT_ID = "761557729646-spe24525vg4fcju3ihqjtm5v6l15leni.apps.googleusercontent.com"
 # "1" = 沒登入的人也能用瀏覽器代碼當訪客玩；"0" = 一定要用 Google 帳號登入
 ALLOW_GUEST = "1"
+# 管理者（用這些 Google 帳號登入時，標題畫面會出現「管理」：看玩家、暫停世界、踢人、重開世界）
+ADMIN_EMAILS = "darkbearlab@gmail.com"

@@ -194,3 +194,4 @@ h3{font-size:16px;margin:6px 0 2px}
 .faces{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;max-height:40vh;overflow:auto;padding:2px}
 .face.pick{cursor:pointer;opacity:.75;outline:2px solid transparent}.face.pick.on{opacity:1;outline-color:var(--gold)}
 .card .face{border-radius:10px}
+.pin.on{background:var(--gold);color:var(--gold-ink)}
