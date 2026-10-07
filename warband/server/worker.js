@@ -138,7 +138,7 @@ export class Realm extends DurableObject {
       banner: w.banner ?? null, face: w.party.find(m => m.hero)?.face ?? null, g: w.party.find(m => m.hero)?.g || 'm', wantedMax: Math.max(0, ...Object.values(w.wanted || {})), shieldT: w.shieldT || 0, town: !!town, busy: !!p.battle,
       hidden: Wd.hidden(w), camp: ci ? {stake: ci.stake, watch: ci.watch, fire: ci.fire, ready: ci.ready} : null, power: Math.round(Wd.partyPower(w.party))};
   }
-  view(p) { const w = p.w, away = p.away; p.away = null; return {away, me: p.id.slice(0, 6), caches: this.caches, w: {...w, pois: undefined, poiShared: undefined, caches: undefined}, battle: p.battle ? {setup: p.battle.setup, party: p.battle.party, order: p.battle.order} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
+  view(p) { const w = p.w, away = p.away; p.away = null; if (away) queueMicrotask(() => this.savePlayer(p)); return {away, me: p.id.slice(0, 6), caches: this.caches, w: {...w, pois: undefined, poiShared: undefined, caches: undefined}, battle: p.battle ? {setup: p.battle.setup, party: p.battle.party, order: p.battle.order} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
 
   /* ───── 襲擊其他玩家：防守方由 AI 操作，打完由伺服器結算 ───── */
   async findPlayer(prefix) { const id = Object.keys(this.roster).find(k => k.startsWith(prefix)); return id ? await this.player(id) : null; }

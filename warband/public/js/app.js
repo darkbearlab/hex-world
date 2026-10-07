@@ -19,12 +19,14 @@ function applyView(v) {
   const notes = G.world?.notes;
   G.world = v.w; G.world.pois = v.pois || G.world.pois; G.world.poiShared = v.poiState || {}; G.world.notes = v.notes ?? notes; G.world.caches = v.caches || [];
   NET.apMs = v.apMs || NET.apMs; NET.apAt = Date.now(); NET.battle = v.battle; NET.name = v.name || NET.name; NET.me = v.me || NET.me; Wd.MODE.worldT = v.T ?? Wd.MODE.worldT; if (v.T != null) NET.T = v.T;
-  if (v.away && v.away.hours >= 24) setTimeout(() => awaySheet(v.away), 300);
+  if (v.away && v.away.hours >= 24 && !noAway()) setTimeout(() => awaySheet(v.away), 300);
 }
+const noAway = () => { try { return localStorage.getItem('warband-no-away') === '1'; } catch { return false; } };
 function awaySheet(a) {
   const box = el('div', {}, el('h2', {}, '你不在的時候'), el('p', {}, `大約過了 ${Math.round(a.hours / 24)} 天。${a.food ? `吃掉 ${Math.round(a.food)} 份糧，` : ''}花掉 ${a.gold} 金幣（餉發一半${G.world && Wd.siteAt(G.world, G.world.pos)?.kind === 'town' ? '、旅店錢' : ''}）。`));
   if (a.raids.length) { box.append(el('h3', {}, '夜裡的事')); for (const r of a.raids) box.append(el('p', {class: 'muted'}, r)); }
   else box.append(el('p', {class: 'muted'}, '一切平靜。'));
+  box.append(el('label', {class: 'muted', style: 'display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px'}, el('input', {type: 'checkbox', onchange: e => { try { localStorage.setItem('warband-no-away', e.target.checked ? '1' : ''); } catch {} }}), '以後不要跳出來（日誌裡還是會記）'));
   openSheet(box);
 }
 const apNow = () => Math.min(Wd.AP_MAX, (G.world?.ap || 0) + (Date.now() - NET.apAt) / NET.apMs);
