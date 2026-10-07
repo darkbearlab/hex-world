@@ -4,7 +4,7 @@ import * as Wd from './world.js';
 import * as B from './battle.js';
 import * as C from './cont.js';
 // 共享世界：伺服器是唯一的真相；瀏覽器只留一份唯讀的沙盒鏡像來畫圖、查價格
-const NET = {on: false, token: null, apMs: 20000, apAt: 0, T: 0, mirrorT: 0, others: [], battle: null, name: '', busy: false, me: ''};
+const NET = {on: false, token: null, apMs: 20000, apAt: 0, T: 0, mirrorT: 0, others: [], battle: null, name: '', busy: false, me: '', chat: [], bubbles: {}, tnotes: [], unread: 0, ws: null};
 const TOKEN_KEY = 'warband-mp-token';
 async function api(path, body) {
   const r = await fetch(path, {method: body ? 'POST' : 'GET', headers: {'content-type': 'application/json', 'x-token': NET.token || ''}, body: body ? JSON.stringify(body) : undefined});
@@ -12,7 +12,7 @@ async function api(path, body) {
 }
 async function refreshMirror(force) {
   const d = await api('/api/world'); NET.others = d.others || []; NET.T = d.T;
-  if (G.world) { G.world.poiShared = d.poiState; if (d.caches) G.world.caches = d.caches; }
+  if (G.world) { G.world.poiShared = d.poiState; if (d.caches) G.world.caches = d.caches; } if (d.tnotes) NET.tnotes = d.tnotes;
   if (force || d.T - NET.mirrorT >= 2) { const s = await (await fetch('/api/snapshot')).json(); C.loadState(s.state); NET.mirrorT = s.T; Wd.MODE.worldT = s.T; }
 }
 function applyView(v) {
@@ -130,8 +130,20 @@ async function getPack() { if (!PACK) PACK = await (await fetch('data/genesis.js
 /* ───────────── 標題 ───────────── */
 function titleScreen() {
   show('title'); setupLogin();
-  const s = load(); $('continueRun').hidden = !(s && s.world && !s.world.over);
+  // 單人模式先藏起來：接下來以線上（共享世界）為主。存檔與程式都還在，之後要再開放只要拿掉這行
+  $('continueRun').hidden = true; $('newRun').hidden = true;
+  maybeChangelog();
 }
+/* ───────────── 更新紀錄：當天第一次進來時跳出 ───────────── */
+async function changelogSheet() {
+  let log = []; try { log = await (await fetch('changelog.json', {cache: 'no-store'})).json(); } catch {}
+  const box = el('div', {class: 'log'}, el('h2', {}, '更新紀錄'));
+  for (const d of log) { box.append(el('h3', {style: 'margin-top:12px'}, d.date)); for (const it of d.items) box.append(el('p', {}, '・' + it)); }
+  if (!log.length) box.append(el('p', {class: 'muted'}, '暫時沒有更新紀錄。'));
+  openSheet(box);
+}
+function maybeChangelog() { const today = new Date().toLocaleDateString('sv'); let seen = ''; try { seen = localStorage.getItem('warband-changelog-day') || ''; } catch {} if (seen === today) return; try { localStorage.setItem('warband-changelog-day', today); } catch {} changelogSheet(); }
+$('btnChangelog').onclick = () => changelogSheet();
 $('newRun').onclick = async () => {
   const s = load(); if (s && s.world && !s.world.over && !confirm('會蓋掉目前的旅程，確定重新開始？')) return;
   createScreen('solo');
@@ -217,6 +229,7 @@ async function adminSheet() {
       el('button', {class: 'danger', onclick: async () => { if (prompt('重開世界會清空所有東西：世界的進度、所有人的戰幫、帳號與登入。大家要重新登入、重新建角色。\n確定的話請輸入「重開」') !== '重開') return; try { await api('/api/admin/reset', {confirm: '重開'}); closeSheet(); localStorage.removeItem(ACCT_KEY); localStorage.removeItem(TOKEN_KEY); toast('世界重開了，請重新登入', 4000); NET.on = false; G = {world: null, battle: null}; titleScreen(); } catch (e) { toast(e.message); } }}, '重開世界')),
     el('h3', {style: 'margin-top:12px'}, `戰幫（${d.players.length}）`));
   for (const p of d.players) box.append(el('div', {class: 'plan'}, el('b', {}, p.name), el('span', {class: 'muted'}, `${p.size} 人・聲望 ${p.fame}・${p.google ? 'Google' : '訪客'}・${p.over ? '已散・' : ''}${ago(p.seen)}`),
+    el('button', {class: 'pin', onclick: async () => { await api('/api/admin/mute', {id: p.id, on: !p.muted}); adminSheet(); }}, p.muted ? '解除禁言' : '禁言'),
     el('button', {class: 'pin', onclick: async () => { if (!confirm(`刪掉「${p.name}」的戰幫？`)) return; await api('/api/admin/kick', {id: p.id}); adminSheet(); }}, '刪除')));
   if (!d.players.length) box.append(el('p', {class: 'muted'}, '還沒有人。'));
   openSheet(box, null, true);
@@ -244,6 +257,7 @@ async function enterShared() {
   } catch (e) { toast(e.message, 3500); NET.on = false; Wd.MODE.shared = false; } finally { $('mpRun').disabled = false; $('mpRun').textContent = lab; }
 }
 function startShared() {
+  connectChat();
   cam = null; worldScreen(); if (NET.battle) startBattle(NET.battle.setup);
   if (!refreshMirror.timer) refreshMirror.timer = setInterval(() => { if (NET.on && !G.battle && !traveling) refreshMirror().then(() => { if (!$('world').hidden) renderWorld(); }).catch(() => {}); }, 30000);
 }
@@ -361,7 +375,7 @@ function renderWorld() {
   if (NET.on) for (const o of NET.others) { if (o.id === NET.me || (o.name === NET.name && o.pos === w.pos)) continue; if (!SEEN(o.pos)) continue; const [x, y] = scr(o.pos); if (o.camp) drawCamp(g, x + s * 0.3, y + s * 0.25, s * 0.8, o.camp);
     const ring = o.banner != null && k.fac[o.banner] ? k.fac[o.banner].c : '#8fd0ff', of = FACES && o.face != null && FACES.faces[o.face] ? o.face : FACES ? (faceList(o.g || 'm')[strHash(o.id) % Math.max(1, faceList(o.g || 'm').length)]?.i ?? null) : null;
     if (of != null) drawFace(g, of, x + s * 0.3, y + s * 0.25, Math.max(8, s * 0.42), ring);
-    else { g.strokeStyle = ring; g.lineWidth = 2; g.beginPath(); g.arc(x + s * 0.3, y + s * 0.25, s * 0.42, 0, 7); g.stroke(); sprite(g, ['people', 'squire'], x + s * 0.3 - s * 0.38, y + s * 0.25 - s * 0.45, s * 0.76); } if (s >= 16) label(o.name, x + s * 0.3, y - s * 0.35, '#bfe6ff', Math.max(9, s * 0.34)); }
+    else { g.strokeStyle = ring; g.lineWidth = 2; g.beginPath(); g.arc(x + s * 0.3, y + s * 0.25, s * 0.42, 0, 7); g.stroke(); sprite(g, ['people', 'squire'], x + s * 0.3 - s * 0.38, y + s * 0.25 - s * 0.45, s * 0.76); } if (s >= 16) label(o.name, x + s * 0.3, y - s * 0.35, '#bfe6ff', Math.max(9, s * 0.34)); bubble(g, o.id, x + s * 0.3, y - s * 0.6); }
   // 玩家
   const [px, py] = (() => { const [x, y] = partyXY(); return [(x - cam.x) * cam.s + mapSize.w / 2, (y - cam.y) * cam.s + mapSize.h / 2]; })();
   const ci = !anim && Wd.campInfo(w);
@@ -370,10 +384,20 @@ function renderWorld() {
   if (hf != null) drawFace(g, hf, px, py - s * 0.05, Math.max(10, s * 0.62), w.escort ? '#9fd18a' : '#d9a441');
   else { g.strokeStyle = w.escort ? '#9fd18a' : '#d9a441'; g.lineWidth = 2.5; g.beginPath(); g.arc(px, py, s * 0.72, 0, 7); g.stroke(); sprite(g, ['people', 'knight'], px - s * 0.6, py - s * 0.7, s * 1.2); }
   if (w.escort && s >= 16) label('護送中', px, py + s * 0.98, '#bfe3b0', Math.max(9, s * 0.36));
+  if (NET.on) bubble(g, NET.me, px, py - s * 0.8);
+  for (const c of (NET.tnotes || [])) if (SEEN(c.tile) && Wd.hdist(c.tile, w.pos) <= Wd.viewRadius(w)) { const [x, y] = scr(c.tile); g.fillStyle = '#f4ead2'; g.font = `${Math.max(10, s * 0.4)}px system-ui`; g.textAlign = 'center'; g.fillText('📜', x - s * 0.45, y + s * 0.55); }
   if (wsel) { hexPath(g, ...scr(wsel.pos), s * 0.97); g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke(); }
   placePop();
 }
 const nm = i => C.nm(i);
+// 對話泡泡：地圖上說話的人頭上冒出最近一句，8 秒後消失
+function bubble(g, id, x, y) {
+  const b = NET.bubbles[id]; if (!b || Date.now() - b.at > 8000) return;
+  const t = b.text.length > 16 ? b.text.slice(0, 15) + '…' : b.text; g.font = '600 12px system-ui'; const tw = g.measureText(t).width + 12;
+  g.fillStyle = '#f4ead2ee'; g.strokeStyle = '#1b150d'; g.lineWidth = 1; g.beginPath(); g.roundRect ? g.roundRect(x - tw / 2, y - 22, tw, 20, 6) : g.rect(x - tw / 2, y - 22, tw, 20); g.fill(); g.stroke();
+  g.fillStyle = '#1b150d'; g.textAlign = 'center'; g.fillText(t, x, y - 8);
+  setTimeout(() => { if (!$('world').hidden) renderWorld(); }, 8100 - (Date.now() - b.at));
+}
 // 日期：共享世界一律換算成世界的日期（戰幫自己的日曆不給玩家看，免得誤會）；單人就是第幾天
 const SEASONS = ['春', '夏', '秋', '冬'];
 function worldDate(T) { const k = C.K(), y0 = +(k.stamp.match(/^(\d+)/)?.[1] || 0), y = y0 - (Math.floor(k.T / 112) - Math.floor(T / 112)), p = ((T % 112) + 112) % 112; return `${y}年${SEASONS[Math.floor(p / 28)]}${Math.floor((p % 28) / 4) + 1}日`; }
@@ -567,6 +591,7 @@ async function doWorld(a, quiet, noSave) {
 }
 function afterWorldAction() {
   const w = G.world;
+  if (NET.on && NET.chatTile !== w.pos) { NET.chatTile = w.pos; NET.chat = NET.chat.filter(m => m.tile === w.pos); }
   renderWorld(); hexInfo(); renderRails(); renderCamp();
   if (w.over) return gameOver();
   if (w.pendingBattle) return startBattle(w.pendingBattle);
@@ -839,8 +864,8 @@ function campInfoPanel(box) {
 
 /* ───────────── 左右側欄 ───────────── */
 const wide = () => matchMedia('(min-width:900px)').matches;
-const RT = [['log', '日誌'], ['heard', '聽說'], ['market', '行情'], ['jobs', '委託'], ['notes', '筆記']];
-let rtab = 'log', rOpen = false, lOpen = false;
+const RT = [['here', '此地'], ['log', '日誌'], ['heard', '聽說'], ['market', '行情'], ['jobs', '委託'], ['notes', '筆記']];
+let rtab = 'here', rOpen = false, lOpen = false;
 function setRail(side, v) {
   if (side === 'l') { lOpen = v; if (v && !wide()) { rOpen = false; $('rrail').classList.remove('open'); } $('lrail').classList.toggle('open', v); }
   else { rOpen = v; if (v && !wide()) { lOpen = false; $('lrail').classList.remove('open'); } $('rrail').classList.toggle('open', v); if (!v) renderTabs(); }
@@ -885,14 +910,15 @@ function renderLeft() {
 }
 function renderTabs() {
   const tabs = $('rtabs'); tabs.innerHTML = '';
-  for (const [k, n] of RT) tabs.append(el('button', {class: (rOpen || wide()) && k === rtab ? 'on' : '', onclick: () => { if (!wide() && rOpen && rtab === k) return setRail('r', false); rtab = k; setRail('r', true); renderRight(); }}, n));
+  for (const [k, n] of RT) tabs.append(el('button', {class: ((rOpen || wide()) && k === rtab ? 'on' : '') + (k === 'here' && NET.unread ? ' unread' : ''), onclick: () => { if (!wide() && rOpen && rtab === k) return setRail('r', false); rtab = k; setRail('r', true); renderRight(); }}, n));
 }
 function renderRight() {
   renderTabs(); if (!G.world) return;
   const box = $('rbody');
-  if (rtab === 'notes' && document.activeElement && box.contains(document.activeElement)) return;   // 正在打字就不要重畫
+  if ((rtab === 'notes' || rtab === 'here') && document.activeElement && box.contains(document.activeElement) && document.activeElement.tagName !== 'BUTTON') return;   // 正在打字就不要重畫
   box.innerHTML = ''; box.append(closeRow('r') || '');
-  ({log: rLog, heard: rHeard, market: rMarket, jobs: rJobs, notes: rNotes})[rtab](box);
+  ({here: rHere, log: rLog, heard: rHeard, market: rMarket, jobs: rJobs, notes: rNotes})[rtab](box);
+  if (rtab === 'here') { NET.unread = 0; }
 }
 // 抄進筆記：帶上時間和地點；記下地名對應的格子，之後在筆記裡點地名就能找到
 function addNote(text, tile, when) {
@@ -905,6 +931,49 @@ function addNote(text, tile, when) {
 let noteT = 0;
 function saveNotes() { clearTimeout(noteT); noteT = setTimeout(() => NET.on ? api('/api/notes', {notes: G.world.notes || ''}).catch(() => {}) : save(false), 600); }
 const pinBtn = (text, tile, when) => el('button', {class: 'pin', title: '抄進筆記', onclick: e => { e.stopPropagation(); addNote(text, tile, when); }}, '＋筆記');
+/* ───────────── 此地：同一格的人、對話、留言 ───────────── */
+function chatLine(m) {
+  const me = m.id === NET.me, f = FACES && m.face != null && FACES.faces[m.face] ? m.face : null;
+  return el('div', {class: 'chat' + (me ? ' me' : '')}, f != null ? faceEl(f, 28) : el('span', {class: 'cdot'}), el('div', {class: 'tx'}, el('span', {class: 'd'}, `${m.from}・${new Date(m.at).toLocaleTimeString('zh-TW', {hour: '2-digit', minute: '2-digit'})}`), m.text));
+}
+function rHere(box) {
+  const w = G.world;
+  if (!NET.on) { box.append(el('p', {class: 'muted'}, '只有共享世界才有別人。')); return; }
+  const others = NET.others.filter(o => o.pos === w.pos && o.id !== NET.me);
+  box.append(el('div', {class: 'rsec', style: 'margin-top:0'}, `${nm(w.pos)}・這一格的人`));
+  if (!others.length) box.append(el('p', {class: 'muted', style: 'font-size:13px;margin:2px 0'}, '這一格現在只有你們。'));
+  for (const o of others) { const f = FACES && o.face != null && FACES.faces[o.face] ? o.face : null; box.append(el('div', {class: 'mate'}, f != null ? faceEl(f, 32) : el('span', {class: 'cdot'}), el('div', {class: 'mn'}, el('div', {}, el('b', {}, o.name), el('span', {class: 'muted'}, ` ${o.size} 人${o.banner != null ? '・' + Wd.facName(o.banner) + '的旗' : ''}`)), el('div', {class: 'muted', style: 'font-size:11px'}, Date.now() - o.seen < 5 * 60e3 ? '在線上' : '不在線上')))); }
+  box.append(el('div', {class: 'rsec'}, '對話（只有此刻在這一格、在線上的人聽得到；講一句花 0.25 行動點，不留紀錄）'));
+  const logEl = el('div', {id: 'hereLog', class: 'chatlog'}); for (const m of NET.chat.filter(m => m.tile === w.pos)) logEl.append(chatLine(m));
+  if (!logEl.childElementCount) logEl.append(el('p', {class: 'muted', style: 'font-size:12px;margin:2px 0'}, '還沒有人說話。'));
+  box.append(logEl);
+  const inp = el('input', {maxlength: 140, placeholder: NET.ws?.readyState === 1 ? '說點什麼…' : '連線中…', class: 'chatin'});
+  const say = () => { const t = inp.value.trim(); if (!t) return; if (NET.ws?.readyState !== 1) return toast('對話還沒連上'); NET.ws.send(JSON.stringify({t: 'say', text: t})); inp.value = ''; inp.focus(); };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) say(); });
+  box.append(el('div', {class: 'crow chatrow'}, inp, el('button', {class: 'primary', onclick: say}, '說')));
+  box.append(el('div', {class: 'rsec'}, '留言（留在這一格三天，之後路過的人看得到；1 行動點）'));
+  const notes = (NET.tnotes || []).filter(n => n.tile === w.pos);
+  if (!notes.length) box.append(el('p', {class: 'muted', style: 'font-size:12px;margin:2px 0'}, '這裡沒有人留下什麼。'));
+  for (const n of notes.slice().reverse()) box.append(chatLine({from: n.by, id: n.pid, face: n.face, at: n.at, text: n.text}));
+  const ninp = el('input', {maxlength: 140, placeholder: '在這裡留一句話…', class: 'chatin'});
+  box.append(el('div', {class: 'crow chatrow'}, ninp, el('button', {onclick: async () => { const t = ninp.value.trim(); if (!t) return; try { const d = await api('/api/tilenote', {text: t}); NET.tnotes = d.tnotes; applyView(d); ninp.value = ''; renderRight(); renderLeft(); } catch (e) { toast(e.message); } }}, '留言')));
+}
+function connectChat() {
+  if (!NET.on || !NET.token || (NET.ws && NET.ws.readyState <= 1)) return;
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/ws?token=${encodeURIComponent(NET.token)}`); NET.ws = ws;
+  ws.onopen = () => { NET.wsTry = 0; if (rtab === 'here') renderRight(); };
+  ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.t === 'err') return toast(m.text, 3000);
+    if (m.t === 'ap') { if (G.world) { G.world.ap = m.ap; NET.apAt = Date.now(); renderStatus(); } return; }
+    if (m.t !== 'chat') return;
+    NET.chat.push(m); if (NET.chat.length > 200) NET.chat.splice(0, NET.chat.length - 200);
+    NET.bubbles[m.id] = {text: m.text, at: Date.now()}; if (!$('world').hidden) renderWorld();
+    const logEl = $('hereLog');
+    if (rtab === 'here' && logEl && (rOpen || wide())) { if (logEl.querySelector('p.muted')) logEl.innerHTML = ''; logEl.append(chatLine(m)); logEl.scrollTop = logEl.scrollHeight; }
+    else if (m.id !== NET.me) { NET.unread = (NET.unread || 0) + 1; renderTabs(); }
+  };
+  ws.onclose = () => { if (!NET.on) return; NET.wsTry = (NET.wsTry || 0) + 1; setTimeout(connectChat, Math.min(30000, 1000 * 2 ** NET.wsTry)); };
+}
 function rLog(box) {
   const w = G.world;
   for (const l of w.log) box.append(el('div', {class: 'entry'}, el('div', {class: 'tx'}, el('span', {class: 'd'}, dayText(l.day)), l.text), pinBtn(l.text, null, dayText(l.day).replace(/ /g, ''))));

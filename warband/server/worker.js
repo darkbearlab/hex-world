@@ -15,7 +15,7 @@ import {MALE_NAMES, FEMALE_NAMES, SURNAMES} from '../public/js/data.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
-const CHUNK = 500000;
+const CHUNK = 500000, CHAT_AP = 0.25, NOTE_AP = 1, NOTE_MS = 3 * 864e5;
 
 async function sha(s) { const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 24); }
 async function gzip(str) { return new Uint8Array(await new Response(new Blob([new TextEncoder().encode(str)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()); }
@@ -45,12 +45,12 @@ export class Realm extends DurableObject {
       } else {
         await st.deleteAll();
         this.meta = {version: this.env.WORLD_VERSION || '1', seq: 0, startedAt: Date.now(), chunks: 0};
-        this.feed = []; this.poiState = {}; this.roster = {}; this.names = {}; this.caches = [];
+        this.feed = []; this.poiState = {}; this.roster = {}; this.names = {}; this.caches = []; this.tnotes = [];
         await st.put('pois', Wd.genPOIs());
         await this.persist(true);
       }
       this.pois = await st.get('pois'); this.poiState = await st.get('poiState') || {}; this.feed = await st.get('feed') || []; this.roster = await st.get('roster') || {};
-      this.caches = await st.get('caches') || [];
+      this.caches = await st.get('caches') || []; this.tnotes = await st.get('tnotes') || [];
       this.names = await st.get('names'); if (!this.names) { this.names = {}; for (const [id, r] of Object.entries(this.roster)) if (!this.names[r.name]) this.names[r.name] = id; }
       this.evLen = C.K().ev.length;
       Wd.MODE.shared = true;
@@ -62,7 +62,7 @@ export class Realm extends DurableObject {
     if (!force && Date.now() - this.lastPersist < 30000) { this.dirty = true; return; }
     const st = this.ctx.storage, z = await gzip(JSON.stringify(C.saveState())), n = Math.ceil(z.length / CHUNK);
     for (let i = 0; i < n; i++) await st.put('simz:' + i, z.slice(i * CHUNK, (i + 1) * CHUNK));
-    this.meta.chunks = n; await st.put('meta', this.meta); await st.put('feed', this.feed.slice(-400)); await st.put('poiState', this.poiState); await st.put('roster', this.roster); await st.put('names', this.names || {}); await st.put('caches', this.caches || []);
+    this.meta.chunks = n; await st.put('meta', this.meta); await st.put('feed', this.feed.slice(-400)); await st.put('poiState', this.poiState); await st.put('roster', this.roster); await st.put('names', this.names || {}); await st.put('caches', this.caches || []); await st.put('tnotes', this.tnotes || []);
     this.lastPersist = Date.now(); this.dirty = false;
   }
   // 沙盒新產生的事件收進共用的事件流（每個玩家的「聽說」從這裡讀）
@@ -178,12 +178,43 @@ export class Realm extends DurableObject {
     await this.savePlayer(t); this.prep(p);
   }
 
+  /* ───── 同一格才聽得到的對話（WebSocket，沒人講話時休眠） ───── */
+  // 講一句花 0.25 行動點；只送給此刻跟你在同一格、在線上的人；不留紀錄
+  async chatSocket(req, url) {
+    if (req.headers.get('Upgrade') !== 'websocket') return bad('要用 WebSocket 連線', 426);
+    const token = url.searchParams.get('token') || ''; if (token.length < 16) return bad('沒有身分', 401);
+    const id = await this.who(token), p = await this.player(id); if (!p) return bad('還沒加入這個世界', 404);
+    const pair = new WebSocketPair(); this.ctx.acceptWebSocket(pair[1]); pair[1].serializeAttachment({pid: id});
+    return new Response(null, {status: 101, webSocket: pair[0]});
+  }
+  async webSocketMessage(ws, raw) {
+    await this.init();
+    let m; try { m = JSON.parse(raw); } catch { return; }
+    const {pid} = ws.deserializeAttachment() || {}; if (!pid) return;
+    const send = o => { try { ws.send(JSON.stringify(o)); } catch {} };
+    if (m.t !== 'say') return;
+    const text = String(m.text || '').replace(/\s+/g, ' ').trim().slice(0, 140); if (!text) return;
+    if (!pid.startsWith('g') && this.env.ALLOW_GUEST_CHAT !== '1') return send({t: 'err', text: '訪客只能聽，用 Google 帳號登入才能說話'});
+    if ((this.meta.muted || []).includes(pid)) return send({t: 'err', text: '你被管理者禁言了'});
+    const p = await this.player(pid); if (!p || p.w.over) return;
+    if (Date.now() - (this.lastSay?.[pid] || 0) < 1500) return send({t: 'err', text: '慢一點說'});
+    this.regen(p); if ((p.w.ap ?? 0) < CHAT_AP) return send({t: 'err', text: '行動點不夠，說不了話'});
+    p.w.ap -= CHAT_AP; (this.lastSay ||= {})[pid] = Date.now(); this.prep(p); await this.savePlayer(p);
+    const tile = p.w.pos, h = p.w.party.find(x => x.hero), msg = {t: 'chat', from: p.name, id: pid.slice(0, 6), face: h?.face ?? null, g: h?.g || 'm', text, at: Date.now(), tile};
+    for (const sock of this.ctx.getWebSockets()) { const a = sock.deserializeAttachment(); if (a?.pid && this.roster[a.pid]?.pos === tile) { try { sock.send(JSON.stringify(msg)); } catch {} } }
+    send({t: 'ap', ap: p.w.ap});
+  }
+  async webSocketClose(ws) { try { ws.close(); } catch {} }
+  async webSocketError() {}
+
   async fetch(req) {
     await this.init();
     const url = new URL(req.url), path = url.pathname;
+    if (path === '/api/ws') return this.chatSocket(req, url);
     if (path === '/api/world') {
       const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && Date.now() - r.seen < 7 * 864e5).map(([id, r]) => ({id: id.slice(0, 6), ...r}));
-      return json({caches: this.caches, clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
+      this.tnotes = (this.tnotes || []).filter(n => Date.now() - n.at < NOTE_MS);
+      return json({tnotes: this.tnotes, caches: this.caches, clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
     }
     if (path === '/api/name') {   // 名字：檢查有沒有人用、或抽一個沒人用過的
       const taken = async n => { const o = this.names[n]; if (!o) return false; const pl = await this.player(o); return !!(pl && !pl.w.over); };
@@ -212,10 +243,11 @@ export class Realm extends DurableObject {
     if (path.startsWith('/api/admin/')) {
       if (!(await this.isAdmin(id))) return bad('你不是管理者', 403);
       if (path === '/api/admin/status') {
-        const list = await Promise.all(Object.entries(this.roster).map(async ([pid, r]) => ({id: pid.slice(0, 6), name: r.name, size: r.size, fame: r.fame, over: r.over, seen: r.seen, google: pid.startsWith('g')})));
+        const list = await Promise.all(Object.entries(this.roster).map(async ([pid, r]) => ({id: pid.slice(0, 6), name: r.name, size: r.size, fame: r.fame, over: r.over, seen: r.seen, google: pid.startsWith('g'), muted: (this.meta.muted || []).includes(pid)})));
         return json({T: C.K().T, stamp: C.K().stamp, version: this.meta.version, startedAt: this.meta.startedAt, paused: !!this.meta.paused || this.env.PAUSED === '1', tickMs: this.tickMs(), players: list.sort((a, b) => b.seen - a.seen)});
       }
       if (path === '/api/admin/pause') { this.meta.paused = !!body.on; await this.persist(true); return json({paused: this.meta.paused}); }
+      if (path === '/api/admin/mute') { const t = await this.findPlayer(String(body.id || '')); if (!t) return bad('找不到'); const m = new Set(this.meta.muted || []); body.on === false ? m.delete(t.id) : m.add(t.id); this.meta.muted = [...m]; await this.persist(true); return json({ok: true, muted: m.has(t.id)}); }
       if (path === '/api/admin/kick') { const t = await this.findPlayer(String(body.id || '')); if (!t) return bad('找不到'); await this.dropPlayer(t.id); return json({ok: true}); }
       if (path === '/api/admin/reset') { if (body.confirm !== '重開') return bad('要輸入「重開」才會執行'); await this.resetWorld(); return json({ok: true, T: C.K().T}); }
       return bad('找不到這個 API', 404);
@@ -267,6 +299,17 @@ export class Realm extends DurableObject {
     }
     if (path === '/api/dev/age' && this.env.DEV === '1') { p.w.ap = Wd.AP_MAX; p.apAt = Date.now() - (+body.hours || 48) * this.apMs(); this.regen(p); await this.savePlayer(p); return json(this.view(p)); }
     if (path === '/api/dev/tp' && this.env.DEV === '1') { p.w.pos = +body.pos; p.w.camp = null; Wd.reveal(p.w, p.w.pos, 2); await this.savePlayer(p); return json(this.view(p)); }
+    if (path === '/api/tilenote') {   // 在這一格留一句話：保留三天，之後路過的人看得到
+      const text = String(body.text || '').replace(/\s+/g, ' ').trim().slice(0, 140); if (!text) return bad('寫點什麼吧');
+      if (!id.startsWith('g') && this.env.ALLOW_GUEST_CHAT !== '1') return bad('訪客不能留言，用 Google 帳號登入才行');
+      if ((this.meta.muted || []).includes(id)) return bad('你被管理者禁言了');
+      if ((p.w.ap ?? 0) < NOTE_AP) return bad('行動點不夠');
+      p.w.ap -= NOTE_AP; const h = p.w.party.find(x => x.hero);
+      this.tnotes = (this.tnotes || []).filter(n => Date.now() - n.at < NOTE_MS);
+      this.tnotes.push({id: 'n' + Date.now().toString(36), tile: p.w.pos, text, by: p.name, pid: id.slice(0, 6), face: h?.face ?? null, at: Date.now()});
+      const here = this.tnotes.filter(n => n.tile === p.w.pos); if (here.length > 12) this.tnotes = this.tnotes.filter(n => n !== here[0]);
+      await this.savePlayer(p); await this.persist(false); return json({ok: true, tnotes: this.tnotes, ...this.view(p)});
+    }
     if (path === '/api/notes') { p.notes = String(body.notes || '').slice(0, 20000); await this.savePlayer(p); return json({ok: true}); }
     return bad('找不到這個 API', 404);
   }
