@@ -73,7 +73,8 @@
 - 路上的人（`caravanDeal`、`cartDeal`、`patrolHire`；動作 `trade`、`ask`、`hirePatrol`、`attackPatrol`，各一小時）：商隊只賣車上那種貨，價格在出發地與目的地行情之間依進度內插，剛出發貨多會打折、收貨價一定低於賣價且越接近目的地越低，受商隊載量（初始量 ×1.3）限制；買賣直接增減沙盒商隊的貨，共享世界畫面用 `mirrorTrade` 在鏡像上照做。運貨車照目的地價九五折賣收成與口糧。被通緝、掛交戰國旗會被拒；人比護衛多會加價，多太多直接拒絕；名聲打折。巡邏隊同行 `w.guard`：一兵一天 6 金幣＋5，12／24／48 小時，戰幫時間或世界時間先到就走，出國境或被通緝也走；期間埋伏機率 ×0.25、狼 ×0.5、山寨派人 ×0.3，戰鬥時以友軍上場（`battleParty` 帶上，不吃糧、陣亡不算同伴）。
 - 單挑（`duel`）：盜匪隊伍或山寨頭目，只有主角上場（`battleParty(w, setup)` 看 `setup.duel`）。接受機率 `duelOdds`（聲望、戰力比）；被拒的盜匪直接圍上來。主角倒下＝認輸（hp 1），照 `tollOf` 交過路費。打倒的頭目綁成 `w.bound`，`handOver` 在城裡換賞金（剿匪委託已完成就加五成），每天 4% 逃掉。
 - 人情（`w.favor`，以市集格為一區 `regionOf`）：`addFavor`／`spendFavor`／`favorAt`（每天 ×0.97）。用途 `FAVOR`：`lodge` 借宿（`w.lodged`，離線時 `idle` 視同住店、不吃糧、不被夜襲）、`askLocal` 打聽山寨、`hide` 躲巡邏隊、`favorRansom` 贖人。村子請託 `villagePleas`（每村一週一批：狼害、惡霸 `thugs`、尋人 `missing`），回村 `thankPlea`。
-- 主角不會死（`heroDowned`）：盜匪、官兵把人抓走成 `w.captive`，拿走八成的錢、所有貨、一件裝備；被抓時只能 `payRansom`、`favorRansom`、`escape`（12 小時）、`waitCaptive`（24 小時），期滿自動放人（`CAPTIVE_DAYS`）。野獸、玩家對戰只丟貨。
+- 主角被打倒（`heroDowned`）：官兵一定抓；盜匪看 `worthOf` 留活口，否則死；野獸看同伴忠誠拖回來，否則死；單挑認輸不死。被抓成 `w.captive`，拿走八成的錢、所有貨、一件裝備；被抓時只能 `payRansom`、`favorRansom`、`escape`（12 小時）、`waitCaptive`（24 小時），期滿自動放人（`CAPTIVE_DAYS`）。野獸、玩家對戰只丟貨。
+- 羅賓漢：`give` 接濟村子換人情（`giftFavor`、`foodNeed`），貨真的進市集；借宿＝藏身（`hidden`、`hideCharge` 照世界時間付遞增的人情），名單 `hidden` 的人不出現在 `/api/world`，也不能被襲擊。
 - 通緝要有人報信：劫車隊或打巡邏兵，打贏但有敵人逃走、或自己撤退，才記通緝；全殲沒人知道。
 
 ## 紮營與防守

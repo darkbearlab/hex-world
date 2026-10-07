@@ -127,7 +127,7 @@ export class Realm extends DurableObject {
       if (r.hours >= 6) { const a = p.away || {hours: 0, food: 0, gold: 0, raids: []}; a.hours += r.hours; a.food += r.food; a.gold += r.gold; a.raids.push(...r.raids); p.away = a; }
       if (r.raids.some(t => !/擊退/.test(t))) w.shieldT = C.K().T + Wd.SHIELD_T;
     }
-    if (!w.over) Wd.syncClock(w, this.worldHours());
+    if (!w.over) { Wd.syncClock(w, this.worldHours()); Wd.hideCharge(w); }
   }
   prep(p) { const w = p.w; w.poiShared = this.poiState; w.pois = this.pois; w.caches = this.caches; Wd.MODE.worldT = C.K().T; Wd.MODE.bandName = `${p.name}的戰幫`; }
   async savePlayer(p) {
@@ -136,7 +136,7 @@ export class Realm extends DurableObject {
     const ci = Wd.campInfo(w), town = C.K().markets[w.pos] && C.K().owner[w.pos] >= 0;
     this.roster[p.id] = {name: p.name, pos: w.pos, size: w.party.length, fame: +(w.fame || 0).toFixed(1), over: !!w.over, seen: Date.now(),
       banner: w.banner ?? null, face: w.party.find(m => m.hero)?.face ?? null, g: w.party.find(m => m.hero)?.g || 'm', wantedMax: Math.max(0, ...Object.values(w.wanted || {})), shieldT: w.shieldT || 0, town: !!town, busy: !!p.battle,
-      camp: ci ? {stake: ci.stake, watch: ci.watch, fire: ci.fire, ready: ci.ready} : null, power: Math.round(Wd.partyPower(w.party))};
+      hidden: Wd.hidden(w), camp: ci ? {stake: ci.stake, watch: ci.watch, fire: ci.fire, ready: ci.ready} : null, power: Math.round(Wd.partyPower(w.party))};
   }
   view(p) { const w = p.w, away = p.away; p.away = null; return {away, me: p.id.slice(0, 6), caches: this.caches, w: {...w, pois: undefined, poiShared: undefined, caches: undefined}, battle: p.battle ? {setup: p.battle.setup, party: p.battle.party, order: p.battle.order} : null, apMs: this.apMs(), T: C.K().T, name: p.name, notes: p.notes || '', pois: this.pois, poiState: this.poiState}; }
 
@@ -147,6 +147,7 @@ export class Realm extends DurableObject {
     if (!t || t.id === p.id) return bad('找不到這支戰幫');
     if (t.w.over) return bad('他們已經散了');
     if (t.w.captive) return bad('他們的首領被關著，現在動手太難看了');
+    if (Wd.hidden(t.w)) return bad('村民都說沒見過這些人');
     if (t.w.pos !== w.pos) return bad('他們不在這一格');
     if (k.markets[w.pos] && k.owner[w.pos] >= 0) return bad('城裡不能動手');
     if (t.battle) return bad('他們正在跟別人交戰');
@@ -214,7 +215,7 @@ export class Realm extends DurableObject {
     const url = new URL(req.url), path = url.pathname;
     if (path === '/api/ws') return this.chatSocket(req, url);
     if (path === '/api/world') {
-      const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && Date.now() - r.seen < 7 * 864e5).map(([id, r]) => ({id: id.slice(0, 6), ...r}));
+      const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && !r.hidden && Date.now() - r.seen < 7 * 864e5).map(([id, r]) => ({id: id.slice(0, 6), ...r}));
       this.tnotes = (this.tnotes || []).filter(n => Date.now() - n.at < NOTE_MS);
       return json({tnotes: this.tnotes, caches: this.caches, clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), players: others.length, others, poiState: this.poiState, version: this.meta.version});
     }
