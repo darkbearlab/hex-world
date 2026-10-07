@@ -40,6 +40,13 @@ let G = {world: null, battle: null};
 
 /* ───────────── 小工具 ───────────── */
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+// 交易成功的小卡片：買賣、存取、下單這類動作做完跳出來確認；點一下或過幾秒自己收起
+function receipt(title, lines) {
+  const r = $('receipt'), w = G.world; r.innerHTML = '';
+  r.append(el('div', {class: 'rh'}, `✓ ${title}`), ...lines.map(l => el('p', {}, l)), el('div', {class: 'rs'}, `身上 ${w.gold} 金幣・載重 ${+Wd.load(w).toFixed(1)}/${Wd.capacity(w)} 包・點一下關閉`));
+  r.hidden = false; r.onclick = () => { r.hidden = true; }; clearTimeout(receipt.t); receipt.t = setTimeout(() => { r.hidden = true; }, 3500);
+}
+const RECEIPT = {buy: '買進', sell: '賣出', buyItem: '買下', sellItem: '賣掉', trade: '交易完成', buyFood: '買了口糧', buyMule: '買了騾子', sellMule: '賣了騾子', buyHorse: '買了馬', sellHorse: '賣了馬', storePut: '存進倉庫', storeTake: '從倉庫拿出', order: '下單了', give: '接濟', handOver: '交給官府', claim: '領賞', thankPlea: '交差', hire: '雇用', payRansom: '付了贖金'};
 function toast(text, ms = 2200) { const t = $('toast'); t.textContent = text; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), ms); }
 async function banner(text, ms = 700) { const b = $('banner'); b.textContent = text; b.classList.add('show'); await sleep(ms); b.classList.remove('show'); await sleep(150); }
 // 戰幫的狀態直接存；沙盒狀態（大地圖約 2–3 MB）用 gzip 壓縮後存成 base64
@@ -625,16 +632,18 @@ async function doWorld(a, quiet, noSave) {
   if (NET.on) {
     if (NET.busy) return null; NET.busy = true;
     try {
-      const d = await api('/api/act', {action: a}); applyView(d);
+      const head = G.world?.log?.[0]; const d = await api('/api/act', {action: a}); applyView(d);
       if (d.error) { toast(d.error); return null; }
+      if (RECEIPT[a.type]) { const fresh = []; for (const l of G.world.log || []) { if (head && l.text === head.text && l.day === head.day) break; fresh.push(l.text); if (fresh.length >= 4) break; } receipt(RECEIPT[a.type], fresh.length ? fresh.reverse() : d.out.lines); }
       if (d.mk && C.K().markets[G.world.pos]) C.K().markets[G.world.pos] = d.mk;
       for (const l of d.out.lines) toast(l, 2600);
       if (!quiet) afterWorldAction();
       return d.out;
     } catch (e) { toast(e.message); return null; } finally { NET.busy = false; }
   }
-  let out;
+  let out; const head = G.world?.log?.[0];
   try { out = Wd.worldAct(G.world, a); } catch (e) { toast(e.message); return null; }
+  if (RECEIPT[a.type]) { const fresh = []; for (const l of G.world.log || []) { if (l === head) break; fresh.push(l.text); if (fresh.length >= 4) break; } receipt(RECEIPT[a.type], fresh.length ? fresh.reverse() : out.lines); }
   if (!noSave) save(); for (const l of out.lines) toast(l, 2600);
   if (!quiet) afterWorldAction();
   return out;
