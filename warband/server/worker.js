@@ -149,6 +149,7 @@ export class Realm extends DurableObject {
     if (t.w.pos !== w.pos) return bad('他們不在這一格');
     if (k.markets[w.pos] && k.owner[w.pos] >= 0) return bad('城裡不能動手');
     if (t.battle) return bad('他們正在跟別人交戰');
+    if (w.guard) return bad(`${w.guard.name}跟著你們，不會讓你們對別的戰幫動手`);
     if ((t.w.shieldT || 0) > k.T) return bad('他們剛被洗劫過，元氣未復——現在動手太難看了');
     const need = Wd.apCost(w, a); if ((w.ap ?? 0) < need) return bad(`行動點不夠：要 ${need}`);
     this.regen(t); this.prep(t);

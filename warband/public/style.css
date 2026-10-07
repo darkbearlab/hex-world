@@ -227,3 +227,18 @@ html,body{overflow:hidden;overscroll-behavior:none}
 .chatrow button{flex:none;min-height:38px}
 #rtabs button.unread::after{content:'';position:absolute;width:8px;height:8px;border-radius:50%;background:var(--enemy);margin:-4px 0 0 2px}
 #rtabs button{position:relative}
+
+/* 此地：中間按鈕往上疊開的選項 */
+#btnCamp{position:relative}
+#btnCamp[data-n]:not([data-n=""])::after{content:attr(data-n);position:absolute;top:-4px;right:-4px;min-width:20px;height:20px;border-radius:10px;background:#f0c27a;color:#1b150d;font:700 12px/20px system-ui;text-align:center;padding:0 4px;box-sizing:border-box}
+#hubStack{position:absolute;left:50%;bottom:calc(92px + env(safe-area-inset-bottom));transform:translateX(-50%);display:none;flex-direction:column;gap:8px;z-index:4;width:min(320px,calc(100% - 32px));max-height:calc(100% - 120px);overflow-y:auto}
+#hubStack.open{display:flex;animation:hubUp .16s ease-out}
+@keyframes hubUp{from{opacity:0;transform:translate(-50%,12px)}to{opacity:1;transform:translateX(-50%)}}
+#hubStack .hsec{background:#1b150dee;border:1px solid var(--line,#4a3d2e);border-radius:12px;padding:6px;display:flex;flex-direction:column;gap:4px;box-shadow:0 4px 14px #000a}
+#hubStack .hlab{font-size:12px;color:var(--muted,#a8997d);padding:2px 6px}
+#hubStack button{display:flex;align-items:center;gap:8px;text-align:left;justify-content:flex-start;width:100%;min-height:40px}
+#hubStack .hi{width:24px;text-align:center;font-size:18px;flex:none}
+#hubStack .face{flex:none}
+.trow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 0;border-bottom:1px solid var(--line,#4a3d2e)}
+.trow>span:not(.qb){flex:1;min-width:140px;font-size:13px;color:var(--muted,#a8997d)}
+.trow .qb{display:flex;gap:4px}
