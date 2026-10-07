@@ -181,7 +181,7 @@ h3{font-size:16px;margin:6px 0 2px}
 @media (max-width:899px){#mapWrap .floating{right:40px}}
 .acct{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}.acct p{margin:0;font-size:13px;text-align:center}.acct a{color:var(--gold);cursor:pointer}
 /* 頭像與建立角色 */
-.face{flex:none;border-radius:10px;background-color:#1b150d;background-repeat:no-repeat;image-rendering:auto}
+.face{flex:none;border-radius:10px;background-color:#1b150d;background-repeat:no-repeat;image-rendering:pixelated}
 .mate .face{border-radius:50%}.rtoggle .face{border-radius:50%}
 .create .crow{display:flex;gap:8px;align-items:center;margin:6px 0}
 .create .clab{width:40px;color:var(--muted);font-size:14px;flex:none}
@@ -201,7 +201,7 @@ html,body{overflow:hidden;overscroll-behavior:none}
 /* 左上的主角小卡：名字一行、錢和糧分兩行 */
 .rtoggle{min-width:160px;max-width:min(72vw,270px)}
 .rtoggle>div:not(.face){min-width:0;flex:1}
-.rtoggle .face{flex:none;width:38px!important;height:38px!important}
+.rtoggle .face{flex:none;width:34px!important;height:34px!important}
 .rtoggle b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rtoggle .meter{width:100%!important}
 .rtoggle .l2{display:block;white-space:nowrap}

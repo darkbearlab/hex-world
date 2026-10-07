@@ -77,7 +77,7 @@ function sprite(ctx, ref, x, y, size, {flip = false, alpha = 1, gray = false} = 
 }
 // 頭像庫：一張大圖（art/faces.webp）＋清單（art/faces.json：每張的性別、年紀、描述）
 let FACES = null; const FACEIMG = new Image();
-async function loadFaces() { try { FACES = await (await fetch('art/faces.json')).json(); await new Promise(ok => { FACEIMG.onload = ok; FACEIMG.onerror = ok; FACEIMG.src = 'art/faces.webp'; }); } catch { FACES = null; } }
+async function loadFaces() { try { FACES = await (await fetch('art/faces.json')).json(); await new Promise(ok => { FACEIMG.onload = ok; FACEIMG.onerror = ok; FACEIMG.src = 'art/faces.webp?v=' + FACES.size; }); } catch { FACES = null; } }
 const strHash = s => { let h = 2166136261; for (const c of String(s)) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; };
 const faceList = g => FACES ? FACES.faces.filter(f => f.g === g) : [];
 // 戰場上的人：有臉譜的畫臉譜，沒有的畫人物圖（看身上的套裝）；手上的武器、盾牌用小圖示壓在角落
@@ -99,7 +99,7 @@ function faceOf(m) {
 }
 function faceEl(i, size) {
   const d = document.createElement('div'), c = FACES.cols; d.className = 'face';
-  Object.assign(d.style, {width: size + 'px', height: size + 'px', backgroundImage: 'url(art/faces.webp)', backgroundSize: `${c * size}px auto`, backgroundPosition: `${-(i % c) * size}px ${-Math.floor(i / c) * size}px`});
+  Object.assign(d.style, {width: size + 'px', height: size + 'px', backgroundImage: `url(art/faces.webp?v=${FACES.size})`, backgroundSize: `${c * size}px auto`, backgroundPosition: `${-(i % c) * size}px ${-Math.floor(i / c) * size}px`});
   return d;
 }
 // 人物的頭像：有頭像就用頭像，沒有（野獸、舊存檔）就用小人圖
@@ -107,7 +107,7 @@ const portrait = (m, size = 56) => { const f = faceOf(m); return f != null ? fac
 function drawFace(g, i, x, y, r, ring) {
   const S = FACES.size, c = FACES.cols;
   g.save(); g.beginPath(); g.arc(x, y, r, 0, 7); g.closePath(); g.fillStyle = '#1b150d'; g.fill(); g.clip();
-  g.drawImage(FACEIMG, (i % c) * S, Math.floor(i / c) * S, S, S, x - r, y - r, r * 2, r * 2); g.restore();
+  g.imageSmoothingEnabled = false; g.drawImage(FACEIMG, (i % c) * S, Math.floor(i / c) * S, S, S, x - r, y - r, r * 2, r * 2); g.restore();
   g.strokeStyle = ring; g.lineWidth = Math.max(2, r * 0.14); g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke();
 }
 function avatar(ref, size = 56, flip = false) { const c = document.createElement('canvas'); c.width = c.height = 64; sprite(c.getContext('2d'), ref, 0, 0, 64, {flip}); c.style.width = c.style.height = size + 'px'; return c; }
