@@ -76,6 +76,7 @@
 - 主角被打倒（`heroDowned`）：官兵一定抓；盜匪看 `worthOf` 留活口，否則死；野獸看同伴忠誠拖回來，否則死；單挑認輸不死。被抓成 `w.captive`，拿走八成的錢、所有貨、一件裝備；被抓時只能 `payRansom`、`favorRansom`、`escape`（12 小時）、`waitCaptive`（24 小時），期滿自動放人（`CAPTIVE_DAYS`）。野獸、玩家對戰只丟貨。
 - 羅賓漢：`give` 接濟村子換人情（`giftFavor`、`foodNeed`），貨真的進市集；借宿＝藏身（`hidden`、`hideCharge` 照世界時間付遞增的人情），名單 `hidden` 的人不出現在 `/api/world`，也不能被襲擊。
 - 躲藏（`concealment`：village／den／forest／deep）：`hidden` 給名單、巡邏隊、盜匪用；`expose` 打劫單挑後半天藏不住；`hideIn` 躲進 `HIDE_POI`，`denRisk` 每六小時可能出事；伺服器 `seek` 在 `searchTile`／`explore` 時依 `findOdds` 找出同格躲著的戰幫，設 `exposedH`。
+- 裝備（data.js `ITEMS`、`weaponOf`、`gearAdd`、`armorSprite`；world.js `kitOf`、`fixGear`、`smithStock`、`itemPrice`、`battleLoot`）：`toUnit` 把裝備加成算進數值並記在 `u.gearAdd`，`applyBattle` 扣回。動作 `equip`、`unequip`、`dropItem`、`buyItem`、`sellItem`、`upgradeItem`。貨堆可以有 `items`。
 - 通緝要有人報信：劫車隊或打巡邏兵，打贏但有敵人逃走、或自己撤退，才記通緝；全殲沒人知道。
 
 ## 紮營與防守

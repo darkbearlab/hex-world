@@ -1,7 +1,8 @@
 // 奇幻戰幫：世界層——走在大陸沙盒上
 // 地圖、城鎮、村莊、盜匪山寨、商路、價格都來自大陸沙盒（cont.js）；這一層只管戰幫自己的人、錢、糧、貨、委託與遭遇。
 // 純規則；行動入口是 worldAct(w, action)，回傳訊息與（若有）要開打的戰鬥。
-import {CLASSES, RECRUIT_CLASSES, TRAIT_KEYS, NAMES, SURNAMES, FEMALE_NAMES, rngNext, rngInt, rngPick, hashSeed} from './data.js';
+import {CLASSES, RECRUIT_CLASSES, TRAIT_KEYS, NAMES, SURNAMES, FEMALE_NAMES, rngNext, rngInt, rngPick, hashSeed, ITEMS, itemName, itemWeight, gearAdd, weaponOf, TIER_NAME, SLOT_NAME, WTYPE_NAME} from './data.js';
+export {ITEMS, itemName, itemWeight, weaponOf, gearAdd, SLOT_NAME, WTYPE_NAME};
 import * as C from './cont.js';
 
 export const {W, H, N, NBR, BIOMES, GOODS, hdist} = C;
@@ -54,7 +55,48 @@ export function makeMember(w, cls, lvl, opts = {}) {
   for (let l = 1; l < lvl; l++) { m.lvl++; for (const s of ['hp', 'str', 'skl', 'spd', 'def']) if (rngNext(w) * 100 < g[s]) { if (s === 'hp') { m.max++; m.hp++; } else m[s]++; } }
   if (!m.name) { const human = RECRUIT_CLASSES.includes(cls) || cls === 'knight'; for (let t = 0; t < 6 && (!m.name || (w.party || []).some(x => x.name === m.name)); t++) m.name = human ? `${rngPick(w, NAMES)}・${rngPick(w, SURNAMES)}` : c.name; }
   if (!c.beast && !m.g) { m.g = genderOf(m.name); m.fs = rngInt(w, 1e6); }   // 性別與頭像種子（畫面依性別從頭像庫挑一張）
+  if (!c.beast && !m.eq) { const t = lvl >= 5 && rngNext(w) < 0.3 ? 1 : 0; m.eq = kitOf(w, cls, t); }
   return m;
+}
+/* ───────────── 裝備：武器、套裝、盾牌、飾品四格；行囊 w.pack 放備用的 ───────────── */
+export const newItem = (w, b, t = 0) => ({id: 'i' + w.nextId++, b, t});
+export function kitOf(w, cls, t = 0) { const k = CLASSES[cls]?.kit || {}, eq = {w: null, a: null, s: null, t: null}; for (const s of ['w', 'a', 's']) if (k[s]) eq[s] = newItem(w, k[s], s === 'w' ? t : 0); return eq; }
+// 舊存檔：職業武器＋武器等級（gw）、護甲等級（ga）換成真的物品。ga 本來就是另外加的防禦，換成同等的盔甲；
+// 沒有 ga 的照職業配一套，並把那套的防禦、速度從人身上扣回來（新的職業基礎值已經扣掉了）
+export function fixGear(w) {
+  w.pack ||= [];
+  for (const m of [...(w.party || []), ...(w.guard?.men || [])]) {
+    if (m.eq || CLASSES[m.cls]?.beast) continue;
+    m.eq = kitOf(w, m.cls, m.gw || 0);
+    if (m.ga) { m.eq.a = newItem(w, [null, 'leather', 'mail', 'plate'][m.ga] || 'plate'); m.spd -= ITEMS[m.eq.a.b].spd || 0; if (m.eq.s) { const S = ITEMS[m.eq.s.b]; m.def = Math.max(0, m.def - S.def); m.spd -= S.spd || 0; } }
+    else { const g = gearAdd(m); m.def = Math.max(0, m.def - g.def); m.spd -= g.spd; }
+    delete m.gw; delete m.ga;
+  }
+}
+export const packWeight = w => (w.pack || []).reduce((s, it) => s + itemWeight(it), 0);
+export const itemPrice = (w, i, it) => { const I = ITEMS[it.b], metal = !I.soft && !I.wood && I.k !== 't'; return Math.round(I.v * (1 + 0.8 * (it.t || 0)) * (metal && K().markets[i] ? 0.5 + 0.5 * ironMul(i) : 1)); };
+export const sellPrice = (w, i, it) => Math.max(1, Math.round(itemPrice(w, i, it) * 0.4));
+// 鐵匠鋪的貨：每座城每週換一批；大城、鐵便宜的地方有好貨
+export function smithStock(w, t) {
+  const k = K(), m = k.markets[t]; if (!m) return [];
+  const seed = {rng: hashSeed(w.seed, 'smith', t, Math.floor(w.day / 7))}, out = [], big = m.pop > 3;
+  for (const b of Object.keys(ITEMS)) { const I = ITEMS[b]; if (I.rare) continue; out.push({b, t: 0}); if (I.k !== 'a' || !I.soft) { if (rngNext(seed) < 0.5) out.push({b, t: 1}); if (big && rngNext(seed) < 0.2) out.push({b, t: 2}); } }
+  if (rngNext(seed) < 0.3) out.push({b: rngPick(seed, ['charm', 'coin', 'badge']), t: 0});
+  return out.filter(x => !(w.smithSold || {})[`${t}:${Math.floor(w.day / 7)}:${x.b}:${x.t}`]);
+}
+const slotOf = it => ITEMS[it.b].k;
+// 戰利品：倒下的敵人身上的東西有機會掉下來；扛得動的收進行囊，扛不動的留在地上
+function battleLoot(w, bst, foes, out) {
+  w.pack ||= [];
+  const byId = new Map(foes.map(f => [f.id, f])), got = [], left = [];
+  for (const u of bst.units) {
+    if (u.side !== 'enemy' || u.alive || u.fled) continue; const f = byId.get(u.id); if (!f?.eq || rngNext(w) > 0.35) continue;
+    const opts = ['w', 'w', 'w', 'a', 's'].map(s => f.eq[s]).filter(Boolean); if (!opts.length) continue;
+    const it = {...rngPick(w, opts), id: 'i' + w.nextId++};
+    if (capacity(w) - load(w) >= itemWeight(it)) { w.pack.push(it); got.push(itemName(it)); } else left.push(it);
+  }
+  if (got.length) out.lines.push(`從倒下的敵人身上撿了${got.join('、')}。`);
+  if (left.length) { addCache(w, w.pos, {}, '戰場上留下的', left); out.lines.push(`扛不動的${left.map(itemName).join('、')}留在地上。`); }
 }
 export const genderOf = name => FEMALE_NAMES.includes(String(name).split('・')[0]) ? 'f' : 'm';
 // 主角的出身：只影響開局（職業、錢、同伴、名聲……）和角色身上的標籤
@@ -150,7 +192,7 @@ export function townState(w, i) {
 }
 
 /* ───────────── 市集與貨物 ───────────── */
-export const load = w => TRADE.reduce((s, g) => s + (w.cargo[g] || 0), 0);
+export const load = w => TRADE.reduce((s, g) => s + (w.cargo[g] || 0), 0) + (w.pack || []).reduce((s, it) => s + itemWeight(it), 0);
 export const capacity = w => w.party.length * CARRY_MAN + w.mules * MULE_CAP;
 export const cargoValue = w => TRADE.reduce((s, g) => s + (w.cargo[g] || 0) * unitValue(g), 0);
 const seasonId = (k = K()) => Math.floor(k.T / SEASON_T);
@@ -248,11 +290,12 @@ export function newWorld(seed, heroName, opt = {}) {
   h.loyalty = 100; h.wage = 0; h.deeds = {battles: 0, kills: 0, joinedDay: 1}; h.sprite = O.cls === 'knight' ? ['people', 'knight'] : CLASSES[O.cls].sprites[0];
   h.max += 3; h.hp = h.max; h.str++; h.def++;   // 主角比同職業的傭兵強一點
   h.origin = okey; h.tags = [O.n]; h.g = opt.g === 'f' ? 'f' : 'm'; if (Number.isInteger(opt.face) && opt.face >= 0) h.face = opt.face;
-  if (O.trait) h.traits = [O.trait]; if (O.ga) h.ga = O.ga;
+  if (O.trait) h.traits = [O.trait];
   w.party.push(h);
   for (const cls of O.mates) { const m = makeRecruit(w, cls, 1); if (O.loyal) m.loyalty = Math.min(100, m.loyalty + O.loyal); w.party.push(m); }
   w.gold = O.gold; if (O.horses) w.horses = O.horses; if (O.mules) w.mules = O.mules; if (O.food) w.food = O.food; if (O.fame) w.fame = O.fame;
   w.nextWage = 8;
+  w.pack = [];
   w.pois = genPOIs();
   reveal(w, w.pos, O.reveal || 3);
   if (O.intel) Object.keys(k.markets).map(Number).filter(i => i !== w.pos && k.owner[i] >= 0).sort((a, b) => hdist(a, w.pos) - hdist(b, w.pos)).slice(0, O.intel).forEach(i => noteIntel(w, i, 'rumor'));
@@ -399,7 +442,7 @@ function grantLoot(w, L, out) {
   if (L.gold) w.gold += L.gold;
   let room = capacity(w) - load(w);
   for (const [g, q0] of Object.entries(L.cargo || {})) { const q = Math.min(room, q0); if (q > 0) { w.cargo[g] = (w.cargo[g] || 0) + q; room -= q; } }
-  if (L.gear) { const m = w.party.filter(m => (m.gw || 0) < 2).sort((a, b) => (a.gw || 0) - (b.gw || 0))[0]; if (m) { m.gw = (m.gw || 0) + 1; out.lines.push(`${m.name}換上了撿到的${GEAR_NAME.w[m.gw]}。`); } }
+  if (L.gear) { const it = newItem(w, rngPick(w, rngNext(w) < 0.3 ? ['charm', 'coin', 'badge'] : ['longsword', 'pike', 'greataxe', 'longbow', 'mail', 'kite']), 1); w.pack.push(it); out.lines.push(`找到了一件${itemName(it)}，收進行囊。`); }
   if (L.reveal) reveal(w, w.pos, L.reveal);
   if (L.heal) for (const m of w.party) m.hp = m.max;
   if (L.loyalty) for (const m of companions(w)) m.loyalty = Math.min(100, m.loyalty + L.loyalty);
@@ -755,7 +798,7 @@ export function villagePleas(w, v) {
 }
 /* ───────────── 主角被打倒：大多是死，值得留活口才會被俘 ───────────── */
 // 留活口的機會：聲望越高、看起來越有錢（馬、好裝備），越可能被綁去要贖金
-export function worthOf(w) { const h = w.party.find(m => m.hero) || {}; return Math.min(0.7, 0.2 + (w.fame || 0) * 0.03 + ((w.horses || 0) > 0 ? 0.05 : 0) + ((h.gw || 0) + (h.ga || 0)) * 0.03); }
+export function worthOf(w) { const h = w.party.find(m => m.hero) || {}; return Math.min(0.7, 0.2 + (w.fame || 0) * 0.03 + ((w.horses || 0) > 0 ? 0.05 : 0) + Object.values(h.eq || {}).filter(Boolean).reduce((s, it) => s + (it.t || 0) + (ITEMS[it.b].v >= 70 ? 1 : 0), 0) * 0.03); }
 export const CAPTIVE_DAYS = {bandit: 7, soldier: 4};
 function heroDowned(w, setup, out) {
   const k = K(), S = setup.source, h = w.party.find(m => m.hero), b = S.kind === 'band' && w.bands.find(x => x.id === S.ref);
@@ -778,7 +821,8 @@ function heroDowned(w, setup, out) {
   const by = soldier && fac >= 0 ? `${facName(fac)}的官兵` : setup.title.replace(/^與|單挑$/g, '');
   const took = Math.round(w.gold * 0.8); w.gold -= took;
   if (load(w) > 0) loseCargo(w, 1, '', null);
-  let gear = ''; if (h.ga > 0) { h.ga--; gear = '護甲'; } else if (h.gw > 0) { h.gw--; gear = '兵器'; }
+  let gear = ''; const best = ['a', 'w', 's', 't'].filter(s => h.eq?.[s]).sort((x, y) => ITEMS[h.eq[y].b].v * (1 + (h.eq[y].t || 0)) - ITEMS[h.eq[x].b].v * (1 + (h.eq[x].t || 0)))[0];
+  if (best) { gear = itemName(h.eq[best]); h.eq[best] = null; } if (w.pack?.length) { gear += (gear ? '、' : '') + '行囊裡的裝備'; w.pack = []; }
   const ransom = soldier ? fineOf(w, fac) + 60 : 40 + h.lvl * 15 + Math.round((w.fame || 0) * 8);
   w.captive = {by, soldier, fac, ransom, day: w.day, tries: 0, lastTry: -1};
   out.lines.push(`${h.name}被打倒，醒來時已經被${by}綁著${soldier ? '，關進了牢裡' : '，他們要贖金'}。身上的錢${took ? `（${took} 金幣）` : ''}、貨${gear ? '和' + gear : ''}都被拿走了。`);
@@ -837,6 +881,7 @@ function duelOutcome(w, setup, bst, out) {
     if (b) { out.loot = b.loot; w.bands = w.bands.filter(x => x !== b); out.lines.push(`${foe.name}倒下了，${b.name}一哄而散。`); if (b.gang) { const gg = k.gangs.find(x => x.id === b.gang); if (gg && !gg.gone) gg.str *= 0.9; } k.bandit[w.pos] *= 0.7; }
     if (g) breakGang(w, g, out, 0.6);
     if (!foe.alive) bindChief(w, g, out, g ? null : `${b?.name || '盜匪'}的頭目${foe.name}`);
+    battleLoot(w, bst, setup.foes, out);
     w.gold += out.loot || 0;
     out.lines.unshift(`單挑贏了。${out.loot ? `搜到 ${out.loot} 金幣。` : ''}`);
   } else {
@@ -867,7 +912,7 @@ export function applyBattle(w, setup, bst) {
       continue;
     }
     const bo = gearBonus(w, m); if (setup.camp && setup.camp.side === 'ally') bo.def = (bo.def || 0) + (setup.camp.def || 0);
-    for (const kk of ['hp', 'max', 'str', 'skl', 'spd', 'def', 'lvl', 'exp']) m[kk] = u[kk] - (bo[kk] || 0);
+    for (const kk of ['hp', 'max', 'str', 'skl', 'spd', 'def', 'lvl', 'exp']) m[kk] = u[kk] - (bo[kk] || 0) - (u.gearAdd?.[kk] || 0);
     m.deeds = m.deeds || {battles: 0, kills: 0}; m.deeds.battles++; m.deeds.kills += u.kills;
     if (u.levels.length && !m.hero) m.wage = wageOf(m);
     w.kills += u.kills;
@@ -879,6 +924,7 @@ export function applyBattle(w, setup, bst) {
   if (setup.duel) { duelOutcome(w, setup, bst, out); w.pendingBattle = null; trimCargo(w); for (const l of out.lines) say(w, l); return out; }
   if (bst.result === 'win') {
     const fled = bst.units.filter(u => u.side === 'enemy' && u.fled).length;
+    if (setup.source.kind !== 'pvp') battleLoot(w, bst, setup.foes, out);
     if (setup.source.kind === 'poi') { grantLoot(w, setup.source.loot, out); w.fame = (w.fame || 0) + 0.3; }
     else if (setup.source.kind === 'pvp') { w.fame = (w.fame || 0) + 0.3; }
     else if (setup.source.kind === 'raid') {
@@ -1040,11 +1086,12 @@ function marchHour(w) {
 // 單人：存在 w.caches；共享世界：伺服器把共用的陣列掛在 w.caches 上（所有人看到同一份）
 const ROT = {food: 0.25, wood: 0.01, stone: 0, iron: 0.01, salt: 0.02, fur: 0.04, wine: 0.02, fish: 0.12, gem: 0};   // 每天爛掉的比例
 export const cachesAt = (w, i) => (w.caches || []).filter(c => c.tile === i && cacheTotal(c) > 0);
-export const cacheTotal = c => Object.values(c.goods).reduce((s, v) => s + Math.floor(v), 0);
-export function addCache(w, tile, goods, why) {
+export const cacheTotal = c => Object.values(c.goods).reduce((s, v) => s + Math.floor(v), 0) + (c.items || []).length;
+export function addCache(w, tile, goods, why, items) {
   const list = (w.caches ||= []); let c = list.find(x => x.tile === tile);
   if (!c) { c = {id: 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4), tile, goods: {}, why, day: w.day ?? 0}; list.push(c); }
   for (const [g, n] of Object.entries(goods)) if (n > 0) c.goods[g] = (c.goods[g] || 0) + n;
+  if (items?.length) (c.items ||= []).push(...items);
   c.why = why || c.why; return c;
 }
 // 時間過去：貨會爛；離村子、城近的會被人撿走（撿走的算進最近的市集存貨）
@@ -1057,6 +1104,7 @@ export function decayCaches(list, days) {
       c.goods[g] = Math.max(0, c.goods[g] - rot - take);
       if (take > 0 && !isSpec(g)) { const m = nearestMarket(c.tile, k); if (m >= 0) k.markets[m].stock[g] += take * BALE; }
     }
+    if (c.items?.length) c.items = c.items.filter(() => Math.random() > (near ? 0.25 : 0.03) * days);   // 裝備不會爛，但附近有人的話很快被撿走
   }
   for (let i = list.length - 1; i >= 0; i--) if (cacheTotal(list[i]) <= 0) list.splice(i, 1);
 }
@@ -1152,7 +1200,7 @@ export function worldAct(w, a) {
   const apNeed = MODE.shared ? apCost(w, a) : 0;
   if (apNeed > (w.ap ?? 0) + 1e-9) throw new Error(`行動點不夠：要 ${apNeed}，剩 ${Math.floor(w.ap ?? 0)}。時間會慢慢補回來${a.type === 'travel' && !w.march ? '；或開急行軍，用更少的行動點走同一段路' : ''}。`);
   w.leads ||= []; if (w.escort === undefined) w.escort = null;
-  guardCheck(w); captiveCheck(w); hideCharge(w);
+  fixGear(w); guardCheck(w); captiveCheck(w); hideCharge(w);
   if (w.captive && !CAPTIVE_OK.has(a.type)) throw new Error(`你們還被${w.captive.by}關著`);
   const k = K(), here = siteAt(w, w.pos), town = here?.kind === 'town';
   const needTown = () => { if (!town) throw new Error('要在城鎮的市集'); };
@@ -1238,13 +1286,42 @@ export function worldAct(w, a) {
       needTown(); if (w.gold < MAP_PRICE) throw new Error('錢不夠');
       w.gold -= MAP_PRICE; reveal(w, w.pos, 6); say(w, `在${nm(w.pos)}買了一張附近的地圖（${MAP_PRICE} 金幣）。`); break;
     }
-    case 'gear': {
-      needTown(); const m = w.party.find(x => x.id === a.id); if (!m) throw new Error('找不到人');
-      const key = a.kind === 'w' ? 'gw' : 'ga', tier = (m[key] || 0) + 1; if (tier > 3) throw new Error('已經是最好的了');
-      if (stockBales(w.pos, 'iron') < tier) throw new Error('鐵匠沒鐵了，打不出來');
-      const cost = gearPrice(w.pos, a.kind, tier); if (cost > w.gold) throw new Error('錢不夠');
-      w.gold -= cost; m[key] = tier; k.markets[w.pos].stock.iron -= tier * BALE;
-      say(w, `在${nm(w.pos)}的鐵匠鋪替${m.name}換上${GEAR_NAME[a.kind][tier]}（${cost} 金幣）。`); break;
+    case 'equip': {   // 從行囊拿一件裝備給某人（換下來的放回行囊）。不用時間
+      const m = w.party.find(x => x.id === a.mid); if (!m || !m.eq) throw new Error('找不到人');
+      const it = w.pack.find(x => x.id === a.item); if (!it) throw new Error('行囊裡沒有這件');
+      const sl = slotOf(it), I = ITEMS[it.b];
+      if (sl === 's' && m.eq.w && ITEMS[m.eq.w.b].h === 2) throw new Error(`${itemName(m.eq.w)}要用雙手，不能配盾`);
+      w.pack = w.pack.filter(x => x !== it);
+      if (m.eq[sl]) w.pack.push(m.eq[sl]); m.eq[sl] = it;
+      if (sl === 'w' && I.h === 2 && m.eq.s) { w.pack.push(m.eq.s); m.eq.s = null; }
+      const wo = weaponOf(m); say(w, `${m.name}換上了${itemName(it)}${sl === 'w' && wo.unskilled ? '（不太會用，命中 −15）' : ''}。`); break;
+    }
+    case 'unequip': {
+      const m = w.party.find(x => x.id === a.mid); if (!m?.eq?.[a.slot]) break;
+      w.pack.push(m.eq[a.slot]); say(w, `${m.name}卸下了${itemName(m.eq[a.slot])}。`); m.eq[a.slot] = null; break;
+    }
+    case 'dropItem': {
+      const it = w.pack.find(x => x.id === a.item); if (!it) break;
+      w.pack = w.pack.filter(x => x !== it); addCache(w, w.pos, {}, '有人丟下的', [it]); say(w, `把${itemName(it)}丟在${nm(w.pos)}。`); break;
+    }
+    case 'buyItem': {   // 鐵匠鋪
+      needTown(); const o = smithStock(w, w.pos).find(x => x.b === a.b && x.t === (a.t || 0)); if (!o) throw new Error('鐵匠沒有這件');
+      const it = newItem(w, o.b, o.t), cost = itemPrice(w, w.pos, it); if (cost > w.gold) throw new Error('錢不夠');
+      if (capacity(w) - load(w) < itemWeight(it)) throw new Error('行囊放不下了');
+      w.gold -= cost; w.pack.push(it); (w.smithSold ||= {})[`${w.pos}:${Math.floor(w.day / 7)}:${o.b}:${o.t}`] = 1;
+      say(w, `在${nm(w.pos)}的鐵匠鋪買了${itemName(it)}（${cost} 金幣）。`); break;
+    }
+    case 'sellItem': {
+      needTown(); const it = w.pack.find(x => x.id === a.item); if (!it) throw new Error('行囊裡沒有這件');
+      const p = sellPrice(w, w.pos, it); w.pack = w.pack.filter(x => x !== it); w.gold += p; say(w, `把${itemName(it)}賣給鐵匠（${p} 金幣）。`); break;
+    }
+    case 'upgradeItem': {   // 請鐵匠改良身上的裝備：每級要用掉鐵
+      needTown(); const m = w.party.find(x => x.id === a.mid), it = m?.eq?.[a.slot]; if (!it) throw new Error('沒有這件');
+      const I = ITEMS[it.b], tier = (it.t || 0) + 1; if (tier > 3 || I.k === 't') throw new Error('已經是最好的了');
+      const iron = I.soft || I.wood ? 0 : tier; if (iron && stockBales(w.pos, 'iron') < iron) throw new Error('鐵匠沒鐵了，打不出來');
+      const cost = itemPrice(w, w.pos, {b: it.b, t: tier}) - itemPrice(w, w.pos, it); if (cost > w.gold) throw new Error('錢不夠');
+      w.gold -= cost; it.t = tier; if (iron) k.markets[w.pos].stock.iron -= iron * BALE;
+      say(w, `${nm(w.pos)}的鐵匠把${m.name}的${I.n}改良成${itemName(it)}（${cost} 金幣）。`); break;
     }
     case 'buyHorse': {
       needTown(); if ((w.horses || 0) >= MAX_PARTY) throw new Error('夠多了'); if (w.gold < HORSE_PRICE) throw new Error('錢不夠');
@@ -1543,6 +1620,7 @@ export function worldAct(w, a) {
         if (a.g && a.g !== g) continue; const n = Math.min(room, Math.floor(c.goods[g])); if (n <= 0) continue;
         c.goods[g] -= n; room -= n; if (g === 'food' && a.eat) w.food += n * RATIONS_PER_BALE; else w.cargo[g] = (w.cargo[g] || 0) + n; took.push(`${GN[g]} ${n} 包`);
       }
+      for (const c of cs) if (c.items?.length && !a.g) c.items = c.items.filter(it => { if (room < itemWeight(it)) return true; room -= itemWeight(it); w.pack.push(it); took.push(itemName(it)); return false; });
       if (!took.length) throw new Error(room <= 0 ? '扛不動了' : '能撿的都撿完了');
       passHours(w, 2, 'travel', out); say(w, `在${nm(w.pos)}撿起了${took.join('、')}。`); out.lines.push(`撿起了${took.join('、')}。`); break;
     }
@@ -1581,17 +1659,15 @@ export const eaters = w => w.party.length + (w.bound ? 1 : 0) + w.mules * MULE_F
 export const daysOfFood = w => w.food / Math.max(1, eaters(w));
 
 /* ───────────── 裝備、馬、傳奇武器 ───────────── */
-export const GEAR_NAME = {w: ['舊兵器', '精鐵兵器', '名匠兵器', '大師兵器'], a: ['布衣', '皮甲', '鎖子甲', '板甲']};
 // 上戰場時加上的數值；回來時要扣掉，才不會疊上去
 export function gearBonus(w, m) {
-  const b = {str: m.gw || 0, def: m.ga || 0};
+  const b = {str: 0, def: 0};
   if ((w.relics || []).some(r => r.equip === m.id) || m.relicW) b.str += 2;
   if (tired(w)) { b.def -= 1; b.skl = -5; }   // 疲憊：防禦 -1、命中 -10
   return b;
 }
 export const battleParty = (w, setup) => setup?.duel ? w.party.filter(m => m.hero).map(m => { const b = gearBonus(w, m); return {...m, str: m.str + b.str, def: m.def + b.def}; }) : w.party.map(m => { const b = gearBonus(w, m); return {...m, str: m.str + b.str, def: m.def + b.def}; }).concat(w.guard ? w.guard.men.map(m => ({...m, guard: true})) : []);
 const ironMul = (i, k = K()) => Math.max(0.6, Math.min(2.5, k.markets[i].price.iron));
-export const gearPrice = (i, kind, tier) => Math.round((kind === 'w' ? 35 : 45) * tier * (0.5 + 0.5 * ironMul(i)));
 export const mounted = w => (w.horses || 0) >= w.party.length && w.party.length > 0;
 // 載重：貨裝到七成五以上開始變慢，滿載時每格多花四成時間
 export const loadMul = w => { const r = load(w) / Math.max(1, capacity(w)); return r <= 0.75 ? 1 : 1 + Math.min(1, (r - 0.75) / 0.25) * 0.4; };

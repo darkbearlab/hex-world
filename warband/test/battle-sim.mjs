@@ -1,7 +1,7 @@
 import {CLASSES, hashSeed} from '../public/js/data.js';
 import * as B from '../public/js/battle.js';
 let nid = 0;
-const mk = (cls, lvl = 1, extra = {}) => { const c = CLASSES[cls], b = c.base; return {id: 'u' + (nid++), name: c.name + nid, cls, sprite: c.sprites[0], lvl, exp: 0, hp: b.hp + lvl - 1, max: b.hp + lvl - 1, str: b.str, skl: b.skl, spd: b.spd, def: b.def, mov: b.mov, weapon: c.weapon, traits: [], loyalty: 60, ...extra}; };
+const mk = (cls, lvl = 1, extra = {}) => { const c = CLASSES[cls], b = c.base; return {id: 'u' + (nid++), name: c.name + nid, cls, sprite: c.sprites[0], lvl, exp: 0, hp: b.hp + lvl - 1, max: b.hp + lvl - 1, str: b.str, skl: b.skl, spd: b.spd, def: b.def, mov: b.mov, weapon: c.weapon, eq: c.kit ? Object.fromEntries(Object.entries(c.kit).map(([s, b]) => [s, {id: 'x' + s, b, t: 0}])) : undefined, traits: [], loyalty: 60, ...extra}; };
 function heroPlan(st) {
   const h = B.hero(st), r = B.reach(st, h), foes = B.living(st, 'enemy');
   let best = null;

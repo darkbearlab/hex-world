@@ -129,7 +129,7 @@ export class Realm extends DurableObject {
     }
     if (!w.over) { Wd.syncClock(w, this.worldHours()); Wd.hideCharge(w); }
   }
-  prep(p) { const w = p.w; w.poiShared = this.poiState; w.pois = this.pois; w.caches = this.caches; Wd.MODE.worldT = C.K().T; Wd.MODE.bandName = `${p.name}的戰幫`; }
+  prep(p) { const w = p.w; Wd.fixGear(w); w.poiShared = this.poiState; w.pois = this.pois; w.caches = this.caches; Wd.MODE.worldT = C.K().T; Wd.MODE.bandName = `${p.name}的戰幫`; }
   async savePlayer(p) {
     const w = p.w, keepPois = w.pois, keepShared = w.poiShared, keepC = w.caches; delete w.pois; delete w.poiShared; delete w.caches;
     await this.ctx.storage.put('p:' + p.id, p); w.pois = keepPois; w.poiShared = keepShared; w.caches = keepC;

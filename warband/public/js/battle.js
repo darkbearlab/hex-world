@@ -2,7 +2,7 @@
 // 純規則，不碰畫面；瀏覽器與（之後的）伺服器共用同一份。
 // 所有亂數都走 st.rng；同一份狀態 + 同一串行動 = 同一個結果。
 // 行動的唯一入口是 act(st, action)，回傳這一步產生的事件（給畫面演出用）。
-import {WEAPONS, TRIANGLE, CLASSES, TERRAIN, TRAITS, rngNext, rngInt, hashSeed} from './data.js';
+import {WEAPONS, TRIANGLE, CLASSES, TERRAIN, TRAITS, ITEMS, rngNext, rngInt, hashSeed, weaponOf, gearAdd, armorSprite} from './data.js';
 
 export const W = 10, H = 12;
 const key = (x, y) => y * W + x;
@@ -71,8 +71,12 @@ export function createBattle({seed, biome, party, foes, order, camp}) {
   newTurn(st, []);
   return st;
 }
+// 上場：裝備的加成算進數值（記在 gearAdd，打完要扣回去）；手上的武器、盾牌記下來給畫面畫小圖示
 function toUnit(m, side, [x, y]) {
-  return {id: m.id, side, hero: !!m.hero, leader: !!m.leader, name: m.name, cls: m.cls, sprite: m.sprite, lvl: m.lvl, exp: m.exp || 0, hp: Math.round(m.hp), max: m.max, str: m.str, skl: m.skl, spd: m.spd, def: m.def, mov: m.mov, weapon: m.weapon, traits: m.traits || [], loyalty: m.loyalty ?? 100, x, y, alive: true, fled: false, captured: false, kills: 0, dealt: 0, levels: []};
+  const ga = gearAdd(m), sh = m.eq?.s && ITEMS[m.eq.s.b];
+  return {id: m.id, side, hero: !!m.hero, leader: !!m.leader, name: m.name, cls: m.cls, sprite: armorSprite(m), face: m.face ?? null, fs: m.fs, g: m.g, lvl: m.lvl, exp: m.exp || 0, hp: Math.round(m.hp), max: m.max,
+    str: m.str + ga.str, skl: m.skl + ga.skl, spd: m.spd + ga.spd, def: m.def + ga.def, mov: m.mov, weapon: m.weapon, wpn: weaponOf(m), shield: sh ? sh.icon : null, arrow: sh ? sh.arrow || 0 : 0, gearAdd: ga,
+    traits: m.traits || [], loyalty: m.loyalty ?? 100, x, y, alive: true, fled: false, captured: false, kills: 0, dealt: 0, levels: []};
 }
 
 /* ───────────── 查詢 ───────────── */
@@ -80,7 +84,8 @@ export const terrainAt = (st, x, y) => TERRAIN[st.tiles[key(x, y)]];
 export const unitAt = (st, x, y) => st.units.find(u => u.alive && !u.fled && u.x === x && u.y === y);
 export const living = (st, side) => st.units.filter(u => u.alive && !u.fled && (!side || u.side === side));
 export const hero = st => st.units.find(u => u.hero);
-const weapon = u => WEAPONS[u.weapon];
+const weapon = u => u.wpn || WEAPONS[u.weapon];
+export const weaponOfUnit = weapon;
 const isBeast = u => !!CLASSES[u.cls]?.beast;
 
 // 可走的格子：Dijkstra；可以穿過自己人，不能穿過敵人，不能停在有人的格子
@@ -129,9 +134,10 @@ export function stats(st, u, x = u.x, y = u.y) {
 // 預測：a 站在 (ax, ay) 打 d
 export function forecast(st, a, d, ax = a.x, ay = a.y) {
   const sa = stats(st, a, ax, ay), sd = stats(st, d), tr = tri(a, d);
-  const aHit = clamp(sa.hit + tr * 15 - sd.avo, 0, 100), aDmg = Math.max(0, sa.atk + tr - sd.def), aCrit = clamp(sa.crit - sd.critAvo, 0, 100);
+  const aShot = weapon(a).range[0] > 1, dShot = weapon(d).range[0] > 1;   // 盾牌對弓箭多擋一些
+  const aHit = clamp(sa.hit + tr * 15 - sd.avo, 0, 100), aDmg = Math.max(0, sa.atk + tr - sd.def - (aShot ? d.arrow || 0 : 0)), aCrit = clamp(sa.crit - sd.critAvo, 0, 100);
   const canCounter = inRange(d, d.x, d.y, ax, ay);
-  const dHit = canCounter ? clamp(sd.hit - tr * 15 - sa.avo, 0, 100) : 0, dDmg = canCounter ? Math.max(0, sd.atk - tr - sa.def) : 0, dCrit = canCounter ? clamp(sd.crit - sa.critAvo, 0, 100) : 0;
+  const dHit = canCounter ? clamp(sd.hit - tr * 15 - sa.avo, 0, 100) : 0, dDmg = canCounter ? Math.max(0, sd.atk - tr - sa.def - (dShot ? a.arrow || 0 : 0)) : 0, dCrit = canCounter ? clamp(sd.crit - sa.critAvo, 0, 100) : 0;
   const aCount = a.spd - d.spd >= 4 ? 2 : 1, dCount = canCounter ? (d.spd - a.spd >= 4 ? 2 : 1) : 0;
   return {aHit, aDmg, aCrit, aCount, canCounter, dHit, dDmg, dCrit, dCount, tri: tr};
 }
