@@ -399,6 +399,8 @@ function renderWorld() {
   // 地上的貨：視野內才看得到
   for (const c of w.caches || []) { if (Wd.cacheTotal(c) <= 0 || !SEEN(c.tile) || Wd.hdist(c.tile, w.pos) > Wd.viewRadius(w)) continue; const [x, y] = scr(c.tile); if (x < -s || y < -s || x > cw + s || y > ch + s) continue;
     sprite(g, ['props', 'crate'], x + s * 0.05, y - s * 0.05, s * 0.55); }
+  // 視野：視野外壓暗，視野邊緣那一圈（看得到但看不清楚）壓一半
+  { const R = Wd.viewRadius(w); for (const [i, x, y] of vis) { if (!SEEN(i)) continue; const d = Wd.hdist(i, w.pos); if (d < R) continue; hexPath(g, x, y, s * 1.02); g.fillStyle = d === R ? '#0b080538' : '#0b080570'; g.fill(); } }
   // 委託地點、傳聞、聽說的事
   const mark = (i, text, col) => { const [x, y] = scr(i); g.fillStyle = col; g.beginPath(); g.arc(x + s * 0.5, y + s * 0.45, Math.max(6, s * 0.26), 0, 7); g.fill(); g.strokeStyle = '#000a'; g.lineWidth = 1.5; g.stroke(); g.fillStyle = '#1b150d'; g.font = `800 ${Math.max(8, s * 0.3)}px system-ui`; g.textAlign = 'center'; g.fillText(text, x + s * 0.5, y + s * 0.45 + Math.max(3, s * 0.11)); };
   for (const p of w.pins || []) if (w.day - p.day < 12) mark(p.tile, '!', '#e9dcbf');
@@ -406,7 +408,6 @@ function renderWorld() {
   for (const L of w.leads || []) mark(L.center, '?', '#b6e3a8');
   // 視野內的商隊、運貨車、軍隊、巡邏隊
   const R = Wd.viewRadius(w);
-  if (s >= 12) { g.strokeStyle = '#f1d38a55'; g.setLineDash([2, 5]); g.lineWidth = 1.5; for (const [i, x, y] of vis) if (Wd.hdist(i, w.pos) === R) { hexPath(g, x, y, s * 0.98); g.stroke(); } g.setLineDash([]); }
   const UNIT = {caravan: ['people', 'merchant'], cart: ['props', 'cart'], patrol: ['people', 'spearman'], army: ['people', 'knight']};
   const stack = {};
   for (const u of Wd.unitsInView(w)) {
