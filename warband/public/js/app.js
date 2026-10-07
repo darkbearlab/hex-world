@@ -342,6 +342,8 @@ function renderStatus() {
 }
 let showDanger = false;
 const RISKCOL = r => r < 0.15 ? '#9fd18a' : r < 0.4 ? '#f1c45c' : '#f0705a';
+// 地圖的大小一變就重畫（避免舊畫面被拉伸變形）
+new ResizeObserver(() => { if (!$('world').hidden && G.world) renderWorld(); }).observe($('mapWrap'));
 function renderWorld() {
   const w = G.world; if (!w) return;
   renderStatus();

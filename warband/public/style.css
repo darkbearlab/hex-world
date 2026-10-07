@@ -133,9 +133,11 @@ h3{font-size:16px;margin:6px 0 2px}
 @media (min-width:900px){
   #rtabs button{height:auto}
   body:has(#world:not([hidden])) #app{max-width:none}
-  #wbody{display:grid;grid-template-columns:270px 1fr 340px}
-  #wbody>#mapWrap{position:relative;inset:auto}
-  .rail{position:relative;width:auto;transform:none!important;box-shadow:none!important}
+  /* 地圖是獨立的一層：大小只跟視窗有關，兩邊的側欄內容怎麼變都擠不到它 */
+  #wbody{display:block}
+  #wbody>#mapWrap{position:absolute;inset:0 340px 0 270px}
+  .rail{position:absolute;transform:none!important;box-shadow:none!important;overflow:hidden}
+  .rail.left{width:270px}.rail.right{width:340px}
   .rtoggle{display:none}
   #rtabs{position:static;flex-direction:row;padding:6px 6px 0;border-bottom:1px solid var(--line)}
   #rtabs button{writing-mode:horizontal-tb;letter-spacing:0;width:auto;flex:1;padding:6px 4px;border-radius:10px 10px 0 0;border:1px solid var(--line);border-bottom:none}
