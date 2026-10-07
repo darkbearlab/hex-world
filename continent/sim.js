@@ -1066,7 +1066,7 @@ function createSim(w,rand,pick){
 
   w.events=ev;w.graves=graves;w.snaps=snaps;w.fac=fac;w.stats=stats;
   const legendData=()=>({marriages,weapons:weapons.map(wp=>{const h=wp.holder?heroById(wp.holder):null;return {...wp,at:h?(h.fief>=0?h.fief:fac[h.f].cap):wp.fac>=0?fac[wp.fac].cap:wp.gang?(gangs.find(g=>g.id===wp.gang)||{lair:wp.loc}).lair:(wp.lake&&wp.shore!==undefined?wp.shore:wp.loc)}}),saga,ARC,houseAff,aff,heroes:heroes.filter(h=>h.legend||h.ruled||h.famed||h.wins>=4),fac:fac.map(f=>({id:f.id,n:f.n,alive:f.alive,born:f.born,diedY:f.diedY,cap:f.cap,ruler:f.ruler,house:f.house,liege:f.liege})),names:w.names,owner:owner.slice(),events:ev});
-  const peek=()=>({owner,pop,bandit,town,mkt,markets,gangs,fac,routeTiles,biome,game,gameK,ev,T,curY,weapons,heroes,war,caravans,carts,stamp:stamp(),season:curSeason()});
+  const peek=()=>({owner,pop,bandit,town,mkt,markets,gangs,fac,routeTiles,biome,game,gameK,timber,timberK,vein,known,ev,T,curY,weapons,heroes,war,caravans,carts,stamp:stamp(),season:curSeason()});
   return {peek,legendData,runHistory,startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
