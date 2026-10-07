@@ -696,7 +696,7 @@ function townSheet(tab = 'market') {
   const w = G.world, t = w.pos, k = C.K(), box = el('div', {});
   box.append(el('h2', {}, nm(t)), el('p', {class: 'muted', style: 'margin:-4px 0 4px'}, `${Wd.facName(k.owner[t])}的市鎮・人口約 ${Math.round(k.markets[t].pop * 10)}`));
   const tabs = el('div', {class: 'tabs'});
-  for (const [key, n] of [['market', '市集'], ['smith', '鐵匠'], ['tavern', '酒館'], ['board', '告示'], ['inn', '旅店']]) tabs.append(el('button', {class: key === tab ? 'on' : '', onclick: async () => townSheet(key)}, n));
+  for (const [key, n] of [['market', '市集'], ['smith', '鐵匠'], ['store', '倉庫'], ['tavern', '酒館'], ['board', '告示'], ['inn', '旅店']]) tabs.append(el('button', {class: key === tab ? 'on' : '', onclick: async () => townSheet(key)}, n));
   box.append(tabs);
   const n = w.party.length, again = () => townSheet(tab);
   if (tab === 'market') {
@@ -721,7 +721,15 @@ function townSheet(tab = 'market') {
     }
   }
   if (tab === 'smith') {
-    const iron = Wd.stockBales(t, 'iron'), room = Wd.capacity(w) - Wd.load(w);
+    const iron = Wd.stockBales(t, 'iron'), room = Wd.capacity(w) - Wd.load(w), S = Wd.smithInfo(t), qd = Wd.smithQueue(w, t);
+    box.append(el('div', {class: 'card'}, el('div', {class: 'body'}, el('div', {class: 'top'}, el('b', {}, S.name), el('span', {class: 'tag ' + (S.skill >= 4 ? 'good' : S.skill <= 1 ? 'warn' : '')}, `${S.word}（手藝 ${S.skill}）`)),
+      el('div', {class: 'muted', style: 'font-size:13px'}, `現在下單要先排大約 ${qd < 1 ? '不到一天' : `${qd.toFixed(1)} 天`}。打好的東西會放進這座城的倉庫，可以自己回來拿，或派人來取。手藝越好，越常打出精良、名匠、大師級；手藝不夠的鐵匠改良不到高等級。`))));
+    const mine = (w.orders || []).filter(o => o.town === t);
+    if (mine.length) { box.append(el('h3', {}, '你在這裡的訂單')); for (const o of mine) box.append(el('div', {class: 'plan'}, el('b', {}, o.kind === 'make' ? `打一件${Wd.ITEMS[o.b].n}` : `改良${Wd.itemName(o.item)}`), el('span', {class: 'muted'}, `還要約 ${Math.max(0, Math.ceil((o.readyAt - Wd.worldHourOf(w)) / 24 * 10) / 10)} 天`))); }
+    box.append(el('h3', {}, '訂做'));
+    for (const b of Object.keys(Wd.ITEMS)) { const I = Wd.ITEMS[b]; if (I.rare) continue; const q = Wd.orderQuote(w, t, b, 'make'); const days = Math.ceil((q.queue * 24 + q.hours) / 24);
+      box.append(el('div', {class: 'plan', style: 'align-items:center'}, el('b', {}, `${I.icon || ''}${I.n}`), el('span', {class: 'muted', style: 'flex:1'}, `${itemDesc({b, t: 0})}・約 ${days} 天${q.iron ? `・要 ${q.iron} 包鐵（自己帶比較便宜）` : ''}`),
+        (() => { const noIron = q.iron && (w.cargo.iron || 0) + iron < q.iron; return el('button', {class: 'pin', disabled: q.cost > w.gold || noIron ? true : null, onclick: async () => { await doWorld({type: 'order', kind: 'make', b}); again(); }}, noIron ? '缺鐵' : `${q.cost}${q.iron && !(w.cargo.iron > 0) ? '＋鐵' : ''}`); })())); }
     box.append(el('p', {class: 'muted'}, `價錢跟著這座城的鐵價走；改良一級要用掉幾包鐵（鐵匠手上還有 ${iron} 包）。貨每週換一批。行囊還放得下 ${+room.toFixed(1)} 包。`));
     box.append(el('h3', {}, '買'));
     for (const o of Wd.smithStock(w, t)) { const it = {b: o.b, t: o.t}, p = Wd.itemPrice(w, t, it);
@@ -730,11 +738,11 @@ function townSheet(tab = 'market') {
     if (w.pack?.length) { box.append(el('h3', {style: 'margin-top:10px'}, '賣（行囊裡的）'));
       for (const it of w.pack) box.append(el('div', {class: 'plan', style: 'align-items:center'}, el('b', {}, Wd.itemName(it)), el('span', {class: 'muted', style: 'flex:1'}, itemDesc(it)),
         el('button', {class: 'pin', onclick: async () => { await doWorld({type: 'sellItem', item: it.id}); again(); }}, `賣 ${Wd.sellPrice(w, t, it)}`))); }
-    box.append(el('h3', {style: 'margin-top:10px'}, '改良身上的裝備'));
-    for (const m of w.party) for (const sl of ['w', 'a', 's']) { const it = m.eq?.[sl]; if (!it) continue; const I = Wd.ITEMS[it.b], nt = (it.t || 0) + 1; if (nt > 3) continue;
-      const cost = Wd.itemPrice(w, t, {b: it.b, t: nt}) - Wd.itemPrice(w, t, it), need = I.soft || I.wood ? 0 : nt;
-      box.append(el('div', {class: 'plan', style: 'align-items:center'}, el('span', {}, `${m.name}：`, el('b', {}, Wd.itemName(it)), ` → ${Wd.itemName({b: it.b, t: nt})}`), el('span', {class: 'muted', style: 'flex:1'}, need ? `用 ${need} 包鐵` : ''),
-        el('button', {class: 'pin', disabled: cost > w.gold || iron < need ? true : null, onclick: async () => { await doWorld({type: 'upgradeItem', mid: m.id, slot: sl}); again(); }}, `${cost}`))); }
+    box.append(el('h3', {style: 'margin-top:10px'}, '改良（交給鐵匠，做好放進倉庫）'));
+    const ups = [...w.party.flatMap(m => ['w', 'a', 's'].filter(sl => m.eq?.[sl]).map(sl => ({m, sl, it: m.eq[sl]}))), ...w.pack.filter(it => Wd.ITEMS[it.b].k !== 't').map(it => ({it}))];
+    for (const u of ups) { const q = Wd.orderQuote(w, t, u.it.b, 'upgrade', u.it), can = (u.it.t || 0) < q.cap, days = Math.ceil((q.queue * 24 + q.hours) / 24);
+      box.append(el('div', {class: 'plan', style: 'align-items:center'}, el('span', {}, u.m ? `${u.m.name}：` : '行囊：', el('b', {}, Wd.itemName(u.it))), el('span', {class: 'muted', style: 'flex:1'}, can ? `→ ${Wd.itemName({b: u.it.b, t: (u.it.t || 0) + 1})}・約 ${days} 天・交出去之後要回來拿` : (u.it.t || 0) >= 3 ? '已經是最好的了' : '這位鐵匠的手藝改不到更好'),
+        can ? el('button', {class: 'pin', disabled: q.cost > w.gold || (q.iron && (w.cargo.iron || 0) + iron < q.iron) ? true : null, onclick: async () => { if (!confirm(`把${Wd.itemName(u.it)}交給鐵匠改良？大約 ${days} 天後放進${nm(t)}的倉庫。`)) return; await doWorld({type: 'order', kind: 'upgrade', mid: u.m?.id, slot: u.sl, item: u.m ? null : u.it.id}); again(); }}, `${q.cost}`) : null)); }
   }
   if (tab === 'tavern') {
     const ts = Wd.townState(w, t);
@@ -757,6 +765,20 @@ function townSheet(tab = 'market') {
     const claim = w.contracts.filter(c => Wd.canClaimHere(w, c));
     if (claim.length) box.append(el('button', {class: 'primary', onclick: async () => { await doWorld({type: 'claim'}); again(); }}, `領賞（${claim.reduce((s, c) => s + c.reward, 0)}）`));
     box.append(contractList(t));
+  }
+  if (tab === 'store') {
+    const st = Wd.storeAt(w, t), room = Wd.capacity(w) - Wd.load(w);
+    box.append(el('p', {class: 'muted'}, `${nm(t)}的倉庫：東西放著不會壞也不會被偷，鐵匠做好的東西也送到這裡。行囊還放得下 ${+room.toFixed(1)} 包。`));
+    box.append(el('h3', {}, '倉庫裡的'));
+    const has = Object.entries(st.goods).filter(([, n]) => n > 0);
+    if (!has.length && !st.items.length) box.append(el('p', {class: 'muted'}, '空的。'));
+    for (const [g, n] of has) box.append(el('div', {class: 'plan', style: 'align-items:center'}, el('b', {}, Wd.GN[g]), el('span', {style: 'flex:1'}, `${n} 包`), el('button', {class: 'pin', onclick: async () => { await doWorld({type: 'storeTake', g, q: n}); again(); }}, '全拿')));
+    for (const it of st.items) box.append(el('div', {class: 'plan', style: 'align-items:center'}, el('b', {}, `${Wd.ITEMS[it.b].icon || ''}${Wd.itemName(it)}`), el('span', {class: 'muted', style: 'flex:1'}, itemDesc(it)), el('button', {class: 'pin', onclick: async () => { await doWorld({type: 'storeTake', item: it.id}); again(); }}, '拿')));
+    box.append(el('h3', {style: 'margin-top:10px'}, '存進去'));
+    const cg = Wd.TRADE.filter(g => w.cargo[g] > 0);
+    for (const g of cg) box.append(el('div', {class: 'plan', style: 'align-items:center'}, el('b', {}, Wd.GN[g]), el('span', {style: 'flex:1'}, `身上 ${w.cargo[g]} 包`), el('button', {class: 'pin', onclick: async () => { await doWorld({type: 'storePut', g, q: w.cargo[g]}); again(); }}, '全存')));
+    for (const it of w.pack) box.append(el('div', {class: 'plan', style: 'align-items:center'}, el('b', {}, Wd.itemName(it)), el('span', {class: 'muted', style: 'flex:1'}, itemDesc(it)), el('button', {class: 'pin', onclick: async () => { await doWorld({type: 'storePut', item: it.id}); again(); }}, '存')));
+    if (!cg.length && !w.pack.length) box.append(el('p', {class: 'muted'}, '身上沒有貨或備用的裝備。'));
   }
   if (tab === 'inn') {
     box.append(el('p', {}, `每人每晚 2 金幣，一天能養好一半的傷，大家的心情也會好一點。`));
@@ -933,7 +955,7 @@ function hereFolks() {
   const w = G.world, out = [], b = Wd.bandAt(w, w.pos);
   if (b) out.push({icon: b.kind === 'wolves' ? '🐺' : '⚔', label: b.name, fn: () => encounterSheet(b), cls: 'danger'});
   for (const u of Wd.unitsInView(w).filter(u => u.pos === w.pos && u.kind !== 'army')) out.push({icon: UNIT_ICON[u.kind], label: u.label, fn: () => unitSheet(u)});
-  if (NET.on) for (const o of NET.others.filter(o => o.pos === w.pos && o.id !== NET.me)) out.push({icon: '🚩', label: `${o.name}的戰幫`, face: o.face, fn: () => playerSheet(o)});
+  if (NET.on) for (const o of NET.others.filter(o => o.pos === w.pos && o.id !== NET.me && !(o.detach && o.id.startsWith(NET.me + '#')))) out.push({icon: '🚩', label: o.detach ? o.name : `${o.name}的戰幫`, face: o.face, fn: () => playerSheet(o)});
   return out;
 }
 // 這格能做的事
@@ -951,6 +973,8 @@ function hereDoes() {
   if (NET.on && site?.kind !== 'town') add('🔎', '搜索這一格（半天）', () => doWorld({type: 'searchTile'}));
   if (Wd.gatherOptions(w).length) add('🪓', '採集…', () => gatherSheet());
   for (const L of w.leads || []) if (Wd.hdist(L.center, p) <= 1) add('🗺', `搜尋「${L.name}」（一天）`, () => doWorld({type: 'search', id: L.id}));
+  if (NET.on && w.party.some(m => !m.hero)) add('🏇', '派人出去辦事…', () => detachSheet());
+  for (const d of w.detach || []) if (d.pos === p) add('↩', `把${d.name}叫回來`, () => doWorld({type: 'recall', id: d.id}));
   const ci = Wd.campInfo(w);
   add(site?.kind === 'town' ? '🛏' : '⛺', site?.kind === 'town' ? '過夜…' : ci ? '營地…' : '紮營…', () => { hubOpen = false; campOpen = true; renderCamp(); hexInfo(); });
   return out;
@@ -969,6 +993,38 @@ function renderHub() {
   const sec = el('div', {class: 'hsec'}, el('div', {class: 'hlab'}, nm(w.pos))); for (const it of hereDoes()) sec.append(item(it)); box.append(sec);
 }
 document.addEventListener('pointerdown', e => { if (hubOpen && !e.target.closest('#hubStack') && !e.target.closest('#btnCamp')) closeHub(); });
+// 派人出去：挑人、交代差事、給錢糧和貨。他們是另一支小戰幫，照世界的時間走，辦完回來找你
+function detachSheet(pre = {}) {
+  const w = G.world, k = C.K(), st = {ids: new Set(pre.ids || []), task: pre.task || 'intel', target: pre.target ?? null, gold: 0, food: 0, g: 'iron', q: 5, mules: 0, horses: 0, cargo: {}};
+  const towns = Object.keys(k.markets).map(Number).filter(t => Wd.isTown(t, k) && Wd.seen(w, t) && t !== w.pos).sort((a, b) => Wd.hdist(a, w.pos) - Wd.hdist(b, w.pos)).slice(0, 16);
+  const draw = () => {
+    const box = el('div', {}, el('h2', {}, '派人出去辦事'), el('p', {class: 'muted', style: 'font-size:13px'}, `分出去的人是另一支小戰幫，照世界的時間走（不花你的行動點），路上可能被搶、受傷，貪財又不忠的人可能捲款跑掉。辦完會回來找你。最多同時派 ${Wd.MAX_DETACH} 支。`));
+    if ((w.detach || []).length >= Wd.MAX_DETACH) box.append(el('p', {class: 'bad'}, '已經派出去兩支了，等他們回來。'));
+    box.append(el('h3', {}, '派誰'));
+    for (const m of w.party.filter(m => !m.hero)) { const c = el('input', {type: 'checkbox'}); c.checked = st.ids.has(m.id); c.onchange = () => { c.checked ? st.ids.add(m.id) : st.ids.delete(m.id); };
+      box.append(el('label', {class: 'plan', style: 'align-items:center;gap:8px'}, c, portrait(m, 28), el('b', {}, m.name), el('span', {class: 'muted'}, `${clsName(m)} Lv${m.lvl}・忠誠 ${Math.round(m.loyalty)}${m.traits.includes('greedy') ? '・貪財' : ''}`))); }
+    box.append(el('h3', {}, '差事'));
+    const sel = el('select', {}); for (const [k2, n] of Object.entries(Wd.TASKS)) { const o = el('option', {value: k2}, n); if (k2 === st.task) o.selected = true; sel.append(o); } sel.onchange = () => { st.task = sel.value; draw(); };
+    box.append(sel);
+    const tsel = el('select', {});
+    const opts = st.task === 'scout' ? [...(pre.scout != null ? [pre.scout] : []), ...towns] : st.task === 'pickup' ? Wd.storeList(w).map(x => x.t) : towns.concat(Wd.isTown(w.pos, k) && st.task === 'store' ? [] : []);
+    if (st.target == null || !opts.includes(st.target)) st.target = opts[0] ?? null;
+    for (const t of opts) { const o = el('option', {value: t}, `${nm(t)}（${Wd.hdist(t, w.pos)} 格）`); if (t === st.target) o.selected = true; tsel.append(o); }
+    tsel.onchange = () => { st.target = +tsel.value; };
+    box.append(el('div', {style: 'margin:6px 0'}, '去：', opts.length ? tsel : el('span', {class: 'muted'}, st.task === 'pickup' ? '你在各城的倉庫都是空的。' : '還不知道其他城在哪裡。')));
+    if (st.task === 'buy') { const gs = el('select', {}); for (const g of Wd.TRADE) { const o = el('option', {value: g}, Wd.GN[g]); if (g === st.g) o.selected = true; gs.append(o); } gs.onchange = () => { st.g = gs.value; };
+      const qi = el('input', {type: 'number', min: 1, value: st.q, style: 'width:70px'}); qi.oninput = () => { st.q = +qi.value; }; box.append(el('div', {}, '買：', gs, ' ', qi, ' 包（錢不夠就少買）')); }
+    const num = (lab, key, max) => { const i = el('input', {type: 'number', min: 0, max, value: st[key], style: 'width:80px'}); i.oninput = () => { st[key] = +i.value; }; return el('label', {style: 'margin-right:10px'}, `${lab} `, i, el('small', {class: 'muted'}, ` /${max}`)); };
+    box.append(el('h3', {}, '帶什麼'), el('div', {}, num('金幣', 'gold', w.gold), num('口糧', 'food', Math.floor(w.food)), num('騾子', 'mules', w.mules), num('馬', 'horses', w.horses || 0)));
+    if (st.task === 'sell' || st.task === 'store') for (const g of Wd.TRADE.filter(g => w.cargo[g] > 0)) { const i = el('input', {type: 'number', min: 0, max: w.cargo[g], value: st.cargo[g] || 0, style: 'width:70px'}); i.oninput = () => { st.cargo[g] = +i.value; }; box.append(el('label', {style: 'margin-right:10px'}, `${Wd.GN[g]} `, i, el('small', {class: 'muted'}, ` /${w.cargo[g]}`))); }
+    box.append(el('p', {class: 'muted', style: 'font-size:12px'}, `一個人扛 ${Wd.CARRY_MAN} 包、一頭騾子 ${Wd.MULE_CAP} 包；全員騎馬走得快。路上一天每人吃 1 份口糧。`));
+    box.append(el('div', {class: 'rowbtn'}, el('button', {class: 'primary', disabled: (w.detach || []).length >= Wd.MAX_DETACH || st.target == null ? true : null, onclick: async () => {
+      if (!st.ids.size) return toast('先挑人');
+      const out = await doWorld({type: 'detach', ids: [...st.ids], task: st.task, target: st.target, gold: st.gold, food: st.food, mules: st.mules, horses: st.horses, cargo: st.cargo, g: st.g, q: st.q}); if (out) { closeSheet(); renderRails(); renderWorld(); } }}, '出發')));
+    openSheet(box);
+  };
+  draw();
+}
 // 跟路上的人打交道
 const priceTag = n => `${n} 金幣`;
 function unitSheet(u0) {
@@ -1016,6 +1072,7 @@ function unitSheet(u0) {
 function playerSheet(o) {
   const w = G.world, box = el('div', {});
   const f = FACES && o.face != null && FACES.faces[o.face] ? o.face : null;
+  if (o.detach) { box.append(el('h2', {}, f != null ? faceEl(f, 36) : null, ` ${o.name}`), el('p', {class: 'muted'}, `${o.owner}的戰幫派出來辦事的人，${o.size} 人。`), el('div', {class: 'rowbtn'}, el('button', {class: 'primary', onclick: () => { closeSheet(); rtab = 'here'; setRail('r', true); renderRight(); }}, '說話'))); return openSheet(box); }
   box.append(el('h2', {}, f != null ? faceEl(f, 36) : null, ` ${o.name}的戰幫`));
   box.append(el('p', {class: 'muted'}, `${o.size} 人・${o.banner != null ? Wd.facName(o.banner) + '的旗' : '中立'}${o.camp ? (o.camp.stake ? '・紮了木柵營' : '・紮營中') : ''}${o.wantedMax >= 2 ? '・通緝犯' : ''}${o.town ? '・在城裡' : ''}・${Date.now() - o.seen < 5 * 60e3 ? '在線上' : '不在線上'} `, powerTag(o.power)));
   const r = el('div', {class: 'rowbtn'});
@@ -1085,7 +1142,7 @@ function hideHelp(w) {
 }
 function renderLeft() {
   const w = G.world; if (!w) return; const box = $('lbody');
-  const sig = JSON.stringify([Wd.concealment(w), Math.round(Wd.favorAt(w, w.pos) * 10), !!w.captive, w.bound?.name, w.guard?.men.length, w.gold, Math.round(w.food), w.fame, w.march, Math.ceil(w.fatigue || 0), w.banner, w.mules, w.horses, Wd.load(w), NET.on ? Math.floor(apNow()) : 0, w.wanted, w.party.map(m => [m.id, Math.round(m.hp), m.lvl, m.exp, Math.round(m.loyalty / 10), m.face]), (w.captives || []).length, wide()]);
+  const sig = JSON.stringify([(w.detach || []).map(d => d.pos + d.phase), Wd.concealment(w), Math.round(Wd.favorAt(w, w.pos) * 10), !!w.captive, w.bound?.name, w.guard?.men.length, w.gold, Math.round(w.food), w.fame, w.march, Math.ceil(w.fatigue || 0), w.banner, w.mules, w.horses, Wd.load(w), NET.on ? Math.floor(apNow()) : 0, w.wanted, w.party.map(m => [m.id, Math.round(m.hp), m.lvl, m.exp, Math.round(m.loyalty / 10), m.face]), (w.captives || []).length, wide()]);
   if (sig === leftSig && box.childElementCount) return; leftSig = sig; box.innerHTML = '';
   const h = w.party.find(m => m.hero) || w.party[0]; if (!h) return;
   const hp = Math.round(h.hp / h.max * 100), fd = Wd.daysOfFood(w), wanted = Math.max(0, ...Object.values(w.wanted || {}));
@@ -1117,6 +1174,8 @@ function renderLeft() {
     box.append(el('div', {class: 'mate', onclick: () => openSheet(memberCard(m, dismissRow(m)))}, portrait(m, 32),
       el('div', {class: 'mn'}, el('div', {}, el('b', {}, m.name), el('span', {class: 'muted'}, ` ${clsName(m)} Lv${m.lvl}`)), el('div', {class: 'meter'}, el('i', {style: `width:${p}%;background:${hpCol(p)}`}))),
       el('span', {class: 'muted', style: 'font-size:11px'}, m.loyalty < 30 ? '😠' : ''))); }
+  if (w.detach?.length) { box.append(el('div', {class: 'rsec'}, '派出去的人'));
+    for (const d of w.detach) box.append(el('div', {class: 'mate', onclick: () => { closeSheet(); showOnMap(d.pos); }}, portrait(d.members[0], 32), el('div', {class: 'mn'}, el('div', {}, el('b', {}, d.name), el('span', {class: 'muted'}, ` ${d.members.length} 人`)), el('div', {class: 'muted', style: 'font-size:11px'}, `${d.phase === 'go' ? `去${nm(d.task.target)}${Wd.TASKS[d.task.kind]}` : '回程中'}・現在在${nm(d.pos)}`)))); }
   if (w.captives?.length) { box.append(el('div', {class: 'rsec'}, '被抓走的人')); for (const c of w.captives) box.append(el('div', {class: 'mate'}, portrait(c.m, 32), el('div', {class: 'mn'}, el('div', {}, c.m.name), el('div', {class: 'muted', style: 'font-size:11px'}, `在${c.by}手上・到城裡酒館贖回（${c.price}）`)))); }
   box.append(el('div', {class: 'rowbtn'}, el('button', {onclick: partySheet}, '隊伍詳情'), el('button', {onclick: cargoSheet}, '行囊')));
 }

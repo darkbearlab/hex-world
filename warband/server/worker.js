@@ -81,6 +81,7 @@ export class Realm extends DurableObject {
   }
   async tick() {
     C.SIM.periodTick(); this.pump(true); this.lastTick = Date.now();
+    for (const [id, r] of Object.entries(this.roster)) if (r.detach?.length && !r.over) { const p = await this.player(id); if (!p) continue; this.prep(p); Wd.advanceDetach(p.w, this.worldHours()); await this.savePlayer(p); }
     await this.persist(true);
   }
 
@@ -133,7 +134,7 @@ export class Realm extends DurableObject {
       if (r.hours >= 6) { const a = p.away || {hours: 0, food: 0, gold: 0, raids: []}; a.hours += r.hours; a.food += r.food; a.gold += r.gold; a.raids.push(...r.raids); p.away = a; }
       if (r.raids.some(t => !/擊退/.test(t))) w.shieldT = C.K().T + Wd.SHIELD_T;
     }
-    if (!w.over) { Wd.syncClock(w, this.worldHours()); Wd.hideCharge(w); }
+    if (!w.over) { Wd.syncClock(w, this.worldHours()); Wd.hideCharge(w); this.prep(p); Wd.advanceDetach(w, this.worldHours()); Wd.orderTick(w); }
   }
   prep(p) { const w = p.w; Wd.fixGear(w); w.poiShared = this.poiState; w.pois = this.pois; w.caches = this.caches; Wd.MODE.worldT = C.K().T; Wd.MODE.bandName = `${p.name}的戰幫`; }
   async savePlayer(p) {
@@ -142,7 +143,7 @@ export class Realm extends DurableObject {
     const ci = Wd.campInfo(w), town = C.K().markets[w.pos] && C.K().owner[w.pos] >= 0;
     this.roster[p.id] = {name: p.name, pos: w.pos, size: w.party.length, fame: +(w.fame || 0).toFixed(1), over: !!w.over, seen: Date.now(),
       banner: w.banner ?? null, face: w.party.find(m => m.hero)?.face ?? null, g: w.party.find(m => m.hero)?.g || 'm', wantedMax: Math.max(0, ...Object.values(w.wanted || {})), shieldT: w.shieldT || 0, town: !!town, busy: !!p.battle,
-      hidden: Wd.hidden(w), camp: ci ? {stake: ci.stake, watch: ci.watch, fire: ci.fire, ready: ci.ready} : null, power: Math.round(Wd.partyPower(w.party))};
+      hidden: Wd.hidden(w), detach: (w.detach || []).map(d => ({id: d.id, name: d.name, pos: d.pos, size: d.members.length, face: d.members[0]?.face ?? null, g: d.members[0]?.g || 'm', power: Math.round(Wd.partyPower(d.members))})), camp: ci ? {stake: ci.stake, watch: ci.watch, fire: ci.fire, ready: ci.ready} : null, power: Math.round(Wd.partyPower(w.party))};
   }
   // 戰鬥狀態只在伺服器上：每回合由伺服器擲骰。給瀏覽器的版本拿掉亂數狀態，事先算不出命中
   newBattle(w, setup) { return B.createBattle({seed: setup.seed, biome: setup.biome, layout: setup.layout, party: Wd.battleParty(w, setup), foes: setup.foes, order: w.lastOrder || {stance: 'follow', focus: null}, camp: setup.camp}); }
@@ -238,7 +239,7 @@ export class Realm extends DurableObject {
     const url = new URL(req.url), path = url.pathname;
     if (path === '/api/ws') return this.chatSocket(req, url);
     if (path === '/api/world') {
-      const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && !r.hidden && Date.now() - r.seen < 7 * 864e5).map(([id, r]) => ({id: id.slice(0, 6), ...r}));
+      const k = C.K(), others = Object.entries(this.roster).filter(([, r]) => !r.over && Date.now() - r.seen < 7 * 864e5).flatMap(([id, r]) => [...(r.hidden ? [] : [{id: id.slice(0, 6), ...r, detach: undefined}]), ...(r.detach || []).map(d => ({id: id.slice(0, 6) + '#' + d.id, name: d.name, pos: d.pos, size: d.size, face: d.face, g: d.g, power: d.power, seen: r.seen, owner: r.name, detach: true}))]);
       this.tnotes = (this.tnotes || []).filter(n => Date.now() - n.at < NOTE_MS);
       return json({tnotes: this.tnotes, caches: this.caches, clientId: this.env.GOOGLE_CLIENT_ID || '', guest: this.env.ALLOW_GUEST !== '0', T: k.T, stamp: k.stamp, tickMs: this.tickMs(), apMs: this.apMs(), nextTickAt: this.nextTickAt || null, paused: !!this.meta.paused || this.env.PAUSED === '1', players: others.length, others, poiState: this.poiState, version: this.meta.version});
     }
