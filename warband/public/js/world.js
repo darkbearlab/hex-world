@@ -737,12 +737,22 @@ export function autoDefend(w, foePower, by) {
   return {win: false, ...defeatStep(w, by)};
 }
 // 共享世界：離線的時間（行動點滿了還沒用掉的時數）。糧吃 1/3、餉發一半；城裡付旅店錢；野外可能被夜襲
+// 共享世界的時鐘：世界跟著現實走；行動點是戰幫身上「還沒用掉的過去」。
+// 戰幫的時間＝世界時間－手上的行動點。行動點滿了以後沒用掉的時間（離線）已由 idle() 結算，這裡把戰幫的日曆跟上。
+export function syncClock(w, worldHours) {
+  const party = w.day * 24 + w.hour;
+  if (w.clockOff == null) { w.clockOff = worldHours - (w.ap || 0) - party; return 0; }
+  const jump = Math.floor(worldHours - (w.ap || 0) - w.clockOff - party); if (jump <= 0) return 0;
+  const days = Math.floor((w.hour + jump) / 24); w.hour = (w.hour + jump) % 24; w.day += days;
+  w.nextWage += days;   // 離線那幾天的餉已經照離線規則發過一半了
+  return jump;
+}
 export function idle(w, hours, T) {
   const k = K(), town = siteAt(w, w.pos)?.kind === 'town', rep = {hours: 0, food: 0, gold: 0, raids: []};
   w.idleBuf = (w.idleBuf || 0) + Math.min(hours, 24 * 30);
   const due = companions(w).reduce((s, m) => s + m.wage, 0);
   while (w.idleBuf >= 6) {
-    w.idleBuf -= 6; rep.hours += 6; let hungry = false, cost = due / 168 * 6 / 2;
+    w.idleBuf -= 6; rep.hours += 6; let hungry = false, cost = due / 168 * 6 / 2; w.fatigue = Math.max(0, (w.fatigue || 0) - 12);
     if (town) { cost += w.party.length * 2 * 6 / 24; for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.5 * 6 / 24)); }
     else { const need = eaters(w) / 24 * 6 / 3; if (w.food >= need) { w.food -= need; rep.food += need; } else { w.food = 0; hungry = true; } if (!hungry) for (const m of w.party) m.hp = Math.min(m.max, m.hp + Math.ceil(m.max * 0.1 * 6 / 24)); }
     w.idleCost = (w.idleCost || 0) + cost; const pay = Math.floor(w.idleCost);
@@ -886,9 +896,8 @@ export function pvpSetup(w, target) {
 export function worldAct(w, a) {
   const out = {lines: []};
   if (w.over) throw new Error('這段旅程已經結束');
-  const apNeed = MODE.shared ? apCost(w, a) : 0, debtOk = a.type === 'travel' && w.march;
-  if ((w.ap ?? 0) < 0 && apNeed > 0 && !debtOk) throw new Error(`還在硬撐的債裡（${Math.floor(w.ap)}）。等行動點回到 0 以上才能做別的事。`);
-  if (apNeed > (w.ap ?? 0) + (debtOk ? DEBT_MAX : 0) + 1e-9) throw new Error(debtOk ? `再撐下去就要倒了：最多只能欠 ${DEBT_MAX} 點行動點。` : `行動點不夠：要 ${apNeed}，剩 ${Math.floor(w.ap ?? 0)}。休息一下，時間會慢慢補回來；或開急行軍硬撐。`);
+  const apNeed = MODE.shared ? apCost(w, a) : 0;
+  if (apNeed > (w.ap ?? 0) + 1e-9) throw new Error(`行動點不夠：要 ${apNeed}，剩 ${Math.floor(w.ap ?? 0)}。時間會慢慢補回來${a.type === 'travel' && !w.march ? '；或開急行軍，用更少的行動點走同一段路' : ''}。`);
   w.leads ||= []; if (w.escort === undefined) w.escort = null;
   const k = K(), here = siteAt(w, w.pos), town = here?.kind === 'town';
   const needTown = () => { if (!town) throw new Error('要在城鎮的市集'); };
@@ -1181,7 +1190,7 @@ export const gearPrice = (i, kind, tier) => Math.round((kind === 'w' ? 35 : 45) 
 export const mounted = w => (w.horses || 0) >= w.party.length && w.party.length > 0;
 // 載重：貨裝到七成五以上開始變慢，滿載時每格多花四成時間
 export const loadMul = w => { const r = load(w) / Math.max(1, capacity(w)); return r <= 0.75 ? 1 : 1 + Math.min(1, (r - 0.75) / 0.25) * 0.4; };
-export const MARCH_MUL = 0.7, DEBT_MAX = 24;
+export const MARCH_MUL = 0.7;
 export const legHours = (w, i, k = K()) => { let h = hexHours(i, k); if (h === Infinity) return h; const b = k.biome[i]; if (mounted(w)) h *= (b === 6 || b === 3 || b === 9 ? 0.85 : 0.65); h *= loadMul(w); if (w.march) h *= MARCH_MUL; return Math.max(1, Math.round(h)); };
 export const pathHoursW = (w, path, k = K()) => path.reduce((s, i) => s + legHours(w, i, k), 0);
 // 沙盒裡真實存在的有名者：這座城所屬國家裡打過幾場勝仗、不是國君的人

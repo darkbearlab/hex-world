@@ -273,7 +273,7 @@ function followParty() { const [px, py] = scr(G.world.pos), m = Math.min(mapSize
 function hexPath(g, cx, cy, s) { g.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.PI / 180 * (60 * i - 30); g.lineTo(cx + s * Math.cos(a), cy + s * Math.sin(a)); } g.closePath(); }
 function renderStatus() {
   const w = G.world;
-  $('wTime').textContent = Wd.timeText(w);
+  $('wTime').textContent = nowText(w);
   const ci = Wd.campInfo(w); $('wCampTag').hidden = !ci; if (ci) $('wCampTag').textContent = `⛺ ${ci.ready ? '營地紮穩了' : `紮營中（再 ${(w.kit ? 6 : 12) - ci.age} 小時紮穩）`}${ci.stake ? '・木柵' : ''}${ci.watch ? '・哨' : ''}${ci.fire ? '・營火' : ''}`;
   $('wAP').hidden = !NET.on; if (NET.on) $('wAPv').textContent = `${Math.floor(apNow())}/${Wd.AP_MAX}`;
 }
@@ -373,6 +373,8 @@ function renderWorld() {
   if (wsel) { hexPath(g, ...scr(wsel.pos), s * 0.97); g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke(); }
 }
 const nm = i => C.nm(i);
+// 畫面上的「現在」：共享世界一律是世界的時間（戰幫手上的行動點是還沒用掉的過去）；單人是戰幫自己的時間
+function nowText(w) { if (!NET.on) return Wd.timeText(w); const m = C.K().stamp.match(/^(\d+) 年 (\S+) 第(\d+)日\s*(\S*)/); return m ? `${m[1]}年${m[2]}${m[3]}日・${m[4]}` : C.K().stamp; }
 // 營地：帳篷、木柵一圈、營火
 function drawCamp(g, x, y, s, ci) {
   if (ci.stake) { g.strokeStyle = '#8a6a3e'; g.lineWidth = Math.max(2, s * 0.08); for (let a = 0; a < 12; a++) { const t = a / 12 * Math.PI * 2; g.beginPath(); g.moveTo(x + Math.cos(t) * s * 0.9, y + Math.sin(t) * s * 0.75); g.lineTo(x + Math.cos(t) * s * 0.9, y + Math.sin(t) * s * 0.75 - s * 0.22); g.stroke(); } }
@@ -462,7 +464,7 @@ function hexInfo() {
     row.append(el('button', {class: 'primary', onclick: async () => travel(wsel.path)}, '前往'));
     row.append(el('button', {class: w.march ? 'danger' : '', onclick: async () => { await doWorld({type: 'march', on: !w.march}, true); wsel = {pos: wsel.pos, path: Wd.findPath(G.world, G.world.pos, wsel.pos)}; renderWorld(); hexInfo(); renderLeft(); }}, w.march ? '急行軍：開' : '急行軍：關'));
     if (Wd.loadMul(w) > 1) box.append(el('div', {class: 'muted', style: 'font-size:12px'}, `貨太重：每格多花 ${Math.round((Wd.loadMul(w) - 1) * 100)}% 的時間。丟掉一些貨（行囊）可以走快一點。`));
-    if (w.march) box.append(el('div', {style: 'font-size:12px;color:#f1cf8a'}, `急行軍：每格少花三成時間，但每小時全隊扣血、傭兵心浮氣躁、騾子可能倒下${NET.on ? `；行動點不夠時最多可以欠 ${Wd.DEBT_MAX} 點` : ''}。疲憊時打仗防禦 −1、命中 −10。`));
+    if (w.march) box.append(el('div', {style: 'font-size:12px;color:#f1cf8a'}, `急行軍：同一段路少花三成${NET.on ? '行動點' : '時間'}，代價是每小時全隊扣血、傭兵心浮氣躁、騾子可能倒下。疲憊時打仗防禦 −1、命中 −10。`));
   } else if (!here) box.append(el('div', {class: 'muted'}, '走不到那裡。'));
   if (here && site) {
     if (site.kind === 'town') row.append(el('button', {class: 'primary', onclick: async () => townSheet()}, '進城'));
@@ -836,7 +838,7 @@ function renderRight() {
 function addNote(text, tile, when) {
   const w = G.world, place = tile != null && tile >= 0 ? nm(tile) : null;
   if (place) (w.noteTiles ||= {})[place] = tile;
-  const stamp = `【${when || Wd.timeText(w)}${place ? '・' + place : ''}】`;
+  const stamp = `【${when || nowText(w)}${place ? '・' + place : ''}】`;
   w.notes = (w.notes ? w.notes.replace(/\s*$/, '') + '\n' : '') + stamp + text;
   saveNotes(); toast('抄進筆記了'); if (rtab === 'notes') renderRight();
 }
@@ -872,7 +874,7 @@ function rNotes(box) {
       places.append(el('button', {class: 'pin', onclick: () => { if (!wide()) setRail('r', false); showOnMap(t); }}, '📍' + n)); }
     if (!places.childElementCount) places.append(el('span', {class: 'muted', style: 'font-size:12px'}, '筆記裡提到的地點會出現在這裡，點一下就到地圖上。')); };
   renderPlaces();
-  box.append(el('div', {class: 'notesWrap'}, el('div', {class: 'rowbtn', style: 'margin:0'}, el('button', {onclick: () => { const line = `\n【${Wd.timeText(w)}・${nm(w.pos)}】`; (w.noteTiles ||= {})[nm(w.pos)] = w.pos; ta.setRangeText(line, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); ta.dispatchEvent(new Event('input')); renderPlaces(); }}, '插入時間與地點')), ta, places));
+  box.append(el('div', {class: 'notesWrap'}, el('div', {class: 'rowbtn', style: 'margin:0'}, el('button', {onclick: () => { const line = `\n【${nowText(w)}・${nm(w.pos)}】`; (w.noteTiles ||= {})[nm(w.pos)] = w.pos; ta.setRangeText(line, ta.selectionStart, ta.selectionEnd, 'end'); ta.focus(); ta.dispatchEvent(new Event('input')); renderPlaces(); }}, '插入時間與地點')), ta, places));
 }
 function findPlace(n) { const w = G.world, k = C.K(); let best = null; for (let i = 0; i < Wd.N; i++) if (nm(i) === n && Wd.seen(w, i)) { if (k.markets[i]) return i; if (best == null) best = i; } return best; }
 $('btnDanger').onclick = () => { showDanger = !showDanger; $('btnDanger').classList.toggle('on', showDanger); renderWorld(); };

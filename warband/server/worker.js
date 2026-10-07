@@ -24,7 +24,9 @@ async function gunzip(u8) { return new TextDecoder().decode(await new Response(n
 export class Realm extends DurableObject {
   constructor(ctx, env) { super(ctx, env); this.ready = null; this.snap = null; this.lastPersist = 0; this.dirty = false; }
   tickMs() { return Math.max(30, +(this.env.TICK_SECONDS || 120)) * 1000; }
-  apMs() { return this.tickMs() / 6; }   // 一個時段 6 小時 → 每 tickMs/6 毫秒回 1 AP，和世界時鐘同速
+  apMs() { return this.tickMs() / 6; }
+  // 世界現在是第幾小時（時段 × 6，再加上這個時段已經過了多久）
+  worldHours() { const f = Math.max(0, Math.min(1, (Date.now() - (this.lastTick || Date.now())) / this.tickMs())); return C.K().T * 6 + f * 6; }   // 一個時段 6 小時 → 每 tickMs/6 毫秒回 1 AP，和世界時鐘同速
 
   /* ───── 讀檔、存檔 ───── */
   async pack() { const r = await this.env.ASSETS.fetch(new Request('https://assets/data/genesis.json')); return r.json(); }
@@ -71,7 +73,7 @@ export class Realm extends DurableObject {
   async alarm() {
     await this.init();
     if (this.env.PAUSED === '1' || this.meta.paused) { await this.ctx.storage.setAlarm(Date.now() + this.tickMs()); return; }
-    C.SIM.periodTick(); this.pump(true);
+    C.SIM.periodTick(); this.pump(true); this.lastTick = Date.now();
     await this.persist(true);
     await this.ctx.storage.setAlarm(Date.now() + this.tickMs());
   }
@@ -119,13 +121,13 @@ export class Realm extends DurableObject {
   // 行動點回復；超過上限、沒用掉的時間就是「離線」：照離線的規則結算（吃得少、發一半的餉、野外可能被夜襲）
   regen(p) {
     const now = Date.now(), w = p.w, gain = (now - (p.apAt || now)) / this.apMs(), got = (w.ap ?? 0) + gain, over = Math.max(0, got - Wd.AP_MAX);
-    if (w.fatigue) w.fatigue = Math.max(0, w.fatigue - gain);   // 等行動點回復的時間就是在休息
     w.ap = Math.min(Wd.AP_MAX, got); p.apAt = now;
     if (over >= 6 && !p.battle && !w.over) {
       this.prep(p); const r = Wd.idle(w, over, C.K().T);
       if (r.hours >= 6) { const a = p.away || {hours: 0, food: 0, gold: 0, raids: []}; a.hours += r.hours; a.food += r.food; a.gold += r.gold; a.raids.push(...r.raids); p.away = a; }
       if (r.raids.some(t => !/擊退/.test(t))) w.shieldT = C.K().T + Wd.SHIELD_T;
     }
+    if (!w.over) Wd.syncClock(w, this.worldHours());
   }
   prep(p) { const w = p.w; w.poiShared = this.poiState; w.pois = this.pois; w.caches = this.caches; Wd.MODE.worldT = C.K().T; Wd.MODE.bandName = `${p.name}的戰幫`; }
   async savePlayer(p) {
@@ -225,7 +227,7 @@ export class Realm extends DurableObject {
       const owner = this.names[name]; if (owner && owner !== id) { const o = await this.player(owner); if (o && !o.w.over) return bad(`「${name}」這個名字已經有人用了，換一個吧`); }
       this.names[name] = id;
       const w = Wd.newWorld((Math.random() * 2 ** 31) | 0, name, {origin: String(body.origin || ''), g: body.g === 'f' ? 'f' : 'm', face: Number.isInteger(body.face) ? Math.max(0, Math.min(999, body.face)) : undefined});
-      w.pois = this.pois; w.ap = 72; w.feedSeq = this.meta.seq;
+      w.pois = this.pois; w.ap = 72; w.feedSeq = this.meta.seq; Wd.syncClock(w, this.worldHours());
       p = {id, name, w, battle: null, apAt: Date.now(), created: Date.now()};
       await this.savePlayer(p); this.prep(p);
       return json(this.view(p));
