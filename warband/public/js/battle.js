@@ -42,17 +42,31 @@ export function genMap(seed, biome) {
 
 /* ───────────── 建立戰鬥 ───────────── */
 // party：玩家隊伍成員（世界層的資料），foes：敵人清單（同樣格式）
-export function createBattle({seed, biome, party, foes, order}) {
+// camp：被襲擊的一方有營地。{side: 'ally'|'enemy', stake, watch, ready, def}
+//   營地格（迴避 +10、防禦 +1）；木柵把營地圍起來只留缺口（還沒紮穩時缺口多）；設哨時敵人只能從遠處出發；def 是額外的防禦加成
+function campify(t, camp) {
+  const top = camp.side === 'enemy', rows = top ? [0, 1, 2] : [H - 1, H - 2, H - 3];
+  for (const y of rows) for (let x = 1; x < W - 1; x++) if (TERRAIN[t[key(x, y)]].cost < Infinity) t[key(x, y)] = 'camp';
+  if (camp.stake) {
+    const y = top ? 4 : H - 4, gaps = camp.ready ? [3, W - 4] : [2, 3, W >> 1, W - 4, W - 3];
+    for (let x = 0; x < W; x++) t[key(x, y)] = gaps.includes(x) ? 'grass' : 'wall';
+    for (const x of gaps) for (const dy of [-1, 1]) if (inMap(x, y + dy) && TERRAIN[t[key(x, y + dy)]].cost === Infinity) t[key(x, y + dy)] = 'grass';
+  }
+}
+export function createBattle({seed, biome, party, foes, order, camp}) {
   const st = {v: 1, seed, rng: hashSeed('battle', seed), biome, tiles: genMap(seed, biome), turn: 0, result: null, units: [], order: order || {stance: 'follow', focus: null}, obey: {}, log: []};
+  if (camp && !camp.open) { campify(st.tiles, camp); st.camp = camp; }
   const allySpots = [], enemySpots = [];
   for (let y = H - 1; y >= H - 3; y--) for (let x = 2; x < W - 2; x++) allySpots.push([x, y]);
-  for (let y = 0; y < 4; y++) for (let x = 0; x < W; x++) enemySpots.push([x, y]);
+  const far = camp && camp.side === 'ally' && camp.watch ? 2 : 4;
+  for (let y = 0; y < far; y++) for (let x = 0; x < W; x++) enemySpots.push([x, y]);
   const free = (spots) => { for (const [x, y] of spots) if (TERRAIN[st.tiles[key(x, y)]].cost < Infinity && !st.units.some(u => u.x === x && u.y === y)) return [x, y]; return null; };
   const order1 = [4, 5, 3, 6, 2, 7];
   party.forEach((m, i) => { const p = free([[order1[i % 6], H - 1 - Math.floor(i / 6)], ...allySpots]); st.units.push(toUnit(m, 'ally', p)); });
   // 敵人散開放：頭目在最後面
   const es = enemySpots.slice(); for (let i = es.length - 1; i > 0; i--) { const j = rngInt(st, i + 1); [es[i], es[j]] = [es[j], es[i]]; }
   foes.forEach(m => { const spots = m.leader ? es.filter(([, y]) => y <= 1).concat(es) : es.filter(([, y]) => y >= 1).concat(es); st.units.push(toUnit(m, 'enemy', free(spots))); });
+  if (camp && camp.def) for (const u of st.units) if (u.side === camp.side) u.def += camp.def;
   st.initialEnemies = foes.length;
   newTurn(st, []);
   return st;

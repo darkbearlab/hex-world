@@ -38,20 +38,25 @@
   <section id="world" class="screen" hidden>
     <header class="status">
       <span id="wTime"></span>
-      <span>💰 <b id="wGold"></b></span>
-      <span>🍞 <b id="wFood"></b></span>
-      <span>📦 <b id="wLoad"></b></span>
       <span id="wAP" hidden>⏳ <b id="wAPv"></b></span>
+      <span id="wCampTag" class="tag" hidden></span>
     </header>
-    <div id="mapWrap"><canvas id="map"></canvas><button id="btnHome" class="floating" aria-label="回到隊伍">◎</button><button id="btnDanger" class="floating f2" aria-label="危險地帶">⚠</button></div>
-    <div id="hexInfo" class="panel"></div>
-    <nav class="bar">
-      <button id="btnParty">隊伍</button>
-      <button id="btnLog">日誌</button>
-      <button id="btnMarket">行情</button>
-      <button id="btnJobs">委託</button>
-      <button id="btnRest">紮營</button>
-    </nav>
+    <div id="wbody">
+      <aside id="lrail" class="rail left">
+        <button id="lToggle" class="rtoggle" aria-label="隊伍"></button>
+        <div id="lbody" class="rbody"></div>
+      </aside>
+      <div id="mapWrap">
+        <canvas id="map"></canvas>
+        <button id="btnHome" class="floating" aria-label="回到隊伍">◎</button><button id="btnDanger" class="floating f2" aria-label="危險地帶">⚠</button>
+        <div id="hexInfo" class="panel"></div>
+        <div id="campDock"><div id="campL" class="copts"></div><button id="btnCamp" aria-label="紮營">⛺</button><div id="campR" class="copts"></div></div>
+      </div>
+      <aside id="rrail" class="rail right">
+        <nav id="rtabs"></nav>
+        <div id="rbody" class="rbody"></div>
+      </aside>
+    </div>
   </section>
 
   <section id="battle" class="screen" hidden>
@@ -68,7 +73,6 @@
 
 </main>
 
-<aside id="notes"><button id="notesTab" aria-label="筆記">筆記</button><div class="nbody"><div class="nhead"><b>筆記</b><button id="notesStamp">插入日期與地點</button></div><textarea id="notesText" placeholder="隨手記：哪裡的鐵便宜、誰在追你、下一步要去哪……（自動存檔）"></textarea></div></aside>
 <div id="sheet" class="sheet" hidden><div class="sheetbody"><button class="close" id="sheetClose" aria-label="關閉">✕</button><div id="sheetContent"></div></div></div>
 <div id="toast"></div>
 <div id="banner"></div>
