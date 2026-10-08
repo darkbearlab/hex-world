@@ -8,7 +8,9 @@ let hist = [];                 // 每一年的樣子
 let cur = 0, playing = false, timer = null, computing = false;
 let allEvents = [];
 let sel = -1, hover = -1, hiFac = -1, mouse = {x: 0, y: 0};
-const layers = {fac: true, pop: false, bandit: false, trench: false};
+const layers = {fac: true, pop: false, bandit: false, trench: false, opp: true};
+let oppKind = 'all';
+const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}};
 let logFilter = 'legend';
 let worker = null;
 
@@ -126,6 +128,15 @@ function drawNow() {
     if (g.native) { ctx.fillStyle = '#e0915a'; ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y + r * .8); ctx.lineTo(x - r, y + r * .8); ctx.closePath(); ctx.fill(); }
     else { ctx.strokeStyle = g.legacy ? '#ffd27a' : '#c4593c'; ctx.lineWidth = Math.max(1.2, 1.8 / k); ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke(); }
   }
+  // 機會：圓牌上一個字，外圈越粗越亮程度越高
+  if (layers.opp && s.opps) for (const o of s.opps) {
+    if (oppKind !== 'all' && o.kind !== oppKind) continue;
+    const K = OK[o.kind], x = cx(o.tile) + S0 * .35, y = cy(o.tile) + S0 * .3, r = S0 * (.38 + o.lv * .08);
+    if (o.lv === 3) { ctx.fillStyle = K.c + '55'; ctx.beginPath(); ctx.arc(x, y, r * 1.55, 0, 7); ctx.fill(); }
+    ctx.fillStyle = '#15120e'; ctx.strokeStyle = K.c; ctx.lineWidth = Math.max(.8, (o.lv * .9) / Math.sqrt(k)) * (S0 / 10); ctx.globalAlpha = o.lv === 1 ? .7 : 1;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = K.c; ctx.font = `700 ${r * 1.15}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(K.ch, x, y + r * .05); ctx.globalAlpha = 1;
+  }
   // 名字：首府一定標，放大後標城鎮
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   const fs = Math.max(9 / k, S0 * .62);
@@ -179,7 +190,7 @@ function renderLog() {
   for (const e of list) { if (e.y !== lastY) { html += `<li class="yh">第 ${e.y} 年</li>`; lastY = e.y; } html += `<li class="${e.type}"${e.tile >= 0 ? ` data-tile="${e.tile}"` : ''}>${esc(e.text)}</li>`; }
   $('log').innerHTML = html || '<li class="muted">這段時間還沒有記錄。</li>';
 }
-$('log').onclick = e => { const li = e.target.closest('li[data-tile]'); if (li) { const t = +li.dataset.tile; select(t, true); } };
+$('log').onclick = e => { const li = e.target.closest('li[data-tile]'); if (li) { const t = +li.dataset.tile; select(t, true, true); } };
 
 function facTags(f, s) { const L = s.leagues.find(x => x.id === f.league), lg = f.liege >= 0 ? s.fac.find(x => x.id === f.liege) : null; return `${f.free ? '<span class="tag free">自由城市</span>' : ''}${f.works ? '<span class="tag works">廠鎮</span>' : ''}${f.native ? '<span class="tag native">原住民</span>' : ''}${L ? `<span class="tag works">${esc(L.n)}</span>` : ''}${lg ? `<span class="tag">${esc(lg.n)}的附庸</span>` : ''}`; }
 function renderFac() {
@@ -208,6 +219,7 @@ function renderTile() {
   if (s.bandit[i] > 15) html += `<dt>掠奪者</dt><dd>${Math.round(s.bandit[i] / 2.55)}%</dd>`;
   if (i === s.arc.elevator) html += `<dt>地標</dt><dd>軌道電梯</dd>`;
   html += '</dl>';
+  for (const o of (s.opps || []).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}<br><span class="muted">${esc(o.detail)}</span></p>`; }
   for (const x of g) html += `<p>${x.native ? '原住民' : '掠奪者據點'}：<b>${esc(x.name)}</b>（勢力 ${x.str}${x.legacy ? '，手上有遺產級' : ''}）</p>`;
   if (t) {
     html += `<h2 style="margin-top:10px">市鎮</h2><dl class="kv"><dt>服務人口</dt><dd>${t.pop}</dd>${t.lord ? `<dt>課長</dt><dd>${esc(t.lord)}</dd>` : ''}<dt>培養槽</dt><dd>${t.vat || '沒有'}</dd>${t.works ? '<dt>廠區</dt><dd>有</dd>' : ''}`;
@@ -216,12 +228,22 @@ function renderTile() {
   }
   $('pane-tile').innerHTML = html;
 }
+function renderOpp() {
+  const s = hist[cur], O = (s.opps || []).slice().sort((a, b) => b.lv - a.lv || a.kind.localeCompare(b.kind));
+  const cnt = k => O.filter(o => (k === 'all' || o.kind === k) && o.lv >= 2).length;
+  let html = `<p class="muted" style="margin:0 0 8px">如果玩家此刻進場，沙盒會給出的事。外圈越粗越亮，程度越高（●●● 最高）。</p><div class="filters">` +
+    [['all', '全部'], ...Object.entries(OK).map(([k, v]) => [k, v.n])].map(([k, n]) => `<button data-ok="${k}" class="${oppKind === k ? 'on' : ''}">${n} <span class="muted">${cnt(k)}</span></button>`).join('') + '</div>';
+  const list = O.filter(o => oppKind === 'all' || o.kind === oppKind);
+  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span></li>`; }).join('') + '</ol>';
+  $('pane-opp').innerHTML = html || '';
+}
+$('pane-opp').onclick = e => { const b = e.target.closest('button[data-ok]'); if (b) { oppKind = b.dataset.ok; renderOpp(); draw(); return; } const li = e.target.closest('li[data-tile]'); if (li) select(+li.dataset.tile, true, true); };
 function renderGear() {
   const s = hist[cur];
   $('pane-gear').innerHTML = `<p class="muted" style="margin:0 0 10px">企業時代留下、再也造不出來的裝備。</p><ul class="gear" style="padding-left:18px">` + s.weapons.map(x => `<li><b>「${esc(x.name)}」</b>${esc(x.kind)}<br><span class="muted">${x.holder ? `在 ${esc(x.holder)} 手上` : x.fac ? `收在${esc(x.fac)}的軍械庫` : x.gang ? `在 ${esc(x.gang)} 手上` : x.lost ? `${x.sealed ? '封在' : '失落在'}${esc(ST.names[x.at] || '某處')}${x.sealed ? '的舊倉庫' : ''}` : ''}・易手 ${x.owners} 次・打贏 ${x.wins} 場</span></li>`).join('') + '</ul>';
 }
-function renderPanel() { if (!hist.length) return; const t = curTab(); if (t === 'log') renderLog(); else if (t === 'fac') renderFac(); else if (t === 'tile') renderTile(); else renderGear(); }
-function select(i, center) { sel = i; if (center) centerOn(i); tab('tile'); draw(); }
+function renderPanel() { if (!hist.length) return; const t = curTab(); if (t === 'opp') renderOpp(); else if (t === 'log') renderLog(); else if (t === 'fac') renderFac(); else if (t === 'tile') renderTile(); else renderGear(); }
+function select(i, center, keep) { sel = i; if (center) centerOn(i); if (!keep) tab('tile'); draw(); }
 
 function renderHeader() {
   const s = hist[cur], a = s.arc; $('yearNum').textContent = `第 ${s.y} 年`; $('slider').value = cur;
@@ -230,7 +252,7 @@ function renderHeader() {
 let lastPanelY = -1;
 function renderAll() { renderHeader(); draw(); if (hist[cur].y !== lastPanelY || curTab() !== 'log') { lastPanelY = hist[cur].y; renderPanel(); } if (hover >= 0) showTip(mouse.x, mouse.y); }
 
-$('legend').innerHTML = '<span><i style="background:#f1e6cf;border-radius:50%"></i>市鎮</span><span>★ 首府</span><span><i style="background:#6fd0d8;transform:rotate(45deg) scale(.8)"></i>培養槽</span><span><i style="background:#d9b86a"></i>廠區</span><span style="color:#ff5a3c">━ 戰線</span><span style="color:#c4593c">✕ 掠奪者</span><span style="color:#e0915a">▲ 原住民</span>';
+$('legend').innerHTML = '<span>機會：</span>' + Object.values(OK).map(v => `<span style="color:${v.c}">${v.ch} ${v.n}</span>`).join('') + '<span style="flex-basis:100%;height:0"></span>' + '<span><i style="background:#f1e6cf;border-radius:50%"></i>市鎮</span><span>★ 首府</span><span><i style="background:#6fd0d8;transform:rotate(45deg) scale(.8)"></i>培養槽</span><span><i style="background:#d9b86a"></i>廠區</span><span style="color:#ff5a3c">━ 戰線</span><span style="color:#c4593c">✕ 掠奪者</span><span style="color:#e0915a">▲ 原住民</span>';
 
 const seed0 = new URL(location).searchParams.get('seed') || '奇美拉-1';
 $('seed').value = seed0; start(seed0);

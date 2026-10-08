@@ -41,6 +41,7 @@
       <button data-layer="pop">人口</button>
       <button data-layer="bandit">掠奪者</button>
       <button data-layer="trench">戰壕</button>
+      <button data-layer="opp" class="on">機會</button>
     </div>
     <div class="zoom"><button id="zin" aria-label="放大">＋</button><button id="zout" aria-label="縮小">－</button><button id="zfit" aria-label="全圖">⤢</button></div>
     <div class="maplegend" id="legend"></div>
@@ -48,12 +49,14 @@
   </section>
   <aside class="panel">
     <nav class="tabs" role="tablist">
-      <button data-tab="log" class="on">編年史</button>
+      <button data-tab="opp" class="on">機會</button>
+      <button data-tab="log">編年史</button>
       <button data-tab="fac">勢力</button>
       <button data-tab="tile">地點</button>
       <button data-tab="gear">遺產級</button>
     </nav>
-    <div class="pane" id="pane-log">
+    <div class="pane" id="pane-opp"></div>
+    <div class="pane" id="pane-log" hidden>
       <div class="filters" id="filters">
         <button data-f="legend" class="on">大事</button>
         <button data-f="war">戰爭</button>

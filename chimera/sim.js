@@ -500,11 +500,12 @@ function createSim(w,rand,pick){
       if(!fac[a].alive||!fac[b].alive){war[a][b]=null;continue}
       if(!bc[a][b]){tension[a][b]*=.9;if(war[a][b]){war[a][b]=null;say(y,'war',`${fac[a].n}與${fac[b].n}之間已經沒有人煙，戰事不了了之。`)}continue}
       if(!war[a][b]&&(fac[a].free||fac[b].free||sameRealm(a,b)||(fac[a].house&&fac[a].house===fac[b].house))){tension[a][b]*=.8;continue}
-      if(!war[a][b]){tension[a][b]+=.4+rand()*1.6+Math.min(bc[a][b],20)*.06+(covet[a][b]||covet[b][a]?2:0)+Math.max(-1.5,Math.min(3,-hAff(fac[a].house,fac[b].house)*1.2))+(fac[a].bloc&&fac[b].bloc&&fac[a].bloc!==fac[b].bloc?1.5:0);
-        if(tension[a][b]>30+rand()*25){
+      if(!war[a][b]){tension[a][b]+=.4+rand()*1.6+Math.min(bc[a][b],20)*.06+(covet[a][b]||covet[b][a]?2:0)+Math.max(-1.5,Math.min(3,-hAff(fac[a].house,fac[b].house)*1.2))+(fac[a].bloc&&fac[b].bloc&&fac[a].bloc!==fac[b].bloc?(globalThis.BLOCT??3):0);
+        const xb=fac[a].bloc&&fac[b].bloc&&fac[a].bloc!==fac[b].bloc;   // 不同陣營：門檻低，打起來就是長期的陣營戰爭
+        if(tension[a][b]>(xb?18+rand()*18:30+rand()*25)){
           let att,def;if(covet[a][b]&&!covet[b][a])[att,def]=[a,b];else if(covet[b][a]&&!covet[a][b])[att,def]=[b,a];else [att,def]=rand()<.5?[a,b]:[b,a];
           const [goal,why]=pickGoal(att,def);if(goal<0){tension[a][b]*=.6;continue}
-          war[a][b]={att,def,goal,start:y,end:y+4+Math.floor(rand()*8),gain:{},score:0,siege:null,taken:[]};
+          war[a][b]={bloc:xb?1:0,att,def,goal,start:y,end:y+(xb?8+Math.floor(rand()*9):4+Math.floor(rand()*8)),gain:{},score:0,siege:null,taken:[]};
           say(y,'war',`${fac[att].n}為了${nm(goal)}的${why}，向${fac[def].n}開戰。`,goal);
           const L=fac[def].liege;if(L>=0&&fac[L].alive&&L!==att)say(y,'war',`${fac[L].n}出兵援助附庸${fac[def].n}。`,goal)}}
       else{war[a][b].told=0;war[a][b].snowTold=false}}
@@ -841,6 +842,9 @@ function createSim(w,rand,pick){
     // 7. 戰爭結束
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W)continue;
         const A=W.att,D=W.def,G=W.goal;let msg=null;
+        // 陣營戰爭：拿下目標不停火，挑下一個目標繼續推，直到期限到或打不動
+        if(W.bloc&&(W.done===1||owner[G]===A)&&y<W.end&&fac[A].alive&&fac[D].alive){const [g2,why2]=pickGoal(A,D);
+          if(g2>=0&&g2!==G){W.goal=g2;W.done=0;W.siege=null;W.pushes=(W.pushes||0)+1;if(W.pushes<=2)say(y,'war',`${fac[A].n}拿下${nm(G)}之後沒有停手，下一個目標是${nm(g2)}的${why2}。`,g2);continue}}
         if(W.done===1||owner[G]===A){msg=`${fac[D].n}承認失去${nm(G)}，與${fac[A].n}停火。`;
           // 兵力懸殊的話，敗方還得成為附庸、按年進貢
           let pA=0,pD=0;for(let i=0;i<N;i++){if(owner[i]===A)pA+=pop[i];else if(owner[i]===D)pD+=pop[i]}
@@ -1156,8 +1160,47 @@ function createSim(w,rand,pick){
 
   w.events=ev;w.graves=graves;w.snaps=snaps;w.fac=fac;w.stats=stats;
   const legendData=()=>({leagues,weapons:weapons.map(wp=>{const h=wp.holder?heroById(wp.holder):null;return {...wp,at:h?(h.fief>=0?h.fief:fac[h.f].cap):wp.fac>=0?fac[wp.fac].cap:wp.gang?(gangs.find(g=>g.id===wp.gang)||{lair:wp.loc}).lair:(wp.lake&&wp.shore!==undefined?wp.shore:wp.loc)}}),saga,ARC,houseAff,aff,heroes:heroes.filter(h=>h.legend||h.ruled||h.famed||h.wins>=4),fac:fac.map(f=>({id:f.id,n:f.n,alive:f.alive,born:f.born,diedY:f.diedY,cap:f.cap,ruler:f.ruler,house:f.house,liege:f.liege,bloc:f.bloc||0,league:f.league||0,free:!!f.free,works:!!f.works,native:!!f.native})),names:w.names,owner:owner.slice(),events:ev});
+  // ===== 機會：從沙盒狀態算出「遊戲此刻會從這裡拿到什麼」——遠征點、缺貨的城、快爆發的邊界、前線、危險商路、據點 =====
+  // 每一筆：{kind,tile,lv(1–3),title,detail,risk(0–3),fac?}；觀看頁畫成機會層，之後也是委託產生器的來源
+  function opportunities(){
+    const out=[],K3=v=>v>=3?3:v>=2?2:1,riskOf=t=>bandit[t]>60?3:bandit[t]>35?2:bandit[t]>15?1:0;
+    const nearTown=t=>{let d=99;for(const k in markets)if(owner[+k]>=0)d=Math.min(d,hdist(t,+k));return d};
+    const fn=f=>fac[f]?.n||'';
+    // 1. 遠征資源點
+    for(const wp of weapons){if(!wp.lost||wp.loc<0)continue;const t=land[wp.loc]?wp.loc:(wp.shore??wp.loc);
+      out.push({kind:'exp',tile:t,lv:wp.sealed?3:2,risk:riskOf(t),title:wp.sealed?`${nm(t)}的舊倉庫`:`${nm(t)}的舊戰場`,detail:`遺產級「${wp.name}」${wp.kind}${wp.sealed?'封在裡面':'遺落在這裡'}`})}
+    // 無主的舊礦坑、燃料林、廢墟：只取離聚落 2～9 格（遠征到得了、又不在誰家門口）裡最值得的前 20 處
+    {const c=[];for(let i=0;i<N;i++){if(!land[i]||owner[i]>=0)continue;const d=nearTown(i);if(d<2||d>9)continue;
+      if(vein[i]>40)c.push({i,v:vein[i]/120+d*.08,k:'mine',d});else if(biome[i]===6&&timber[i]>70)c.push({i,v:timber[i]/120+d*.05,k:'fuel',d});else if(ruin[i])c.push({i,v:.8+d*.05,k:'ruin',d})}
+      c.sort((p,q)=>q.v-p.v);const taken=[];
+      for(const x of c){if(taken.length>=20)break;if(taken.some(j=>hdist(j,x.i)<2))continue;taken.push(x.i);const i=x.i,lv=x.v>=2.6?3:x.v>=1.4?2:1;
+        out.push({kind:'exp',tile:i,lv,risk:riskOf(i),title:x.k==='mine'?`${nm(i)}的舊礦坑`:x.k==='fuel'?`${nm(i)}的油棘林`:`${nm(i)}的廢墟`,
+          detail:(x.k==='mine'?`還能拆約 ${Math.round(vein[i])} 份零件料`:x.k==='fuel'?`無主的燃料林，約 ${Math.round(timber[i])} 份`:'人走光的聚落，還有廢料和零件可撿')+`・離最近的城 ${x.d} 格`})}}
+    // 2. 缺貨的城：水和糧最要命，燃料其次，彈藥只有在打仗時才急；取最嚴重的 12 座
+    {const W_={water:1.5,food:1.5,fuel:1,ammo:.6},c=[];
+      for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0||!m.ratio)continue;let atw=0;for(let q=0;q<FMAX;q++)if(atWar(o,q))atw=1;let best=null;
+        for(const g in W_){const r=m.ratio[g];if(r>=.8)continue;const sc=(1-r)*(g==='ammo'&&atw?1.2:W_[g]);if(!best||sc>best.sc)best={g,r,sc}}
+        if(best)c.push({t,o,m,...best,rank:best.sc*Math.sqrt(m.pop+1)})}
+      c.sort((p,q)=>q.rank-p.rank);
+      for(const x of c.slice(0,12))out.push({kind:'short',tile:x.t,lv:x.sc>.75?3:x.sc>.4?2:1,risk:0,fac:x.o,title:`${nm(x.t)}缺${GN[x.g]}`,detail:`${fn(x.o)}・需求只滿足 ${Math.round(x.r*100)}%・服務人口 ${Math.round(x.m.pop)}`})}
+    // 3. 快爆發的邊界（還沒開戰）與 4. 前線
+    if(bc)for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){if(!fac[a].alive||!fac[b].alive||!bc[a][b])continue;const W=war[a][b];
+      if(W&&W.att!==undefined){const t=W.siege?W.siege.t:W.goal,tr=trench[t]||0,lv=W.siege?3:tr>=1?3:tr>.3?2:2;
+        out.push({kind:'front',tile:t,lv,risk:3,fac:W.att,title:`${fn(W.att)}攻打${fn(W.def)}`,detail:`目標${nm(W.goal)}・打了 ${(histY||curY)-W.start+1} 年${W.siege?`・${nm(W.siege.t)}被圍`:''}${tr>=.3?`・戰壕 ${tr.toFixed(1)} 級`:''}`});continue}
+      if(fac[a].free||fac[b].free||sameRealm(a,b))continue;const T_=tension[a][b],xb=fac[a].bloc&&fac[b].bloc&&fac[a].bloc!==fac[b].bloc,L1=xb?12:18,L2=xb?20:28,L3=xb?28:40;if(T_<L1)continue;
+      const fr=(front[a][b]&&front[a][b][0])||(front[b][a]&&front[b][a][0]);if(!fr)continue;
+      const blocX=xb,mass=(fac[a].clones||0)+(fac[b].clones||0);
+      out.push({kind:'tense',tile:fr[1],lv:T_>L3?3:T_>L2?2:1,risk:1,title:`${fn(a)}與${fn(b)}的邊界`,detail:`緊張度 ${Math.round(T_)}（${xb?'不同陣營，大約 18～36':'大約 30～55'} 會開戰）${blocX?'・不同陣營':''}${mass>50?`・雙方複製兵 ${Math.round(mass)}`:''}`})}
+    // 5. 危險商路：運量大又有掠奪者的路段
+    {const c=[];for(let i=0;i<N;i++)if(land[i]&&traffic[i]>30&&bandit[i]>12)c.push([i,traffic[i]*bandit[i]]);c.sort((p,q)=>q[1]-p[1]);
+      const taken=[];for(const [i,v] of c){if(taken.length>=10)break;if(taken.some(j=>hdist(i,j)<3))continue;taken.push(i);
+        out.push({kind:'route',tile:i,lv:taken.length<=3?3:taken.length<=6?2:1,risk:riskOf(i),title:`${nm(i)}一帶的商路`,detail:`來往的貨多（熱度 ${Math.round(traffic[i])}），掠奪者壓力 ${Math.round(bandit[i])}`})}}
+    // 6. 據點：掠奪者、原住民、手上有遺產級的
+    for(const g of gangs){if(g.gone)continue;const leg=weapons.filter(w=>w.gang===g.id);
+      out.push({kind:'lair',tile:g.lair,lv:Math.min(3,(g.str>260?3:g.str>150?2:1)+(leg.length?1:0)),risk:3,title:g.native?g.name:`${g.name}的據點`,detail:`${g.native?'原住民':'掠奪者'}・勢力 ${Math.round(g.str)}${leg.length?`・手上有遺產級「${leg.map(w=>w.name).join('」「')}」`:''}`})}
+    return out}
   const peek=()=>({owner,pop,bandit,town,mkt,markets,gangs,fac,routeTiles,biome,trench,wall,ruin,ARC,leagues,saga,game,gameK,timber,timberK,vein,known,ev,T,curY,weapons,heroes,war,caravans,carts,stamp:stamp(),season:curSeason()});
-  return {peek,legendData,runHistory,begin,stepYear,get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+  return {peek,legendData,opportunities,runHistory,begin,stepYear,get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 

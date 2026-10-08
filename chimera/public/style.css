@@ -79,3 +79,6 @@ h2{font-size:16px;margin:0 0 4px}
   .brand span{display:none}
   .timeline{min-width:100%}
 }
+
+.opp li{border-left-width:3px}
+.opp .lv{font-size:10px;letter-spacing:1px}
