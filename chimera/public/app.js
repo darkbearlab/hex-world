@@ -585,18 +585,23 @@ const seed0 = new URL(location).searchParams.get('seed') || '奇美拉-1';
 $('seed').value = seed0; start(seed0);
 window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); if (page === 'rep') { const P = $('pane-rep'); P.innerHTML = ''; renderRepPage(); } });
 
-// ===== 親自打：ASH 的任務戰鬥開在全螢幕 iframe（public/ash/mission.html，由 chimera/ash/build.mjs 建置），
-// 打完 ASH 用 postMessage 傳回 {win, dead}，交給 worker 的 submit。打的時候公司的時間停住。
-let mission = null;
+// ===== 親自打：ASH 的任務戰鬥開在全螢幕 iframe（public/ash/mission.html，由 chimera/ash/build.mjs 建置）。
+// iframe 只建一次、平常藏著：頁面一打開就在背景把 ASH 載好，每張票只用 postMessage 送進去換一場新的戰鬥，
+// 不重新初始化。打完 ASH 傳回 {win, dead}，交給 worker 的 submit。打的時候公司的時間停住。
+let mission = null, ashReady = false, ashQueue = null;
+const missionBox = document.createElement('div'); missionBox.id = 'mission'; missionBox.hidden = true;
+missionBox.innerHTML = `<div class="mbar"><b data-mt></b><span class="mini">走到電梯撤離＝勝・全員倒下＝敗・上方按鈕或 Tab 切換操作的隊員，倒下時自動交棒</span><button data-mx>先不打（關掉，票還在）</button></div><iframe title="任務戰鬥" src="ash/mission.html"></iframe>`;
+document.body.appendChild(missionBox);
+const ashFrame = missionBox.querySelector('iframe');
+missionBox.querySelector('[data-mx]').onclick = () => { if (!mission) return; send({type: 'abort'}); closeMission(); };
 function openMission(tk) {
-  closeMission();
-  const box = document.createElement('div'); box.id = 'mission';
-  box.innerHTML = `<div class="mbar"><b>${esc(tk.title)}</b><span class="mini">走到電梯撤離＝勝・全員倒下＝敗・上方按鈕或 Tab 切換操作的隊員，倒下時自動交棒</span><button data-mx>先不打（關掉，票還在）</button></div><iframe title="任務戰鬥" src="ash/mission.html#${encodeURIComponent(JSON.stringify(tk))}"></iframe>`;
-  document.body.appendChild(box); mission = {id: tk.id, box};
-  box.querySelector('[data-mx]').onclick = () => { if (!mission) return; send({type: 'abort'}); closeMission(); };
+  mission = {id: tk.id}; missionBox.querySelector('[data-mt]').textContent = tk.title; missionBox.hidden = false;
+  if (ashReady) ashFrame.contentWindow.postMessage({type: 'chimera-ticket', ticket: tk}, '*'); else ashQueue = tk;
+  ashFrame.focus();
 }
-function closeMission() { if (mission) { mission.box.remove(); mission = null; } }
+function closeMission() { mission = null; missionBox.hidden = true; }
 window.addEventListener('message', e => {
-  const m = e.data; if (!mission || !m || e.source !== mission.box.querySelector('iframe')?.contentWindow) return;
-  if (m.type === 'chimera-result' && m.ticketId === mission.id) { send({type: 'submit', ticket: mission.id, result: m.result}); closeMission(); }
+  const m = e.data; if (!m || e.source !== ashFrame.contentWindow) return;
+  if (m.type === 'chimera-ready') { ashReady = true; if (ashQueue) { ashFrame.contentWindow.postMessage({type: 'chimera-ticket', ticket: ashQueue}, '*'); ashQueue = null; } }
+  else if (m.type === 'chimera-result' && mission && m.ticketId === mission.id) { send({type: 'submit', ticket: mission.id, result: m.result}); closeMission(); }
 });

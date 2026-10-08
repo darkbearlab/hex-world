@@ -28,7 +28,7 @@ index b4cce15..d260a1c 100644
    else if(entered&&isSimulation(game)&&game.status==='playing'&&!$('#modal').open&&promptDue(game,promptLog(game)))showRoomPrompt();
    else if(entered&&game.pendingPerks&&game.status==='playing'&&!bossScene)showLevelUp();   // 3.204.0: a level-up waits for a boss scene
 diff --git a/src/controller.js b/src/controller.js
-index a22ca9f..b5dea2b 100644
+index 088a406..62e25d2 100644
 --- a/src/controller.js
 +++ b/src/controller.js
 @@ -77,13 +77,15 @@ import {INVENTORY_TABS,inventoryTab,refreshTerminalDeal,setTerminalDraft,showBlu
@@ -59,12 +59,15 @@ index a22ca9f..b5dea2b 100644
  function showSaveWarning(){saveWarningDue=false;modal(t('controller.saveFailed'));}
  const pad=n=>String(n).padStart(2,'0');
  const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-@@ -655,7 +657,7 @@ document.addEventListener('contextmenu',e=>{const target=e.target instanceof Ele
+@@ -655,7 +657,10 @@ document.addEventListener('contextmenu',e=>{const target=e.target instanceof Ele
  document.addEventListener('touchmove',e=>{if(document.documentElement.classList.contains('scroll-locked')&&!(e.target instanceof Element&&e.target.closest('dialog')))e.preventDefault();},{passive:false});
  // No pinch zoom (3.98.1, user request): iOS Safari ignores user-scalable=no, so block the WebKit gesture events too.
  for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,e=>e.preventDefault(),{passive:false});
 -window.addEventListener('pagehide',()=>{if(entered){saveGame(game);persistRunLog(game);}});update();showIntro();
-+window.addEventListener('pagehide',()=>{if(entered&&!EMBED){saveGame(game);persistRunLog(game);}});update();if(EMBED)EMBED.ready?.();else showIntro();
++window.addEventListener('pagehide',()=>{if(entered&&!EMBED){saveGame(game);persistRunLog(game);}});update();
++// 奇美拉嵌入版：同一個頁面換下一場任務（不重新載入、不重新初始化），做法同 startSimulation
++if(EMBED)EMBED.load=next=>{game=next;entered=true;playback=null;renderer.game=game;renderer.camera={x:game.player.x,y:game.player.y};renderer.effects=[];renderer.callouts.clear();resetKia();cancelAim();lastStatus='playing';previousFloor=game.floor;if($('#modal').open)$('#modal').close();update();};
++if(EMBED)EMBED.ready?.();else showIntro();
  // The title modal is open by now, so revealing the shell cannot flash the battle UI.
  document.body.classList.remove('booting');
- // 奇美拉嵌入版：不註冊 service worker，避免 /ash/ 被快取成舊版
+ if('serviceWorker'in navigator)navigator.serviceWorker.register(new URL('../sw.js',import.meta.url)).catch(()=>{});

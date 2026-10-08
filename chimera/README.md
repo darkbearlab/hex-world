@@ -213,13 +213,15 @@
 
 ## 親自打：ASH 任務戰鬥（階段 1，`chimera/ash/`）
 - ASH PROTOCOL 是插拔進來的，不動 ash_protocol 本身：`ash/ASH_COMMIT` 固定版本（3.223.0），`ash/patches/` 三個小補丁，`ash/overlay/` 新增的檔案。`node chimera/ash/build.mjs` 建置到 `public/ash/`（部署時自動跑）。
-  - 補丁：關掉 service worker；`action()` 的兩個小隊掛鉤（0004）；動畫快照的掛鉤（0005）；`actAlly` 開頭的隊友大腦鉤子（`g.allyBrain`）；控制器接收外面建好的遊戲（`globalThis.ASH_EMBED`），不讀寫存檔、不記 ASH 戰績，結束時交給入口。
+  - 補丁：`actAlly` 的隊友大腦鉤子（0002）；嵌入版控制器（0003，含換下一場的 `EMBED.load`）；`action()` 的兩個小隊掛鉤（0004）；動畫快照的掛鉤（0005）；`actAlly` 開頭的隊友大腦鉤子（`g.allyBrain`）；控制器接收外面建好的遊戲（`globalThis.ASH_EMBED`），不讀寫存檔、不記 ASH 戰績，結束時交給入口。
   - overlay：`src/chimera-mission.js`（`MissionGame`）、`src/chimera-entry.js`（`mission.html` 的入口）、`tools/clear-bot/`（從本機 clear-bot 分支複製的通關機器人）、`tools/chimera/squad.mjs`（隊友大腦）、`tools/chimera/sim.mjs`（無頭模擬）。
 - 流程：任務票按「親自打」→ worker 停住公司的時間、送出任務資料 → 全螢幕 iframe 開 `ash/mission.html#任務資料` → 打完 ASH 用 `postMessage` 回傳 `{win, dead}` → worker 用 `submit` 結算（目標照 `objectivesDone`）→ 時間恢復。中途可以按「先不打」關掉，票還在。
 - **小隊（2026-10-08 起）：四位都是完整的玩家角色**（`src/chimera-squad.js` 的 `SquadGame`，DESIGN.md「隊友＝另一個玩家角色」）。你操作一位，其他三位由通關機器人照玩家的方式操作（`tools/chimera/full-squad.mjs`），各自有職業的武器、技能、道具、升級。
   - 切換：畫面上方的小隊列點一下，或 ⟳／Tab 依序切換。被操作的隊員倒下時自動交給下一位活著的；全員倒下才算敗。
   - 做法「輪值主角」：`g.player` 指向現在輪到的那位。你那一格做完，其他隊員依序各做一個動作（`squadAfterPlayer`／`soloPaid`），再輪到敵人。
   - 為了讓 ASH 認得四位玩家：武器登錄表全隊共用；個人狀態（鎖定、影步、追擊、待選升級……）換人時一起換；敵人行動時挑最近看得到的隊員當「玩家」；其他隊員算在友軍名單裡（直線攻擊、爆炸、選目標、團隊視野），他們受到的友軍傷害改用玩家的規則算；地面傷害每人各算一次；玩家角色走進隊友的格子就互換；動畫快照以操作中的隊員為玩家（補丁 0005）。
+  - 只有操作中的隊員能和隊友換位；機器人隊員把其他隊員當牆（互相換位會在走廊裡來回換、誰都走不動）。視野由操作中的那位最後揭露（光線與視野跟著他）。
+  - 載入：iframe 只建一次、平常藏著，奇美拉一打開就在背景載好；每張票用 postMessage 送進去，控制器的 `EMBED.load` 換成新的戰鬥（約 0.4 秒）。ASH 的 service worker 恢復（帶版本號的檔案優先讀快取，機器人的檔案也帶版本號）。
   - 繪圖：包住 `Renderer.prototype.drawActors` 補畫其他隊員（`src/chimera-squad-ui.js`），不改 ASH 檔案。
   - 還沒做：各自的先手順序（現在是你之後其他人依序行動）。任務票加 `survivors:true` 會改用下面階段 1 的倖存友軍版本。
   - 統計（`node tools/chimera/full-sim.mjs`，每位都由機器人操作，6 個種子）：掠奪者 12 名全勝、無人陣亡；隊長生命 20、敵人 17 名＋頭目全勝，交棒 3 次。

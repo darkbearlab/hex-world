@@ -62,8 +62,8 @@ export class SquadGame extends MissionGame{
   return null;
  }
  memberAt(q,except=null){return (this.members||[]).find(m=>m!==except&&m.hp>0&&m.x===q.x&&m.y===q.y)||null;}
- // 其他隊員站的格子：敵人和友軍走不過去；玩家角色（沒有帶 actor 的查詢）可以走，走進去就互換位置（executePlayer）
- passable(x,y,actor){if(!super.passable(x,y,actor))return false;if(!actor||!this.members)return true;const m=this.memberAt({x,y},this.player);return !m||m===actor;}
+ // 只有操作中的隊員能和隊友換位；機器人隊員互相換位會在走廊裡來回換、誰都走不動（2026-10-08 Alan 回報），所以當牆
+ passable(x,y,actor){if(!super.passable(x,y,actor))return false;if(!this.members||!actor&&!this.soloTurn)return true;const m=this.memberAt({x,y},this.player);return !m||m===actor;}
  executePlayer(type,arg){
   const p=this.player,from={x:p.x,y:p.y},other=type==='move'&&Array.isArray(arg)&&this.members?this.memberAt({x:p.x+arg[0],y:p.y+arg[1]},p):null;
   // 自己行動時隊員不算友軍（ASH 的友軍換位要查兵種卡）；換位用下面這行
@@ -106,43 +106,14 @@ export class SquadGame extends MissionGame{
   const m=seen[0];if(!m||m===this.player)return super.enemyAct(e);
   const keep=this.player;this.swap(m);try{return super.enemyAct(e);}finally{this.swap(keep);}
  }
- // 視野：每位隊員都揭露、都會被看到
+ // 視野：每位隊員都揭露、都會被看到。reveal 會記下「玩家看得到的格子」（visibleTiles，畫面的視野與光線用它），
+ // 所以其他隊員先揭露，操作中的那位最後揭露
  reveal(opts){
-  const r=super.reveal(opts);
-  if(!this.members||this.revealing)return r;
+  if(!this.members||this.revealing)return super.reveal(opts);
   this.revealing=true;const keep=this.player;
   try{for(const m of this.living)if(m!==keep){this.swap(m);super.reveal({warnings:false});}}finally{this.swap(keep);this.revealing=false;}
-  return r;
+  return super.reveal(opts);
  }
- // 交棒：被操作的隊員倒下，換下一位活著的接手
- action(type,arg){
-  const r=super.action(type,arg);
-  if(!this.soloTurn&&this.members)this.handOver();
-  return r;
- }
- // 其他活著的隊員也算在友軍名單裡（ASH 的直線攻擊、爆炸、敵人選目標、團隊視野都看這份名單）；
- // 他們受到的友軍傷害改用玩家的規則算（damageAlly → damagePlayer）。地面傷害另外算，所以那時先拿掉（membersHidden）。
- get activeAllies(){const a=super.activeAllies;if(!this.members||this.membersHidden)return a;return [...a,...this.living.filter(m=>m!==this.player)];}
- damageAlly(u,damage,attacker=null,blast=false,...rest){
-  if(!this.members?.includes(u))return super.damageAlly(u,damage,attacker,blast,...rest);
-  let r;this.forMembers([u],()=>{r=this.damagePlayer(damage,attacker?t('enemy-behavior.attackSource',{enemy:attacker.name||attacker.type||''}):t('game.blastSource'),attacker,blast);});if(u.hp<0)u.hp=0;return r;
- }
- // ASH 在「玩家」倒下時判死；其他人還活著就繼續（被操作的隊員倒下時，action() 結束後交棒）
- damagePlayer(...args){const r=super.damagePlayer(...args);if(this.members&&this.status==='dead'&&this.living.length)this.status='playing';return r;}
- // 地面（酸液、高熱、蒸汽、火、毒霧、中毒）：environmentTurn 只算 g.player，其他隊員照同一段規則各算一次
- environmentTurn(){
-  this.membersHidden=true;let r;try{r=super.environmentTurn();}finally{this.membersHidden=false;}
-  this.forMembers(this.living.filter(m=>m!==this.player),p=>{
-   const hazard=this.hazards.find(h=>h.x===p.x&&h.y===p.y);
-   if(hazard){this.floorDamage(Math.max(0,(hazard.type==='acid'?8:12)-p.hazmat));if(hazard.type==='acid'&&p.hazmat<8)addPoison(p,SWARM_TUNING.acidStacks);}
-   toxicPlayerTurn(this,addPoison);
-   if(p.hp>0&&scalding(this,p))this.floorDamage(Math.max(0,VENT_TUNING.damage-p.hazmat));
-   if(p.hp>0&&burningAt(this,p))this.floorDamage(Math.max(0,FIRE_TUNING.damage-p.hazmat));
-   tickPoison(this);
-  });
-  return r;
- }
- forMembers(list,fn){if(!list.length)return;const keep=this.player;try{for(const m of list){this.swap(m);fn(m);}}finally{this.swap(keep);}}
  // 交棒：還有人活著就不算結束（ASH 在「玩家」倒下時會判死，這位玩家可能是被敵人借去的其他隊員）
  handOver(){
   const next=this.living[0];if(!next)return false;
