@@ -34,7 +34,7 @@ function run(seed, kind) {
   for (let h = 1; h <= 168 + 72; h++) {
     C.tick(book, w, h);
     if (REINF !== 'none') for (const q of Object.values(book.squads)) { if (!q.caseId || q.busy) continue; const n = 4 - C.alive(q).length;
-      if (n >= 2) { const Co = book.companies[q.player], r = C.amend(book, w, q.id, n, REINF === 'post' && (Co.posts[post] || 0) >= n ? post : Co.base, h); if (r.ok) A.amend++; } }
+      if (n >= 2) { const Co = book.companies[q.player], r = C.amend(book, w, q.id, n, REINF === 'post' && (Co.posts[post] || 0) >= n ? post : Co.base, h); if (r.ok) A.amend++; else if (r.refused && !q.cnt) { q.cnt = 1; A.refused++; } } }
     for (const tk of book.tickets) {
       if (tk.done || !tk.squad) continue;
       const P = PLAYERS.find(p => p.name === tk.player); if (!P.plays) continue;
@@ -45,11 +45,13 @@ function run(seed, kind) {
       }
     }
   }
+  const tt = book.tickets.filter(t => t.transit); A.transit += tt.length; A.transitWin += tt.filter(t => t.win).length;
+  A.colLost += book.amends.reduce((x, a) => x + (a.done ? 0 : 0), 0);
   const after = {bandit: c.path.reduce((x, t) => x + K.bandit[t], 0), trench: K.trench[c.tile], aid: w.sim.pmc.pmcAid[c.fac]};
   return {book, c, before, after};
 }
 for (const kind of ['short', 'route', 'front', 'tense', 'lair']) {
-  A = {eta: 0, amend: 0, cases: 0, tk: 0, npc: 0, per: {}, delivered: 0, bandit: [0, 0], trench: [0, 0], aid: 0, drops: 0, pool: 0};
+  A = {eta: 0, amend: 0, refused: 0, transit: 0, transitWin: 0, colLost: 0, cases: 0, tk: 0, npc: 0, per: {}, delivered: 0, bandit: [0, 0], trench: [0, 0], aid: 0, drops: 0, pool: 0};
   for (const P of PLAYERS) A.per[P.name] = {tk: 0, win: 0, auto: 0, autoWin: 0, dead: 0, pts: 0, net: 0, final: 0};
   for (let s = 1; s <= seeds; s++) {
     const R = run(s, kind); if (!R) continue; const {book, c, before, after} = R;
@@ -64,7 +66,7 @@ for (const kind of ['short', 'route', 'front', 'tense', 'lair']) {
   }
   if (!A.cases) { console.log(`\n== ${kind}：沒有這種機會`); continue; }
   const n = A.cases, f = v => (v / n).toFixed(1);
-  console.log(`\n== ${kind}（${n} 個案件，每案平均）票 ${f(A.tk)}・沒人接由護衛打 ${f(A.npc)}・尾款池 ${f(A.pool)}・到位平均 ${f(A.eta)} 小時・補員 ${f(A.amend)} 次` +
+  console.log(`\n== ${kind}（${n} 個案件，每案平均）票 ${f(A.tk)}・沒人接由護衛打 ${f(A.npc)}・尾款池 ${f(A.pool)}・到位平均 ${f(A.eta)} 小時・補員 ${f(A.amend)} 次・雇主拒絕 ${f(A.refused)} 次・行軍遇襲 ${f(A.transit)} 張（勝 ${A.transit ? Math.round(A.transitWin / A.transit * 100) : 0}%）` +
     (A.bandit[0] ? `・送達 ${(A.delivered / n * 100).toFixed(0)}%・沿路掠奪者 ${f(A.bandit[0])}→${f(A.bandit[1])}` : '') + (A.trench[0] ? `・戰壕 ${(A.trench[0] / n).toFixed(2)}→${(A.trench[1] / n).toFixed(2)}` : '') + (A.aid ? `・留給下一場仗的戰功 ${f(A.aid)}` : ''));
   console.log('公司      隊數  票數  親打勝  自動(勝)  陣亡  積分   尾款   淨收');
   const totTk = PLAYERS.reduce((x, P) => x + A.per[P.name].tk, 0) || 1;

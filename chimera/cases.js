@@ -25,7 +25,7 @@ export const CFG = {
 function rng(book) { let a = book.rs | 0; a = a + 0x6D2B79F5 | 0; book.rs = a; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
 const pickOf = (book, arr) => arr[Math.floor(rng(book) * arr.length)];
 
-export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, t: 0, cases: [], tickets: [], squads: {}, ledger: [], inbox: [], companies: {}, amends: []}; }
+export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, t: 0, cases: [], tickets: [], squads: {}, ledger: [], inbox: [], companies: {}, amends: [], trips: []}; }
 
 // ===== 小隊 =====
 const VPOW = {rush: 4, gt: 6, armor: 14};
@@ -110,7 +110,9 @@ export function enlist(book, caseId, squadId, now, w) {
   if (!c || !sq || !c.open || sq.caseId) return false;
   const eta = now + (w ? travelHours(w, sq.at, c.tile) : 0);
   if (eta >= c.end - CFG.FREEZE) return false;   // 趕不上：到的時候已經不出票了
+  const from = sq.at;
   sq.caseId = c.id; sq.readyAt = eta; c.squads.push(sq.id); sq.at = c.tile;
+  if (w) planTrip(book, w, c, sq.id, from, now, eta);
   pay(book, now, sq.player, c.pay.deposit, 'deposit', `${c.title}：訂金（${sq.name}）`, c.id);
   if (eta > now) notify(book, now, sq.player, 'move', `${sq.name} 出發前往${c.title}，約 ${eta - now} 小時後到位。`, c.id);
   return true;
@@ -123,6 +125,15 @@ export function enlist(book, caseId, squadId, now, w) {
 export function amend(book, w, squadId, n, from, now) {
   const sq = book.squads[squadId], c = sq && book.cases.find(x => x.id === sq.caseId), C = sq && book.companies[sq.player];
   if (!sq || !c || !c.open || !C) return {ok: false, why: '沒有進行中的案件'};
+  // 雇主看你在這個案件的表現：打了三張以上、輸掉一半以上或一半以上放著讓它自動結算，就不准補人
+  const mine = book.tickets.filter(t => t.caseId === c.id && t.player === sq.player && t.done && !t.transit);
+  const lost = mine.filter(t => !t.win).length, autos = mine.filter(t => t.auto).length;
+  if (sq.refused) return {ok: false, why: '雇主拒絕', refused: true};
+  if (mine.length >= 3 && (lost / mine.length > .5 || autos / mine.length > .5)) {
+    sq.refused = true;
+    notify(book, now, sq.player, 'refused', `${c.title}：雇主拒絕契約變更（${lost > mine.length / 2 ? `${mine.length} 場輸了 ${lost} 場` : `${mine.length} 張票有 ${autos} 張放著沒打`}）。`, c.id);
+    return {ok: false, why: '雇主拒絕', refused: true};
+  }
   const pending = book.amends.filter(a => a.squad === sq.id && !a.done).reduce((x, a) => x + a.n, 0);
   n = Math.min(n, CFG.SQUAD - alive(sq).length - pending); if (n <= 0) return {ok: false, why: '已經滿編'};
   const fromPost = from !== C.base;
@@ -131,17 +142,26 @@ export function amend(book, w, squadId, n, from, now) {
   if (eta >= c.end - CFG.FREEZE) return {ok: false, why: '趕不上'};
   if (fromPost) C.posts[from] -= n;
   else pay(book, now, sq.player, -CFG.CLONE_VALUE * n, 'reinforce', `${c.title}：契約變更，從總部培養槽調 ${n} 人補${sq.name}`, c.id);
-  const a = {id: 'A' + book.nextId++, squad: sq.id, caseId: c.id, n, from, at: now, eta, done: false};
+  // 調來的人編成一支行軍縱隊，路上一樣可能被劫
+  const col = makeSquad(book, sq.player, {size: n, at: from, gear: sq.gear, name: `${sq.name} 的補員`}); col.column = true; col.caseId = null;
+  const a = {id: 'A' + book.nextId++, squad: sq.id, col: col.id, caseId: c.id, n, from, at: now, eta, done: false};
   book.amends.push(a);
+  planTrip(book, w, c, col.id, from, now, eta);
   notify(book, now, sq.player, 'move', `契約變更：${n} 人從${fromPost ? '駐紮地' : '總部'}出發補${sq.name}，約 ${eta - now} 小時後到。`, a.id);
   return {ok: true, eta, amend: a};
 }
 function arrive(book, a, now) {
+  const col = book.squads[a.col];
+  if (col && col.busy) return;   // 還在路上打，打完再到
   a.done = true; const sq = book.squads[a.squad];
+  const got = col ? alive(col) : [];
+  if (col) delete book.squads[col.id];
+  if (!got.length) { notify(book, now, sq.player, 'move', `${sq.name} 的補員在路上全滅，沒有人到。`, a.id); return; }
+  a.n = got.length;
   // 打到全滅、或案件已經結算，人就留在現場當駐紮
   const c = book.cases.find(x => x.id === a.caseId);
   if (!sq.caseId || c?.settled) { station(book, sq.player, c ? c.tile : sq.at, a.n); return; }
-  for (let i = 0; i < a.n; i++) sq.clones.push({id: 'C-' + (1000 + book.nextId++), pow: 6, hp: 20, alive: true});
+  for (const g of got) sq.clones.push({...g, hp: 20});
   sq.clones = sq.clones.filter(c => c.alive).concat(sq.clones.filter(c => !c.alive)).slice(0, 12);
   notify(book, now, sq.player, 'move', `補員到位：${sq.name} 回到 ${alive(sq).length} 人。`, a.id);
 }
@@ -188,8 +208,17 @@ const TYPES = {
   hold:      {n: '守點', night: .4, obj: [['hold', '守住陣地', 4], ['nolose', '全員生還', 1]]},
   sabotage:  {n: '破壞車場', night: 1, obj: [['demo', '炸掉載具', 3], ['out', '全身而退', 2]]},
   probe:     {n: '巡邏遭遇', night: .3, obj: [['repel', '逼退對方巡邏隊', 3], ['nolose', '全員生還', 1]]},
+  transit:   {n: '行軍遇襲', night: .4, obj: [['through', '突圍到位', 0], ['nolose', '全員生還', 0]]},
   clear:     {n: '清剿', night: .3, obj: [['clear', '掃蕩據點外圍', 3], ['boss', '擊倒頭目', 2], ['nolose', '全員生還', 1]]},
 };
+
+// 路上某一格會碰到誰：交戰勢力的地盤是攔截，附近有原住民是原住民，其餘是掠奪者
+function eventAt(c, w, t) {
+  const K = w.sim.peek(), P = w.sim.pmc, o = K.owner[t];
+  if (c.fac >= 0 && o >= 0 && P.atWar(o, c.fac)) return {type: 'intercept', tile: t, foe: o};
+  const g = K.gangs.find(x => !x.gone && x.native && hdist(x.lair, t) <= 3);
+  return g ? {type: 'native', tile: t, gang: g.id} : {type: 'ambush', tile: t};
+}
 
 function drawType(book, c, w) {
   const K = w.sim.peek(), P = w.sim.pmc;
@@ -197,10 +226,7 @@ function drawType(book, c, w) {
     // 在路上挑一格：掠奪者越多越容易出事；碰到交戰勢力的地盤就是攔截
     const tw = c.path.map(t => K.bandit[t] + 4 + (c.fac >= 0 && K.owner[t] >= 0 && P.atWar(K.owner[t], c.fac) ? 40 : 0));
     let r = rng(book) * tw.reduce((x, y) => x + y, 0), i = 0; for (; i < tw.length - 1 && r > tw[i]; i++) r -= tw[i];
-    const t = c.path[i], o = K.owner[t];
-    if (c.fac >= 0 && o >= 0 && P.atWar(o, c.fac)) return {type: 'intercept', tile: t, foe: o};
-    const g = K.gangs.find(x => !x.gone && x.native && hdist(x.lair, t) <= 3);
-    return g ? {type: 'native', tile: t, gang: g.id} : {type: 'ambush', tile: t};
+    return eventAt(c, w, c.path[i]);
   }
   if (c.kind === 'front') {
     const W = P.war(c.fac, c.foe), atk = W && W.att === c.fac, tr = K.trench[c.tile] || 0;
@@ -255,6 +281,31 @@ function issue(book, w, c, now) {
   if (c.kind === 'route') { const left = []; for (let i = 0; i < c.convoys; i++) if (!c.lostConvoys.includes(i)) left.push(i); tk.convoy = pickOf(book, left); }
   book.tickets.push(tk); c.tickets++;
   return tk;
+}
+
+// ===== 行軍途中遇襲 =====
+// 出發時就沿實際道路算好這一趟的風險（跟沙盒裡商隊被劫的算法同一套），決定會不會、在哪一格、第幾小時出事
+function planTrip(book, w, c, unitId, from, now, eta) {
+  if (eta - now < 2 || from < 0) return;
+  const K = w.sim.peek(), P = w.sim.pmc, path = P.route(from, c.tile).filter(t => t !== c.tile);
+  if (!path.length) return;
+  const tw = path.map(t => K.bandit[t] + (c.fac >= 0 && K.owner[t] >= 0 && P.atWar(K.owner[t], c.fac) ? 40 : 0));
+  const risk = tw.reduce((x, y) => x + y, 0);
+  if (rng(book) >= 1 - Math.exp(-risk / 1500)) return;
+  let r = rng(book) * risk, i = 0; for (; i < tw.length - 1 && r > tw[i]; i++) r -= tw[i];
+  book.trips.push({unit: unitId, caseId: c.id, tile: path[i], at: now + 1 + Math.floor(rng(book) * (eta - now - 1)), done: false});
+}
+function tripAmbush(book, w, trip, now) {
+  trip.done = true;
+  const c = book.cases.find(x => x.id === trip.caseId), sq = book.squads[trip.unit];
+  if (!sq || !alive(sq).length || sq.busy) return;
+  const ev = eventAt(c, w, trip.tile), K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
+  const tk = {id: 'T' + book.nextId++, caseId: c.id, type: ev.type, transit: true, title: `行軍遇襲：${nm(ev.tile)}`, tile: ev.tile,
+    biome: BIOMES[K.biome[ev.tile]]?.n || '', night: rng(book) < TYPES.transit.night, trench: 0, enemy: enemyOf(book, w, c, ev),
+    objectives: TYPES.transit.obj.map(([k, text, pts]) => ({k, text, pts})), born: now, done: false};
+  book.tickets.push(tk);
+  sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE;
+  notify(book, now, sq.player, 'ticket', `${sq.name} 在前往${c.title}的路上遇襲（${tk.enemy.name}，戰力 ${tk.enemy.power}）。${CFG.DEADLINE} 小時內要打完，不然自動結算。行軍遇襲不算案件積分。`, tk.id);
 }
 
 // 指派：在這個案件裡、沒有票、休整完畢的小隊，誰最早空出來就給誰（打得快、派得多的公司就拿得多）
@@ -324,14 +375,16 @@ function settleTicket(book, w, tk, res, now) {
   const valid = new Set(tk.objectives.map(o => o.k));
   const pts = tk.objectives.filter(o => res.done.includes(o.k) && valid.has(o.k)).reduce((x, o) => x + o.pts, 0) * (res.auto ? CFG.AUTO_PTS : 1);
   tk.pts = Math.round(pts * 10) / 10;
-  c.score[sq.player] = (c.score[sq.player] || 0) + tk.pts;
+  if (!tk.transit) c.score[sq.player] = (c.score[sq.player] || 0) + tk.pts;
   // 陣亡的複製人：當下就是業務損失；身上的裝備掉在那一格
   let gearLost = 0;
   for (const id of res.dead) { pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 陣亡`, c.id); gearLost += sq.gear; }
   const wiped = !alive(sq).length;
   if (wiped && sq.veh) { gearLost += VPOW[sq.veh] * 4; pay(book, now, sq.player, -VPOW[sq.veh] * 4, 'loss', `${tk.title}：${sq.name} 的${sq.veh === 'rush' ? '衝鋒車' : sq.veh === 'gt' ? '戰鬥卡車' : '武裝車'}丟在戰場上`, c.id); sq.veh = null; }
   writeBack(book, w, c, tk, res.win, gearLost, now);
-  sq.busy = null; sq.readyAt = now + CFG.REST;
+  sq.busy = null; sq.readyAt = Math.max(sq.readyAt, now + CFG.REST);
+  if (tk.transit && !res.win) {   // 被打退：重整隊伍再走，多花 6 小時
+    sq.readyAt += 6; const a = book.amends.find(x => x.col === sq.id && !x.done); if (a) a.eta += 6; }
   for (const cl of alive(sq)) cl.hp = 20;   // 休整：活著的人傷勢恢復
   notify(book, now, sq.player, 'result', `${tk.title}：${res.win ? '勝' : '敗'}${res.auto ? '（自動結算）' : ''}，積分 ${tk.pts}${res.dead.length ? `，陣亡 ${res.dead.length}` : ''}。`, tk.id);
 }
@@ -374,6 +427,7 @@ export function tick(book, w, now) {
 }
 
 function hour(book, w, now) {
+  for (const tr of book.trips) if (!tr.done && now >= tr.at) tripAmbush(book, w, tr, now);
   for (const a of book.amends) if (!a.done && now >= a.eta) arrive(book, a, now);
   for (const c of book.cases) {
     if (c.settled) continue;
