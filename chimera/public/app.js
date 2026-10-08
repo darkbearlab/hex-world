@@ -19,7 +19,7 @@ let worker = null;
 function start(seed) {
   if (worker) worker.terminate();
   worker = new Worker('worker.js', {type: 'module'});
-  hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; mailSeen.clear(); mailFirst = true; $('mailBtn').hidden = true; $('mail').hidden = true; QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
+  hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; $('pane-rep').innerHTML = ''; mailSeen.clear(); mailFirst = true; $('mailBtn').hidden = true; $('mail').hidden = true; QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
   $('computing').hidden = false; $('computing').textContent = '生成地形…'; $('more').hidden = true;
   worker.onmessage = e => {
     const m = e.data;
@@ -314,7 +314,7 @@ let lastPanelY = -1;
 function renderAll() { renderHeader(); draw(); if (hist[cur].y !== lastPanelY || curTab() !== 'log') { lastPanelY = hist[cur].y; renderPanel(); } if (hover >= 0) showTip(mouse.x, mouse.y); }
 
 /* ───────── 公司 ───────── */
-let coTab = 'ops', GV = null, GM = null, coBuilt = false, pickOpp = null, pickRe = null, rosterF = 'home', toastT = null;
+let GV = null, GM = null, coBuilt = false, pickOpp = null, pickRe = null, rosterF = 'home', toastT = null;
 const recipe = {food: 30, water: 30, implant: 30, neural: 30};
 const send = m => worker.postMessage(m);
 const img = p => `portraits/${p}.png`;
@@ -332,7 +332,7 @@ function onGame(m) {
   $('gclock').textContent = `第 ${m.year} 年・第 ${day} 天 ${String(hh).padStart(2, '0')}:00`;
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
   $('gcash').textContent = `$${GV.cash}`; $('gcash').classList.toggle('neg', GV.cash < 0);
-  if (page === 'co') renderCo(); else if (curTab() === 'tile' && sel >= 0) renderTile();
+  if (page === 'co') renderCo(); else if (page === 'rep') renderRepPage(); else if (curTab() === 'tile' && sel >= 0) renderTile();
   renderMail();
   draw();
 }
@@ -352,8 +352,7 @@ function renderCo() {
     P.innerHTML = `<div class="cohead" id="co-head"></div>
       <div class="colay">
         <div class="comain">
-          <nav class="cotabs"><button data-cotab="ops" class="${coTab === 'ops' ? 'on' : ''}">營運</button><button data-cotab="rep" class="${coTab === 'rep' ? 'on' : ''}">報表</button></nav>
-          <div class="cocols" id="co-ops"${coTab === 'ops' ? '' : ' hidden'}>
+          <div class="cocols" id="co-ops">
             <div class="cocol">
               <div class="box"><h3 class="sec">任務票 <span class="muted">24 小時內要打完，不然自動結算（火力、積分打八折）</span></h3><div id="co-tk"></div></div>
               <div class="box"><h3 class="sec">案件與車隊</h3><div id="co-cases"></div></div>
@@ -365,7 +364,6 @@ function renderCo() {
               <div class="box"><h3 class="sec">採購路線 <span class="muted">派車隊去別座城買料，來回都可能被劫</span></h3><div id="co-proc"></div></div>
             </div>
           </div>
-          <div id="co-reptab"${coTab === 'rep' ? '' : ' hidden'}><div class="box"><h3 class="sec">報表</h3><div id="co-rep"></div></div></div>
         </div>
         <aside class="coside"><div class="box"><h3 class="sec">名冊 <span class="muted" id="co-rcount"></span></h3><div class="filters" id="co-rf"></div><div class="roster" id="co-roster"></div></div></aside>
       </div>`;
@@ -402,7 +400,7 @@ function renderCo() {
   $('co-mats').innerHTML = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">總部單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}）</button></td></tr>`).join('') + '</table>';
   $('co-queue').textContent = G.queue.length ? G.queue.map(q => `${q.tpl ? CLS[q.tpl].n + '模板' : '培養中'}：${fmtH(q.done - h)}後出槽`).join('・') : `空著 ${G.vats} 座`;
   $('co-tpl').innerHTML = G.templates.length ? `<div class="mini" style="margin-top:8px">模板（保證拿到這一位，數值固定在約前 20%）：</div>` + G.templates.map(t => `<div class="row"><span class="chip static"><img src="${img(t.portrait)}" alt="">${CLS[t.cls].n}</span><span class="mini">${MATS.map(m => `${MN[m]} ${t.recipe[m]}`).join('・')}</span><button data-act="tpl" data-id="${t.id}">用模板培養</button></div>`).join('') : '';
-  if (coTab === 'ops') renderProc(); else renderRep();
+  renderProc();
   const RF = {home: '待命', away: '出勤', keep: '供在家裡', kia: '陣亡', all: '全部'};
   const inF = (c, f = rosterF) => f === 'all' || (f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : c.status === f);
   $('co-rf').innerHTML = Object.entries(RF).map(([k, n]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${n} <span class="muted">${G.roster.filter(c => inF(c, k)).length}</span></button>`).join('');
@@ -482,6 +480,13 @@ function renderProc() {
 
 // ───── 報表 ─────
 const FK = [['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['buy', '本地買料'], ['trip', '採購路線']];
+function renderRepPage() {
+  const P = $('pane-rep');
+  if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }
+  if (!$('co-rep')) P.innerHTML = `<div class="cohead"><div><div class="mini">${esc(GV.name)}・總部 ${esc(GV.baseName)}</div><div class="big" id="rep-cash"></div></div></div><div class="box"><h3 class="sec">報表</h3><div id="co-rep"></div></div>`;
+  $('rep-cash').textContent = `$${GV.cash}`; $('rep-cash').classList.toggle('neg', GV.cash < 0);
+  renderRep();
+}
 function renderRep() {
   const el = $('co-rep'); if (!el) return;
   const R = GV.report, money = v => `<span class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${Math.round(v || 0)}</span>`;
@@ -519,9 +524,9 @@ $('pane-co').addEventListener('pointerleave', () => { const b = $('co-spark'); i
 // ───── 兩頁切換：上方按鈕，或左右滑 ─────
 let page = 'map';
 function showPage(p) {
-  page = p; $('track').classList.toggle('co', p === 'co');
+  page = p; $('track').classList.toggle('co', p === 'co'); $('track').classList.toggle('rep', p === 'rep');
   for (const b of document.querySelectorAll('.pager button')) b.classList.toggle('on', b.dataset.page === p);
-  if (p === 'co') renderCo(); else draw();
+  if (p === 'co') renderCo(); else if (p === 'rep') renderRepPage(); else draw();
 }
 for (const b of document.querySelectorAll('.pager button')) b.onclick = () => showPage(b.dataset.page);
 let swipe = null;
@@ -536,7 +541,8 @@ $('pages').addEventListener('touchstart', e => {
 $('pages').addEventListener('touchend', e => {
   if (!swipe) return; const t = e.changedTouches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y; const ok = Date.now() - swipe.at < 800; swipe = null;
   if (!ok || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.6) return;
-  if (dx < 0 && page === 'map') showPage('co'); else if (dx > 0 && page === 'co') showPage('map');
+  const order = ['map', 'co', 'rep'], i = order.indexOf(page), j = i + (dx < 0 ? 1 : -1);
+  if (j >= 0 && j < order.length) showPage(order[j]);
 }, {passive: true});
 
 const sg = v => (v > 0 ? '+' : '') + v;
@@ -551,7 +557,6 @@ $('pane-co').addEventListener('change', e => { const f = e.target.dataset.pf; if
 $('pane-co').addEventListener('input', e => { const m = e.target.dataset.rc; if (!m) return; recipe[m] = Math.max(0, +e.target.value || 0); renderOdds(); });
 $('pane-co').onclick = e => {
   if (recallClick(e)) return;
-  const ct = e.target.closest('[data-cotab]'); if (ct) { coTab = ct.dataset.cotab; for (const x of document.querySelectorAll('.cotabs button')) x.classList.toggle('on', x.dataset.cotab === coTab); $('co-ops').hidden = coTab !== 'ops'; $('co-reptab').hidden = coTab !== 'rep'; renderCo(); return; }
   const c = e.target.closest('[data-center]'); if (c && !e.target.closest('button')) { e.preventDefault(); select(+c.dataset.center, true, true); return; }
   const f = e.target.closest('[data-found]'); if (f) { found(+f.dataset.found); return; }
   const r = e.target.closest('[data-rf]'); if (r) { rosterF = r.dataset.rf; renderCo(); return; }
@@ -576,4 +581,4 @@ $('legend').innerHTML = '<span>機會：</span>' + Object.values(OK).map(v => `<
 
 const seed0 = new URL(location).searchParams.get('seed') || '奇美拉-1';
 $('seed').value = seed0; start(seed0);
-window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); });
+window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); if (page === 'rep') { const P = $('pane-rep'); P.innerHTML = ''; renderRepPage(); } });

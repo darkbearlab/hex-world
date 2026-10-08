@@ -27,9 +27,10 @@ body{display:flex;flex-direction:column}
 .timeline input{flex:1;accent-color:var(--accent);padding:0}
 /* 兩頁：戰略地圖｜公司，左右滑或按上方切換 */
 .pages{flex:1;min-height:0;overflow:hidden;position:relative}
-.track{display:flex;width:200%;height:100%;transition:transform .28s ease}
-.track.co{transform:translateX(-50%)}
-.page{width:50%;height:100%;min-height:0;flex:none}
+.track{display:flex;width:300%;height:100%;transition:transform .28s ease}
+.track.co{transform:translateX(-33.3333%)}
+.track.rep{transform:translateX(-66.6667%)}
+.page{width:33.3333%;height:100%;min-height:0;flex:none}
 #page-map{display:flex}
 .copage{overflow:auto;-webkit-overflow-scrolling:touch}
 .pager{display:flex;gap:2px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px}
@@ -212,3 +213,4 @@ button.warn{background:#5a2018;border-color:var(--war);color:#ffd9cf}
 .cotabs button{padding:5px 16px}
 @media (max-width:980px){.colay{flex-direction:column}.coside{width:auto;position:static;max-height:none;align-self:stretch}}
 .cocols[hidden]{display:none}
+#pane-rep{max-width:1100px;margin:0 auto;padding:12px 16px 40px}
