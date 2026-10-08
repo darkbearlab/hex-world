@@ -145,7 +145,7 @@ export class Planet extends DurableObject {
   }
 }
 
-const planetOf = env => env.PLANET.get(env.PLANET.idFromName('planet-' + (env.WORLD_VERSION || '1')));
+const planetOf = env => env.PLANET.get(env.PLANET.idFromName('planet-' + (env.WORLD_VERSION || '1')), env.PLANET_HINT ? {locationHint: env.PLANET_HINT} : undefined);
 // 這個請求是哪個玩家：訪客直接算；Google 工作階段要問星球（存在星球的儲存空間）
 async function ownerOf(req, env) {
   const s = req.headers.get('x-chimera-session');

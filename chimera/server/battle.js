@@ -68,7 +68,7 @@ export class Skirmish extends DurableObject {
   async settle() {
     if (this.meta.settled || this.g.status === 'playing') return;
     this.meta.settled = true; await this.save();
-    const planet = this.env.PLANET.get(this.env.PLANET.idFromName('planet-' + (this.env.WORLD_VERSION || '1')));
+    const planet = this.env.PLANET.get(this.env.PLANET.idFromName('planet-' + (this.env.WORLD_VERSION || '1')), this.env.PLANET_HINT ? {locationHint: this.env.PLANET_HINT} : undefined);
     await planet.fetch(new Request('https://planet/api/internal/settle', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({ticket: this.meta.ticket, owner: this.meta.owner, result: this.g.missionResult})}));
   }
   async fetch(req) {
