@@ -91,6 +91,8 @@ const BASEP={food:1,water:1.2,fuel:1.5,scrap:2,parts:8,ammo:6};             // �
 const SEASON=['涼季','熱季','收季','寒季'];
 const HARVEST=[.1,.35,.55,0],WATERS=[.3,.2,.25,.3];
 // 零件：精煉一份零件要燒 CHAR 份燃料；平民用零件隨價格伸縮，舊零件有一部分拆了重用
+// 培養槽：每座槽每季最多養 VAT_RATE 名複製兵，最多存 VAT_CAP 名；每名要糧、水、零件，之後每季還要吃喝
+const VAT_RATE=6,VAT_CAP=60,CLONE_COST={food:1,water:1,parts:.15},CLONE_KEEP=.25;
 const CHAR=3,IRON_CIV=.0015,IRON_SUB=1.5,IRON_RECYCLE=.3,WOODRATE=.03,WILDCUT=.15,HARDY=.5,FIREWOOD=.006,WATER_NEED=.04,WATER_PROD=.09;
 // 移動成本：鹼海、鹼灘、斷崖、岩山、礫丘、寒漠、油棘林、旱原、沙海、鹽沼
 const MOVE=[1.1,.8,Infinity,5,2.5,2,2,1,2.5,3];
@@ -235,6 +237,8 @@ function createSim(w,rand,pick){
     const fiefs=[];for(const c of cands){if(fiefs.length>=9)break;if(fiefs.every(f=>hdist(f,c)>=3)){fiefs.push(c);town[c]=1;markets[c]=newMarket();pop[c]=Math.max(pop[c],60)}}
     const ind=t=>{let v=0;for(let i=0;i<N;i++)if(hdist(i,t)<=2)v+=(w.vein0[i]>0?3:0)+timberK[i]/60;return v};
     const works=fiefs.slice().sort((a,b)=>ind(b)-ind(a)).slice(0,3);for(const t of works)markets[t].works=1;
+    // 培養槽：原本是替領導層備份身體用的，首府三座、每個轄區一座
+    markets[cap].vat=3;for(const t of fiefs)markets[t].vat=1;
     const person=(role,title,age,skill,loyal,o={})=>{const h=mkHero(0,-age);Object.assign(h,{role,title,legend:1,skill,loyal},o);return h};
     const gov=person('gov','總督',52,1,1,{noCmd:1,ruled:1}),sec=person('sec','治安長',36,1.55,.45);
     const offs=[];let si=-1,bd2=-1;for(let k=0;k<fiefs.length;k++)if(!markets[fiefs[k]].works&&hdist(fiefs[k],cap)>bd2){bd2=hdist(fiefs[k],cap);si=k}
@@ -459,9 +463,9 @@ function createSim(w,rand,pick){
     for(const [,n,dd] of front[att][def]){if(owner[n]!==def)continue;cand.set(n,Math.min(cand.get(n)??9,dd));
       for(const m of NBR[n])if(owner[m]===def&&!cand.has(m))cand.set(m,dd+1)}
     let best=-1,bv=-1e9,why='';
-    for(const [t,d] of cand){const v=(vein[t]>0&&known[t]?3:0)+(town[t]?2+pop[t]/150:0)+(t===fac[def].cap?1:0)+timberK[t]/80+fert[t]*.8+waterK[t]*.6-.35*d-(markets[t]?.works?4:0);
+    for(const [t,d] of cand){const v=(vein[t]>0&&known[t]?3:0)+(town[t]?2+pop[t]/150:0)+(t===fac[def].cap?1:0)+timberK[t]/80+fert[t]*.8+waterK[t]*.6-.35*d-(markets[t]?.works?4:0)+(markets[t]?.vat||0)*1.5;
       if(v>bv){bv=v;best=t}}
-    if(best>=0)why=vein[best]>0&&known[best]?'舊礦坑':town[best]?'市集':waterK[best]>.8?'水源':timberK[best]>60?'燃料林':'田地';
+    if(best>=0)why=markets[best]?.vat?'培養槽':vein[best]>0&&known[best]?'舊礦坑':town[best]?'市集':waterK[best]>.8?'水源':timberK[best]>60?'燃料林':'田地';
     return [best,why]}
   // ===== 年層：開年 =====
   function yearStart(y){
@@ -552,16 +556,25 @@ function createSim(w,rand,pick){
       m.stock.food=Math.min(m.stock.food*.92,m.need.food*3);
       m.stock.fuel*=.96;m.stock.water*=.97;m.stock.parts*=.998;m.stock.ammo*=.995;m.stock.scrap=Math.min(m.stock.scrap,m.need.scrap*16+40);   // 廢料堆不下了就不再拆
       if(s===2)m.store=m.stock.food/Math.max(.01,m.pop*.25)}
+    // 複製兵：有培養槽的勢力打仗時（或正被威脅時）用糧、水、零件養兵；養著的兵每季要吃喝，養不起就散掉
+    for(const f of fac){if(!f.alive)continue;let vats=0;for(const k in markets)if(owner[+k]===f.id)vats+=markets[k].vat||0;f.vats=vats;
+      let atw=0;for(let k=0;k<FMAX;k++)if(atWar(f.id,k))atw++;
+      if(f.clones>0){const need=f.clones*CLONE_KEEP,fd=facTake(f.id,'food',need),wt=facTake(f.id,'water',need),r=Math.min(fd,wt)/Math.max(.01,need);if(r<.9){f.clones*=.6+.4*r;if(r<.5&&rand()<.2)say(y,'war',`${f.n}養不起培養槽裡出來的兵，一批複製兵被放走了。`,f.cap)}}
+      if(!vats||!(atw||f.frontsPrev>0||(f.bloc&&y>=ARC.blocY))||ARC.phase<1)continue;
+      const room=Math.max(0,vats*VAT_CAP-(f.clones||0));let n=Math.min(room,vats*VAT_RATE);if(n<1)continue;
+      for(const g in CLONE_COST)n=Math.min(n,facStock(f.id,g)*.3/CLONE_COST[g]);if(n<1)continue;
+      for(const g in CLONE_COST)facTake(f.id,g,n*CLONE_COST[g]);f.clones=(f.clones||0)+n;
+      if(!f.clonesY){f.clonesY=y;say(y,'war',`${f.n}開始用培養槽養兵：糧和水進去，拿得動槍的人出來。`,f.cap)}}
     // 本季戰事：每場戰爭每季一場戰鬥。兵力＝全國徵召（人口、零件、彈藥、糧），分攤到同時打的每場戰爭，再加上收編的兵
     {const fp=new Float32Array(FMAX),nw=new Uint8Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)fp[owner[i]]+=pop[i];
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)if(war[a][b]&&fac[a].alive&&fac[b].alive){nw[a]++;nw[b]++}
-    const lev=f=>{const F=fac[f];return fp[f]*.08*(.45+.3*F.ratio.parts+.25*F.ratio.ammo)*(.7+.3*Math.min(1,F.ratio.food))/Math.max(1,nw[f])+F.merc};
+    const lev=f=>{const F=fac[f];return fp[f]*.08*(.45+.3*F.ratio.parts+.25*F.ratio.ammo)*(.7+.3*Math.min(1,F.ratio.food))/Math.max(1,nw[f])+F.merc+(F.clones||0)*(.6+.4*F.ratio.ammo)};
     // 援軍：封臣出兩成五兵力跟宗主打仗；封臣被打時，宗主派一半兵力來救
     const vas=FM(()=>[]);for(const F of fac)if(F.alive&&F.liege>=0&&fac[F.liege].alive)vas[F.liege].push(F.id);
     const ally=(f,foe,def)=>{let x=0;for(const v of vas[f])if(v!==foe)x+=lev(v)*.25;const L=fac[f].liege;if(def&&L>=0&&fac[L].alive&&L!==foe)x+=lev(L)*.5;return x};
     // 主將：封地離戰場最近的領主帶兵；沒有封地的英雄當作從首都出發
     const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f&&!h.noCmd&&!h.captive){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
-    const kill=(f,amt)=>{const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
+    const kill=(f,amt)=>{const F=fac[f];if(F.clones>0){const c=Math.min(F.clones,amt*.7);F.clones-=c;amt-=c}const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive||W.done)continue;
       if(owner[W.goal]===W.att){W.done=1;continue}if(owner[W.goal]!==W.def){W.done=2;continue}
       let A=W.att,D=W.def,counter=false,prs;
@@ -595,6 +608,9 @@ function createSim(w,rand,pick){
       const hw=win===A?hA:hD,hl2=win===A?hD:hA;if(hw){hw.battles++;hw.wins++;for(const wp of weaponsOf(hw))wp.wins++;hw.fame=(hw.fame||0)+.25+Math.min(1.75,trafNear(n)/FAMEK);hw.lastWin=n}if(hl2)hl2.battles++;
       kill(lose,dead);kill(win,dead*.4);pop[i]*=.96;
       if(took&&n===ARC.protect){took=false;note=`，${nm(n)}久圍不下`}
+      if(took&&markets[n]?.vat){const m=markets[n],dc=fac[D].cap;
+        if(dc!==n&&owner[dc]===D&&markets[dc]&&rand()<.35){markets[dc].vat=(markets[dc].vat||0)+m.vat;say(y,'war',`城破之前，${fac[D].n}把${nm(n)}的 ${m.vat} 座培養槽拆下來，連夜運回${nm(dc)}。`,n);m.vat=0}
+        else say(y,'war',`${nm(n)}的 ${m.vat} 座培養槽落入${fac[A].n}手中。`,n)}
       if(took){owner[n]=A;if(markets[n])for(const g of GOODS)markets[n].stock[g]*=.6;pop[n]*=.6;wall[n]=Math.max(0,wall[n]-1);W.gain[A]=(W.gain[A]||0)+1;
         if(counter)W.taken=W.taken.filter(x=>x!==n);else W.taken.push(n)}
       // 戰場繳獲：敗方陣亡者身上的零件與彈藥，勝方撿回六成；敗方得從庫存補發裝備
@@ -701,13 +717,15 @@ function createSim(w,rand,pick){
     {const nT=FM(()=>0),nL=FM(()=>0);for(let i=0;i<N;i++)if(owner[i]>=0){nL[owner[i]]++;if(town[i])nT[owner[i]]++}
     for(let i=0;i<N;i++){const o=owner[i];if(o<0)continue;
       if(town[i]){if(markets[i]&&owner[i]!==o)continue;
-        if(pop[i]<15&&i!==fac[o].cap){town[i]=0;const m=markets[i];delete markets[i];const cm=markets[fac[o].cap];if(m&&cm)for(const g of GOODS)cm.stock[g]+=m.stock[g]*.5;nT[o]--;say(y,'found',`${nm(i)}的市集蕭條，退回小聚落。`,i)}
+        if(pop[i]<15&&i!==fac[o].cap){town[i]=0;const m=markets[i];delete markets[i];const cm=markets[fac[o].cap];if(m&&m.vat&&cm)cm.vat=(cm.vat||0)+m.vat;if(m&&cm)for(const g of GOODS)cm.stock[g]+=m.stock[g]*.5;nT[o]--;say(y,'found',`${nm(i)}的市集蕭條，退回小聚落。`,i)}
         continue}
       if(pop[i]<40||nT[o]>=1+Math.floor(nL[o]/7))continue;
       if(!(river[i]||w.coast[i]||routeTiles.has(i)))continue;
       const SP=globalThis.TSP??4;let near=false;for(const k in markets)if((SP>3||owner[+k]===o)&&hdist(i,+k)<=SP){near=true;break}if(near)continue;
       town[i]=1;markets[i]=newMarket();nT[o]++;say(y,'found',`${nm(i)}商旅往來漸多，發展成${fac[o].n}的市鎮。`,i)}}
 
+    // 3c. 培養槽好搬：人口多的城遲早會有人運一座過來
+    for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0||m.vat||m.pop<(globalThis.VATPOP??250)||rand()>.08)continue;m.vat=1;say(y,'econ',`有人把一座培養槽運進${nm(t)}，${fac[o].n}多了一處能養兵的地方。`,t)}
     // 4. 防壁：廢料夠就加固首府與前線
     for(const f of fac){if(!f.alive)continue;
       if(f.ratio.scrap<.8)for(let i=0;i<N;i++)if(owner[i]===f.id&&wall[i]>0)wall[i]=Math.max(0,wall[i]-.05);
