@@ -177,3 +177,29 @@ table.rep tr[data-qt]:hover td{background:rgba(255,255,255,.04)}
 html,body{overscroll-behavior-x:none}
 @media (max-width:820px){body.game .seed{display:none}.pager button{padding:4px 10px}}
 button.warn{background:#5a2018;border-color:var(--war);color:#ffd9cf}
+
+/* 通知：右上角的信封，點開是一疊卡片 */
+.bar{position:relative}
+.mail{margin-left:auto;position:relative;font-size:18px;line-height:1;padding:5px 10px}
+.mail[hidden]{display:none}
+.mail .badge{position:absolute;top:-6px;right:-6px;background:var(--war);color:#fff;font-size:11px;font-family:var(--mono);border-radius:9px;min-width:18px;height:18px;line-height:18px;padding:0 4px;text-align:center}
+.mail .badge[hidden]{display:none}
+.mailpanel{position:absolute;right:10px;top:calc(100% + 6px);width:380px;max-width:calc(100vw - 20px);max-height:72vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:20}
+.mailpanel[hidden]{display:none}
+.mailhead{display:flex;gap:8px;align-items:baseline;padding:10px 12px;border-bottom:1px solid var(--line)}
+.mailhead span{flex:1;font-size:12px}
+.mailhead button{padding:1px 8px}
+.mailbody{overflow:auto;padding:8px 10px}
+.msg{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--dim);border-radius:8px;padding:6px 9px;margin-bottom:6px;font-size:13px}
+.msg.new{box-shadow:inset 0 0 0 1px var(--accent)}
+.msg .mh{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);margin-bottom:2px}
+.msg .mh b{font-weight:700}
+.msg.ticket{border-left-color:var(--war)}.msg.ticket .mh b{color:var(--war)}
+.msg.result{border-left-color:#b3784a}.msg.result .mh b{color:#d8a77a}
+.msg.pay{border-left-color:var(--ok)}.msg.pay .mh b{color:var(--ok)}
+.msg.move{border-left-color:var(--cyan)}.msg.move .mh b{color:var(--cyan)}
+.msg.refused{border-left-color:var(--war)}
+.msg.log .mh b{color:var(--accent)}
+.msg[data-tile]{cursor:pointer}
+.msg.kia{border-left-color:#8a2a1e}.msg.kia .mh b{color:#e07a6a}
+.msg.vat{border-left-color:#6fd0d8}.msg.vat .mh b{color:#9fe3ea}

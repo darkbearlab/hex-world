@@ -19,7 +19,7 @@ let worker = null;
 function start(seed) {
   if (worker) worker.terminate();
   worker = new Worker('worker.js', {type: 'module'});
-  hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
+  hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; mailSeen.clear(); mailFirst = true; $('mailBtn').hidden = true; $('mail').hidden = true; QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
   $('computing').hidden = false; $('computing').textContent = '生成地形…'; $('more').hidden = true;
   worker.onmessage = e => {
     const m = e.data;
@@ -327,12 +327,13 @@ function found(base) { send({type: 'found', base}); }
 function onGame(m) {
   const first = !GV; GV = m.data; GM = m;
   if (m.err) toast(m.err);
-  if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('gyd').value = m.yearDays; showPage('co'); renderAll(); send({type: 'quotes'}); }
+  if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('mailBtn').hidden = false; $('gyd').value = m.yearDays; showPage('co'); renderAll(); send({type: 'quotes'}); }
   const day = Math.floor(GV.h / 24) % m.yearDays + 1, hh = GV.h % 24;
   $('gclock').textContent = `第 ${m.year} 年・第 ${day} 天 ${String(hh).padStart(2, '0')}:00`;
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
   $('gcash').textContent = `$${GV.cash}`; $('gcash').classList.toggle('neg', GV.cash < 0);
   if (page === 'co') renderCo(); else if (curTab() === 'tile' && sel >= 0) renderTile();
+  renderMail();
   draw();
 }
 $('gspeed').onchange = e => send({type: 'speed', v: +e.target.value});
@@ -362,7 +363,6 @@ function renderCo() {
         </div>
         <div class="cocol">
           <div class="box"><h3 class="sec">報表</h3><div id="co-rep"></div></div>
-          <div class="box"><h3 class="sec">通知</h3><ol class="log" id="co-log"></ol></div>
         </div>
       </div>
       <div class="box cofull"><h3 class="sec">名冊 <span class="muted" id="co-rcount"></span></h3><div class="filters" id="co-rf"></div><div class="roster" id="co-roster"></div></div>`;
@@ -408,8 +408,31 @@ function renderCo() {
   $('co-roster').innerHTML = R.map(c => `<div class="cl${c.alive ? '' : ' kia'}${c.uid === G.fresh ? ' fresh' : ''}"><img src="${img(c.portrait)}" alt=""><div><b>${c.id}</b> ${CLS[c.cls].n}${crownTag(c)}</div>
     <div class="st">生命 ${c.st.hp}・命中 ${sg(c.st.acc)}・閃避 ${sg(c.st.eva)}・近戰 ${sg(c.st.mel)}</div><div class="st">前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%・${STATUS[c.status] || c.status}${c.squad && c.status === 'away' ? '・' + esc(c.squad) : ''}・出勤 ${c.missions} 次</div>
     ${c.alive && c.status === 'home' ? `<button class="keep${c.keep ? ' on' : ''}" data-act="keep" data-id="${c.uid}" title="供在家裡的不會被派出去">${c.keep ? '供著' : '供'}</button>` : ''}</div>`).join('') || '<p class="muted">沒有。</p>';
-  $('co-log').innerHTML = [...GM.inbox.map(x => ({h: x.t, text: x.text})), ...G.log].sort((a, b) => b.h - a.h).slice(0, 40).map(x => `<li><span class="yr">${fmtH(x.h)}</span>${esc(x.text)}</li>`).join('');
 }
+
+// ───── 通知：收在右上角的信封，點開一疊卡片 ─────
+const mailSeen = new Set(); let mailFirst = true, mailSig = '';
+const MK = {ticket: '任務票', result: '戰果', pay: '結案', move: '調動', refused: '雇主', kia: '陣亡', vat: '培養槽', log: '公司'};
+function mailItems() {
+  if (!GV || !GM) return [];
+  const a = [...GM.inbox.map(x => ({h: x.t, kind: x.kind, text: x.text})), ...GV.log.map(x => ({h: x.h, kind: /陣亡/.test(x.text) ? 'kia' : /出槽/.test(x.text) ? 'vat' : /結案|回到總部/.test(x.text) ? 'pay' : 'log', text: x.text}))];
+  a.sort((p, q) => q.h - p.h); return a.slice(0, 60).map(x => ({...x, sig: x.h + '|' + x.text}));
+}
+function renderMail() {
+  const items = mailItems();
+  if (mailFirst && items.length) { for (const x of items) if (x.kind === 'log' && x.h === 0) mailSeen.add(x.sig); mailFirst = false; }
+  const open = !$('mail').hidden;
+  const unread = items.filter(x => !mailSeen.has(x.sig)).length;
+  $('mailN').hidden = !unread || open; $('mailN').textContent = unread > 99 ? '99+' : unread;
+  if (!open) return;
+  const sig = items.length + ':' + (items[0]?.sig || ''); if (sig === mailSig) return; mailSig = sig;
+  $('mailSub').textContent = `最近 ${items.length} 則`;
+  $('mailBody').innerHTML = items.map(x => `<div class="msg ${x.kind}${mailSeen.has(x.sig) ? '' : ' new'}"><div class="mh"><b>${MK[x.kind] || '通知'}</b><span>${fmtH(x.h)}</span></div>${esc(x.text)}</div>`).join('') || '<p class="muted">沒有通知。</p>';
+}
+function closeMail() { $('mail').hidden = true; for (const x of mailItems()) mailSeen.add(x.sig); renderMail(); }
+$('mailBtn').onclick = e => { e.stopPropagation(); if (!$('mail').hidden) { closeMail(); return; } $('mail').hidden = false; mailSig = ''; renderMail(); };
+$('mailClose').onclick = closeMail;
+document.addEventListener('pointerdown', e => { if (!$('mail').hidden && !e.target.closest('#mail,#mailBtn')) closeMail(); });
 
 // ───── 召回（兩段式確認：第一下變成「確定？」，三秒內再按一下才送出） ─────
 let selPath = null, armed = null, armT = null;
