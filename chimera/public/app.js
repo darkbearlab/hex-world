@@ -610,11 +610,13 @@ window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); i
 // 打完傳回 {win, dead}，交給 worker 的 submit；按「先不打」票還在。打的時候公司的時間停住。
 let mission = null;
 const ash = import('./ash/chimera-boot.js').then(m => m.bootAsh()).then(E => {
-  E.onresult = (id, result) => { if (mission && mission.id === id) { send({type: 'submit', ticket: id, result}); mission = null; } };
-  E.onabort = id => { if (mission && mission.id === id) { send({type: 'abort'}); mission = null; } };
+  // 伺服器上的戰鬥由伺服器自己結算，這裡只要更新畫面；單人測試模式把戰果交給背景的核心
+  E.onresult = (id, result) => { if (mission && mission.id === id) { if (result?.server) worker.poll?.(); else send({type: 'submit', ticket: id, result}); mission = null; } };
+  // 先不打：伺服器上的戰鬥留在伺服器，下次按親自打接著打；單人測試模式要讓時間恢復
+  E.onabort = id => { if (mission && mission.id === id) { if (LOCAL) send({type: 'abort'}); mission = null; } };
   return E;
 });
-async function openMission(tk) { mission = {id: tk.id}; const E = await ash; hideMissionLoading(); E.start(tk); }
+async function openMission(tk) { mission = {id: tk.id}; const E = await ash; hideMissionLoading(); if (tk.remote) E.startRemote(tk, tk.state); else E.start(tk); }
 // ASH 還在背景載入時先蓋上一層「載入中」，按下去立刻有反應
 let loadingBox = null;
 function showMissionLoading() {

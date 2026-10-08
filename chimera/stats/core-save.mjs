@@ -13,6 +13,10 @@ a.advanceTo(h1);
 const save = JSON.stringify(a.save());
 const b = new Core(q); b.load(seed, JSON.parse(save));
 console.log(`存檔 ${Math.round(save.length / 1024)} KB；讀回後指紋 ${a.fingerprint() === b.fingerprint() ? '一致' : '不一致'}`);
+// 讀回後，小隊成員要和名冊裡的是同一個物件（JSON 會拆成兩份；core.load 的 relink 接回）
+const split = Object.values(b.game.book.squads).flatMap(sq => sq.clones.map(c => [sq, c])).filter(([sq, c]) => c.uid != null && b.game.cos[sq.player]?.roster.find(x => x.uid === c.uid) !== c).length;
+console.log(split ? `小隊成員有 ${split} 位和名冊不是同一個物件！` : '小隊成員與名冊是同一個物件');
+if (split) process.exit(1);
 a.advanceTo(h2); b.advanceTo(h2);
 const fa = a.fingerprint(), fb = b.fingerprint();
 console.log(fa === fb ? `往後推到 ${h2} 小時仍一致 ${fa}（沙盒第 ${a.year} 年）` : `不一致！\n  原本 ${fa}\n  讀檔 ${fb}`);

@@ -14,7 +14,9 @@ const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) =>
 const bad = (msg, status = 400) => json({error: msg}, status);
 const CHUNK = 100000;
 // 伺服器上玩家能下的指令：加速、改年長度只有單人測試模式有；放棄親自打（abort）在伺服器上不用通知
-const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays'].includes(c));
+// 戰果（submit）只能由伺服器上的戰鬥交（S2），瀏覽器不能自己報
+const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort'].includes(c));
+export const battleName = (env, ticket) => `battle-${env.WORLD_VERSION || '1'}-${ticket}`;
 
 async function sha(s) { const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 24); }
 async function gzip(str) { return new Uint8Array(await new Response(new Blob([new TextEncoder().encode(str)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()); }
@@ -78,6 +80,12 @@ export class Planet extends DurableObject {
     if (path === 'hello') return json({pid: !!pid, company: name, hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
     if (path === 'static') { if (!this.staticMsg) { const c = new Core(m => { if (m.type === 'static') this.staticMsg = m; }); c.w = this.core.w; c.emitStatic(); } return json(this.staticMsg); }
     if (path === 'year') { const y = +url.searchParams.get('y'); return y === this.core.year ? json({same: true, year: y}) : json({type: 'year', data: this.core.snapshot()}); }
+    // 伺服器上的戰鬥打完，交戰果（只有 Skirmish 會叫，外面的請求在入口就擋掉了）
+    if (path === 'internal/settle') {
+      const b = await req.json(), nm = this.roster[b.owner]; if (!nm) return bad('沒有這家公司');
+      const err = this.core.command({type: 'submit', ticket: b.ticket, result: b.result}, nm); await this.persist();
+      return json({ok: !err, err});
+    }
     if (!pid) return bad('沒有身分代碼', 401);
     if (path === 'view') return name ? json({view: this.core.view(name), hour: this.core.hour}) : json({view: null});
     if (req.method !== 'POST') return bad('不認得的請求', 404);
@@ -94,6 +102,12 @@ export class Planet extends DurableObject {
       if (!name) return bad('還沒開公司');
       if (!ALLOWED.includes(body.type) && !QUERIES.includes(body.type)) return bad('不認得的指令');
       const err = this.core.command(body, name), msgs = this.out.splice(0);
+      // 親自打：在伺服器上開（或接回）這場戰鬥；種子留在伺服器，瀏覽器只拿到畫面
+      for (const m of msgs) if (m.type === 'mission') {
+        const r = await this.env.SKIRMISH.get(this.env.SKIRMISH.idFromName(battleName(this.env, m.data.id))).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid})}));
+        const d = await r.json(); if (!r.ok) return bad(d.error || '開戰失敗', 500);
+        m.data = {id: m.data.id, title: m.data.title, remote: true, state: d.state, resumed: !!d.resumed};
+      }
       if (ALLOWED.includes(body.type)) await this.persist();
       return json({view: this.core.view(name, err), msgs});
     }
@@ -104,6 +118,19 @@ export class Planet extends DurableObject {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (url.pathname.startsWith('/api/internal/')) return new Response('not found', {status: 404});
+    // 伺服器上的戰鬥：/api/battle/<任務票>/act|state，用身分代碼確認是自己的戰鬥
+    const mb = url.pathname.match(env.DEV === '1' ? /^\/api\/battle\/([^/]+)\/(act|state|selftest)$/ : /^\/api\/battle\/([^/]+)\/(act|state)$/);   // selftest：開發用，機器人打完
+    if (mb) {
+      const t = req.headers.get('x-chimera-token') || ''; if (t.length < 16) return bad('沒有身分代碼', 401);
+      const owner = 'v' + await sha('guest:' + t);
+      return env.SKIRMISH.get(env.SKIRMISH.idFromName(battleName(env, decodeURIComponent(mb[1])))).fetch(new Request('https://battle/' + mb[2], {method: req.method, headers: {'content-type': 'application/json', 'x-owner': owner}, body: req.method === 'POST' ? await req.text() : undefined}));
+    }
+    // 開發用：開一場屬於這個瀏覽器的伺服器戰鬥（不經過任務票），測遠端操作（DEV=1 才開）
+    if (env.DEV === '1' && url.pathname === '/api/dev/remote' && req.method === 'POST') {
+      const t = req.headers.get('x-chimera-token') || '', owner = 'v' + await sha('guest:' + t), b = await req.json();
+      return env.SKIRMISH.get(env.SKIRMISH.idFromName(battleName(env, b.mission.id))).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: b.mission, owner})}));
+    }
     // 開發用：直接開一場戰鬥、讓機器人打完（DEV=1 才開）
     if (env.DEV === '1' && url.pathname.startsWith('/api/dev/battle/')) { const [, , , , id, op] = url.pathname.split('/'); return env.SKIRMISH.get(env.SKIRMISH.idFromName('dev-' + id)).fetch(new Request('https://battle/' + op, req)); }
     if (url.pathname.startsWith('/api/')) return env.PLANET.get(env.PLANET.idFromName('planet-' + (env.WORLD_VERSION || '1'))).fetch(req);

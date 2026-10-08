@@ -28,10 +28,10 @@ index b4cce15..d260a1c 100644
    else if(entered&&isSimulation(game)&&game.status==='playing'&&!$('#modal').open&&promptDue(game,promptLog(game)))showRoomPrompt();
    else if(entered&&game.pendingPerks&&game.status==='playing'&&!bossScene)showLevelUp();   // 3.204.0: a level-up waits for a boss scene
 diff --git a/src/controller.js b/src/controller.js
-index 088a406..f00ee7e 100644
+index 088a406..8d20ccc 100644
 --- a/src/controller.js
 +++ b/src/controller.js
-@@ -77,13 +77,17 @@ import {INVENTORY_TABS,inventoryTab,refreshTerminalDeal,setTerminalDraft,showBlu
+@@ -77,13 +77,18 @@ import {INVENTORY_TABS,inventoryTab,refreshTerminalDeal,setTerminalDraft,showBlu
  import {DECK_LAYOUTS,PAD_SIZES,applyBrightness,applyDeck,applyHotkeyHints,captureHotkey,downloadJSON,exportSave,pickDeckSlot,saveDeckLayout,saveHotkeys,settings,showDeckEditor,showHotkeys,showSettingsTab,sizeDeck} from './controller-settings.js';
  
  const $=s=>document.querySelector(s),audio=new AudioEngine();
@@ -40,6 +40,7 @@ index 088a406..f00ee7e 100644
 +const EMBED=globalThis.ASH_EMBED||null;
 +// 嵌入在奇美拉的頁面裡（同一個 document）：戰鬥畫面關著時（EMBED.active 為假），ASH 掛在整個頁面上的事件、版面、音樂都不作用
 +const asleep=()=>Boolean(EMBED&&!EMBED.active);
++let remoteBusy=false;   // 伺服器還在算上一個行動
 +const savedGame=EMBED?null:loadGame();
  let deploymentFaces={};
  // Title flow (3.98.1, user report): the title screen and every menu reached from it take the full-screen terminal
@@ -52,7 +53,7 @@ index 088a406..f00ee7e 100644
  renderer.targetingEnabled=read('ash-targeting')!=='off';
  renderer.movementBoundaries=read('ash-movement-boundaries')==='on';
  // 3.114.0 (user request): a command pressed while the last turn is still animating ends that animation and runs. On by
-@@ -139,6 +143,7 @@ if(TEST_MODE)globalThis.__ashAudio={engine:audio,get combat(){return combatMusic
+@@ -139,6 +144,7 @@ if(TEST_MODE)globalThis.__ashAudio={engine:audio,get combat(){return combatMusic
  // A title-flow menu counts only while the dialog is actually open: the close event that clears titleFlow arrives later.
  let combatMusic=freshCombat(),combatScene=null;
  function syncMusic(){
@@ -60,7 +61,7 @@ index 088a406..f00ee7e 100644
    const scene=`${game.runId}:${game.floor}:${isSimulation(game)}`;if(scene!==combatScene){combatScene=scene;combatMusic=freshCombat();}
    audio.setMusic(musicTrack({menu:!entered||(titleFlow&&$('#modal').open),playing:game.status==='playing',simulation:isSimulation(game),faction:game.facilityFaction,combat:combatMusic.combat}));
  }
-@@ -161,7 +166,7 @@ let saveWarned=false,saveWarningDue=false;
+@@ -161,7 +167,7 @@ let saveWarned=false,saveWarningDue=false;
  // 3.150.0: the tab opened last owns the save; one that has been overtaken stops saving and says so.
  let tabLost=false;claimTab();
  addEventListener('storage',e=>{if(e.key!==tabKey()||!e.newValue||e.newValue===TAB_ID||tabLost)return;tabLost=true;modal(t('controller.otherTab'));});
@@ -69,7 +70,7 @@ index 088a406..f00ee7e 100644
  function showSaveWarning(){saveWarningDue=false;modal(t('controller.saveFailed'));}
  const pad=n=>String(n).padStart(2,'0');
  const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-@@ -188,7 +193,7 @@ $('#modal-content').addEventListener('toggle',e=>{
+@@ -188,7 +194,7 @@ $('#modal-content').addEventListener('toggle',e=>{
  },true);
  // 3.169.0 (docs/STORY.md 8): the officer on duty remarks on what the last action showed; the kill house has no comms.
  let commsBefore=null,commsMemory=null,dutyOverride=null;
@@ -78,7 +79,27 @@ index 088a406..f00ee7e 100644
  renderer.frameRate=frameRate(read('ash-frame-rate'));
  renderer.smokeQuality=smokeQuality(read('ash-smoke-quality'));   // 3.202.0 (user): layered smoke by default, the pre-stacked one to save power
  // The title and every menu opened from it sit on an opaque backdrop, so the battlefield behind them is not drawn.
-@@ -277,6 +282,8 @@ let deployDraft={mode:null,mission:null,seed:undefined};
+@@ -212,10 +218,17 @@ renderer.onFrame=dt=>{
+ const sayLine=(cue,detail={})=>renderer.addEffects([playerCalloutEvent(cue,detail)]);
+ function act(type,arg) {
+   skipPlayback();
+-  if(playback||orientationBlocked||!entered||$('#modal').open||courseHolds()||bossScene||performance.now()<lockUntil)return false;   // bossScene: 3.204.0
++  if(playback||orientationBlocked||!entered||$('#modal').open||courseHolds()||bossScene||performance.now()<lockUntil||remoteBusy)return false;   // bossScene: 3.204.0
+   pointerStart=null;
+   commsBefore=commsSnapshot(game);
+-  const oldLog=game.logs[0],{success,steps}=captureAction(game,()=>game.action(type,arg));
++  const oldLog=game.logs[0];
++  // 奇美拉（hex-world chimera/ash 的補丁）：戰鬥在伺服器上跑時，行動送到伺服器，拿回這一步的動畫快照照常播放
++  if(EMBED?.remote){remoteBusy=true;EMBED.remote(type,arg).then(r=>{remoteBusy=false;presentAction(type,arg,r.success,r.steps,oldLog);},e=>{remoteBusy=false;notify(String(e?.message||e),{danger:true});});return true;}
++  const {success,steps}=captureAction(game,()=>game.action(type,arg));
++  return presentAction(type,arg,success,steps,oldLog);
++}
++// 一個行動算完之後的表現（音效、動畫、紀錄）：本機算的和伺服器回傳的都走這裡
++function presentAction(type,arg,success,steps,oldLog){
+   if(!success&&game.refusal)sayLine(game.refusal.cue,game.refusal.item?{item:game.refusal.item}:{});
+   if(!success&&game.refusal?.cue==='out_of_range'){renderer.flashRange();retarget();}   // 3.165.0: where you could shoot from here
+   if(success)retarget();
+@@ -277,6 +290,8 @@ let deployDraft={mode:null,mission:null,seed:undefined};
  
  
  function updateOrientation(raise=false){
@@ -87,7 +108,7 @@ index 088a406..f00ee7e 100644
    // Primary pointer, not any pointer: a touch laptop has a touchscreen but cannot rotate (3.44).
    orientationBlocked=!orientationOverride&&landscapeTouch({coarse:matchMedia('(pointer: coarse)').matches,type:screen.orientation?.type,angle:window.orientation,width:innerWidth,height:innerHeight,editing:document.activeElement?.matches('input,textarea')});
    const guard=$('#orientation-guard');
-@@ -284,7 +291,7 @@ function updateOrientation(raise=false){
+@@ -284,7 +299,7 @@ function updateOrientation(raise=false){
    else if(guard.open)guard.close();
  }
  // Reserve external HUD height; battlefield remains square in the portrait column.
@@ -96,7 +117,7 @@ index 088a406..f00ee7e 100644
    const hudHeight=[...hud.children].reduce((n,el)=>n+el.getBoundingClientRect().height,0);
    // 3.221.0: the controls move down only into room a full-width field does not need — the field is never squeezed for it.
    const deckGap=Math.max(0,Math.min(deckSpacing,Math.floor(height-hudHeight-width)));panel.style.setProperty('--deck-gap',`${deckGap}px`);
-@@ -361,6 +368,7 @@ document.addEventListener('input',e=>{
+@@ -361,6 +376,7 @@ document.addEventListener('input',e=>{
  });
  
  document.addEventListener('click',e=>{
@@ -104,7 +125,7 @@ index 088a406..f00ee7e 100644
    const b=e.target.closest('button');if(performance.now()<swallowClicksUntil){swallowClicksUntil=0;return;}
    // Settling the animation may raise a menu (level-up, room prompt); then this press was only the skip.
    if(b&&!b.disabled&&skipPlayback()&&$('#modal').open)return;
-@@ -563,6 +571,7 @@ for(const b of document.querySelectorAll('.control-deck [data-action="grenade"],
+@@ -563,6 +579,7 @@ for(const b of document.querySelectorAll('.control-deck [data-action="grenade"],
  // The release of a long press closes the swallow window shortly after; a release that never arrives expires on its own.
  document.addEventListener('pointerup',e=>{if(e.pointerId!==swallowPointer)return;swallowPointer=null;swallowClicksUntil=performance.now()+400;},true);
  document.addEventListener('keydown',e=>{
@@ -112,7 +133,7 @@ index 088a406..f00ee7e 100644
    // Waiting for a new key in the hotkey settings (3.121.0): the next key press is the binding, whatever it is.
    if(hotkeyCapture&&$('#modal').open){captureHotkey(e);return;}
    hotkeyCapture=null;
-@@ -649,13 +658,17 @@ $('#import-save').addEventListener('change',async e=>{
+@@ -649,13 +666,17 @@ $('#import-save').addEventListener('change',async e=>{
    // 3.210.0 (src/stale-runs.js): a run saved before RUN_SAVE_FLOOR is not continued, so it is not imported either.
    try{if(file.size>1000000)throw new Error(t('controller.import.tooLarge'));const text=await file.text();if(staleRunOf(text))throw new Error(t('controller.import.oldRun'));const imported=Game.restore(text);if(!imported)throw new Error(t('controller.import.incompatible'));const kept=write('ash-save-before-import',game.serialize());game=connectUnlocks(imported);entered=true;resumable=true;game.setCarryLevel(profile().upgrades.carrying);playback=null;renderer.game=game;renderer.camera={x:game.player.x,y:game.player.y};renderer.effects=[];renderer.callouts.clear();resetKia();lastStatus='playing';previousFloor=game.floor;$('#modal').close();update();notify(kept?t('controller.import.done'):t('controller.import.doneNoBackup')); }catch(error){modal(t('controller.import.failedTitle')+escapeHTML(error.message)+t('controller.import.failedClose'));}e.target.value='';
  });

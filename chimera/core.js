@@ -182,6 +182,18 @@ export class Core {
   load(seed, d) {
     this.w = S.generate(seed, {history: false}); this.sim = this.w.sim; this.sim.begin(); this.seed = seed;
     this.sim.importState(d.sim); this.lastEv = d.lastEv; this.game = d.game; this.log = d.log || [];
+    this.relink();
+  }
+  // 存檔是 JSON：同一個複製人（公司名冊裡的那位、帳本裡小隊的成員）讀回來會變成兩份。接回同一個物件，
+  // 不然小隊那邊的陣亡、升級傳不到名冊，公司也會以為出勤的人已經不在小隊裡（company.js 用 includes 判斷）
+  relink() {
+    const g = this.game; if (!g) return;
+    // uid 只在同一家公司裡不重複，所以照小隊所屬的公司找
+    for (const sq of Object.values(g.book.squads)) {
+      const co = g.cos[sq.player]; if (!co) continue;
+      const byUid = new Map(co.roster.map(c => [c.uid, c]));
+      sq.clones = sq.clones.map(c => (c.uid != null && byUid.get(c.uid)) || c);
+    }
   }
   // 狀態指紋：比對兩個核心是不是一模一樣（帳本＋公司＋沙盒的年份與時間）
   fingerprint() {
