@@ -1214,6 +1214,7 @@ function createSim(w,rand,pick){
   // ===== 玩家公司案件的回寫介面（chimera/cases.js 用） =====
   const pmc={
     route(a,b){const D=dijkstra(a);return isFinite(D.dist[b])?pathTo(D,b):[]},
+    dist(a,b){return dijkstra(a).dist[b]},
     aid(f,v){if(f>=0&&f<pmcAid.length)pmcAid[f]=Math.min(200,pmcAid[f]+v)},
     drop(t,v){if(t>=0)drops[t]+=v},
     calm(a,b,v){if(a<0||b<0||a===b)return;const x=Math.min(a,b),y=Math.max(a,b);tension[x][y]=Math.max(0,tension[x][y]-v)},

@@ -17,20 +17,23 @@ export const CFG = {
   CLONE_VALUE: 30,  // 一名複製人的成本（死了就是業務損失）
   UPKEEP: 4,        // 每小隊每天的維持費（糧水、零件）
   ROUNDS: 6,        // 自動結算的交火回合
+  TRAVEL: 1.5,      // 行軍：每一點路程成本要幾小時（沿實際道路）
+  SQUAD: 4,         // 小隊滿編人數
 };
 
 // ===== 亂數：狀態存在帳本裡，存檔讀檔後接得上 =====
 function rng(book) { let a = book.rs | 0; a = a + 0x6D2B79F5 | 0; book.rs = a; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
 const pickOf = (book, arr) => arr[Math.floor(rng(book) * arr.length)];
 
-export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, t: 0, cases: [], tickets: [], squads: {}, ledger: [], inbox: []}; }
+export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, t: 0, cases: [], tickets: [], squads: {}, ledger: [], inbox: [], companies: {}, amends: []}; }
 
 // ===== 小隊 =====
 const VPOW = {rush: 4, gt: 6, armor: 14};
 export function makeSquad(book, player, o = {}) {
   const id = 'S' + book.nextId++;
   const clones = Array.from({length: o.size || 4}, () => ({id: 'C-' + (1000 + book.nextId++), pow: o.pow || 6, hp: 20, alive: true}));
-  const sq = {id, player, name: o.name || `${player}・${id}`, clones, gear: o.gear ?? 6, veh: o.veh || null, caseId: null, readyAt: 0, busy: null};
+  const at = o.at ?? book.companies[player]?.base ?? -1;
+  const sq = {id, player, name: o.name || `${player}・${id}`, clones, gear: o.gear ?? 6, veh: o.veh || null, caseId: null, readyAt: 0, busy: null, at};
   book.squads[id] = sq; return sq;
 }
 export const alive = sq => sq.clones.filter(c => c.alive);
@@ -94,14 +97,53 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
   return null;
 }
 
-// ===== 報名：每隊付訂金 =====
-export function enlist(book, caseId, squadId, now) {
+// ===== 公司與駐紮地 =====
+// 公司總部在某座城（開局選的主城），培養槽在那裡：從總部派人要現造複製人（付成本）。
+// 駐紮地是事先用遠征模式送到位的人手（已經付過錢），離戰場近，派過去快。
+export function registerCompany(book, player, base) { book.companies[player] = book.companies[player] || {player, base, posts: {}}; return book.companies[player]; }
+export function station(book, player, tile, n) { const C = book.companies[player]; C.posts[tile] = (C.posts[tile] || 0) + n; }
+export function travelHours(w, from, to) { if (from < 0 || from === to) return 0; const d = w.sim.pmc.dist(from, to); return isFinite(d) ? Math.ceil(d * CFG.TRAVEL) : Infinity; }
+
+// ===== 報名：每隊付訂金；小隊從所在地沿路走到案件現場，到了才能接票 =====
+export function enlist(book, caseId, squadId, now, w) {
   const c = book.cases.find(x => x.id === caseId), sq = book.squads[squadId];
   if (!c || !sq || !c.open || sq.caseId) return false;
-  if (now >= c.end - CFG.FREEZE) return false;   // 快結束了，不收新隊伍
-  sq.caseId = c.id; sq.readyAt = now; c.squads.push(sq.id);
+  const eta = now + (w ? travelHours(w, sq.at, c.tile) : 0);
+  if (eta >= c.end - CFG.FREEZE) return false;   // 趕不上：到的時候已經不出票了
+  sq.caseId = c.id; sq.readyAt = eta; c.squads.push(sq.id); sq.at = c.tile;
   pay(book, now, sq.player, c.pay.deposit, 'deposit', `${c.title}：訂金（${sq.name}）`, c.id);
+  if (eta > now) notify(book, now, sq.player, 'move', `${sq.name} 出發前往${c.title}，約 ${eta - now} 小時後到位。`, c.id);
   return true;
+}
+
+// ===== 契約變更：補員 =====
+// 小隊打薄了，向雇主申請變更契約、從總部或駐紮地調人補上。
+// 雇主不另付錢（訂金、期中款還是按原本的隊算），人要自己出；調來的人沿路走過來，走到之前這隊照樣用殘編上場。
+// 只能在還會出票的期間申請，而且要趕得上。
+export function amend(book, w, squadId, n, from, now) {
+  const sq = book.squads[squadId], c = sq && book.cases.find(x => x.id === sq.caseId), C = sq && book.companies[sq.player];
+  if (!sq || !c || !c.open || !C) return {ok: false, why: '沒有進行中的案件'};
+  const pending = book.amends.filter(a => a.squad === sq.id && !a.done).reduce((x, a) => x + a.n, 0);
+  n = Math.min(n, CFG.SQUAD - alive(sq).length - pending); if (n <= 0) return {ok: false, why: '已經滿編'};
+  const fromPost = from !== C.base;
+  if (fromPost && (C.posts[from] || 0) < n) return {ok: false, why: '駐紮地人手不夠'};
+  const eta = now + travelHours(w, from, c.tile);
+  if (eta >= c.end - CFG.FREEZE) return {ok: false, why: '趕不上'};
+  if (fromPost) C.posts[from] -= n;
+  else pay(book, now, sq.player, -CFG.CLONE_VALUE * n, 'reinforce', `${c.title}：契約變更，從總部培養槽調 ${n} 人補${sq.name}`, c.id);
+  const a = {id: 'A' + book.nextId++, squad: sq.id, caseId: c.id, n, from, at: now, eta, done: false};
+  book.amends.push(a);
+  notify(book, now, sq.player, 'move', `契約變更：${n} 人從${fromPost ? '駐紮地' : '總部'}出發補${sq.name}，約 ${eta - now} 小時後到。`, a.id);
+  return {ok: true, eta, amend: a};
+}
+function arrive(book, a, now) {
+  a.done = true; const sq = book.squads[a.squad];
+  // 打到全滅、或案件已經結算，人就留在現場當駐紮
+  const c = book.cases.find(x => x.id === a.caseId);
+  if (!sq.caseId || c?.settled) { station(book, sq.player, c ? c.tile : sq.at, a.n); return; }
+  for (let i = 0; i < a.n; i++) sq.clones.push({id: 'C-' + (1000 + book.nextId++), pow: 6, hp: 20, alive: true});
+  sq.clones = sq.clones.filter(c => c.alive).concat(sq.clones.filter(c => !c.alive)).slice(0, 12);
+  notify(book, now, sq.player, 'move', `補員到位：${sq.name} 回到 ${alive(sq).length} 人。`, a.id);
 }
 
 // ===== 事件骰：這個案件現在每小時出事的機率（跟沙盒的真實狀況走） =====
@@ -332,6 +374,7 @@ export function tick(book, w, now) {
 }
 
 function hour(book, w, now) {
+  for (const a of book.amends) if (!a.done && now >= a.eta) arrive(book, a, now);
   for (const c of book.cases) {
     if (c.settled) continue;
     // 1. 逾期的票：自動結算
