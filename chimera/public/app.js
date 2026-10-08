@@ -590,7 +590,7 @@ window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); i
 // 不重新初始化。打完 ASH 傳回 {win, dead}，交給 worker 的 submit。打的時候公司的時間停住。
 let mission = null, ashReady = false, ashQueue = null;
 const missionBox = document.createElement('div'); missionBox.id = 'mission'; missionBox.hidden = true;
-missionBox.innerHTML = `<div class="mbar"><b data-mt></b><span class="mini">走到電梯撤離＝勝・全員倒下＝敗・上方按鈕或 Tab 切換操作的隊員，倒下時自動交棒</span><button data-mx>先不打（關掉，票還在）</button></div><iframe title="任務戰鬥" src="ash/mission.html"></iframe>`;
+missionBox.innerHTML = `<div class="mbar"><b data-mt></b><span class="mini">走到電梯撤離＝勝・全員倒下＝敗・上方按鈕或 X 鍵切換操作的隊員，倒下時自動交棒</span><button data-mx>先不打（關掉，票還在）</button></div><iframe title="任務戰鬥" src="ash/mission.html"></iframe>`;
 document.body.appendChild(missionBox);
 const ashFrame = missionBox.querySelector('iframe');
 missionBox.querySelector('[data-mx]').onclick = () => { if (!mission) return; send({type: 'abort'}); closeMission(); };
