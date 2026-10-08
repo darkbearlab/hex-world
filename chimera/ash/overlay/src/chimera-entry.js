@@ -28,7 +28,7 @@ Object.assign(E,{
  async start(tk){current=tk;sent=false;E.remote=null;const g=await build(tk);E.game=g;E.load(g);E.show();},
  // 開戰時的狀態是經星球轉來的，Set／Map 的標記還在，先還原
  startRemote(tk,state){current=tk;sent=false;const g=mirror(JSON.parse(JSON.stringify(state),revive));E.game=g;E.load(g);
-  E.remote=async(type,arg)=>{const d=await post('act',{type,arg,target:g.target});apply(g,d.state);return {success:d.success,steps:(d.steps||[]).map(s=>({before:hydrate(s.before),after:hydrate(s.after),effects:s.effects}))};};
+  E.remote=async(type,arg)=>{const t0=performance.now(),d=await post('act',{type,arg,target:g.target});E.lastTiming={type,total:Math.round(performance.now()-t0),server:d.ms,...d.prof};console.info('[戰鬥延遲]',E.lastTiming);apply(g,d.state);return {success:d.success,steps:(d.steps||[]).map(s=>({before:hydrate(s.before),after:hydrate(s.after),effects:s.effects}))};};
   E.show();},
  // 顯示：先排好版面、讓繪圖器量到新的大小，再恢復繪圖；畫布還是 0 寬時畫第一格會出錯，整個繪圖迴圈就停了
  show(){root().hidden=false;E.layout?.();E.renderer?.resize();E.setActive(true);},

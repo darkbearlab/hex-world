@@ -20,6 +20,10 @@ const CHUNK = 100000;
 // 戰果（submit）只能由伺服器上的戰鬥交（S2），瀏覽器不能自己報
 const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort'].includes(c));
 export const battleName = (env, ticket) => `battle-${env.WORLD_VERSION || '1'}-${ticket}`;
+// Durable Object 第一次被叫的時候就決定放在哪個機房，之後不會搬。戰鬥每個行動都要往返一次，所以開戰時照玩家所在的洲放
+// （不給提示的話會放在叫它的星球旁邊；星球在美國，台灣打一步就要繞半個地球）。入口的 Worker 把玩家的洲寫在 x-continent。
+const HINT = {AS: 'apac', OC: 'oc', EU: 'weur', NA: 'enam', SA: 'sam', AF: 'afr'};
+const battleStub = (env, ticket, continent) => env.SKIRMISH.get(env.SKIRMISH.idFromName(battleName(env, ticket)), HINT[continent] ? {locationHint: HINT[continent]} : undefined);
 
 async function sha(s) { const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 24); }
 async function gzip(str) { return new Uint8Array(await new Response(new Blob([new TextEncoder().encode(str)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()); }
@@ -130,7 +134,7 @@ export class Planet extends DurableObject {
       const err = this.core.command(body, name), msgs = this.out.splice(0);
       // 親自打：在伺服器上開（或接回）這場戰鬥；種子留在伺服器，瀏覽器只拿到畫面
       for (const m of msgs) if (m.type === 'mission') {
-        const r = await this.env.SKIRMISH.get(this.env.SKIRMISH.idFromName(battleName(this.env, m.data.id))).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid})}));
+        const r = await battleStub(this.env, m.data.id, req.headers.get('x-continent')).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid})}));
         const d = await r.json(); if (!r.ok) return bad(d.error || '開戰失敗', 500);
         m.data = {id: m.data.id, title: m.data.title, remote: true, state: d.state, resumed: !!d.resumed};
       }
@@ -156,16 +160,16 @@ export default {
     const mb = url.pathname.match(env.DEV === '1' ? /^\/api\/battle\/([^/]+)\/(act|state|selftest)$/ : /^\/api\/battle\/([^/]+)\/(act|state)$/);   // selftest：開發用，機器人打完
     if (mb) {
       const owner = await ownerOf(req, env); if (!owner) return bad(owner === false ? '登入已失效，請重新登入' : '沒有身分代碼', 401);
-      return env.SKIRMISH.get(env.SKIRMISH.idFromName(battleName(env, decodeURIComponent(mb[1])))).fetch(new Request('https://battle/' + mb[2], {method: req.method, headers: {'content-type': 'application/json', 'x-owner': owner}, body: req.method === 'POST' ? await req.text() : undefined}));
+      return battleStub(env, decodeURIComponent(mb[1]), req.cf?.continent).fetch(new Request('https://battle/' + mb[2], {method: req.method, headers: {'content-type': 'application/json', 'x-owner': owner}, body: req.method === 'POST' ? await req.text() : undefined}));
     }
     // 開發用：開一場屬於這個瀏覽器的伺服器戰鬥（不經過任務票），測遠端操作（DEV=1 才開）
     if (env.DEV === '1' && url.pathname === '/api/dev/remote' && req.method === 'POST') {
       const t = req.headers.get('x-chimera-token') || '', owner = 'v' + await sha('guest:' + t), b = await req.json();
-      return env.SKIRMISH.get(env.SKIRMISH.idFromName(battleName(env, b.mission.id))).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: b.mission, owner})}));
+      return battleStub(env, b.mission.id, req.cf?.continent).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: b.mission, owner})}));
     }
     // 開發用：直接開一場戰鬥、讓機器人打完（DEV=1 才開）
     if (env.DEV === '1' && url.pathname.startsWith('/api/dev/battle/')) { const [, , , , id, op] = url.pathname.split('/'); return env.SKIRMISH.get(env.SKIRMISH.idFromName('dev-' + id)).fetch(new Request('https://battle/' + op, req)); }
-    if (url.pathname.startsWith('/api/')) return planetOf(env).fetch(req);
+    if (url.pathname.startsWith('/api/')) { const r = new Request(req); r.headers.set('x-continent', req.cf?.continent || ''); return planetOf(env).fetch(r); }
     return env.ASSETS.fetch(req);
   },
 };
