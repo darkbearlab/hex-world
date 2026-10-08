@@ -585,23 +585,13 @@ const seed0 = new URL(location).searchParams.get('seed') || '奇美拉-1';
 $('seed').value = seed0; start(seed0);
 window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); if (page === 'rep') { const P = $('pane-rep'); P.innerHTML = ''; renderRepPage(); } });
 
-// ===== 親自打：ASH 的任務戰鬥開在全螢幕 iframe（public/ash/mission.html，由 chimera/ash/build.mjs 建置）。
-// iframe 只建一次、平常藏著：頁面一打開就在背景把 ASH 載好，每張票只用 postMessage 送進去換一場新的戰鬥，
-// 不重新初始化。打完 ASH 傳回 {win, dead}，交給 worker 的 submit。打的時候公司的時間停住。
-let mission = null, ashReady = false, ashQueue = null;
-const missionBox = document.createElement('div'); missionBox.id = 'mission'; missionBox.hidden = true;
-missionBox.innerHTML = `<div class="mbar"><b data-mt></b><span class="mini">走到電梯撤離＝勝・全員倒下＝敗・上方按鈕或 X 鍵切換操作的隊員，倒下時自動交棒</span><button data-mx>先不打（關掉，票還在）</button></div><iframe title="任務戰鬥" src="ash/mission.html"></iframe>`;
-document.body.appendChild(missionBox);
-const ashFrame = missionBox.querySelector('iframe');
-missionBox.querySelector('[data-mx]').onclick = () => { if (!mission) return; send({type: 'abort'}); closeMission(); };
-function openMission(tk) {
-  mission = {id: tk.id}; missionBox.querySelector('[data-mt]').textContent = tk.title; missionBox.hidden = false;
-  if (ashReady) ashFrame.contentWindow.postMessage({type: 'chimera-ticket', ticket: tk}, '*'); else ashQueue = tk;
-  ashFrame.focus();
-}
-function closeMission() { mission = null; missionBox.hidden = true; }
-window.addEventListener('message', e => {
-  const m = e.data; if (!m || e.source !== ashFrame.contentWindow) return;
-  if (m.type === 'chimera-ready') { ashReady = true; if (ashQueue) { ashFrame.contentWindow.postMessage({type: 'chimera-ticket', ticket: ashQueue}, '*'); ashQueue = null; } }
-  else if (m.type === 'chimera-result' && mission && m.ticketId === mission.id) { send({type: 'submit', ticket: mission.id, result: m.result}); closeMission(); }
+// ===== 親自打：ASH 的任務戰鬥直接跑在這個頁面裡（不用 iframe；public/ash/chimera-boot.js，由 chimera/ash/build.mjs 建置）。
+// 頁面一打開就在背景把 ASH 載好（#ash-root 平常藏著）；每張票用 ASH_EMBED.start 換一場新的戰鬥，不重新初始化。
+// 打完傳回 {win, dead}，交給 worker 的 submit；按「先不打」票還在。打的時候公司的時間停住。
+let mission = null;
+const ash = import('./ash/chimera-boot.js').then(m => m.bootAsh()).then(E => {
+  E.onresult = (id, result) => { if (mission && mission.id === id) { send({type: 'submit', ticket: id, result}); mission = null; } };
+  E.onabort = id => { if (mission && mission.id === id) { send({type: 'abort'}); mission = null; } };
+  return E;
 });
+async function openMission(tk) { mission = {id: tk.id}; (await ash).start(tk); }

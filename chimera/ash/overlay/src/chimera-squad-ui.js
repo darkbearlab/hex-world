@@ -26,10 +26,11 @@ export function installSquadUI(){
 
  const bar=document.createElement('div');bar.id='chimera-squad';
  bar.style.cssText='position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:30;display:flex;gap:4px;font:12px/1.2 system-ui,sans-serif;pointer-events:auto';
- document.body.appendChild(bar);
+ (document.getElementById('ash-root')||document.body).appendChild(bar);   // 奇美拉的頁面裡：放在戰鬥畫面那一層
  const label=m=>`${m.squadId} ${CLS[m.character]||CHARACTERS[m.character]?.name||m.character}<br>${Math.max(0,m.hp)}/${m.maxHp}`;
  let last='';
  const render=()=>{
+  if(globalThis.ASH_EMBED&&!globalThis.ASH_EMBED.active)return;
   const game=cur();if(!game?.members||game.members.length<2){if(last!==''){bar.innerHTML='';last='';}return;}
   const key=game.members.map(m=>`${m.squadId}:${m.hp}:${m===game.player}`).join('|')+game.status;
   if(key===last)return;last=key;
@@ -40,6 +41,6 @@ export function installSquadUI(){
  bar.addEventListener('click',e=>{const b=e.target.closest('button'),game=cur();if(!b||!game?.members)return;
   if(b.dataset.cycle!==undefined)switched(game.cycleControlled());else switched(game.setControlled(game.members[+b.dataset.m]));});
  // X：ASH 的 Tab 已經是「切換目標」，數字鍵留給橫向提案的換武器（docs/LANDSCAPE_UI.md）
- window.addEventListener('keydown',e=>{if((e.key==='x'||e.key==='X')&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.target.closest?.('input,textarea,dialog')){e.preventDefault();const game=cur();if(game?.members)switched(game.cycleControlled());}});
+ window.addEventListener('keydown',e=>{if((e.key==='x'||e.key==='X')&&globalThis.ASH_EMBED?.active!==false&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.target.closest?.('input,textarea,dialog')){e.preventDefault();const game=cur();if(game?.members)switched(game.cycleControlled());}});
  const tick=()=>{render();requestAnimationFrame(tick);};tick();
 }

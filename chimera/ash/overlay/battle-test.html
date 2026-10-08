@@ -1,0 +1,9 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>奇美拉戰鬥測試</title><style>body{margin:0;background:#0d1010;color:#ddd;font:14px sans-serif}</style></head>
+<body><p style="padding:20px">奇美拉戰鬥測試頁：網址 # 後面放任務票（JSON）。打完的結果印在這裡。</p><pre id="out" style="padding:0 20px"></pre>
+<script type="module">
+import {bootAsh} from './chimera-boot.js';
+const E=await bootAsh();let tk=null;try{tk=JSON.parse(decodeURIComponent(location.hash.slice(1)));}catch{}
+const out=document.getElementById('out');E.onresult=(id,r)=>{out.textContent='結果 '+id+'\n'+JSON.stringify(r,null,1);};E.onabort=id=>{out.textContent='先不打 '+id;};
+if(tk?.squad?.length)E.start(tk);else out.textContent='沒有任務票。';
+</script></body></html>

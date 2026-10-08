@@ -5,6 +5,7 @@ import {existsSync, readFileSync, readdirSync} from 'node:fs';
 import {cp, rm, mkdir, readFile, writeFile, readdir} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {scopeCss} from './scope-css.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const work = join(here, '.work'), out = resolve(here, '../public/ash');
@@ -28,13 +29,21 @@ await cp(join(here, 'overlay'), work, {recursive: true});
 // 4. 建置
 execFileSync(process.execPath, ['tools/build.mjs'], {cwd: work, stdio: 'inherit'});
 
-// 5. 奇美拉的任務頁與隊友大腦：mission.html 換入口；tools/ 底下的機器人照 ASH 的版本號引用（src/ 和彼此），
-//    入口引用機器人時也帶版本號。同一個模組只會用一個網址載入一次，ASH 的 service worker 也會把它們當成
-//    不會變的檔案，優先讀快取。
+// 5. 奇美拉頁面裡的 ASH（不用 iframe）：
+//    - battle-dom.html：ASH 的畫面元素（index.html 的 body，去掉開機畫面與程式），放進 #ash-root；
+//    - chimera.css：ASH 的樣式改寫成只作用在 #ash-root 裡，加上奇美拉的戰鬥畫面樣式（overlay/chimera-wide.css）；
+//    - chimera-boot.js：載入器（版本號寫進去）；battle-test.html：單獨測試一場的頁面。
+//    tools/ 底下的機器人照 ASH 的版本號引用（src/ 和彼此），入口引用機器人時也帶版本號：同一個模組只用一個網址載入一次。
 const dist = join(work, 'dist'), index = await readFile(join(dist, 'index.html'), 'utf8');
 const rev = index.match(/main\.js\?v=([0-9a-f]+)/)?.[1];
 if (!rev) throw new Error('index.html 裡找不到 main.js 的版本號');
-await writeFile(join(dist, 'mission.html'), index.replace(`./src/main.js?v=${rev}`, `./src/chimera-entry.js?v=${rev}`));
+const dom = index.slice(index.indexOf('<div class="app">'), index.indexOf('<script type="module"'));
+if (!dom.includes('id="battle"')) throw new Error('index.html 的版面變了，找不到戰場');
+await writeFile(join(dist, 'battle-dom.html'), dom);
+const styles = ['style.css', 'expansion.css'].map(n => scopeCss(readFileSync(join(work, n), 'utf8')));
+await writeFile(join(dist, 'chimera.css'), [...new Set(styles.flatMap(x => x.imports))].join('\n') + '\n' + styles.map(x => x.css).join('\n') + '\n' + readFileSync(join(work, 'chimera-wide.css'), 'utf8'));
+await writeFile(join(dist, 'chimera-boot.js'), readFileSync(join(work, 'chimera-boot.js'), 'utf8').replace("const REV='__REV__'", `const REV='${rev}'`));
+await cp(join(work, 'battle-test.html'), join(dist, 'battle-test.html'));
 const stamp = body => body
   .replace(/(['"])((?:\.\.\/)+src\/[^'"?]+\.js)\1/g, (_, q, u) => `${q}${u}?v=${rev}${q}`)
   .replace(/(['"])((?:\.\.?\/)(?:[\w-]+\/)*[\w-]+\.mjs)\1/g, (_, q, u) => `${q}${u}?v=${rev}${q}`);

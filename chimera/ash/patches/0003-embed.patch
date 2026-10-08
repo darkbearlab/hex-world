@@ -28,16 +28,18 @@ index b4cce15..d260a1c 100644
    else if(entered&&isSimulation(game)&&game.status==='playing'&&!$('#modal').open&&promptDue(game,promptLog(game)))showRoomPrompt();
    else if(entered&&game.pendingPerks&&game.status==='playing'&&!bossScene)showLevelUp();   // 3.204.0: a level-up waits for a boss scene
 diff --git a/src/controller.js b/src/controller.js
-index 088a406..62e25d2 100644
+index 088a406..f00ee7e 100644
 --- a/src/controller.js
 +++ b/src/controller.js
-@@ -77,13 +77,15 @@ import {INVENTORY_TABS,inventoryTab,refreshTerminalDeal,setTerminalDraft,showBlu
+@@ -77,13 +77,17 @@ import {INVENTORY_TABS,inventoryTab,refreshTerminalDeal,setTerminalDraft,showBlu
  import {DECK_LAYOUTS,PAD_SIZES,applyBrightness,applyDeck,applyHotkeyHints,captureHotkey,downloadJSON,exportSave,pickDeckSlot,saveDeckLayout,saveHotkeys,settings,showDeckEditor,showHotkeys,showSettingsTab,sizeDeck} from './controller-settings.js';
  
  const $=s=>document.querySelector(s),audio=new AudioEngine();
 -const savedGame=loadGame();
 +// 奇美拉嵌入版（hex-world chimera/ash 的補丁）：入口先把建好的遊戲放在 globalThis.ASH_EMBED.game，不讀也不寫存檔。
 +const EMBED=globalThis.ASH_EMBED||null;
++// 嵌入在奇美拉的頁面裡（同一個 document）：戰鬥畫面關著時（EMBED.active 為假），ASH 掛在整個頁面上的事件、版面、音樂都不作用
++const asleep=()=>Boolean(EMBED&&!EMBED.active);
 +const savedGame=EMBED?null:loadGame();
  let deploymentFaces={};
  // Title flow (3.98.1, user report): the title screen and every menu reached from it take the full-screen terminal
@@ -50,7 +52,15 @@ index 088a406..62e25d2 100644
  renderer.targetingEnabled=read('ash-targeting')!=='off';
  renderer.movementBoundaries=read('ash-movement-boundaries')==='on';
  // 3.114.0 (user request): a command pressed while the last turn is still animating ends that animation and runs. On by
-@@ -161,7 +163,7 @@ let saveWarned=false,saveWarningDue=false;
+@@ -139,6 +143,7 @@ if(TEST_MODE)globalThis.__ashAudio={engine:audio,get combat(){return combatMusic
+ // A title-flow menu counts only while the dialog is actually open: the close event that clears titleFlow arrives later.
+ let combatMusic=freshCombat(),combatScene=null;
+ function syncMusic(){
++  if(asleep()){audio.setMusic(null);return;}
+   const scene=`${game.runId}:${game.floor}:${isSimulation(game)}`;if(scene!==combatScene){combatScene=scene;combatMusic=freshCombat();}
+   audio.setMusic(musicTrack({menu:!entered||(titleFlow&&$('#modal').open),playing:game.status==='playing',simulation:isSimulation(game),faction:game.facilityFaction,combat:combatMusic.combat}));
+ }
+@@ -161,7 +166,7 @@ let saveWarned=false,saveWarningDue=false;
  // 3.150.0: the tab opened last owns the save; one that has been overtaken stops saving and says so.
  let tabLost=false;claimTab();
  addEventListener('storage',e=>{if(e.key!==tabKey()||!e.newValue||e.newValue===TAB_ID||tabLost)return;tabLost=true;modal(t('controller.otherTab'));});
@@ -59,14 +69,68 @@ index 088a406..62e25d2 100644
  function showSaveWarning(){saveWarningDue=false;modal(t('controller.saveFailed'));}
  const pad=n=>String(n).padStart(2,'0');
  const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-@@ -655,7 +657,10 @@ document.addEventListener('contextmenu',e=>{const target=e.target instanceof Ele
- document.addEventListener('touchmove',e=>{if(document.documentElement.classList.contains('scroll-locked')&&!(e.target instanceof Element&&e.target.closest('dialog')))e.preventDefault();},{passive:false});
+@@ -188,7 +193,7 @@ $('#modal-content').addEventListener('toggle',e=>{
+ },true);
+ // 3.169.0 (docs/STORY.md 8): the officer on duty remarks on what the last action showed; the kill house has no comms.
+ let commsBefore=null,commsMemory=null,dutyOverride=null;
+-renderer.isPaused=()=>orientationBlocked;
++renderer.isPaused=()=>orientationBlocked||asleep();
+ renderer.frameRate=frameRate(read('ash-frame-rate'));
+ renderer.smokeQuality=smokeQuality(read('ash-smoke-quality'));   // 3.202.0 (user): layered smoke by default, the pre-stacked one to save power
+ // The title and every menu opened from it sit on an opaque backdrop, so the battlefield behind them is not drawn.
+@@ -277,6 +282,8 @@ let deployDraft={mode:null,mission:null,seed:undefined};
+ 
+ 
+ function updateOrientation(raise=false){
++  // 奇美拉嵌入版：寬螢幕是正式的版面（chimera-wide.css），不擋橫向
++  if(EMBED){orientationBlocked=false;const g=$('#orientation-guard');if(g?.open)g.close();return;}
+   // Primary pointer, not any pointer: a touch laptop has a touchscreen but cannot rotate (3.44).
+   orientationBlocked=!orientationOverride&&landscapeTouch({coarse:matchMedia('(pointer: coarse)').matches,type:screen.orientation?.type,angle:window.orientation,width:innerWidth,height:innerHeight,editing:document.activeElement?.matches('input,textarea')});
+   const guard=$('#orientation-guard');
+@@ -284,7 +291,7 @@ function updateOrientation(raise=false){
+   else if(guard.open)guard.close();
+ }
+ // Reserve external HUD height; battlefield remains square in the portrait column.
+-function fitLayout(){const panel=$('.battle-panel'),hud=$('.tactical-panel'),width=panel.clientWidth,style=getComputedStyle($('.app')),height=window.innerHeight-2-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom);
++function fitLayout(){if(asleep()){document.documentElement.classList.remove('scroll-locked');return;}const panel=$('.battle-panel'),hud=$('.tactical-panel'),width=panel.clientWidth,style=getComputedStyle($('.app')),height=window.innerHeight-2-parseFloat(style.paddingTop)-parseFloat(style.paddingBottom);
+   const hudHeight=[...hud.children].reduce((n,el)=>n+el.getBoundingClientRect().height,0);
+   // 3.221.0: the controls move down only into room a full-width field does not need — the field is never squeezed for it.
+   const deckGap=Math.max(0,Math.min(deckSpacing,Math.floor(height-hudHeight-width)));panel.style.setProperty('--deck-gap',`${deckGap}px`);
+@@ -361,6 +368,7 @@ document.addEventListener('input',e=>{
+ });
+ 
+ document.addEventListener('click',e=>{
++  if(asleep())return;
+   const b=e.target.closest('button');if(performance.now()<swallowClicksUntil){swallowClicksUntil=0;return;}
+   // Settling the animation may raise a menu (level-up, room prompt); then this press was only the skip.
+   if(b&&!b.disabled&&skipPlayback()&&$('#modal').open)return;
+@@ -563,6 +571,7 @@ for(const b of document.querySelectorAll('.control-deck [data-action="grenade"],
+ // The release of a long press closes the swallow window shortly after; a release that never arrives expires on its own.
+ document.addEventListener('pointerup',e=>{if(e.pointerId!==swallowPointer)return;swallowPointer=null;swallowClicksUntil=performance.now()+400;},true);
+ document.addEventListener('keydown',e=>{
++  if(asleep())return;
+   // Waiting for a new key in the hotkey settings (3.121.0): the next key press is the binding, whatever it is.
+   if(hotkeyCapture&&$('#modal').open){captureHotkey(e);return;}
+   hotkeyCapture=null;
+@@ -649,13 +658,17 @@ $('#import-save').addEventListener('change',async e=>{
+   // 3.210.0 (src/stale-runs.js): a run saved before RUN_SAVE_FLOOR is not continued, so it is not imported either.
+   try{if(file.size>1000000)throw new Error(t('controller.import.tooLarge'));const text=await file.text();if(staleRunOf(text))throw new Error(t('controller.import.oldRun'));const imported=Game.restore(text);if(!imported)throw new Error(t('controller.import.incompatible'));const kept=write('ash-save-before-import',game.serialize());game=connectUnlocks(imported);entered=true;resumable=true;game.setCarryLevel(profile().upgrades.carrying);playback=null;renderer.game=game;renderer.camera={x:game.player.x,y:game.player.y};renderer.effects=[];renderer.callouts.clear();resetKia();lastStatus='playing';previousFloor=game.floor;$('#modal').close();update();notify(kept?t('controller.import.done'):t('controller.import.doneNoBackup')); }catch(error){modal(t('controller.import.failedTitle')+escapeHTML(error.message)+t('controller.import.failedClose'));}e.target.value='';
+ });
+-document.addEventListener('selectstart',e=>{const target=e.target instanceof Element?e.target:e.target.parentElement;if(!target?.closest('input,textarea'))e.preventDefault();});
+-document.addEventListener('contextmenu',e=>{const target=e.target instanceof Element?e.target:e.target.parentElement;if(target?.closest('.battle-panel'))e.preventDefault();});
++document.addEventListener('selectstart',e=>{if(asleep())return;const target=e.target instanceof Element?e.target:e.target.parentElement;if(!target?.closest('input,textarea'))e.preventDefault();});
++document.addEventListener('contextmenu',e=>{if(asleep())return;const target=e.target instanceof Element?e.target:e.target.parentElement;if(target?.closest('.battle-panel'))e.preventDefault();});
+ // Older iOS Safari still pans or bounces a locked page; stop drags outside menus, which keep their own scrolling.
+-document.addEventListener('touchmove',e=>{if(document.documentElement.classList.contains('scroll-locked')&&!(e.target instanceof Element&&e.target.closest('dialog')))e.preventDefault();},{passive:false});
++document.addEventListener('touchmove',e=>{if(!asleep()&&document.documentElement.classList.contains('scroll-locked')&&!(e.target instanceof Element&&e.target.closest('dialog')))e.preventDefault();},{passive:false});
  // No pinch zoom (3.98.1, user request): iOS Safari ignores user-scalable=no, so block the WebKit gesture events too.
- for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,e=>e.preventDefault(),{passive:false});
+-for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,e=>e.preventDefault(),{passive:false});
 -window.addEventListener('pagehide',()=>{if(entered){saveGame(game);persistRunLog(game);}});update();showIntro();
++for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,e=>{if(!asleep())e.preventDefault();},{passive:false});
 +window.addEventListener('pagehide',()=>{if(entered&&!EMBED){saveGame(game);persistRunLog(game);}});update();
 +// 奇美拉嵌入版：同一個頁面換下一場任務（不重新載入、不重新初始化），做法同 startSimulation
 +if(EMBED)EMBED.load=next=>{game=next;entered=true;playback=null;renderer.game=game;renderer.camera={x:game.player.x,y:game.player.y};renderer.effects=[];renderer.callouts.clear();resetKia();cancelAim();lastStatus='playing';previousFloor=game.floor;if($('#modal').open)$('#modal').close();update();};
++if(EMBED)EMBED.setActive=on=>{EMBED.active=Boolean(on);if(on){fitLayout();update();}syncMusic();};
 +if(EMBED)EMBED.ready?.();else showIntro();
  // The title modal is open by now, so revealing the shell cannot flash the battle UI.
  document.body.classList.remove('booting');

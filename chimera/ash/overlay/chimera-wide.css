@@ -1,0 +1,68 @@
+/* 奇美拉的戰鬥畫面（hex-world chimera/ash/overlay）。ASH 跑在奇美拉的頁面裡：#ash-root 是蓋在整個頁面上的一層，
+   ASH 自己的樣式在建置時改寫成只作用在 #ash-root 裡（build.mjs 的 scopeCss）。
+   寬螢幕（#ash-root.wide，src/chimera-wide.js：寬度 900 以上、寬比高大）照 ASH docs/LANDSCAPE_UI.md 的 P1 橫向骨架：
+   戰場滿版；左上小隊面板；上方中央訊息與回合；右側欄：任務、鎖定目標、視野內敵人、紀錄；下方行動列。 */
+#ash-root{position:fixed;inset:0;z-index:60;overflow:hidden}
+#ash-root[hidden]{display:none}
+/* 直向（手機）：照 ASH 原本的版面；右側欄只留任務名稱與「先不打」，疊在右上 */
+#ash-root:not(.wide) #chimera-side>section{display:none}
+#ash-root:not(.wide) #chimera-side{position:fixed;right:6px;bottom:6px;z-index:40}
+#ash-root:not(.wide) #chimera-side .mhead b,#ash-root:not(.wide) #chimera-side .mhead small{display:none}
+#ash-root:not(.wide) #chimera-side button{padding:6px 10px;background:#1b211f;border:1px solid #4a5a55;color:#e8e2d0;font-size:11px}
+
+#ash-root.wide{--side:300px;--bar:92px}
+#ash-root.wide .app,#ash-root.wide .workspace{max-width:none;width:100vw;height:100vh;padding:0;margin:0}
+#ash-root.wide .battle-panel{position:fixed;inset:0;display:block}
+/* 戰場：右側欄與下方行動列以外的全部 */
+#ash-root.wide .viewport{position:fixed;left:0;top:0;right:var(--side);bottom:var(--bar);width:auto!important;height:auto!important;max-width:none;aspect-ratio:auto;margin:0;justify-self:stretch;align-self:stretch}
+#ash-root.wide #battle{width:100%!important;height:100%!important}
+/* 戰場上的生命條交給小隊面板；地圖工具放右上 */
+#ash-root.wide .vitals-bar{position:absolute;top:8px;right:10px;left:auto;width:auto;background:none;border:0;padding:0}
+#ash-root.wide .vitals-bar .mobile-health,#ash-root.wide #level{display:none}
+#ash-root.wide .vitals-bar .map-tools{display:flex;gap:6px}
+#ash-root.wide .vitals-bar .map-button{width:38px;height:38px}
+#ash-root.wide #target-link{display:none!important}
+#ash-root.wide .tactical-panel{position:static}
+/* 上方中央：訊息、回合、選單 */
+#ash-root.wide .battle-header{position:fixed;top:8px;left:calc((100vw - var(--side)) / 2);transform:translateX(-50%);z-index:5;display:flex;gap:10px;align-items:center;padding:6px 12px;background:#141a19e6;border:1px solid var(--line);width:auto;max-width:60vw}
+#ash-root.wide #field-messages{max-width:36vw}
+/* 下方行動列：武器與狀態｜行動鍵；方向鍵收起（WASD／點相鄰格移動） */
+#ash-root.wide .loadout-bar{position:fixed;left:0;bottom:0;width:250px;height:var(--bar);display:flex;flex-wrap:wrap;align-content:center;gap:4px;padding:8px 10px;background:#141a19;border-top:1px solid var(--line);border-right:1px solid var(--line);z-index:4;margin:0}
+#ash-root.wide .loadout-bar .loadout-status{width:100%;text-align:left}
+#ash-root.wide .control-deck{position:fixed;left:250px;right:var(--side);bottom:0;height:var(--bar);display:flex!important;align-items:stretch;gap:0;padding:8px;background:#141a19;border-top:1px solid var(--line);z-index:4;margin:0}
+#ash-root.wide .direction-pad{display:none!important}
+#ash-root.wide .action-buttons{display:flex!important;flex:1;gap:8px;height:100%}
+#ash-root.wide .action-buttons .action{flex:1;min-width:0;height:100%;grid-area:auto!important}
+#ash-root.wide #effects-panel{position:fixed;left:8px;bottom:calc(var(--bar) + 8px);z-index:6;max-width:420px}
+/* 右側欄 */
+#ash-root.wide #chimera-side{position:fixed;right:0;top:0;bottom:0;width:var(--side);display:flex;flex-direction:column;gap:10px;padding:10px;background:#131817;border-left:1px solid var(--line);z-index:4;overflow:hidden}
+#ash-root.wide #chimera-side .mhead{display:flex;flex-direction:column;gap:6px}
+#ash-root.wide #chimera-side .mhead b{font-size:15px;color:var(--text)}
+#ash-root.wide #chimera-side .mhead small{font-size:11px;color:var(--muted);line-height:1.5}
+#ash-root.wide #chimera-side .mhead button{padding:7px 10px;background:#1b211f;border:1px solid #4a5a55;color:#e8e2d0;font-size:12px}
+#ash-root.wide #chimera-side section{border:1px solid var(--line);background:#181d1c;padding:10px}
+#ash-root.wide #chimera-side h4{margin:0 0 8px;display:flex;gap:8px;font:10px var(--mono);letter-spacing:1.5px;color:var(--muted)}
+#ash-root.wide #chimera-side h4 span{margin-left:auto;letter-spacing:0}
+#ash-root.wide #chimera-side h4 b{color:var(--orange);font-weight:500}
+#ash-root.wide #chimera-side .target-slot{border-left:3px solid #97eee0}
+#ash-root.wide #chimera-side .target-slot .empty{color:var(--muted);font-size:12px;margin:0}
+#ash-root.wide #target-card{position:static!important;transform:none!important;width:auto!important;pointer-events:auto;border:0;background:none;padding:0;font:12px/1.55 var(--mono);gap:2px;box-shadow:none}
+#ash-root.wide #target-card strong{font-size:16px;margin-bottom:4px}
+#ash-root.wide #chimera-side .foes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;max-height:30vh;overflow:auto}
+#ash-root.wide #chimera-side .foes li{display:grid;grid-template-columns:1fr 80px 22px;gap:8px;align-items:center;padding:5px 6px;cursor:pointer;border:1px solid transparent;font-size:13px}
+#ash-root.wide #chimera-side .foes li:hover{background:#222a27}
+#ash-root.wide #chimera-side .foes li.on{border-color:#89d8cb88;background:#163030}
+#ash-root.wide #chimera-side .foes .bar{height:4px;background:#2a302d}
+#ash-root.wide #chimera-side .foes .bar i{display:block;height:100%;background:#a8d8cc}
+#ash-root.wide #chimera-side .foes small{font:11px var(--mono);color:var(--muted);text-align:right}
+#ash-root.wide #chimera-side .log{flex:1;min-height:0;overflow:auto}
+#ash-root.wide #chimera-side .log p{margin:0 0 5px;font-size:12px;line-height:1.5;color:#b9c4b2}
+#ash-root.wide #chimera-side .log p.danger{color:#efa686}
+#ash-root.wide #chimera-side .log p:first-child{color:var(--text)}
+/* 左上小隊面板（chimera-squad-ui.js 的 #chimera-squad，寬螢幕時改成直排） */
+#ash-root.wide #chimera-squad{left:10px!important;top:10px!important;transform:none!important;flex-direction:column;gap:6px!important;width:220px}
+#ash-root.wide #chimera-squad button{text-align:left!important;padding:7px 10px!important;font-size:13px!important}
+#ash-root.wide #chimera-squad button[data-cycle]{text-align:center!important}
+/* 對話框（背包、選單）：右側抽屜；標題類置中 */
+#ash-root.wide dialog#modal{max-width:620px;width:620px;height:100vh;max-height:100vh;margin:0 0 0 auto;border-width:0 0 0 1px}
+#ash-root.wide dialog#modal.title{max-width:520px;width:520px;height:auto;margin:auto}
