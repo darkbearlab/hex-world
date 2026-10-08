@@ -40,7 +40,8 @@ export class Skirmish extends DurableObject {
     const p = await this.ctx.storage.get('battle'); if (!p) return false;
     this.meta = await this.ctx.storage.get('meta'); this.meta.vseed ??= vseed(); this.g = unpack(p); return true;
   }
-  async save() { await this.ctx.storage.put('battle', pack(this.g)); await this.ctx.storage.put('meta', this.meta); }
+  // 存檔不等寫入確認就回應（allowUnconfirmed）：每一步少等一段。代價是機器剛好當掉時，最後一步可能沒存到（畫面會比伺服器多走一步，重新接回時以伺服器為準）
+  async save() { const o = {allowUnconfirmed: true}; await this.ctx.storage.put('battle', pack(this.g), o); await this.ctx.storage.put('meta', this.meta, o); }
   // 瀏覽器拿到的畫面（Alan 2026-10-08：一開始就過濾）：只留這一方從畫面上就知道的事。
   // - 種子不送（地圖與很多擲骰都由它算出來）；亂數狀態本來就不在快照裡。畫面上的外觀（牆的材質、光線、地上的痕跡、血跡）
   //   也用種子挑，所以送一個每場戰鬥隨機產生、和真正種子無關的「外觀種子」，不然每場都長得一樣、牆的樣子也不對
