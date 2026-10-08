@@ -1,0 +1,12 @@
+diff --git a/src/lighting.js b/src/lighting.js
+index 3b1cbc9..019a250 100644
+--- a/src/lighting.js
++++ b/src/lighting.js
+@@ -96,6 +96,7 @@ export const playerLightOn=p=>Boolean(p?.flashlight||p?.lightLingers);
+ // it is never stored and never rolled twice.
+ export const ENEMY_FLASHLIGHT=Object.freeze({share:1/3});
+ export function carriesFlashlight(game,e){
++ if(typeof e?.chimeraFlashlight==='boolean')return e.chimeraFlashlight;   // 奇美拉（hex-world chimera/ash 的補丁）：伺服器上的戰鬥不送種子，由伺服器標好
+  const kind=enemyDef(e)?.flashlight;
+  if(!kind||!e||e.kind||e.faction==='swarm'||hasEnemyTag(e,'infected'))return false;
+  return kind==='always'||fnv(`${game.seed}:${game.floor}:flashlight:${e.id}`)/4294967296<ENEMY_FLASHLIGHT.share;

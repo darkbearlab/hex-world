@@ -11,6 +11,7 @@ import {DurableObject} from 'cloudflare:workers';
 import {Core, COMMANDS, QUERIES, YEARS} from '../core.js';
 import {verifyGoogle} from './auth.js';   // 和 warband 同一份
 export {Skirmish} from './battle.js';
+import {colo} from './battle.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) => ArrayBuffer.isView(v) ? Array.from(v) : v), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
@@ -102,7 +103,7 @@ export class Planet extends DurableObject {
     if (this.catchUp()) await this.persist();
     this.out = [];
     const name = pid ? this.roster[pid] : null;
-    if (path === 'hello') return json({pid: !!pid, company: name, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
+    if (path === 'hello') return json({pid: !!pid, company: name, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), colo: await colo(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
     if (path === 'static') { if (!this.staticMsg) { const c = new Core(m => { if (m.type === 'static') this.staticMsg = m; }); c.w = this.core.w; c.emitStatic(); } return json(this.staticMsg); }
     if (path === 'year') { const y = +url.searchParams.get('y'); return y === this.core.year ? json({same: true, year: y}) : json({type: 'year', data: this.core.snapshot()}); }
     // 伺服器上的戰鬥打完，交戰果（只有 Skirmish 會叫，外面的請求在入口就擋掉了）
