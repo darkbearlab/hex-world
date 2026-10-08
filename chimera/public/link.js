@@ -1,7 +1,15 @@
 // 連伺服器（伺服器化 S1）：對畫面來說和背景的 worker 一樣（postMessage 送指令、onmessage 收畫面資料），
 // 其實是跟 /api/* 的共用星球（server/worker.js）講話。網址加 ?local 才用單人測試模式的 worker.js。
-// 身分先用訪客代碼：第一次開頁面時產生一組，存在這個瀏覽器（換瀏覽器就是另一個人）。
-const KEY = 'chimera-token';
+// 身分：用 Google 登入的話，伺服器發一組工作階段代碼（換裝置登入同一個帳號就是同一家公司）；
+// 不登入就是訪客：第一次開頁面時產生一組代碼，存在這個瀏覽器（換瀏覽器就是另一個人）。
+const KEY = 'chimera-token', SESS = 'chimera-session', ACCT = 'chimera-acct';
+const ls = k => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+export const account = () => ls(SESS) ? (ls(ACCT) || 'Google 帳號') : '';
+export function signOut() { try { localStorage.removeItem(SESS); localStorage.removeItem(ACCT); } catch {} }
+export function signedIn(session, email) { try { localStorage.setItem(SESS, session); localStorage.setItem(ACCT, email || ''); } catch {} }
+export const authHeaders = () => ls(SESS) ? {'x-chimera-session': ls(SESS)} : {'x-chimera-token': token()};
+window.chimeraAuth = authHeaders;   // 戰鬥（chimera-entry.js）也用同一個身分
+export { token };
 function token() {
   let t = null; try { t = localStorage.getItem(KEY); } catch {}
   if (!t || t.length < 16) { t = [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2, '0')).join(''); try { localStorage.setItem(KEY, t); } catch {} }
@@ -12,8 +20,9 @@ export class ServerLink {
   emit(m) { this.onmessage?.({data: m}); }
   terminate() { clearInterval(this.timer); clearTimeout(this.tick); this.timer = null; }
   async api(path, body) {
-    const r = await fetch('/api/' + path, {method: body ? 'POST' : 'GET', headers: {'x-chimera-token': this.token, ...(body ? {'content-type': 'application/json'} : {})}, body: body ? JSON.stringify(body) : undefined});
+    const r = await fetch('/api/' + path, {method: body ? 'POST' : 'GET', headers: {...authHeaders(), ...(body ? {'content-type': 'application/json'} : {})}, body: body ? JSON.stringify(body) : undefined});
     let d = null; try { d = await r.json(); } catch {}
+    if (r.status === 401 && ls(SESS)) { signOut(); this.terminate(); this.emit({type: 'relogin', text: d?.error || '登入已失效，請重新登入'}); throw new Error(d?.error || '登入已失效'); }
     if (!r.ok) throw new Error(d?.error || `伺服器回應 ${r.status}`);
     return d;
   }
@@ -30,7 +39,7 @@ export class ServerLink {
   async postMessage(m) {
     try {
       if (m.type === 'start') {
-        const hello = await this.api('hello'); this.hello = hello; this.setClock(hello); this.armTick();
+        const hello = await this.api('hello'); this.hello = hello; this.company = hello.company || null; this.setClock(hello); this.armTick();
         this.emit(await this.api('static')); await this.pullYear(); this.emit({type: 'idle', year: this.year});
         if (hello.company) { this.company = hello.company; await this.pullView(); }
         this.timer = setInterval(() => this.poll(), 15000);

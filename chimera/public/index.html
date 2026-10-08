@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>奇美拉沙盒</title>
+<title>Project: Chimera</title>
 <meta name="description" content="被企業遺棄的荒漠星球：看總督府崩塌、各自為王、陣營成形的一百五十年。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,7 +12,7 @@
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><b>奇美拉</b><span>被遺棄的星球</span></div>
+  <div class="brand"><b>Project: Chimera</b><span>被遺棄的星球</span></div>
   <nav class="pager" aria-label="切換畫面"><button data-page="map" class="on">戰略地圖</button><button data-page="co">公司</button><button data-page="rep">報表</button></nav>
   <div class="seed">
     <input id="seed" value="奇美拉-1" aria-label="種子" spellcheck="false">
@@ -92,6 +92,20 @@
 <section class="page copage" id="page-co"><div id="pane-co"></div></section>
 <section class="page copage" id="page-rep"><div id="pane-rep"></div></section>
 </div></div>
+<!-- 標題畫面（伺服器模式）：選 Google 登入或訪客、看開發日誌；連上之前蓋住整個頁面，不會先閃過沙盒的推演畫面 -->
+<section id="title" class="titlescreen" hidden>
+  <div class="titlebox">
+    <h1>Project: Chimera</h1>
+    <p class="sub">被企業遺棄的荒漠星球</p>
+    <p class="muted">開一家複製人傭兵公司，在大家共用的一顆星球上接案、培養、打仗。<br>星球的時間和現實一樣走，你離線時也不會停。</p>
+    <div id="gsiBtn"></div>
+    <p id="acctNote" class="muted"></p>
+    <button id="enterBtn" class="primary">以訪客身分進入</button>
+    <button id="devlogBtn">開發日誌</button>
+    <p id="titleMsg" class="warnmsg" hidden></p>
+  </div>
+</section>
+<div id="devlog" class="devlog" hidden><div class="devbox"><div class="devhead"><b>開發日誌</b><button id="devlogClose" aria-label="關閉">✕</button></div><div id="devlogBody"></div></div></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

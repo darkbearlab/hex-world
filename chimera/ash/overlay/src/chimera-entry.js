@@ -37,6 +37,8 @@ Object.assign(E,{
 });
 // ---- 戰鬥在伺服器上跑（伺服器化 S2）：這裡的遊戲只是伺服器狀態的鏡像，所有會改狀態的事都送到伺服器 ----
 const TOKEN=()=>{try{return localStorage.getItem('chimera-token')||'';}catch{return '';}};
+// 身分標頭：奇美拉的 link.js 決定（Google 工作階段或訪客代碼）
+const AUTH=()=>window.chimeraAuth?.()||{'x-chimera-token':TOKEN()};
 // JSON 會把同一個物件拆成好幾份：玩家、操作中的隊員、隊員清單裡的那一位要接回同一個
 function relink(st){
  if(!st?.members)return st;const by=new Map(st.members.map(m=>[m.id,m]));
@@ -49,9 +51,9 @@ function apply(g,st){relink(st);for(const k of Object.keys(g))if(!(k in st))dele
 // 伺服器把 Set、Map 標記成 {$set}、{$map}（JSON 本身存不了）
 const revive=(k,v)=>v&&typeof v==='object'?(Array.isArray(v.$set)?new Set(v.$set):Array.isArray(v.$map)?new Map(v.$map):v):v;
 const battleUrl=op=>`/api/battle/${encodeURIComponent(current.id)}/${op}`;
-async function post(op,body){const r=await fetch(battleUrl(op),{method:'POST',headers:{'content-type':'application/json','x-chimera-token':TOKEN()},body:JSON.stringify(body)});const d=await r.text().then(t=>JSON.parse(t,revive)).catch(()=>null);if(!r.ok)throw new Error(d?.error||`伺服器回應 ${r.status}`);return d;}
+async function post(op,body){const r=await fetch(battleUrl(op),{method:'POST',headers:{'content-type':'application/json',...AUTH()},body:JSON.stringify(body)});const d=await r.text().then(t=>JSON.parse(t,revive)).catch(()=>null);if(!r.ok)throw new Error(d?.error||`伺服器回應 ${r.status}`);return d;}
 // 選單裡的動作（預備道具、選近戰武器、學技能、選升級、換人操作）原本是同步的，這裡也同步問伺服器（很少按，等一下下沒關係）
-function postSync(op,body){const x=new XMLHttpRequest();x.open('POST',battleUrl(op),false);x.setRequestHeader('content-type','application/json');x.setRequestHeader('x-chimera-token',TOKEN());x.send(JSON.stringify(body));const d=JSON.parse(x.responseText||'null',revive);if(x.status>=400)throw new Error(d?.error||`伺服器回應 ${x.status}`);return d;}
+function postSync(op,body){const x=new XMLHttpRequest();x.open('POST',battleUrl(op),false);x.setRequestHeader('content-type','application/json');for(const[k,v]of Object.entries(AUTH()))x.setRequestHeader(k,v);x.send(JSON.stringify(body));const d=JSON.parse(x.responseText||'null',revive);if(x.status>=400)throw new Error(d?.error||`伺服器回應 ${x.status}`);return d;}
 function mirror(state){
  const g=hydrate(state),def=(k,f)=>Object.defineProperty(g,k,{configurable:true,writable:true,enumerable:false,value:f});
  for(const k of ['stash','brains'])def(k,new Map());

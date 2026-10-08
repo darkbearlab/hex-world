@@ -63,7 +63,8 @@ export class Skirmish extends DurableObject {
     const url = new URL(req.url), path = url.pathname.split('/').pop();
     let body = {}; if (req.method === 'POST') { try { body = await req.json(); } catch { return bad('請求格式不對'); } }
     if (path === 'start') {
-      if (await this.load()) return json({state: this.view(snapshot(this.g)), resumed: true});
+      // 接回：只有星球會叫 start，以它說的主人為準（訪客改用 Google 登入之後，公司換了玩家 ID）
+      if (await this.load()) { if (body.owner && body.owner !== this.meta.owner) { this.meta.owner = body.owner; await this.save(); } return json({state: this.view(snapshot(this.g)), resumed: true}); }
       const t0 = Date.now();
       this.g = new SquadGame(body.mission); installFullSquad(this.g);
       this.meta = {ticket: body.mission.id, owner: body.owner, startedAt: Date.now()};

@@ -4,10 +4,12 @@
 // - 時間：遊戲小時＝(現在 − 開服時間) ÷ HOUR_MS（預設一小時，現實時間一比一）。每次有請求、每次鬧鐘醒來就補算到現在；
 //   鬧鐘每個遊戲小時響一次，沒人在線時間也照走。
 // - 存檔：核心的完整存檔（沙盒 exportState＋帳本＋公司），gzip 後分塊存在 Durable Object 的儲存空間；每個指令與每個小時都存。
-// - 身分（先做訪客）：瀏覽器自己產生一組代碼，雜湊後就是玩家 ID；一個玩家一家公司。Google 登入之後照 warband 接上。
+// - 身分：訪客＝瀏覽器自己產生一組代碼（x-chimera-token），雜湊後就是玩家 ID；Google 登入＝伺服器發工作階段代碼（x-chimera-session），
+//   對到 Google 帳號，換裝置也是同一家公司（照 warband）。一個玩家一家公司。
 // - 戰鬥（S1 還在瀏覽器裡跑）：fight 回傳任務資料，submit 收戰果。S2 搬到伺服器。
 import {DurableObject} from 'cloudflare:workers';
 import {Core, COMMANDS, QUERIES, YEARS} from '../core.js';
+import {verifyGoogle} from './auth.js';   // 和 warband 同一份
 export {Skirmish} from './battle.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) => ArrayBuffer.isView(v) ? Array.from(v) : v), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
@@ -70,14 +72,37 @@ export class Planet extends DurableObject {
   }
 
   /* ───── 請求 ───── */
-  async who(req) { const t = req.headers.get('x-chimera-token') || ''; return t.length >= 16 ? 'v' + await sha('guest:' + t) : null; }
+  // 玩家 ID：Google 工作階段對到的帳號（找不到就是 false：登入失效，例如世界重開），或訪客代碼的雜湊
+  async who(req) {
+    const s = req.headers.get('x-chimera-session'); if (s) { const r = await this.ctx.storage.get('sess:' + await sha('sess:' + s)); return r ? r.pid : false; }
+    const t = req.headers.get('x-chimera-token') || ''; return t.length >= 16 ? 'v' + await sha('guest:' + t) : null;
+  }
+  // 用 Google 登入：驗證 Google 發的 ID token，發一組工作階段代碼。第一次登入時，這個瀏覽器原本的訪客公司搬到帳號上
+  async googleLogin(req) {
+    const cid = this.env.GOOGLE_CLIENT_ID; if (!cid) return bad('伺服器沒有設定 Google 登入');
+    let body; try { body = await req.json(); } catch { return bad('請求格式不對'); }
+    let g; try { g = this.env.DEV === '1' && body.devSub ? {sub: String(body.devSub), email: 'dev@test', name: 'dev'} : await verifyGoogle(body.credential, cid); } catch (e) { return bad(e.message, 401); }
+    const gid = 'g' + await sha('google:' + g.sub), st = this.ctx.storage;
+    const token = [...crypto.getRandomValues(new Uint8Array(24))].map(b => b.toString(16).padStart(2, '0')).join('');
+    await st.put('sess:' + await sha('sess:' + token), {pid: gid, at: Date.now()});
+    await st.put('acct:' + gid, {email: g.email, name: g.name, last: Date.now()});
+    let moved = null;
+    const legacy = String(body.legacy || ''), lid = legacy.length >= 16 ? 'v' + await sha('guest:' + legacy) : null;
+    if (!this.roster[gid] && lid && this.roster[lid]) { moved = this.roster[gid] = this.roster[lid]; delete this.roster[lid]; await st.put('roster', this.roster); }
+    return json({session: token, email: g.email, company: this.roster[gid] || null, moved});
+  }
   async fetch(req) {
     await this.init();
-    const url = new URL(req.url), path = url.pathname.slice(5), pid = await this.who(req);
+    const url = new URL(req.url), path = url.pathname.slice(5);
+    if (path === 'auth/google' && req.method === 'POST') return this.googleLogin(req);
+    const pid = await this.who(req);
+    if (pid === false) return bad('登入已失效，請重新登入', 401);
+    // 伺服器上的戰鬥用：Google 工作階段是誰（只有入口的 Worker 會叫）
+    if (path === 'internal/who') return json({pid});
     if (this.catchUp()) await this.persist();
     this.out = [];
     const name = pid ? this.roster[pid] : null;
-    if (path === 'hello') return json({pid: !!pid, company: name, hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
+    if (path === 'hello') return json({pid: !!pid, company: name, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
     if (path === 'static') { if (!this.staticMsg) { const c = new Core(m => { if (m.type === 'static') this.staticMsg = m; }); c.w = this.core.w; c.emitStatic(); } return json(this.staticMsg); }
     if (path === 'year') { const y = +url.searchParams.get('y'); return y === this.core.year ? json({same: true, year: y}) : json({type: 'year', data: this.core.snapshot()}); }
     // 伺服器上的戰鬥打完，交戰果（只有 Skirmish 會叫，外面的請求在入口就擋掉了）
@@ -115,6 +140,13 @@ export class Planet extends DurableObject {
   }
 }
 
+const planetOf = env => env.PLANET.get(env.PLANET.idFromName('planet-' + (env.WORLD_VERSION || '1')));
+// 這個請求是哪個玩家：訪客直接算；Google 工作階段要問星球（存在星球的儲存空間）
+async function ownerOf(req, env) {
+  const s = req.headers.get('x-chimera-session');
+  if (s) { const r = await planetOf(env).fetch(new Request('https://planet/api/internal/who', {headers: {'x-chimera-session': s}})); return r.ok ? (await r.json()).pid : false; }
+  const t = req.headers.get('x-chimera-token') || ''; return t.length >= 16 ? 'v' + await sha('guest:' + t) : null;
+}
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -122,8 +154,7 @@ export default {
     // 伺服器上的戰鬥：/api/battle/<任務票>/act|state，用身分代碼確認是自己的戰鬥
     const mb = url.pathname.match(env.DEV === '1' ? /^\/api\/battle\/([^/]+)\/(act|state|selftest)$/ : /^\/api\/battle\/([^/]+)\/(act|state)$/);   // selftest：開發用，機器人打完
     if (mb) {
-      const t = req.headers.get('x-chimera-token') || ''; if (t.length < 16) return bad('沒有身分代碼', 401);
-      const owner = 'v' + await sha('guest:' + t);
+      const owner = await ownerOf(req, env); if (!owner) return bad(owner === false ? '登入已失效，請重新登入' : '沒有身分代碼', 401);
       return env.SKIRMISH.get(env.SKIRMISH.idFromName(battleName(env, decodeURIComponent(mb[1])))).fetch(new Request('https://battle/' + mb[2], {method: req.method, headers: {'content-type': 'application/json', 'x-owner': owner}, body: req.method === 'POST' ? await req.text() : undefined}));
     }
     // 開發用：開一場屬於這個瀏覽器的伺服器戰鬥（不經過任務票），測遠端操作（DEV=1 才開）
@@ -133,7 +164,7 @@ export default {
     }
     // 開發用：直接開一場戰鬥、讓機器人打完（DEV=1 才開）
     if (env.DEV === '1' && url.pathname.startsWith('/api/dev/battle/')) { const [, , , , id, op] = url.pathname.split('/'); return env.SKIRMISH.get(env.SKIRMISH.idFromName('dev-' + id)).fetch(new Request('https://battle/' + op, req)); }
-    if (url.pathname.startsWith('/api/')) return env.PLANET.get(env.PLANET.idFromName('planet-' + (env.WORLD_VERSION || '1'))).fetch(req);
+    if (url.pathname.startsWith('/api/')) return planetOf(env).fetch(req);
     return env.ASSETS.fetch(req);
   },
 };

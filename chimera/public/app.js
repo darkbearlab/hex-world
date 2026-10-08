@@ -1,6 +1,6 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
 import {CLS, MN, MATS, classOdds, GCFG} from './company.js';
-import {ServerLink} from './link.js';
+import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
 const LOCAL = new URL(location).searchParams.has('local');
 document.body.classList.toggle('server', !LOCAL);
@@ -31,11 +31,12 @@ function start(seed) {
     else if (m.type === 'year') {
       hist.push(m.data); for (const ev of m.data.events) allEvents.push(ev);
       $('slider').max = hist.length - 1; $('computing').textContent = `推演到第 ${m.data.y} 年…`;
-      if (hist.length === 1) { cur = 0; renderAll(); setPlaying(true); }
+      if (hist.length === 1) { cur = 0; renderAll(); if (LOCAL) setPlaying(true); }
       else if (GV) { cur = hist.length - 1; lastPanelY = -1; renderAll(); send({type: 'quotes'}); }
       if (!GV && page === 'co' && hist.length % 10 === 0) renderCo();
-    } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = false; }
-    else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); }
+    } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = false; if (!LOCAL && !worker.company) { hideTitle(); showPage('co'); } }
+    else if (m.type === 'relogin') { showTitle(m.text); }
+    else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); hideTitle(); }
     else if (m.type === 'mission') openMission(m.data);
     else if (m.type === 'error') { hideMissionLoading(); toast(m.text); }
     else if (m.type === 'path') { selPath = m; draw(); }
@@ -616,7 +617,68 @@ $('pane-co').onclick = e => {
 $('legend').innerHTML = '<span>機會：</span>' + Object.values(OK).map(v => `<span style="color:${v.c}">${v.ch} ${v.n}</span>`).join('') + '<span style="flex-basis:100%;height:0"></span>' + '<span><i style="background:#f1e6cf;border-radius:50%"></i>市鎮</span><span>★ 首府</span><span><i style="background:#6fd0d8;transform:rotate(45deg) scale(.8)"></i>培養槽</span><span><i style="background:#d9b86a"></i>廠區</span><span style="color:#ff5a3c">━ 戰線</span><span style="color:#c4593c">✕ 掠奪者</span><span style="color:#e0915a">▲ 原住民</span>';
 
 const seed0 = new URL(location).searchParams.get('seed') || '奇美拉-1';
-$('seed').value = seed0; start(seed0);
+$('seed').value = seed0;
+
+/* ───────── 標題畫面（伺服器模式）：Google 登入或訪客，連上之前蓋住整個頁面 ───────── */
+let AUTH = {clientId: '', gsi: false}, entering = false;
+async function showTitle(msg) {
+  if (worker) { worker.terminate(); worker = null; }
+  entering = false; $('title').hidden = false; $('enterBtn').disabled = false;
+  $('titleMsg').hidden = !msg; $('titleMsg').textContent = msg || '';
+  let hello = null;
+  try { const r = await fetch('/api/hello', {headers: authHeaders()}); hello = await r.json(); if (r.status === 401) { signOut(); hello = await (await fetch('/api/hello', {headers: authHeaders()})).json(); } } catch { $('titleMsg').hidden = false; $('titleMsg').textContent = '連不上伺服器，稍後再試'; }
+  AUTH.clientId = hello?.clientId || '';
+  AUTH.hello = hello; renderAcct(hello);
+  if (AUTH.clientId && !AUTH.gsi && !account()) await loadGsi();
+}
+function hideTitle() { $('title').hidden = true; entering = false; }
+function renderAcct(hello) {
+  const email = account(), note = $('acctNote'), co = hello?.company;
+  $('gsiBtn').innerHTML = ''; note.innerHTML = '';
+  if (email) {
+    note.append(`已用 ${email} 登入。`, Object.assign(document.createElement('a'), {textContent: '登出', onclick: () => { signOut(); showTitle(); }}));
+    $('enterBtn').textContent = co ? `進入「${co}」` : '進入星球';
+  } else {
+    if (AUTH.gsi) google.accounts.id.renderButton($('gsiBtn'), {theme: 'filled_black', text: 'signin_with', shape: 'pill', locale: 'zh-TW'});
+    note.textContent = AUTH.clientId ? '用 Google 登入，換手機或電腦都能接著經營同一家公司。也可以不登入，用這個瀏覽器當訪客。' : '目前只能用訪客身分（這個瀏覽器）。';
+    $('enterBtn').textContent = co ? `以訪客身分進入「${co}」` : '以訪客身分進入';
+  }
+}
+async function loadGsi() {
+  await new Promise(ok => { const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.onload = ok; sc.onerror = ok; document.head.append(sc); });
+  if (!window.google?.accounts?.id) return;
+  google.accounts.id.initialize({client_id: AUTH.clientId, callback: onGoogle, ux_mode: 'popup'});
+  AUTH.gsi = true; if (!account()) renderAcct(AUTH.hello);
+}
+async function onGoogle(resp) {
+  try {
+    const r = await fetch('/api/auth/google', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({credential: resp.credential, legacy: guestToken()})});
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || '登入失敗');
+    signedIn(d.session, d.email);
+    enter();
+    if (d.moved) setTimeout(() => toast(`這個瀏覽器原本的「${d.moved}」已經綁到你的 Google 帳號上`), 1500);
+  } catch (e) { $('titleMsg').hidden = false; $('titleMsg').textContent = e.message; }
+}
+function enter() {
+  if (entering) return; entering = true;
+  $('enterBtn').disabled = true; $('enterBtn').textContent = '連線中…'; $('titleMsg').hidden = true;
+  start(seed0);
+}
+$('enterBtn').onclick = enter;
+// 點左上角的標題回到標題畫面（換帳號、登出、看開發日誌）
+document.querySelector('.brand').onclick = () => { if (!LOCAL && !mission) showTitle(); };
+document.querySelector('.brand').style.cursor = LOCAL ? '' : 'pointer';
+
+/* ───────── 開發日誌（changelog.json） ───────── */
+async function devlog() {
+  let log = []; try { log = await (await fetch('changelog.json', {cache: 'no-store'})).json(); } catch {}
+  $('devlogBody').innerHTML = log.length ? log.map(d => `<h3>${esc(d.date)}</h3>` + d.items.map(t => `<p>・${esc(t)}</p>`).join('')).join('') : '<p class="muted">暫時沒有開發日誌。</p>';
+  $('devlog').hidden = false;
+}
+$('devlogBtn').onclick = devlog;
+$('devlogClose').onclick = () => $('devlog').hidden = true;
+$('devlog').onclick = e => { if (e.target.id === 'devlog') $('devlog').hidden = true; };
+if (LOCAL) start(seed0); else showTitle();
 window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); if (page === 'rep') { const P = $('pane-rep'); P.innerHTML = ''; renderRepPage(); } });
 
 // ===== 親自打：ASH 的任務戰鬥直接跑在這個頁面裡（不用 iframe；public/ash/chimera-boot.js，由 chimera/ash/build.mjs 建置）。

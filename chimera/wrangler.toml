@@ -43,5 +43,7 @@ WORLD_VERSION = "1"
 WORLD_SEED = "奇美拉-1"
 # 一個遊戲小時是現實的幾毫秒。3600000 = 一比一（Alan 2026-10-08）；測試時可以調小
 HOUR_MS = "3600000"
+# 用 Google 登入（和 warband 同一個 OAuth 用戶端；要在 Google Cloud 把 https://chimera.darkbearlab.workers.dev 加進「已授權的 JavaScript 來源」）
+GOOGLE_CLIENT_ID = "761557729646-spe24525vg4fcju3ihqjtm5v6l15leni.apps.googleusercontent.com"
 # 設成 "1" 星球就暫停（時鐘停下、進度保留）
 PAUSED = "0"
