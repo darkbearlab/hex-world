@@ -433,3 +433,4 @@ Claude 的沙盒劇本草案（等確認）：
   - 已用 git bundle 把它的 23 個提交搬到雲端工作區（/home/claude/ash-clear-bot），本機原本的東西沒動。
   - 本機只多了一個 C:\claude_project\_transfer\clear-bot.bundle。
   - 機器人只透過 game.action 操作玩家角色；要驅動隊友，有兩條路（見回覆）。
+- 2026-10-08 Alan：隊友走方案 A（沿用 ASH 的友軍系統，把通關機器人改成能控制隊友），參數再調。交接說明寫在 chimera 分支的 chimera/HANDOFF.md。
