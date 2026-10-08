@@ -32,6 +32,18 @@
     <span id="computing" class="muted">推演中…</span>
     <button id="more" hidden>再推 50 年</button>
   </div>
+  <div class="gamebar" id="gamebar" hidden>
+    <div class="year"><b id="gclock">—</b><span id="gsub">公司模式</span></div>
+    <select id="gspeed" aria-label="時間速度">
+      <option value="0">暫停</option>
+      <option value="1">每秒 1 小時</option>
+      <option value="3" selected>每秒 3 小時</option>
+      <option value="8">每秒 8 小時</option>
+      <option value="24">每秒 1 天</option>
+    </select>
+    <label class="muted ydays">沙盒每 <input id="gyd" type="number" min="3" max="365" value="30"> 天推一年</label>
+    <b id="gcash" class="cash">—</b>
+  </div>
 </header>
 <main>
   <section class="mapwrap">
@@ -46,15 +58,18 @@
     <div class="zoom"><button id="zin" aria-label="放大">＋</button><button id="zout" aria-label="縮小">－</button><button id="zfit" aria-label="全圖">⤢</button></div>
     <div class="maplegend" id="legend"></div>
     <div class="tip" id="tip" hidden></div>
+    <div class="toast" id="toast" hidden></div>
   </section>
   <aside class="panel">
     <nav class="tabs" role="tablist">
+      <button data-tab="co">公司</button>
       <button data-tab="opp" class="on">機會</button>
       <button data-tab="log">編年史</button>
       <button data-tab="fac">勢力</button>
       <button data-tab="tile">地點</button>
       <button data-tab="gear">遺產級</button>
     </nav>
+    <div class="pane" id="pane-co" hidden></div>
     <div class="pane" id="pane-opp"></div>
     <div class="pane" id="pane-log" hidden>
       <div class="filters" id="filters">

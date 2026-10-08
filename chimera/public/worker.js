@@ -1,5 +1,7 @@
 // 在背景推演奇美拉星球：開局後一年一年推進，每推完一年就把那一年的樣子送回畫面
 import * as S from './sim.js';
+import * as C from './cases.js';
+import * as G from './company.js';
 
 let w = null, sim = null, target = 0, running = false, lastEv = 0;
 
@@ -44,10 +46,44 @@ function loop() {
   setTimeout(loop, 0);
 }
 
+// ===== 公司模式：沙盒停在當下這一年，改用小時推進；每過 yearDays 天，沙盒推一年 =====
+let game = null, clock = null;
+function gview(err) { postMessage({type: 'game', err: err || null, year: sim.year, speed: game.speed, yearDays: game.yearDays,
+  inbox: game.book.inbox.filter(x => x.player === game.G.name).slice(-30).reverse(), data: G.view(game.G, game.book, w)}); }
+function gtick() {
+  if (!game || !game.speed) return;
+  game.acc += game.speed / 4; let n = 0, yearDone = false;
+  while (game.acc >= 1 && n < 48) {
+    game.acc--; n++; const h = ++game.h;
+    C.tick(game.book, w, h); G.hour(game.G, game.book, w, h);
+    if (h % (24 * game.yearDays) === 0) { sim.stepYear(); yearDone = true; }
+  }
+  if (yearDone) postMessage({type: 'year', data: snapshot()});
+  gview();
+}
+function act(m) {
+  const g = game.G, b = game.book, h = game.h;
+  if (m.type === 'speed') { game.speed = m.v; return null; }
+  if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
+  if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
+  if (m.type === 'build') return G.build(g, m.recipe, m.tpl);
+  if (m.type === 'keep') { const c = g.roster.find(x => x.uid === m.uid); if (c) c.keep = !c.keep; return null; }
+  if (m.type === 'accept') { const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile); if (!o) return '這個機會已經不在了'; return G.accept(g, b, w, o, m.side, m.uids, h); }
+  if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, h);
+  if (m.type === 'resolve') { C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
+  return '不認得的指令';
+}
+
 onmessage = e => {
   const m = e.data;
+  if (m.type === 'found') {
+    running = false;
+    game = {book: C.newBook(m.base * 31 + 7), G: G.newCompany(w, m.base, m.name || '我的公司', m.base * 17 + 3), h: 0, acc: 0, speed: 3, yearDays: 30};
+    clearInterval(clock); clock = setInterval(gtick, 250); gview(); return;
+  }
+  if (game && ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve'].includes(m.type)) { const err = act(m); gview(err); return; }
   if (m.type === 'start') {
-    running = false; lastEv = 0;
+    running = false; lastEv = 0; game = null; clearInterval(clock);
     w = S.generate(m.seed, {history: false}); sim = w.sim; sim.begin();
     postMessage({type: 'static', seed: m.seed, W: S.W, H: S.H, N: S.N, names: w.names, land: w.land, river: Array.from(w.river), biomes: S.BIOMES.map(b => ({n: b.n, c: b.c})), goods: S.GOODS, gn: S.GN, vn: S.VN});
     postMessage({type: 'year', data: snapshot()});

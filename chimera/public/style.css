@@ -82,3 +82,57 @@ h2{font-size:16px;margin:0 0 4px}
 
 .opp li{border-left-width:3px}
 .opp .lv{font-size:10px;letter-spacing:1px}
+
+/* ───── 公司模式 ───── */
+.gamebar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.gamebar .cash{font-family:var(--mono);color:var(--ok);font-size:15px}
+.gamebar .cash.neg{color:var(--war)}
+.ydays{font-size:12px}.ydays input{width:52px;padding:2px 4px}
+body.game .play,body.game .timeline{display:none}
+.toast{position:absolute;left:50%;bottom:54px;transform:translateX(-50%);background:#3a1d16;border:1px solid var(--war);color:#ffd9cf;border-radius:8px;padding:6px 12px;font-size:13px;z-index:5;max-width:90%}
+.sec{font-size:13px;color:var(--accent);margin:16px 0 6px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.sec .muted{font-weight:400;font-size:12px}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:13px}
+.card h4{margin:0 0 4px;font-size:13px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.card .row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px}
+.card.tk{border-left:3px solid var(--war)}
+.card.tk.transit{border-left-color:#b3784a}
+.due{font-family:var(--mono);font-size:12px;color:var(--war);white-space:nowrap}
+.due.ok{color:var(--muted)}
+.mini{font-size:12px;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 6px 2px 2px;border:1px solid var(--line);border-radius:14px;font-size:12px;background:var(--panel);cursor:pointer;color:var(--text)}
+.chip img,.cl img{image-rendering:pixelated;border-radius:4px;background:#0d0c0a}
+.chip img{width:22px;height:22px}
+.chip.on{border-color:var(--accent);background:#3b3124;color:var(--accent)}
+.chip.dead{opacity:.45;text-decoration:line-through;cursor:default}
+.chip.static{cursor:default}
+.crown{font-size:10px;padding:0 5px;border-radius:8px;margin-left:2px}
+.crown.gold{background:#e0a64a;color:#1b140a}.crown.silver{background:#9aa3a8;color:#111}.crown.tpl{background:#2d5b5f;color:#cdeff2}
+.roster{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.cl{display:grid;grid-template-columns:48px 1fr;gap:2px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px;position:relative}
+.cl img{width:48px;height:48px;grid-row:1/4}
+.cl.kia{opacity:.5}.cl.kia img{filter:grayscale(1)}
+.cl.fresh{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.cl b{font-family:var(--mono);font-size:12px}
+.cl .st{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.cl .keep{position:absolute;right:4px;top:4px;padding:0 5px;font-size:11px;border-radius:5px}
+.mats{width:100%;border-collapse:collapse;font-size:12px}
+.mats td{padding:3px 4px;border-bottom:1px solid var(--line)}
+.mats td:nth-child(2),.mats td:nth-child(3){text-align:right;font-family:var(--mono)}
+.mats button{font-size:11px;padding:1px 6px}
+.recipe{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0 4px}
+.recipe label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.recipe input{width:100%}
+.odds{display:flex;gap:4px;flex-wrap:wrap;font-size:11px;margin-bottom:6px}
+.odds span{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:0 6px}
+.picker{margin-top:6px;padding:6px;border:1px dashed var(--line);border-radius:6px}
+.coinit .frow{grid-template-columns:12px 1fr auto}
+@media (max-width:820px){.roster{grid-template-columns:1fr}.ydays{display:none}}
+.gamebar[hidden]{display:none}
+#pane-co a,#pane-tile a{color:var(--accent);text-decoration:none}
+.odds-est{font-family:var(--mono);font-size:12px}
+.odds-est.bad{color:var(--war)}.odds-est.mid{color:var(--accent)}.odds-est.good{color:var(--ok)}
+.tabs{overflow-x:auto}
+.tabs button{flex:1 0 auto;white-space:nowrap;padding:4px 8px}
+button:disabled{opacity:.45;cursor:not-allowed}

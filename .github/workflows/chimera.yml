@@ -22,8 +22,8 @@ jobs:
           cache: npm
       - name: 安裝套件
         run: npm ci
-      - name: 把模擬核心放進網頁
-        run: cp chimera/sim.js chimera/public/sim.js
+      - name: 把模擬核心、案件管線、玩家公司放進網頁
+        run: cp chimera/sim.js chimera/cases.js chimera/company.js chimera/public/
       - name: 部署
         run: npx wrangler deploy --config chimera/wrangler.toml
         env:

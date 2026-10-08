@@ -31,7 +31,7 @@ export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, t: 0, cases
 const VPOW = {rush: 4, gt: 6, armor: 14};
 export function makeSquad(book, player, o = {}) {
   const id = 'S' + book.nextId++;
-  const clones = Array.from({length: o.size || 4}, () => ({id: 'C-' + (1000 + book.nextId++), pow: o.pow || 6, hp: 20, alive: true}));
+  const clones = o.clones ? o.clones.map(c => Object.assign(c, {hp: 20, alive: true})) : Array.from({length: o.size || 4}, () => ({id: 'C-' + (1000 + book.nextId++), pow: o.pow || 6, hp: 20, alive: true}));
   const at = o.at ?? book.companies[player]?.base ?? -1;
   const sq = {id, player, name: o.name || `${player}・${id}`, clones, gear: o.gear ?? 6, veh: o.veh || null, caseId: null, readyAt: 0, busy: null, at};
   book.squads[id] = sq; return sq;
@@ -122,7 +122,7 @@ export function enlist(book, caseId, squadId, now, w) {
 // 小隊打薄了，向雇主申請變更契約、從總部或駐紮地調人補上。
 // 雇主不另付錢（訂金、期中款還是按原本的隊算），人要自己出；調來的人沿路走過來，走到之前這隊照樣用殘編上場。
 // 只能在還會出票的期間申請，而且要趕得上。
-export function amend(book, w, squadId, n, from, now) {
+export function amend(book, w, squadId, n, from, now, o = {}) {
   const sq = book.squads[squadId], c = sq && book.cases.find(x => x.id === sq.caseId), C = sq && book.companies[sq.player];
   if (!sq || !c || !c.open || !C) return {ok: false, why: '沒有進行中的案件'};
   // 雇主看你在這個案件的表現：打了三張以上、輸掉一半以上或一半以上放著讓它自動結算，就不准補人
@@ -135,15 +135,17 @@ export function amend(book, w, squadId, n, from, now) {
     return {ok: false, why: '雇主拒絕', refused: true};
   }
   const pending = book.amends.filter(a => a.squad === sq.id && !a.done).reduce((x, a) => x + a.n, 0);
+  if (o.clones) n = o.clones.length;
   n = Math.min(n, CFG.SQUAD - alive(sq).length - pending); if (n <= 0) return {ok: false, why: '已經滿編'};
-  const fromPost = from !== C.base;
+  if (o.clones) o.clones = o.clones.slice(0, n);
+  const fromPost = from !== C.base && !o.clones;
   if (fromPost && (C.posts[from] || 0) < n) return {ok: false, why: '駐紮地人手不夠'};
   const eta = now + travelHours(w, from, c.tile);
   if (eta >= c.end - CFG.FREEZE) return {ok: false, why: '趕不上'};
   if (fromPost) C.posts[from] -= n;
-  else pay(book, now, sq.player, -CFG.CLONE_VALUE * n, 'reinforce', `${c.title}：契約變更，從總部培養槽調 ${n} 人補${sq.name}`, c.id);
+  else if (!o.clones) pay(book, now, sq.player, -CFG.CLONE_VALUE * n, 'reinforce', `${c.title}：契約變更，從總部培養槽調 ${n} 人補${sq.name}`, c.id);
   // 調來的人編成一支行軍縱隊，路上一樣可能被劫
-  const col = makeSquad(book, sq.player, {size: n, at: from, gear: sq.gear, name: `${sq.name} 的補員`}); col.column = true; col.caseId = null;
+  const col = makeSquad(book, sq.player, {size: n, clones: o.clones, at: from, gear: sq.gear, name: `${sq.name} 的補員`}); col.column = true; col.caseId = null;
   const a = {id: 'A' + book.nextId++, squad: sq.id, col: col.id, caseId: c.id, n, from, at: now, eta, done: false};
   book.amends.push(a);
   planTrip(book, w, c, col.id, from, now, eta);
@@ -161,7 +163,7 @@ function arrive(book, a, now) {
   // 打到全滅、或案件已經結算，人就留在現場當駐紮
   const c = book.cases.find(x => x.id === a.caseId);
   if (!sq.caseId || c?.settled) { station(book, sq.player, c ? c.tile : sq.at, a.n); return; }
-  for (const g of got) sq.clones.push({...g, hp: 20});
+  for (const g of got) { g.hp = 20; sq.clones.push(g); }
   sq.clones = sq.clones.filter(c => c.alive).concat(sq.clones.filter(c => !c.alive)).slice(0, 12);
   notify(book, now, sq.player, 'move', `補員到位：${sq.name} 回到 ${alive(sq).length} 人。`, a.id);
 }
@@ -333,6 +335,13 @@ export function fight(book, sq, enemy, mult = 1) {
   return {win: foeHP <= 0, dead};
 }
 
+// 估勝算：拿小隊的複本打 n 場（用自己的亂數，不動帳本的亂數）
+export function estimate(sq, enemy, mult = CFG.AUTO_POW, n = 200) {
+  const tmp = {rs: 12345}; let win = 0, dead = 0;
+  for (let i = 0; i < n; i++) { const cp = {...sq, clones: sq.clones.filter(c => c.alive).map(c => ({...c, hp: 20}))}; const r = fight(tmp, cp, enemy, mult); win += r.win ? 1 : 0; dead += r.dead.length; }
+  return {p: win / n, dead: dead / n, pow: Math.round(squadPower(sq))};
+}
+
 // 把一場仗的結果轉成「完成了哪些目標」
 export function objectivesDone(tk, win, dead, wipe) {
   const done = [];
@@ -355,6 +364,7 @@ export function submit(book, w, ticketId, result, now) {
   return true;
 }
 
+export function resolveNow(book, w, ticketId, now) { const tk = book.tickets.find(x => x.id === ticketId); if (!tk || tk.done || !tk.squad) return false; autoResolve(book, w, tk, now); return true; }
 function autoResolve(book, w, tk, now) {
   const sq = book.squads[tk.squad];
   const r = fight(book, sq, tk.enemy, CFG.AUTO_POW);
