@@ -77,7 +77,7 @@ export class Planet extends DurableObject {
     if (this.catchUp()) await this.persist();
     this.out = [];
     const name = pid ? this.roster[pid] : null;
-    if (path === 'hello') return json({pid: !!pid, company: name, hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
+    if (path === 'hello') return json({pid: !!pid, company: name, hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
     if (path === 'static') { if (!this.staticMsg) { const c = new Core(m => { if (m.type === 'static') this.staticMsg = m; }); c.w = this.core.w; c.emitStatic(); } return json(this.staticMsg); }
     if (path === 'year') { const y = +url.searchParams.get('y'); return y === this.core.year ? json({same: true, year: y}) : json({type: 'year', data: this.core.snapshot()}); }
     // 伺服器上的戰鬥打完，交戰果（只有 Skirmish 會叫，外面的請求在入口就擋掉了）
