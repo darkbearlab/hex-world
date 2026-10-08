@@ -1,5 +1,9 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
 import {CLS, MN, MATS, classOdds, GCFG} from './company.js';
+import {ServerLink} from './link.js';
+// 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
+const LOCAL = new URL(location).searchParams.has('local');
+document.body.classList.toggle('server', !LOCAL);
 const $ = id => document.getElementById(id);
 const canvas = $('map'), ctx = canvas.getContext('2d');
 const SQ3 = Math.sqrt(3);
@@ -18,7 +22,7 @@ let worker = null;
 /* ───────── worker ───────── */
 function start(seed) {
   if (worker) worker.terminate();
-  worker = new Worker('worker.js', {type: 'module'});
+  worker = LOCAL ? new Worker('worker.js', {type: 'module'}) : new ServerLink();
   hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; $('pane-rep').innerHTML = ''; mailSeen.clear(); mailFirst = true; $('mailBtn').hidden = true; $('mail').hidden = true; QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
   $('computing').hidden = false; $('computing').textContent = '生成地形…'; $('more').hidden = true;
   worker.onmessage = e => {
@@ -33,12 +37,13 @@ function start(seed) {
     } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = false; }
     else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); }
     else if (m.type === 'mission') openMission(m.data);
+    else if (m.type === 'error') { hideMissionLoading(); toast(m.text); }
     else if (m.type === 'path') { selPath = m; draw(); }
     else if (m.type === 'quotes') { QT = m.data; if (procSel && !QT.some(q => q.t === procSel.t)) procSel = null; if (page === 'co') renderProc(); }
   };
   worker.onerror = e => { $('computing').textContent = '推演出錯：' + (e.message || ''); };
   worker.postMessage({type: 'start', seed});
-  const u = new URL(location); u.searchParams.set('seed', seed); history.replaceState(null, '', u);
+  if (LOCAL) { const u = new URL(location); u.searchParams.set('seed', seed); history.replaceState(null, '', u); }
 }
 
 /* ───────── 播放 ───────── */

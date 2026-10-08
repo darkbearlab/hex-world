@@ -20,9 +20,11 @@ export class Core {
   start(seed) {
     this.game = null; this.lastEv = 0; this.log = [];
     this.w = S.generate(seed, {history: false}); this.sim = this.w.sim; this.sim.begin(); this.seed = seed;
-    this.emit({type: 'static', seed, W: S.W, H: S.H, N: S.N, names: this.w.names, land: this.w.land, river: Array.from(this.w.river), biomes: S.BIOMES.map(b => ({n: b.n, c: b.c})), goods: S.GOODS, gn: S.GN, vn: S.VN});
+    this.emitStatic();
     this.emit({type: 'year', data: this.snapshot()});
   }
+  // 不會變的資料（地形、地名、河流、貨物名稱）：連上時送一次
+  emitStatic() { this.emit({type: 'static', seed: this.seed, W: S.W, H: S.H, N: S.N, names: this.w.names, land: this.w.land, river: Array.from(this.w.river), biomes: S.BIOMES.map(b => ({n: b.n, c: b.c})), goods: S.GOODS, gn: S.GN, vn: S.VN}); }
   stepYear() { this.sim.stepYear(); this.emit({type: 'year', data: this.snapshot()}); }
   get year() { return this.sim.year; }
 
@@ -58,46 +60,66 @@ export class Core {
   }
 
   // ---- 公司模式：沙盒停在當下這一年，改用小時推進；每過 yearDays 天，沙盒推一年 ----
+  // 一顆共用的星球（伺服器化 S1）：一本帳本、很多家公司（以公司名稱區分）、一個時鐘。單人測試模式就是只有一家。
   // 現實時間一比一時 yearDays 暫定 90（Alan 2026-10-08，可能就是一個賽季）
-  found(base, name) {
-    this.game = {book: C.newBook(base * 31 + 7), G: G.newCompany(this.w, base, name || '我的公司', base * 17 + 3), h: 0, speed: 3, yearDays: 90};
-    this.log = [{h: 0, year: this.sim.year, cmd: {type: 'found', base, name}}];
-    this.view();
-  }
+  // this.game = {book, cos: {公司名: 公司}, h: 現在第幾個遊戲小時, yearDays, speed（只有單人測試的加速時鐘用）}
+  co(name) { return this.game?.cos[name] || null; }
   get hour() { return this.game ? this.game.h : 0; }
-  // 推進到第 h 個遊戲小時（伺服器：依現實時間補算；瀏覽器：加速時鐘）
+  // 星球開始用小時推進（伺服器開服時；單人測試模式在開第一家公司時）
+  open() {
+    if (this.game) return;
+    let seed = 7; for (const ch of String(this.seed)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: 90};
+    this.log = [{h: 0, year: this.sim.year, cmd: {type: 'open'}}];
+  }
+  // 開公司（任何一座主城）。第一家公司開張時星球改用小時推進。回傳錯誤訊息或 null
+  found(base, name) {
+    name = String(name || '').trim().slice(0, 16) || '我的公司';
+    const K = this.sim.peek();
+    if (!K.markets[base] || K.owner[base] < 0) return '這裡不能開公司';
+    if (this.game?.cos[name]) return '這個名字已經有人用了';
+    if (!this.game) this.open();
+    this.log.push({h: this.game.h, year: this.sim.year, who: name, cmd: {type: 'found', base, name}});
+    const g = G.newCompany(this.w, base, name, base * 17 + 3 + Object.keys(this.game.cos).length * 7919);
+    g.h = this.game.h; this.game.cos[name] = g;
+    return null;
+  }
+  // 推進到第 h 個遊戲小時（伺服器：依現實時間補算；瀏覽器：加速時鐘）。回傳這段期間沙盒有沒有換年
   advanceTo(h) {
-    const game = this.game; if (!game) return;
+    const game = this.game; if (!game) return false;
     let yearDone = false;
     while (game.h < h) {
       const t = ++game.h;
-      C.tick(game.book, this.w, t); G.hour(game.G, game.book, this.w, t);
+      C.tick(game.book, this.w, t);
+      for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
       if (t % (24 * game.yearDays) === 0) { this.sim.stepYear(); yearDone = true; }
     }
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});
+    return yearDone;
   }
   // 通知信指向哪裡：任務票（還沒打的可以直接親自打）、案件、補員縱隊所在的地圖位置
-  mailRef(x) {
+  mailRef(x, name) {
     const b = this.game.book; if (!x.ref) return {};
     const tk = b.tickets.find(t => t.id === x.ref);
-    if (tk) return {tile: tk.tile, fight: !tk.done && tk.player === this.game.G.name && tk.squad ? tk.id : null};
+    if (tk) return {tile: tk.tile, fight: !tk.done && tk.player === name && tk.squad ? tk.id : null};
     const c = b.cases.find(k => k.id === x.ref); if (c) return {tile: c.tile};
     const am = b.amends.find(k => k.id === x.ref), ac = am && b.cases.find(k => k.id === am.caseId); if (ac) return {tile: ac.tile};
     return {};
   }
-  view(err) {
-    const game = this.game;
-    this.emit({type: 'game', err: err || null, year: this.sim.year, speed: game.speed, yearDays: game.yearDays,
-      inbox: game.book.inbox.filter(x => x.player === game.G.name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x)})), data: G.view(game.G, game.book, this.w)});
+  // 一家公司看到的畫面資料（回傳訊息物件，由呼叫的人送出）
+  view(name, err) {
+    const game = this.game, g = this.co(name); if (!g) return null;
+    return {type: 'game', err: err || null, year: this.sim.year, speed: game.speed, yearDays: game.yearDays,
+      inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: G.view(g, game.book, this.w)};
   }
-  // 指令：會改狀態的記進 log（遊戲小時＋指令），回傳錯誤訊息或 null
-  command(m) {
-    if (!this.game) return '還沒開公司';
-    if (COMMANDS.includes(m.type)) this.log.push({h: this.game.h, cmd: m});
-    return this.act(m);
+  // 指令（name：下指令的公司）：會改狀態的記進 log（遊戲小時＋公司＋指令），回傳錯誤訊息或 null
+  command(m, name) {
+    if (!this.co(name)) return '還沒開公司';
+    if (COMMANDS.includes(m.type)) this.log.push({h: this.game.h, who: name, cmd: m});
+    return this.act(m, name);
   }
-  act(m) {
-    const {w, sim} = this, game = this.game, g = game.G, b = game.book, h = game.h;
+  act(m, name) {
+    const {w, sim} = this, game = this.game, g = this.co(name), b = game.book, h = game.h;
     if (m.type === 'speed') { game.speed = m.v; return null; }
     if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
@@ -110,23 +132,23 @@ export class Core {
     if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to); this.emit({type: 'path', to: m.to, path, hours: path.length ? C.travelHours(w, g.base, m.to) : -1}); return null; }
     if (m.type === 'procure') return G.procure(g, b, w, m.town, m.mat, m.qty, m.uids || [], h);
     if (m.type === 'quotes') { this.emit({type: 'quotes', data: G.quotes(g, w)}); return null; }
-    if (m.type === 'resolve') { C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
-    // 親自打（ASH 任務戰鬥）：把任務票和小隊交給畫面去開戰；打的時候公司的時間停住
+    if (m.type === 'resolve') { const tk = b.tickets.find(x => x.id === m.ticket); if (!tk || tk.player !== name) return '這張票不是你的'; C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
+    // 親自打（ASH 任務戰鬥）：把任務票和小隊交給畫面去開戰。單人測試模式打的時候時間停住（pauseOnFight）；伺服器上大家共用時鐘，不停
     if (m.type === 'fight') {
-      const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === g.name), sq = tk && b.squads[tk.squad];
+      const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
       if (!sq) return '這張票已經不在了';
       const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
         lv: c.lv || 1, xp: c.xp || 0, picks: c.picks || [], skills: c.skills || [], prep: c.prep || null, perkPicks: c.perkPicks || 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: c.legacyPerkPicks || 0}));
       if (!squad.length) return '這一隊沒有活著的人';
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-      if (game.fighting == null) game.fighting = game.speed; game.speed = 0;
+      if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
       this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: tk.enemy.side === 'faction' ? 'loyalist' : 'rebel', night: tk.night, enemy: tk.enemy, squad}});
       return null;
     }
     if (m.type === 'submit' || m.type === 'abort') {
       if (game.fighting != null) { game.speed = game.fighting; game.fighting = null; }
       if (m.type === 'abort') return null;
-      const tk = b.tickets.find(x => x.id === m.ticket && !x.done), sq = tk && b.squads[tk.squad];
+      const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
       if (!sq) return '這張票已經結算了';
       const win = !!m.result.win, dead = (m.result.dead || []).filter(id => sq.clones.some(c => c.id === id && c.alive));
       const wipe = !sq.clones.some(c => c.alive && !dead.includes(c.id));
@@ -138,25 +160,33 @@ export class Core {
         Object.assign(c, {lv: pr.lv, xp: pr.xp, picks: pr.picks, skills: pr.skills, prep: pr.prep, perkPicks: pr.perkPicks, classPerkMisses: pr.classPerkMisses, legacyPerkPicks: pr.legacyPerkPicks});
       }
       C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe)}, h);
-      if (ups.length) b.inbox.push({t: h, player: g.name, kind: 'result', text: `${tk.title}：升級　${ups.join('；')}`, ref: tk.id});
+      if (ups.length) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：升級　${ups.join('；')}`, ref: tk.id});
       G.hour(g, b, w, h); return null;
     }
     return '不認得的指令';
   }
 
-  // 重播：在全新的核心上，照「發生的遊戲小時」重新下同樣的指令（存檔＝起始種子＋指令紀錄；第一筆記著開公司那一年）
+  // 重播：在全新的核心上，照「發生的遊戲小時」重新下同樣的指令（第一筆記著開第一家公司那一年）
   replay(seed, log, untilHour = null) {
     this.start(seed);
     for (const e of log) {
-      if (e.cmd.type === 'found') { while (this.sim.year < e.year) this.sim.stepYear(); this.found(e.cmd.base, e.cmd.name); continue; }
-      this.advanceTo(e.h); this.command(e.cmd);
+      if (e.cmd.type === 'open') { while (this.sim.year < e.year) this.sim.stepYear(); this.open(); continue; }
+      if (e.cmd.type === 'found') { if (!this.game) { while (this.sim.year < e.year) this.sim.stepYear(); } else this.advanceTo(e.h); this.found(e.cmd.base, e.cmd.name); continue; }
+      this.advanceTo(e.h); this.command(e.cmd, e.who);
     }
     if (untilHour != null) this.advanceTo(untilHour);
+  }
+  // 存檔：沙盒的完整狀態（sim.exportState）＋帳本與所有公司＋指令紀錄。讀檔要先用同一個種子產生地圖（地形、地名不存）
+  save() { const st = this.sim.exportState(); for (const k of Object.keys(st)) if (ArrayBuffer.isView(st[k])) st[k] = Array.from(st[k]);
+    return {sim: st, year: this.sim.year, lastEv: this.lastEv, game: this.game, log: this.log}; }
+  load(seed, d) {
+    this.w = S.generate(seed, {history: false}); this.sim = this.w.sim; this.sim.begin(); this.seed = seed;
+    this.sim.importState(d.sim); this.lastEv = d.lastEv; this.game = d.game; this.log = d.log || [];
   }
   // 狀態指紋：比對兩個核心是不是一模一樣（帳本＋公司＋沙盒的年份與時間）
   fingerprint() {
     const K = this.sim.peek(), world = {owner: Array.from(K.owner), pop: Array.from(K.pop), bandit: Array.from(K.bandit), trench: Array.from(K.trench), stock: Object.entries(K.markets).map(([t, m]) => [t, m.stock, m.veh]), gangs: K.gangs.map(g => [g.id, g.str, g.gone])};
-    const s = JSON.stringify({y: this.sim.year, h: this.game?.h, book: this.game?.book, G: this.game?.G, world});
+    const s = JSON.stringify({y: this.sim.year, h: this.game?.h, book: this.game?.book, cos: this.game?.cos, world});
     let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return (x >>> 0).toString(16) + ':' + s.length;
   }
 }

@@ -224,3 +224,6 @@ button.warn{background:#5a2018;border-color:var(--war);color:#ffd9cf}
 /* 通知信：可以點的（親自打、看地圖） */
 .msg.go{cursor:pointer}
 .msg.go:hover{border-color:var(--accent)}
+
+/* 伺服器模式（預設）：種子、生成、歷史播放、加速時鐘、改年長度都是單人測試模式（?local）才有 */
+body.server #seed,body.server #gen,body.server #more,body.server #playBtn,body.server #speed,body.server #slider,body.server #gspeed,body.server .ydays{display:none!important}
