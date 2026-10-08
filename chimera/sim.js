@@ -93,7 +93,7 @@ const HARVEST=[.1,.35,.55,0],WATERS=[.3,.2,.25,.3];
 // 零件：精煉一份零件要燒 CHAR 份燃料；平民用零件隨價格伸縮，舊零件有一部分拆了重用
 // 載具：停在城裡的車庫（市集的 veh），城被攻下就被搶。卡車管物流；武裝車是主力；衝鋒車便宜、打一仗就耗掉一大半；戰鬥卡車儲油、送油、廣播，多合一
 const VEH=['truck','armor','rush','gt'],VN={truck:'卡車',armor:'武裝車',rush:'衝鋒車',gt:'戰鬥卡車'};
-const VCOST={truck:1,armor:3,rush:.5,gt:2},VPOW={truck:0,armor:20,rush:3,gt:4},VFUEL={truck:.2,armor:1,rush:.3,gt:.5},VKEEP={truck:.2,armor:.5,rush:.1,gt:.3};
+const VCOST={truck:1,armor:3,rush:.5,gt:2},VPOW={truck:0,armor:30,rush:3,gt:4},VFUEL={truck:.2,armor:3,rush:.2,gt:.5},VKEEP={truck:.2,armor:1.5,rush:0,gt:.3};   // 武裝車像虎王：很能打，但出一趟門燒的油、平常要的零件都很兇
 // 開闊地（旱原、沙海、寒漠、礫丘）載具好用；岩山、油棘林、鹽沼幾乎開不進去
 const VTERR=[0,0,0,.25,.8,1,.3,1,1,.25];
 // 培養槽：每座槽每季最多養 VAT_RATE 名複製兵，最多存 VAT_CAP 名；每名要糧、水、零件，之後每季還要吃喝
@@ -553,10 +553,13 @@ function createSim(w,rand,pick){
       for(const g of GOODS)m.stock[g]+=goods[g]}
     // 載具：廠鎮什麼都造得出來；人口 200 以上的城只造得出卡車和衝鋒車。打仗的勢力多造戰車，平時多造卡車
     {const atwF=new Uint8Array(FMAX);for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)if(war[a][b]&&fac[a].alive&&fac[b].alive){atwF[a]=1;atwF[b]=1}
-    for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0||!fac[o].alive||fac[o].native)continue;
+    for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0||!fac[o].alive)continue;
+      // 衝鋒車：真正的廢料車，誰都造得起——廢料焊一焊、裝上一點零件和油就能開
+      if(atwF[o]){const g=garage(m),n=Math.min(m.pop*.003,m.pop/50-g.rush,m.stock.scrap/1.5,m.stock.fuel/.2,m.stock.parts/.1);if(n>0){g.rush+=n;m.stock.scrap-=n*1.5;m.stock.fuel-=n*.2;m.stock.parts-=n*.1}}
+      if(fac[o].native)continue;
       const W_=m.works,bud0=W_?m.pop*.003:m.pop>=200?m.pop*.0008:0;if(bud0<.05)continue;
       const tense=atwF[o]||(fac[o].bloc&&y>=ARC.blocY);
-      const mix=W_?(tense?{armor:.5,gt:.2,rush:.1,truck:.2}:{truck:.5,armor:.35,gt:.15}):(atwF[o]?{rush:.6,truck:.4}:{truck:1});
+      const mix=W_?(tense?{armor:.55,gt:.25,truck:.2}:{truck:.5,armor:.35,gt:.15}):{truck:1};
       const g=garage(m),want={truck:m.pop/120,armor:W_?m.pop/(tense?60:150):m.pop/400,rush:m.pop/80,gt:m.pop/(tense?250:600)};   // 夠用就不再造
       for(const v in mix)if(g[v]>=want[v])delete mix[v];const ms_=Object.values(mix).reduce((x,y)=>x+y,0);if(!ms_)continue;
       let bud=Math.min(bud0*ms_,m.stock.parts/.8,m.stock.fuel*.5/.8,m.stock.scrap/2);if(bud<.05)continue;m.stock.parts-=bud*.8;m.stock.fuel-=bud*.8;m.stock.scrap-=bud*2;   // 每點：零件 0.8、燃料 0.8、廢料 2（裝甲就是焊上去的廢料）
@@ -567,8 +570,8 @@ function createSim(w,rand,pick){
       let sel=-1,bd=99;for(const k in markets){const t=+k,o=owner[t];if(o<0||o===f.id||!markets[k].works||atWar(o,f.id)||!fac[o].alive)continue;const d=hdist(t,f.cap);if(d<bd){bd=d;sel=t}}
       if(sel<0)continue;const pts=Math.min(2,facStock(f.id,'food')/40,facStock(f.id,'water')/40);if(pts<.3)continue;
       facTake(f.id,'food',pts*20);facTake(f.id,'water',pts*20);markets[sel].stock.food+=pts*20;markets[sel].stock.water+=pts*20;
-      vehGive(f.id,{armor:pts*.5/VCOST.armor,rush:pts*.5/VCOST.rush});
-      const S_=fac[owner[sel]];S_.buyers=S_.buyers||{};if(!S_.buyers[f.id]){S_.buyers[f.id]=y;say(y,'econ',`${S_.n}開始把武裝車和衝鋒車賣給${f.n}，收的是糧和水。`,sel)}}}
+      vehGive(f.id,{armor:pts*.7/VCOST.armor,gt:pts*.3/VCOST.gt});
+      const S_=fac[owner[sel]];S_.buyers=S_.buyers||{};if(!S_.buyers[f.id]){S_.buyers[f.id]=y;say(y,'econ',`${S_.n}開始把武裝車賣給${f.n}，收的是糧和水。`,sel)}}}
     // 彈藥：各市鎮的工坊把零件和燃料做成彈藥；廠鎮做得多
     for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;const amt=Math.max(0,Math.min(m.pop*.006*(m.works?3:1),m.stock.parts*.25,m.stock.fuel*.25));
       m.stock.parts-=amt*.5;m.stock.fuel-=amt*.5;m.stock.ammo+=amt;fac[owner[t]].prod.ammo+=amt}
@@ -633,7 +636,7 @@ function createSim(w,rand,pick){
       const VA=vehOf(A),VD=vehOf(D),vt=VTERR[biome[n]]??.5,nw2=f=>Math.max(1,nw[f]);
       const vpow=(f,V)=>{for(const v of VEH)V[v]/=nw2(f);const need=VEH.reduce((x,v)=>x+V[v]*VFUEL[v],0)*(1-Math.min(.5,V.gt*.05));let fr=1;
         if(need>.1){const got=facTake(f,'fuel',need);fr=Math.min(1,got/need);if(fr<.3&&V.armor+V.rush*.3>=3&&(!fac[f].dryY||y-fac[f].dryY>=10)){fac[f].dryY=y;say(y,'war',`燃料見底，${fac[f].n}的車隊停在${nm(n)}一帶動不了。`,n)}}
-        return {p:VEH.reduce((x,v)=>x+V[v]*VPOW[v],0)*vt*fr,mor:1+Math.min(.2,V.gt*.04),sup:Math.min(.6,V.gt*.1)}};
+        return {fr,p:VEH.reduce((x,v)=>x+V[v]*VPOW[v],0)*vt*fr,mor:1+Math.min(.2,V.gt*.04),sup:Math.min(.6,V.gt*.1)}};
       const PA=vpow(A,VA),PD=vpow(D,VD),supA=1/(1+.08*dT*(1-PA.sup));
       const sa=(LA+xA+PA.p)*fac[A].aggr*wf*supA*kA*rA*PA.mor,sd=((LD+xD)*.8+mil+PD.p*.9)*tm*wm*kD*rD*PD.mor;
       const siege=!counter&&(town[n]||wall[n]>=1);
@@ -648,8 +651,8 @@ function createSim(w,rand,pick){
       W.score+=win===W.att?1:-1;
       // 載具的損失：衝鋒車打一仗就耗掉一大半；敗方的武裝車被打爆或被勝方開走
       {const used=f=>({truck:0,armor:Math.min(1,1/nw2(f)),rush:Math.min(1,1/nw2(f)),gt:Math.min(1,1/nw2(f))});
-        const uL=used(lose),uW=used(win);const lostL=vehLose(lose,{truck:0,armor:.15*uL.armor,rush:.7*uL.rush,gt:.12*uL.gt});vehLose(win,{truck:0,armor:.08*uW.armor,rush:.45*uW.rush,gt:.04*uW.gt});
-        const took2={armor:lostL.armor*.3,gt:lostL.gt*.3};if(took2.armor>0){vehGive(win,took2);if(vt>=.8&&took2.armor>=.5&&!W.vtold){W.vtold=1;say(y,'war',`${nm(n)}之戰後，${fac[win].n}開走了${fac[lose].n}丟下的 ${Math.max(1,Math.round(took2.armor))} 輛武裝車。`,n)}}}
+        const uL=used(lose),uW=used(win),dryL=(lose===A?PA:PD).fr<.5;const lostL=vehLose(lose,{truck:0,armor:(dryL?.3:.15)*uL.armor,rush:.7*uL.rush,gt:.12*uL.gt});vehLose(win,{truck:0,armor:.08*uW.armor,rush:.45*uW.rush,gt:.04*uW.gt});
+        const took2={armor:lostL.armor*(dryL?.6:.3),gt:lostL.gt*.3};   // 沒油的武裝車只能丟在原地if(took2.armor>0){vehGive(win,took2);if(took2.armor>=.3&&!W.vtold){W.vtold=1;say(y,'war',dryL?`${fac[lose].n}的武裝車在${nm(n)}燒乾了油，被丟在原地，${fac[win].n}加滿油就開走了。`:`${nm(n)}之戰後，${fac[win].n}開走了${fac[lose].n}丟下的武裝車。`,n)}}}
       if(xD>0&&fac[D].liege>=0)fac[D].helped=1;
       const hw=win===A?hA:hD,hl2=win===A?hD:hA;if(hw){hw.battles++;hw.wins++;for(const wp of weaponsOf(hw))wp.wins++;hw.fame=(hw.fame||0)+.25+Math.min(1.75,trafNear(n)/FAMEK);hw.lastWin=n}if(hl2)hl2.battles++;
       kill(lose,dead);kill(win,dead*.4);pop[i]*=.96;
