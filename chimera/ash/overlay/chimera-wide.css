@@ -66,3 +66,8 @@
 /* 對話框（背包、選單）：右側抽屜；標題類置中 */
 #ash-root.wide dialog#modal{max-width:620px;width:620px;height:100vh;max-height:100vh;margin:0 0 0 auto;border-width:0 0 0 1px}
 #ash-root.wide dialog#modal.title{max-width:520px;width:520px;height:auto;margin:auto}
+/* P2 滑鼠：游標停在敵人上的小卡 */
+#ash-root #chimera-hover{position:fixed;z-index:20;pointer-events:none;display:flex;flex-direction:column;gap:2px;padding:7px 10px;background:#102326ee;border:1px solid #89d8cb88;border-left:3px solid #97eee0;color:#c8eee3;font:12px/1.4 var(--mono);max-width:280px}
+#ash-root #chimera-hover b{font:600 13px 'Noto Sans TC',sans-serif;color:#c7fff0}
+#ash-root #chimera-hover span{color:#ecd18f}
+#ash-root #chimera-hover small{font-size:11px;color:#a9c8c0}

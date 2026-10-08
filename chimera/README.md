@@ -217,7 +217,8 @@
   - 補丁：`actAlly` 的隊友大腦鉤子（0002，階段 1 的倖存友軍用）；嵌入版控制器（0003：接收外面建好的遊戲 `globalThis.ASH_EMBED`、換下一場 `EMBED.load`、顯示切換 `EMBED.setActive`、藏著時全域事件不作用、不擋橫向、不讀寫存檔、不記 ASH 戰績、結束時交給入口）；`action()` 的兩個小隊掛鉤（0004）；動畫快照的掛鉤（0005）。
   - overlay：`chimera-boot.js`（載入器）、`chimera-wide.css`（戰鬥畫面樣式）、`battle-test.html`、`src/chimera-mission.js`（`MissionGame`）、`src/chimera-squad.js`、`src/chimera-squad-ui.js`、`src/chimera-wide.js`、`src/chimera-entry.js`（入口）、`tools/clear-bot/`（從本機 clear-bot 分支複製的通關機器人）、`tools/chimera/squad.mjs`（隊友大腦）、`tools/chimera/sim.mjs`（無頭模擬）。
 - 流程：任務票按「親自打」→ worker 停住公司的時間、送出任務資料 → `ASH_EMBED.start(任務資料)` 換成新的戰鬥並顯示（約 0.4 秒）→ 打完 `onresult` 回傳 `{win, dead}` → worker 用 `submit` 結算（目標照 `objectivesDone`）→ 時間恢復。中途可以按「先不打」關掉，票還在。
-- **寬螢幕（ASH docs/LANDSCAPE_UI.md 的 P1 橫向骨架）**：寬度 900 以上且寬比高大時（`#ash-root.wide`）戰場滿版；左上小隊面板（直排）；上方中央訊息、回合、選單；右側欄：任務名稱與「先不打」、鎖定目標（ASH 的目標卡搬進來，不再浮在戰場上）、視野內敵人（點選鎖定）、紀錄；下方行動列（武器與狀態、行動鍵；方向鍵收起，用 WASD 或點相鄰格）；背包與選單是右側抽屜。手機直向照 ASH 原本的版面。還沒做：P2 滑鼠（停在敵人上看命中、右鍵開火、滾輪縮放）、P3 鍵盤補完、手把。
+- **寬螢幕（ASH docs/LANDSCAPE_UI.md 的 P1 橫向骨架）**：寬度 900 以上且寬比高大時（`#ash-root.wide`）戰場滿版；左上小隊面板（直排）；上方中央訊息、回合、選單；右側欄：任務名稱與「先不打」、鎖定目標（ASH 的目標卡搬進來，不再浮在戰場上）、視野內敵人（點選鎖定）、紀錄；下方行動列（武器與狀態、行動鍵；方向鍵收起，用 WASD 或點相鄰格）；背包與選單是右側抽屜。手機直向照 ASH 原本的版面。方向鍵與等待在下方行動列（武器欄與行動鍵之間）。P2 滑鼠：游標停在敵人上顯示名稱、生命、距離、命中率、掩護；右鍵點敵人直接鎖定並開火；滾輪縮放。P3 鍵盤：1～4 換第幾把武器、X 切換隊員（其餘照 ASH 的熱鍵）。還沒做：手把。
+- 親自打的反應：公司時間跑得快時任務票清單每秒重畫好幾次，按鈕改成按下那一刻就送出；ASH 還在載入時先蓋上「載入戰鬥中」。ASH 的 service worker 另外註冊一份管整個網站（`public/_headers` 給 `/ash/sw.js` 加 `Service-Worker-Allowed: /`），第一次之後戰鬥程式從快取讀（實測每個檔案約 200ms → 27ms）。奇美拉自己的戰鬥檔案（樣式、畫面元素、機器人）另算一個版本號 CREV，改了才會換網址。
 - **小隊（2026-10-08 起）：四位都是完整的玩家角色**（`src/chimera-squad.js` 的 `SquadGame`，DESIGN.md「隊友＝另一個玩家角色」）。你操作一位，其他三位由通關機器人照玩家的方式操作（`tools/chimera/full-squad.mjs`），各自有職業的武器、技能、道具、升級。
   - 切換：小隊面板點一下，或 ⟳／X 鍵依序切換（Tab 是 ASH 的切換目標）。被操作的隊員倒下時自動交給下一位活著的；全員倒下才算敗。
   - 做法「輪值主角」：`g.player` 指向現在輪到的那位。你那一格做完，其他隊員依序各做一個動作（`squadAfterPlayer`／`soloPaid`），再輪到敵人。
