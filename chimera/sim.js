@@ -598,7 +598,7 @@ function createSim(w,rand,pick){
       if(!vats||!(atw||f.frontsPrev>0||(f.bloc&&y>=ARC.blocY))||ARC.phase<1||f.native)continue;
       // 顧忌：培養槽做出來的是長官們的身體。越講體面的勢力越不肯拿它當兵；首府被圍、快撐不住時才破例
       let desp=f.shock>.6;for(let k=0;k<FMAX&&!desp;k++){const W_=war[Math.min(f.id,k)][Math.max(f.id,k)];if(W_&&W_.def===f.id&&W_.siege&&W_.siege.t===f.cap)desp=true}
-      const use=desp?1:(f.taboo||0)>=.5?0:1-(f.taboo||0);if(use<.05)continue;
+      const tb=(f.taboo||0)*(globalThis.TABOO??1),use=desp?1:tb>=.5?0:1-tb;if(use<.05)continue;   // TABOO：實驗用的顧忌倍率
       const room=Math.max(0,vats*VAT_CAP-(f.clones||0));let n=Math.min(room,vats*VAT_RATE*use);if(n<1)continue;
       for(const g in CLONE_COST)n=Math.min(n,facStock(f.id,g)*.3/CLONE_COST[g]);if(n<1)continue;
       for(const g in CLONE_COST)facTake(f.id,g,n*CLONE_COST[g]);f.clones=(f.clones||0)+n;
