@@ -682,9 +682,9 @@ if (!LOCAL && new URL(location).searchParams.has('arena')) $('arenaBox').hidden 
 async function arena() {
   const btn = $('arenaGo'); btn.disabled = true; btn.textContent = '開戰中…';
   try {
-    const r = await fetch('/api/arena', {method: 'POST', headers: {...authHeaders(), 'content-type': 'application/json'}, body: JSON.stringify({size: +$('arenaSize').value, night: $('arenaNight').checked, boss: $('arenaBoss').checked})});
+    const r = await fetch('/api/arena', {method: 'POST', headers: {...authHeaders(), 'content-type': 'application/json'}, body: JSON.stringify({size: +$('arenaSize').value, night: $('arenaNight').checked, boss: $('arenaBoss').checked, mode: $('arenaMode').value})});
     const tk = await r.json(); if (!r.ok) throw new Error(tk.error || '開戰失敗');
-    const E = await ash; hideTitle(); mission = {id: tk.id, arena: true}; E.startRemote(tk, tk.state);
+    const E = await ash; hideTitle(); mission = {id: tk.id, arena: true}; await launch(E, tk);
   } catch (e) { $('titleMsg').hidden = false; $('titleMsg').textContent = e.message; }
   finally { btn.disabled = false; btn.textContent = '開一場測試戰鬥'; }
 }
@@ -705,11 +705,18 @@ const ash = import('./ash/chimera-boot.js').then(m => m.bootAsh()).then(E => {
   E.onabort = id => { if (mission && mission.id === id) { if (mission.arena) showTitle(); else if (LOCAL) send({type: 'abort'}); mission = null; } };
   return E;
 });
-async function openMission(tk) { mission = {id: tk.id}; const E = await ash; hideMissionLoading(); if (tk.remote) E.startRemote(tk, tk.state); else E.start(tk); }
+async function openMission(tk) { mission = {id: tk.id}; const E = await ash; await launch(E, tk); }
+// 開戰：verify＝瀏覽器跑、伺服器驗證（接回時要先重播已送出的輸入，可能要幾秒，「載入中」那層等它跑完才拿掉）；authority＝伺服器跑；其他＝單人測試模式
+async function launch(E, tk) {
+  if (tk.mode === 'verify') { if (tk.log?.length) { showMissionLoading(`接回戰鬥中…（重播 ${tk.log.length} 個行動）`); await new Promise(r => setTimeout(r, 30)); } await E.startVerified(tk); }
+  else if (tk.remote) E.startRemote(tk, tk.state); else E.start(tk);
+  hideMissionLoading();
+}
 // ASH 還在背景載入時先蓋上一層「載入中」，按下去立刻有反應
 let loadingBox = null;
-function showMissionLoading() {
-  if (window.ASH_EMBED?.renderer) return;
+function showMissionLoading(text) {
+  if (window.ASH_EMBED?.renderer && !text) return;
+  if (text) { hideMissionLoading(); loadingBox = Object.assign(document.createElement('div'), {id: 'mission-loading', innerHTML: `<b>${text}</b>`}); document.body.appendChild(loadingBox); return; }
   loadingBox ??= Object.assign(document.createElement('div'), {id: 'mission-loading', innerHTML: '<b>載入戰鬥中…</b><span>第一次開戰要先把戰鬥程式載好，公司的時間已經停住。</span>'});
   document.body.appendChild(loadingBox);
 }

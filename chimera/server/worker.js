@@ -134,9 +134,9 @@ export class Planet extends DurableObject {
       const err = this.core.command(body, name), msgs = this.out.splice(0);
       // 親自打：在伺服器上開（或接回）這場戰鬥；種子留在伺服器，瀏覽器只拿到畫面
       for (const m of msgs) if (m.type === 'mission') {
-        const r = await battleStub(this.env, m.data.id, req.headers.get('x-continent')).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid})}));
+        const r = await battleStub(this.env, m.data.id, req.headers.get('x-continent')).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid, mode: this.env.BATTLE_MODE || 'verify'})}));
         const d = await r.json(); if (!r.ok) return bad(d.error || '開戰失敗', 500);
-        m.data = {id: m.data.id, title: m.data.title, remote: true, state: d.state, resumed: !!d.resumed};
+        m.data = battleTicket(m.data, d);
       }
       if (ALLOWED.includes(body.type)) await this.persist();
       return json({view: this.core.view(name, err), msgs});
@@ -153,6 +153,9 @@ function arenaMission(b) {
     enemy: {name: '測試敵人', side: 'gang', power: 0, units: {raider: 2 * n, raider_heavy: n, trooper: n}, veh: {}, boss: b.boss ? {weapon: '測試'} : null},
     squad: ARENA_CLS.map((cls, i) => ({id: `T-${1001 + i}`, cls, portrait: ARENA_FACES[i], st: {hp: cls === 'berserker' ? 160 : 100}, lv: 3, xp: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0}))};
 }
+// 給瀏覽器的開戰資料：verify＝任務（含種子）與已收到的輸入，瀏覽器自己跑；authority＝過濾過的畫面
+const battleTicket = (mission, d) => d.mode === 'verify' ? {id: mission.id, title: mission.title, remote: true, mode: 'verify', mission: d.mission, log: d.log, resumed: !!d.resumed}
+  : {id: mission.id, title: mission.title, remote: true, mode: 'authority', state: d.state, resumed: !!d.resumed};
 const planetOf = env => env.PLANET.get(env.PLANET.idFromName('planet-' + (env.WORLD_VERSION || '1')), env.PLANET_HINT ? {locationHint: env.PLANET_HINT} : undefined);
 // 這個請求是哪個玩家：訪客直接算；Google 工作階段要問星球（存在星球的儲存空間）
 async function ownerOf(req, env) {
@@ -165,7 +168,7 @@ export default {
     const url = new URL(req.url);
     if (url.pathname.startsWith('/api/internal/')) return new Response('not found', {status: 404});
     // 伺服器上的戰鬥：/api/battle/<任務票>/act|state，用身分代碼確認是自己的戰鬥
-    const mb = url.pathname.match(env.DEV === '1' ? /^\/api\/battle\/([^/]+)\/(act|state|selftest)$/ : /^\/api\/battle\/([^/]+)\/(act|state)$/);   // selftest：開發用，機器人打完
+    const mb = url.pathname.match(env.DEV === '1' ? /^\/api\/battle\/([^/]+)\/(act|state|log|selftest)$/ : /^\/api\/battle\/([^/]+)\/(act|state|log)$/);   // selftest：開發用，機器人打完
     if (mb) {
       const owner = await ownerOf(req, env); if (!owner) return bad(owner === false ? '登入已失效，請重新登入' : '沒有身分代碼', 401);
       return battleStub(env, decodeURIComponent(mb[1]), req.cf?.continent).fetch(new Request('https://battle/' + mb[2], {method: req.method, headers: {'content-type': 'application/json', 'x-owner': owner}, body: req.method === 'POST' ? await req.text() : undefined}));
@@ -175,9 +178,10 @@ export default {
     if (url.pathname === '/api/arena' && req.method === 'POST') {
       const owner = await ownerOf(req, env); if (!owner) return bad(owner === false ? '登入已失效，請重新登入' : '沒有身分代碼', 401);
       let b = {}; try { b = await req.json(); } catch {}
-      const mission = arenaMission(b), r = await battleStub(env, mission.id, req.cf?.continent).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission, owner, arena: true})}));
+      const mode = b.mode === 'authority' ? 'authority' : 'verify';
+      const mission = arenaMission(b), r = await battleStub(env, mission.id, req.cf?.continent).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission, owner, arena: true, mode})}));
       const d = await r.json(); if (!r.ok) return bad(d.error || '開戰失敗', 500);
-      return json({id: mission.id, title: mission.title, remote: true, state: d.state});
+      return json(battleTicket(mission, d));
     }
     // 開發用：開一場屬於這個瀏覽器的伺服器戰鬥（不經過任務票），測遠端操作（DEV=1 才開）
     if (env.DEV === '1' && url.pathname === '/api/dev/remote' && req.method === 'POST') {

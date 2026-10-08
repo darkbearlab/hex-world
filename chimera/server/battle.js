@@ -1,4 +1,9 @@
 // 奇美拉：伺服器上的戰鬥（伺服器化 S2，warband/DESIGN.md「伺服器化實作計畫」）。每張任務票一個 Durable Object「Skirmish」。
+// 兩種方式（meta.mode）：
+// - verify（預設，DESIGN.md 2026-10-09 方案 A）：戰鬥在瀏覽器裡跑，瀏覽器把玩家的輸入（ash/overlay/src/chimera-log.js 的紀錄）
+//   一批批送來，不等回應；這裡用同一個任務（含種子）在自己的遊戲上重播，戰果以這裡的為準。只存任務與輸入紀錄：
+//   隊員機器人的記憶存不了，重新載入時從頭重播就會一模一樣（tools/chimera/replay-check.mjs 驗證過）。
+// - authority（方案 C 留著用，下面原本的做法）：
 // - 戰鬥的規則與三名隊員的機器人都在這裡跑（ASH，chimera/ash/.work 是 build.mjs 套好補丁的原始碼）；種子與亂數狀態從不離開伺服器。
 // - 玩家每個行動送到這裡：跑 ASH 的 captureAction，回傳這一步的動畫快照（瀏覽器照原本的 Playback 播放）與最後的狀態。
 // - 存檔：遊戲資料（Durable Object 的儲存用結構化複製，物件之間的參照會保留）＋亂數狀態＋隊員的個人狀態；機器人的記憶不存，重建。
@@ -9,6 +14,8 @@ import {installFullSquad} from '../ash/.work/tools/chimera/full-squad.mjs';
 import {captureAction, snapshot} from '../ash/.work/src/presentation.js';
 import {random} from '../ash/.work/src/world.js';
 import {carriesFlashlight} from '../ash/.work/src/lighting.js';
+import {applyEntry, fingerprint} from '../ash/.work/src/chimera-log.js';
+const LOG_MAX = 6000, BATCH_MAX = 300;
 
 // Set、Map 在 JSON 裡會變成空物件（例如 visibleTiles）：標記起來，瀏覽器解析時還原（chimera-entry.js 的 revive）
 const tag = (k, v) => v instanceof Set ? {$set: [...v]} : v instanceof Map ? {$map: [...v]} : v;
@@ -37,11 +44,18 @@ export class Skirmish extends DurableObject {
   constructor(ctx, env) { super(ctx, env); this.g = null; this.meta = null; }
   async load() {
     if (this.g) return true;
+    this.meta = await this.ctx.storage.get('meta'); if (!this.meta) return false;
+    if (this.meta.mode === 'verify') {
+      this.mission = await this.ctx.storage.get('mission'); this.log = await this.ctx.storage.get('log') || [];
+      this.g = this.fresh(); for (const e of this.log) applyEntry(this.g, e);   // 從頭重播（機器人的記憶也跟著重建）
+      return true;
+    }
     const p = await this.ctx.storage.get('battle'); if (!p) return false;
-    this.meta = await this.ctx.storage.get('meta'); this.meta.vseed ??= vseed(); this.g = unpack(p); return true;
+    this.meta.vseed ??= vseed(); this.g = unpack(p); return true;
   }
+  fresh() { const g = new SquadGame(this.mission); installFullSquad(g); return g; }
   // 存檔不等寫入確認就回應（allowUnconfirmed）：每一步少等一段。代價是機器剛好當掉時，最後一步可能沒存到（畫面會比伺服器多走一步，重新接回時以伺服器為準）
-  async save() { const o = {allowUnconfirmed: true}; await this.ctx.storage.put('battle', pack(this.g), o); await this.ctx.storage.put('meta', this.meta, o); }
+  async save() { const o = {allowUnconfirmed: true}; if (this.meta.mode !== 'verify') await this.ctx.storage.put('battle', pack(this.g), o); await this.ctx.storage.put('meta', this.meta, o); }
   // 瀏覽器拿到的畫面（Alan 2026-10-08：一開始就過濾）：只留這一方從畫面上就知道的事。
   // - 種子不送（地圖與很多擲骰都由它算出來）；亂數狀態本來就不在快照裡。畫面上的外觀（牆的材質、光線、地上的痕跡、血跡）
   //   也用種子挑，所以送一個每場戰鬥隨機產生、和真正種子無關的「外觀種子」，不然每場都長得一樣、牆的樣子也不對
@@ -75,6 +89,16 @@ export class Skirmish extends DurableObject {
   async fetch(req) {
     const url = new URL(req.url), path = url.pathname.split('/').pop();
     let body = {}; if (req.method === 'POST') { try { body = await req.json(); } catch { return bad('請求格式不對'); } }
+    if (path === 'start' && (body.mode || 'verify') === 'verify' && !(await this.load())) {
+      this.mission = body.mission; this.log = []; this.g = this.fresh();
+      this.meta = {ticket: body.mission.id, owner: body.owner, startedAt: Date.now(), arena: !!body.arena, mode: 'verify'};
+      const o = {allowUnconfirmed: true}; await this.ctx.storage.put('mission', this.mission, o); await this.ctx.storage.put('log', this.log, o); await this.ctx.storage.put('meta', this.meta, o);
+      return json({mode: 'verify', mission: this.mission, log: []});
+    }
+    if (path === 'start' && this.meta?.mode === 'verify') {
+      if (body.owner && body.owner !== this.meta.owner) { this.meta.owner = body.owner; await this.save(); }
+      return json({mode: 'verify', mission: this.mission, log: this.log, status: this.g.status, resumed: true});
+    }
     if (path === 'start') {
       // 接回：只有星球會叫 start，以它說的主人為準（訪客改用 Google 登入之後，公司換了玩家 ID）
       if (await this.load()) { if (body.owner && body.owner !== this.meta.owner) { this.meta.owner = body.owner; await this.save(); } return json({state: this.snap(), resumed: true}); }
@@ -86,6 +110,23 @@ export class Skirmish extends DurableObject {
     }
     if (!(await this.load())) return bad('沒有這場戰鬥', 404);
     const owner = req.headers.get('x-owner'); if (owner !== null && owner !== this.meta.owner) return bad('這不是你的戰鬥', 403);
+    if (this.meta.mode === 'verify') {
+      // 接回：任務與到目前為止的輸入，瀏覽器重播到同一個狀態
+      if (path === 'state') return json({mode: 'verify', mission: this.mission, log: this.log, status: this.g.status, colo: await colo()});
+      // 收一批輸入：from 要等於已經收到的筆數（不對就回 next，瀏覽器從那裡重送）；重播完回傳伺服器的指紋，瀏覽器比對
+      if (path === 'log') {
+        const from = body.from | 0, entries = Array.isArray(body.entries) ? body.entries.slice(0, BATCH_MAX) : [];
+        if (from !== this.log.length) return json({next: this.log.length, mismatch: true});
+        if (this.log.length + entries.length > LOG_MAX) return bad('這場戰鬥的輸入太多了');
+        const g = this.g;
+        for (const e of entries) { if (g.status !== 'playing') break; try { applyEntry(g, e); } catch (err) { this.meta.errors = (this.meta.errors || 0) + 1; } this.log.push(e); }
+        const fp = fingerprint(g), desync = body.fp && body.fp !== fp && this.log.length === from + entries.length;
+        if (desync && this.meta.desync == null) this.meta.desync = this.log.length;
+        await this.ctx.storage.put('log', this.log, {allowUnconfirmed: true}); await this.save(); await this.settle();
+        return json({next: this.log.length, fp, desync: !!desync, status: g.status, colo: await colo()});
+      }
+      return bad('這場戰鬥是在瀏覽器裡跑的', 400);
+    }
     if (path === 'state') return json({state: this.snap(), colo: await colo()});
     if (path === 'act') {
       const g = this.g, t0 = Date.now();

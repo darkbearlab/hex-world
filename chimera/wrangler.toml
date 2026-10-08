@@ -42,6 +42,8 @@ WORLD_VERSION = "2"
 # 星球放在哪一洲的機房（Durable Object 第一次建立時決定，之後不會搬；要搬就得改 WORLD_VERSION 重新產生）。
 # 2026-10-09 從美國（沒給提示，建在亞特蘭大）搬到亞洲
 PLANET_HINT = "apac"
+# 戰鬥的方式：verify＝瀏覽器跑、伺服器重播驗證（預設，DESIGN.md 方案 A）；authority＝伺服器跑、瀏覽器只播動畫（方案 C 留著用）
+BATTLE_MODE = "verify"
 # 星球的種子
 WORLD_SEED = "奇美拉-1"
 # 一個遊戲小時是現實的幾毫秒。3600000 = 一比一（Alan 2026-10-08）；測試時可以調小

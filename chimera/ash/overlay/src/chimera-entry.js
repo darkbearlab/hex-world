@@ -24,10 +24,21 @@ Object.assign(E,{
  ticket:()=>current,
  ready(){},   // 控制器載好時叫；畫面的外掛（小隊、寬螢幕）裝好之後才算載好，見檔尾
  // 打完：本機算的把戰果交給奇美拉；伺服器上的戰鬥由伺服器自己結算，這裡只通知畫面去更新
- finish(g){if(sent||!current.id)return;sent=true;const id=current.id,server=Boolean(E.remote);setTimeout(()=>{E.hide();E.onresult?.(id,server?{server:true}:g.missionResult);},1200);},
- async start(tk){current=tk;sent=false;E.remote=null;const g=await build(tk);E.game=g;E.load(g);E.show();},
+ // 瀏覽器跑、伺服器驗證的戰鬥：等最後幾筆輸入送到伺服器（伺服器重播到結束就會自己結算），再通知畫面更新
+ finish(g){if(sent||!current.id)return;sent=true;const id=current.id,server=Boolean(E.remote||E.uplink);const wait=E.uplink?E.uplink.idle():Promise.resolve();
+  Promise.all([wait,new Promise(r=>setTimeout(r,1200))]).then(()=>{E.hide();E.onresult?.(id,server?{server:true}:g.missionResult);});},
+ async start(tk){current=tk;sent=false;E.remote=null;E.uplink=null;const g=await build(tk);E.game=g;E.load(g);E.show();},
+ // 伺服器驗證的戰鬥（DESIGN.md 2026-10-09 方案 A）：tk={id,title,mode:'verify',mission,log}。用伺服器給的任務（含種子）在這裡建遊戲，
+ // 接回時先把已經送到伺服器的輸入重播一次（和伺服器同一個狀態），之後玩家的每個輸入都記下來、在背景送給伺服器，不等回應。
+ async startVerified(tk){
+  current=tk;sent=false;E.remote=null;
+  const g=await build(tk.mission),log=tk.log||[];
+  for(const e of log)applyEntry(g,e);
+  E.uplink=uplink(log.length);record(g,e=>E.uplink.push(e,fingerprint(g)));
+  E.game=g;E.load(g);E.show();
+ },
  // 開戰時的狀態是經星球轉來的，Set／Map 的標記還在，先還原
- startRemote(tk,state){current=tk;sent=false;const g=mirror(JSON.parse(JSON.stringify(state),revive));E.game=g;E.load(g);
+ startRemote(tk,state){current=tk;sent=false;E.uplink=null;const g=mirror(JSON.parse(JSON.stringify(state),revive));E.game=g;E.load(g);
   E.remote=async(type,arg)=>{
    const t0=performance.now(),guess=predictMove(g,type,arg);
    const d=await post('act',{type,arg,target:g.target}).finally(()=>guess?.arrived());
@@ -49,7 +60,7 @@ Object.assign(E,{
 const TOKEN=()=>{try{return localStorage.getItem('chimera-token')||'';}catch{return '';}};
 // 身分標頭：奇美拉的 link.js 決定（Google 工作階段或訪客代碼）
 const AUTH=()=>window.chimeraAuth?.()||{'x-chimera-token':TOKEN()};
-const {barrierBetween,edgeBlocks}=await import('./barriers.js'),{MOVE_MS}=await import('./actor-visuals.js');
+const {barrierBetween,edgeBlocks}=await import('./barriers.js'),{MOVE_MS}=await import('./actor-visuals.js'),{applyEntry,record,fingerprint}=await import('./chimera-log.js');
 // JSON 會把同一個物件拆成好幾份：玩家、操作中的隊員、隊員清單裡的那一位要接回同一個
 function relink(st){
  if(!st?.members)return st;const by=new Map(st.members.map(m=>[m.id,m]));
@@ -79,6 +90,24 @@ function predictMove(g,type,arg){
  setTimeout(()=>{slid=true;if(!back){p.x=to.x;p.y=to.y;}finish();},MOVE_MS);
  return {from,to,done,arrived(){back=true;if(slid)finish();}};
 }
+// 把輸入送給伺服器：依序、一批批送（每批最多 300 筆），不擋畫面。伺服器說它收到的筆數和這裡不一樣，就從它說的那一筆重送；
+// 伺服器重播出來的指紋和這裡不一樣（不同步），以伺服器為準：重新接回（照伺服器的紀錄重建這一場）。
+function uplink(start){
+ const all=[];let sent=start,fp=null,busy=false,retry=0,idle=[];
+ const pending=()=>start+all.length-sent;
+ async function kick(){
+  if(busy)return;if(!pending()){for(const r of idle.splice(0))r();return;}
+  busy=true;const from=sent,entries=all.slice(from-start,from-start+300),last=from+entries.length===start+all.length;
+  try{
+   const d=await post('log',{from,entries,fp:last?fp:null});retry=0;
+   sent=Math.min(d.next,start+all.length);
+   if(d.desync){console.warn('[戰鬥] 和伺服器不同步，以伺服器為準重新接回');E.uplink=null;resync();busy=false;return;}
+  }catch(e){retry++;console.warn('[戰鬥] 送不到伺服器，稍後重送',e?.message||e);await new Promise(r=>setTimeout(r,Math.min(8000,600*retry)));}
+  busy=false;kick();
+ }
+ return {push(e,f){all.push(e);fp=f;kick();},idle:()=>pending()?new Promise(r=>{idle.push(r);kick();}):Promise.resolve(),get pending(){return pending();}};
+}
+async function resync(){try{const r=await fetch(battleUrl('state'),{headers:AUTH()}),d=await r.json();if(r.ok&&d.mode==='verify')await E.startVerified({...current,mission:d.mission,log:d.log});}catch(e){console.warn(e);}}
 function mirror(state){
  const g=hydrate(state),def=(k,f)=>Object.defineProperty(g,k,{configurable:true,writable:true,enumerable:false,value:f});
  for(const k of ['stash','brains'])def(k,new Map());
