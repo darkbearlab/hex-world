@@ -17,6 +17,7 @@ export const CFG = {
   CLONE_VALUE: 30,  // 一名複製人的成本（死了就是業務損失）
   UPKEEP: 4,        // 每小隊每天的維持費（糧水、零件）
   ROUNDS: 6,        // 自動結算的交火回合
+  CASE_HOURS: 72,   // 案件長度（現實時間一比一後改成三天，原本 168；Alan 2026-10-08）
   TRAVEL: .15,      // 行軍：每一點路程成本要幾小時（沿實際道路）。測試用：原本 1.5，2026-10-08 Alan 要求縮成十分之一；伺服器化 S1 時重新平衡
   SQUAD: 4,         // 小隊滿編人數
 };
@@ -48,7 +49,7 @@ function notify(book, t, player, kind, text, ref) { book.inbox.push({t, player, 
 export function openCase(book, w, spec, now) {
   const P = w.sim.pmc, K = w.sim.peek();
   const c = {id: 'K' + book.nextId++, kind: spec.kind, title: spec.title, tile: spec.tile, from: spec.from ?? -1, to: spec.to ?? -1,
-    fac: spec.fac ?? -1, foe: spec.foe ?? -1, gang: spec.gang ?? 0, lv: spec.lv || 1, start: now, end: now + (spec.hours || 168), settled: false, midPaid: false,
+    fac: spec.fac ?? -1, foe: spec.foe ?? -1, gang: spec.gang ?? 0, lv: spec.lv || 1, start: now, end: now + (spec.hours || CFG.CASE_HOURS), settled: false, midPaid: false,
     path: [], convoys: 0, lostConvoys: [], cargo: spec.cargo || null, squads: [], score: {}, tickets: 0, open: true, basePow: 14 + 4 * (spec.lv || 1), history: []};
   if (c.kind === 'route') {
     c.path = P.route(c.from, c.to);
@@ -66,7 +67,7 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
   const K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
   const towns = Object.keys(K.markets).map(Number).filter(t => K.owner[t] >= 0);
   const nearTowns = (t, ok = () => true) => towns.filter(ok).sort((a, b) => hdist(a, t) - hdist(b, t));
-  const lv = opp.lv, hours = o.hours || 168;
+  const lv = opp.lv, hours = o.hours || CFG.CASE_HOURS;
   if (opp.kind === 'short') {
     const g = opp.g, to = opp.tile, f = K.owner[to];
     const src = nearTowns(to, t => t !== to && (K.markets[t].ratio?.[g] ?? 1) >= 1 && K.markets[t].stock[g] > 5)[0] ?? nearTowns(to, t => t !== to)[0];

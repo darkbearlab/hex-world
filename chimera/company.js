@@ -22,7 +22,7 @@ export const PORTRAITS = ['ember', 'onyx', 'silver', 'cedar', ...Array.from({len
 export const GCFG = {
   START_CASH: 400, START_MATS: {food: 400, water: 400, implant: 200, neural: 200},
   MIN: 30, MAX: 999,       // 每種素材一次最少、最多投多少
-  VATS: 2, BUILD_H: 6,     // 自有培養槽數、造一個人要幾小時
+  VATS: 2, BUILD_H: 1,     // 自有培養槽數、造一個人要幾小時（現實時間一比一後改成 1，原本 6；Alan 2026-10-08）
   TEMPLATE_P: .3,          // 結案時分到尾款的公司拿到模板的機率
   TEMPLATE_U: .62,         // 模板固定數值（每項的分位，約總和前 20%）
 };
