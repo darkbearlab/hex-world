@@ -97,7 +97,7 @@ const VCOST={truck:1,armor:3,rush:.5,gt:2},VPOW={truck:0,armor:30,rush:3,gt:4},V
 // 開闊地（旱原、沙海、寒漠、礫丘）載具好用；岩山、油棘林、鹽沼幾乎開不進去
 const VTERR=[0,0,0,.25,.8,1,.3,1,1,.25];
 // 培養槽：每座槽每季最多養 VAT_RATE 名複製兵，最多存 VAT_CAP 名；每名要糧、水、零件，之後每季還要吃喝
-const VAT_RATE=6,VAT_CAP=60,CLONE_COST={food:1,water:1,parts:.15},CLONE_KEEP=.25;
+const VAT_RATE=globalThis.VAT_RATE??12,VAT_CAP=globalThis.VAT_CAP??120,CLONE_COST={food:1,water:1,parts:globalThis.CLONE_PARTS??.03},CLONE_KEEP=.25;
 const CHAR=3,IRON_CIV=.0015,IRON_SUB=1.5,IRON_RECYCLE=.3,WOODRATE=.04,WILDCUT=.15,HARDY=.5,FIREWOOD=.006,WATER_NEED=.04,WATER_PROD=.09;
 // 移動成本：鹼海、鹼灘、斷崖、岩山、礫丘、寒漠、油棘林、旱原、沙海、鹽沼
 const MOVE=[1.1,.8,Infinity,5,2.5,2,2,1,2.5,3];
