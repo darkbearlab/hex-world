@@ -108,7 +108,7 @@ function createSim(w,rand,pick){
   const known=new Uint8Array(N),deforest=new Uint16Array(N),wall=new Float32Array(N),vcap=Float32Array.from(w.vein0),vex=Uint8Array.from(w.vein0,v=>v>0?1:0);
   const owner=new Int8Array(N).fill(-1),pop=new Float32Array(N),bandit=new Float32Array(N),ruin=new Uint8Array(N),peak=new Float32Array(N);
   const zero=()=>({food:0,water:0,fuel:0,scrap:0,parts:0,ammo:0}),one=()=>({food:1,water:1,fuel:1,scrap:1,parts:1,ammo:1});
-  const fac=FDEF.map((d,i)=>({...d,id:i,alive:true,cap:-1,aggr:.8+rand()*.6,stock:{food:60,water:30,fuel:10,parts:4,scrap:10,ammo:6},
+  const fac=FDEF.map((d,i)=>({...d,taboo:.85,id:i,alive:true,cap:-1,aggr:.8+rand()*.6,stock:{food:60,water:30,fuel:10,parts:4,scrap:10,ammo:6},
     ratio:one(),price:one(),prod:zero(),loss:0,pop:0,cold:0,fronts:0,frontsPrev:0,famineCD:0,woodCD:0,winterFood:1,merc:0,shock:0,crisis:-1,born:0,liege:-1,loyal:1,lsince:0,diedY:-99}));
   for(let k=FDEF.length;k<FMAX;k++)fac.push({n:'',c:RESERVE_C[k-FDEF.length],id:k,alive:false,cap:-1,aggr:1,stock:zero(),ratio:one(),price:one(),prod:zero(),loss:0,pop:0,cold:0,
     fronts:0,frontsPrev:0,famineCD:0,woodCD:0,winterFood:1,merc:0,shock:0,crisis:-1,born:-1,diedY:-99,liege:-1,loyal:1,lsince:0});
@@ -302,7 +302,7 @@ function createSim(w,rand,pick){
     if(R&&slot){if(R.fief<0||!markets[R.fief]){const ts=Object.keys(markets).map(Number).filter(t=>owner[t]===0&&t!==cap&&!markets[t].works);R.fief=ts.sort((a,b)=>hdist(b,cap)-hdist(a,cap))[0];if(R.fief!==undefined)markets[R.fief].lord=R.id}
       const home=R.fief;
       if(home!==undefined&&home>=0){const tiles=[];for(let i=0;i<N;i++)if(owner[i]===0&&mkt[i]===home&&i!==cap)tiles.push(i);
-        newState(slot,y,nm(home)+pick(ORG_RAD),home,tiles,1.5);slot.ruler=R.id;slot.house=hs(R);R.f=slot.id;markets[home].lord=0;R.fief=-1;R.ruled=1;ARC.rad=slot.id;
+        newState(slot,y,nm(home)+pick(ORG_RAD),home,tiles,1.5);slot.taboo=.1;slot.ruler=R.id;slot.house=hs(R);R.f=slot.id;markets[home].lord=0;R.fief=-1;R.ruled=1;ARC.rad=slot.id;
         sagaSay(y,`${R.title||'課長'}${R.name}說，與其等一艘不會來的船，不如自己把秩序拿回來。帶著維安部隊離開首府，在${nm(home)}成立${slot.n}。`,home);
         for(const h of heroes){if(!h.alive||h.f!==0||h.role==='gov'||h.fief<0||h===R||markets[h.fief]?.works)continue;
           if(rand()<pr(.65-h.loyal*.7,.05,.8)){const t=h.fief;for(let i=0;i<N;i++)if(owner[i]===0&&(mkt[i]===t||i===t))owner[i]=slot.id;h.f=slot.id;sagaSay(y,`${nm(t)}的${h.title||'課長'}${h.name}跟著${R.name}走了。`,t)}}
@@ -313,7 +313,7 @@ function createSim(w,rand,pick){
     const left=[];
     for(const t of Object.keys(markets).map(Number)){const m=markets[t];if(!m.works||owner[t]!==0)continue;const h=m.lord?heroById(m.lord):null;
       if(rand()<pr(.75-(h?h.loyal:.5)*.6+hdist(t,cap)*.03,.1,.85)){const s2=freeSlot(y);if(!s2)break;const tiles=[];for(let i=0;i<N;i++)if(owner[i]===0&&mkt[i]===t&&i!==cap)tiles.push(i);
-        newState(s2,y,nm(t)+pick(ORG_WORKS),t,tiles,.7);s2.works=1;if(h&&h.alive){h.f=s2.id;h.fief=-1;m.lord=0;s2.ruler=h.id;s2.house=hs(h);h.ruled=1}
+        newState(s2,y,nm(t)+pick(ORG_WORKS),t,tiles,.7);s2.works=1;s2.taboo=.3;if(h&&h.alive){h.f=s2.id;h.fief=-1;m.lord=0;s2.ruler=h.id;s2.house=hs(h);h.ruled=1}
         left.push(s2);sagaSay(y,`${nm(t)}的廠區關上大門。${h?`${h.title||'廠長'}${h.name}`:'工人們'}說，從此只跟付得起錢的人做生意。`,t)}
       else sagaSay(y,`${nm(t)}的${h?(h.title||'廠長')+h.name:'工人們'}決定繼續替總督府開工。`,t)}
     if(left.length>=2){const L={id:leagues.length+1,n:pick(LEAGUE_A)+pick(LEAGUE_B),born:y};leagues.push(L);for(const f of left)f.league=L.id;
@@ -325,7 +325,7 @@ function createSim(w,rand,pick){
     // 自由城市：商路最熱、又不是誰的首府的城，宣布中立
     const cands=Object.keys(markets).map(Number).filter(t=>owner[t]>=0&&fac[owner[t]].alive&&t!==fac[owner[t]].cap&&!markets[t].works).sort((a,b)=>trafNear(b)-trafNear(a));
     let nf=0;for(const t of cands){if(nf>=(globalThis.FREEC??(1+(rand()<.5?1:0))))break;const f=fac[owner[t]],slot=freeSlot(y);if(!slot)break;
-      const tiles=[];for(let i=0;i<N;i++)if(owner[i]===f.id&&mkt[i]===t)tiles.push(i);newState(slot,y,nm(t)+'自由城',t,tiles,.3);slot.free=1;nf++;
+      const tiles=[];for(let i=0;i<N;i++)if(owner[i]===f.id&&mkt[i]===t)tiles.push(i);newState(slot,y,nm(t)+'自由城',t,tiles,.3);slot.free=1;slot.taboo=.5;nf++;
       const lord=markets[t].lord?heroById(markets[t].lord):null;if(lord&&lord.alive){lord.f=slot.id;lord.fief=-1;markets[t].lord=0;slot.ruler=lord.id;slot.house=hs(lord);lord.ruled=1}
       sagaSay(y,`${nm(t)}的商人和傭兵頭子們宣布：誰都可以來做生意，誰都不准在這裡開火。${slot.n}就此成立。`,t)}
     // 課長們各自為王
@@ -560,11 +560,16 @@ function createSim(w,rand,pick){
     for(const f of fac){if(!f.alive)continue;let vats=0;for(const k in markets)if(owner[+k]===f.id)vats+=markets[k].vat||0;f.vats=vats;
       let atw=0;for(let k=0;k<FMAX;k++)if(atWar(f.id,k))atw++;
       if(f.clones>0){const need=f.clones*CLONE_KEEP,fd=facTake(f.id,'food',need),wt=facTake(f.id,'water',need),r=Math.min(fd,wt)/Math.max(.01,need);if(r<.9){f.clones*=.6+.4*r;if(r<.5&&rand()<.2)say(y,'war',`${f.n}養不起培養槽裡出來的兵，一批複製兵被放走了。`,f.cap)}}
-      if(!vats||!(atw||f.frontsPrev>0||(f.bloc&&y>=ARC.blocY))||ARC.phase<1)continue;
-      const room=Math.max(0,vats*VAT_CAP-(f.clones||0));let n=Math.min(room,vats*VAT_RATE);if(n<1)continue;
+      if(s===0&&!f.native&&f.taboo>0&&ARC.phase>=1)f.taboo=Math.max(0,f.taboo-.005);   // 一代一代，顧忌慢慢淡掉
+      if(!vats||!(atw||f.frontsPrev>0||(f.bloc&&y>=ARC.blocY))||ARC.phase<1||f.native)continue;
+      // 顧忌：培養槽做出來的是長官們的身體。越講體面的勢力越不肯拿它當兵；首府被圍、快撐不住時才破例
+      let desp=f.shock>.6;for(let k=0;k<FMAX&&!desp;k++){const W_=war[Math.min(f.id,k)][Math.max(f.id,k)];if(W_&&W_.def===f.id&&W_.siege&&W_.siege.t===f.cap)desp=true}
+      const use=desp?1:(f.taboo||0)>=.5?0:1-(f.taboo||0);if(use<.05)continue;
+      const room=Math.max(0,vats*VAT_CAP-(f.clones||0));let n=Math.min(room,vats*VAT_RATE*use);if(n<1)continue;
       for(const g in CLONE_COST)n=Math.min(n,facStock(f.id,g)*.3/CLONE_COST[g]);if(n<1)continue;
       for(const g in CLONE_COST)facTake(f.id,g,n*CLONE_COST[g]);f.clones=(f.clones||0)+n;
-      if(!f.clonesY){f.clonesY=y;say(y,'war',`${f.n}開始用培養槽養兵：糧和水進去，拿得動槍的人出來。`,f.cap)}}
+      if(!f.clonesY){f.clonesY=y;if((f.taboo||0)>=.3||desp&&(f.taboo||0)>=.15)(f.id===0||desp?sagaSay:(yy,tt,ti)=>say(yy,'war',tt,ti))(y,desp?`${nm(f.cap)}被圍到第 ${war.flat().find(W_=>W_&&W_.def===f.id&&W_.siege)?.siege.prog||1} 季，${f.n}打開了培養槽。第一批走出來的兵，長著的是${rulerT(f)}和課長們的臉。`:`${f.n}終於也開始拿培養槽養兵。沒有人公開說什麼，但那些兵長著的是長官們的臉。`,f.cap);
+        else say(y,'war',`${f.n}開始用培養槽養兵：糧和水進去，拿得動槍的人出來。`,f.cap)}}
     // 本季戰事：每場戰爭每季一場戰鬥。兵力＝全國徵召（人口、零件、彈藥、糧），分攤到同時打的每場戰爭，再加上收編的兵
     {const fp=new Float32Array(FMAX),nw=new Uint8Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)fp[owner[i]]+=pop[i];
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)if(war[a][b]&&fac[a].alive&&fac[b].alive){nw[a]++;nw[b]++}
@@ -619,7 +624,10 @@ function createSim(w,rand,pick){
       if(!W.told||W.told<3&&(took||siege)){W.told=(W.told||0)+1;
         say(y,'war',`${SEASON[s]}，${nm(n)}之戰：${fac[win].n}擊敗${fac[lose].n}${counter&&win===A?`，收復${nm(n)}`:took?(note||(dd>1?`，遠征軍奪下${nm(n)}`:`，奪下${nm(n)}`)):note||(win===D&&wall[n]>=1?`，${nm(n)}的防壁擋住了攻勢`:'')}${loot>=.5?`，繳獲零件 ${loot.toFixed(1)} 箱`:''}。`,n)}
       let fell='';
-      if(hl2&&!(hl2.plot&&ARC.phase<3)&&rand()<.22){const h=hl2,wl=weaponsOf(h);fell=h.name;
+      const LF=hl2?fac[hl2.f]:null,bk=LF&&(LF.taboo||0)>=.4&&markets[LF.cap]?.vat>0&&owner[LF.cap]===LF.id&&(hl2.backups||0)<2&&y-(hl2.backupY??-99)>=8;
+      if(hl2&&bk&&!(hl2.plot&&ARC.phase<3)&&rand()<.22){hl2.backups=(hl2.backups||0)+1;hl2.backupY=y;facTake(LF.id,'parts',3);
+        (notable(hl2)?sagaSay:(yy,tt,ti)=>say(yy,'hero',tt,ti))(y,`${LF.n}的${hl2.name}在${nm(n)}陣亡。三天後，${hl2.name}在${nm(LF.cap)}的培養槽裡醒來，記得的事停在上一次備份那天。`,LF.cap)}
+      else if(hl2&&!(hl2.plot&&ARC.phase<3)&&rand()<.22){const h=hl2,wl=weaponsOf(h);fell=h.name;
         for(const wp of wl){const r=rand();if(r<.45&&hw&&hw.alive)giveW(wp,hw,y,`${h.name}戰死於${nm(n)}，「${wp.name}」被${fac[win].n}的${hw.name}奪走。`);else if(r<.75)loseW(wp,n,y,`${h.name}戰死於${nm(n)}，「${wp.name}」遺落在戰場上。`)}
         graves.push({tile:n,y,name:h.name});
         if(h.legend)sagaSay(y,`${h.title}${h.name}戰死於${nm(n)}。`,n);else if(!wl.length)say(y,'hero',`${fac[lose].n}的${h.name}戰死於${nm(n)}。`,n);
@@ -839,7 +847,7 @@ function createSim(w,rand,pick){
   function freeSlot(y){return fac.find(x=>!x.alive&&x.id>=FDEF.length&&y-x.diedY>20)}
   function newState(slot,y,name,cap,tiles,aggr){
     if(fac.some(x=>x.alive&&x.n===name)){const alt=STATE_SUF.map(x=>name.replace(/(軍政府|自治區|保安區|公社|管區|自由城)$/,'')+x).find(n=>!fac.some(z=>z.alive&&z.n===n));name=alt||'新'+name}
-    Object.assign(slot,{n:name,alive:true,cap,aggr,ruler:0,house:'',liege:-1,loyal:1,lsince:y,helped:0,ratio:one(),price:one(),prod:zero(),born:y,fronts:0,frontsPrev:0,famineCD:0,woodCD:0,shock:0,merc:0,crisis:-1,pop:0,loss:0,cold:0});
+    Object.assign(slot,{taboo:0,clones:0,clonesY:0,league:0,bloc:0,free:0,works:0,native:0,n:name,alive:true,cap,aggr,ruler:0,house:'',liege:-1,loyal:1,lsince:y,helped:0,ratio:one(),price:one(),prod:zero(),born:y,fronts:0,frontsPrev:0,famineCD:0,woodCD:0,shock:0,merc:0,crisis:-1,pop:0,loss:0,cold:0});
     for(const t of tiles)owner[t]=slot.id;
     for(let k=0;k<FMAX;k++){const a=Math.min(k,slot.id),b=Math.max(k,slot.id);if(a!==b){tension[a][b]=0;war[a][b]=null}}
     if(!town[cap]){town[cap]=1;markets[cap]=markets[cap]||newMarket()}}
@@ -847,7 +855,7 @@ function createSim(w,rand,pick){
     if(!slot){m.unrest=0;m.revoltCD=y+30;for(let i=0;i<N;i++)if(mkt[i]===t&&owner[i]===f.id)pop[i]*=.9;say(y,'war',`${nm(t)}一帶${why}，起兵反抗${f.n}，很快就被壓下去。`,t);return}
     const tiles=[];for(let i=0;i<N;i++)if(owner[i]===f.id&&mkt[i]===t&&i!==f.cap)tiles.push(i);
     const lord=m.lord?heroById(m.lord):null;
-    newState(slot,y,nm(t)+pick(STATE_SUF),t,tiles,.8+rand()*.6);slot.ratio={...m.ratio};slot.price={...m.price};m.unrest=0;
+    newState(slot,y,nm(t)+pick(STATE_SUF),t,tiles,.8+rand()*.6);slot.taboo=(f.taboo||0)*.7;slot.ratio={...m.ratio};slot.price={...m.price};m.unrest=0;
     for(const x of fac)if(x.alive&&x.liege===slot.id)x.liege=-1;
     if(lord&&lord.alive){lord.f=slot.id;lord.fief=-1;m.lord=0;slot.ruler=lord.id;slot.house=hs(lord);lord.ruled=1;hAffAdd(hs(lord),f.house,-.6);say(y,'war',`${f.n}的${nm(t)}${lord.title||'課長'}${lord.name}${why}，據城自立，號${slot.n}。`,t)}
     else say(y,'war',`${nm(t)}一帶${why}，宣布脫離${f.n}自立，號${slot.n}。`,t);
