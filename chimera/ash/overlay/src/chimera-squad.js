@@ -16,10 +16,8 @@ import {isNoncombatant} from './enemy-data.js';
 import {presentStep} from './presentation.js';
 import {checkMines} from './field-gear.js';
 import {tickSkills} from './skills.js';
-import {tickTraits} from './traits.js';
+import {expireExposure} from './corner.js';
 import {t} from './i18n.js';
-import {lineOfSight} from './world.js';
-import {objectSightGrid} from './scenery.js';
 import {addPoison,tickPoison} from './poison.js';
 import {SWARM_TUNING} from './swarm.js';
 import {toxicPlayerTurn} from './swarm-fields.js';
@@ -33,12 +31,14 @@ export class SquadGame extends MissionGame{
  static fullSquad=true;
  constructor(ticket){
   super(ticket);
-  const lead=this.player;lead.squadId=ticket.squad[0].id;
-  this.members=[lead];this.stash=new Map([[lead,{}]]);this.brains=new Map();this.controlled=lead;
+  const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;
+  // brains（函式）與 stash 不可列舉：ASH 每一步動畫前用 structuredClone 複製遊戲（presentation.js snapshot）
+  for(const [k,v]of [['stash',new Map([[lead,{}]])],['brains',new Map()]])Object.defineProperty(this,k,{configurable:true,writable:true,enumerable:false,value:v});
+  this.members=[lead];this.controlled=lead;
   for(const c of ticket.squad.slice(1)){
    // 一位完整的玩家角色：借一個同種子的新遊戲建出來，只拿它的 player
    const cls=character(c.cls),spare=new Game(this.seed,[],0,cls,validPortrait(c.portrait)?c.portrait:pickPortrait(),'extraction',{facilityFaction:this.facilityFaction,simulation:{kind:'chimera'}});
-   const m=spare.player;m.squadId=c.id;applyStats(m,c,CHARACTERS[cls]);
+   const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;applyStats(m,c,CHARACTERS[cls]);
    this.shareArmory(m,lead);
    const cell=this.freeCellNear(lead);if(!cell)continue;Object.assign(m,{x:cell.x,y:cell.y});
    this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:0,perkDraft:null,perkPicks:0,classPerkMisses:0,legacyPerkPicks:0,sensorContacts:[],refusal:null});
@@ -66,7 +66,8 @@ export class SquadGame extends MissionGame{
  passable(x,y,actor){if(!super.passable(x,y,actor))return false;if(!actor||!this.members)return true;const m=this.memberAt({x,y},this.player);return !m||m===actor;}
  executePlayer(type,arg){
   const p=this.player,from={x:p.x,y:p.y},other=type==='move'&&Array.isArray(arg)&&this.members?this.memberAt({x:p.x+arg[0],y:p.y+arg[1]},p):null;
-  const ok=super.executePlayer(type,arg);
+  // 自己行動時隊員不算友軍（ASH 的友軍換位要查兵種卡）；換位用下面這行
+  this.membersHidden=true;let ok;try{ok=super.executePlayer(type,arg);}finally{this.membersHidden=false;}
   if(ok&&other&&p.x===other.x&&p.y===other.y)Object.assign(other,from);
   return ok;
  }
@@ -83,9 +84,11 @@ export class SquadGame extends MissionGame{
   for(const m of this.members){
    if(m===keep||m.hp<=0||this.status!=='playing')continue;
    const brain=this.brains.get(m);if(!brain)continue;
+   // action() 一開頭會清掉 effects（這一步的動畫）；隊員的動作接在後面，不能把前面的清掉
+   const fx=this.effects;
    this.swap(m);this.soloTurn=true;this.soloDone=false;
    try{for(let i=0;i<6&&!this.soloDone&&this.status==='playing'&&m.hp>0;i++)brain(this,m);}
-   finally{this.soloTurn=false;tickSkills(m);tickTraits(m);m.lightLingers=false;this.swap(keep);}
+   finally{this.effects=[...fx,...this.effects.filter(e=>!fx.includes(e))];this.soloTurn=false;tickSkills(m);expireExposure([m],this.turn);m.lightLingers=false;this.swap(keep);}
   }
  }
  // soloTurn 裡的付費動作：只做這位隊員自己那一格（照 action() 裡 actor===p 的處理）
@@ -117,16 +120,18 @@ export class SquadGame extends MissionGame{
   if(!this.soloTurn&&this.members)this.handOver();
   return r;
  }
- // 範圍傷害：ASH 只檢查 g.player；其他隊員照同樣的規則（距離、爆風視線、距離遞減）各算一次
- explode(center,radius,damage,attacker=null,eligible=null,opts={}){
-  const origin={x:center.x,y:center.y},hit=(this.members||[]).filter(m=>m!==this.player&&m.hp>0&&distance(origin,m)<=radius&&lineOfSight(objectSightGrid(this,origin,m),origin,m,this.barriers,'blast'));
-  const r=super.explode(center,radius,damage,attacker,eligible,opts);
-  this.forMembers(hit,m=>this.damagePlayer(Math.max(1,damage-distance(origin,m)*10),t('game.blastSource'),null,true));
-  return r;
+ // 其他活著的隊員也算在友軍名單裡（ASH 的直線攻擊、爆炸、敵人選目標、團隊視野都看這份名單）；
+ // 他們受到的友軍傷害改用玩家的規則算（damageAlly → damagePlayer）。地面傷害另外算，所以那時先拿掉（membersHidden）。
+ get activeAllies(){const a=super.activeAllies;if(!this.members||this.membersHidden)return a;return [...a,...this.living.filter(m=>m!==this.player)];}
+ damageAlly(u,damage,attacker=null,blast=false,...rest){
+  if(!this.members?.includes(u))return super.damageAlly(u,damage,attacker,blast,...rest);
+  let r;this.forMembers([u],()=>{r=this.damagePlayer(damage,attacker?t('enemy-behavior.attackSource',{enemy:attacker.name||attacker.type||''}):t('game.blastSource'),attacker,blast);});if(u.hp<0)u.hp=0;return r;
  }
+ // ASH 在「玩家」倒下時判死；其他人還活著就繼續（被操作的隊員倒下時，action() 結束後交棒）
+ damagePlayer(...args){const r=super.damagePlayer(...args);if(this.members&&this.status==='dead'&&this.living.length)this.status='playing';return r;}
  // 地面（酸液、高熱、蒸汽、火、毒霧、中毒）：environmentTurn 只算 g.player，其他隊員照同一段規則各算一次
  environmentTurn(){
-  const r=super.environmentTurn();
+  this.membersHidden=true;let r;try{r=super.environmentTurn();}finally{this.membersHidden=false;}
   this.forMembers(this.living.filter(m=>m!==this.player),p=>{
    const hazard=this.hazards.find(h=>h.x===p.x&&h.y===p.y);
    if(hazard){this.floorDamage(Math.max(0,(hazard.type==='acid'?8:12)-p.hazmat));if(hazard.type==='acid'&&p.hazmat<8)addPoison(p,SWARM_TUNING.acidStacks);}
@@ -145,6 +150,8 @@ export class SquadGame extends MissionGame{
   if(this.player.hp>0)return false;
   this.player.hp=0;this.swap(next);this.controlled=next;this.log(`${next.squadId} 接手指揮。`,true);return true;
  }
+ // 動畫快照（presentation.js 補丁）：隊員行動那幾步的快照裡，「玩家」換回操作中的隊員，鏡頭和狀態列才不會跳
+ presentView(v){const c=v.members?.find(m=>m.id===this.controlled?.id);if(c&&v.player!==c)v.player=c;return v;}
  setControlled(m){if(!this.members.includes(m)||m.hp<=0||this.soloTurn)return false;this.swap(m);this.controlled=m;return true;}
  cycleControlled(){const L=this.living;if(L.length<2)return false;return this.setControlled(L[(L.indexOf(this.player)+1)%L.length]);}
  descend(){if(this.status!=='playing'||this.player.hp<=0)return false;if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);this.status='won';this.log('撤離完成。');return true;}

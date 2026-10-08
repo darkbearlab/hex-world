@@ -8,11 +8,14 @@ try{ticket=JSON.parse(decodeURIComponent(location.hash.slice(1)));}catch{}
 if(!ticket?.squad?.length){document.body.classList.remove('booting');document.body.textContent='沒有任務票。';send({type:'chimera-error',error:'no ticket'});}
 else{
  // 依序載入：ASH 的模組彼此循環引用，要先從 game.js 這一頭進去（和 Node 裡一樣），再載機器人
- const {MissionGame}=await import('./chimera-mission.js'),{installSquadBrain}=await import('../tools/chimera/squad.mjs');
- const game=new MissionGame(ticket);installSquadBrain(game);
+ // 隊友是完整的玩家角色（chimera-squad.js），其他隊員由通關機器人操作；ticket.survivors 時改用階段 1 的倖存友軍版本
+ let game;
+ if(ticket.survivors){const {MissionGame}=await import('./chimera-mission.js'),{installSquadBrain}=await import('../tools/chimera/squad.mjs');game=new MissionGame(ticket);installSquadBrain(game);}
+ else{const {SquadGame}=await import('./chimera-squad.js'),{installFullSquad}=await import('../tools/chimera/full-squad.mjs');game=new SquadGame(ticket);installFullSquad(game);}
  let sent=false;
  globalThis.ASH_EMBED={game,
   ready(){send({type:'chimera-ready',ticketId:ticket.id});},
   finish(g){if(sent)return;sent=true;setTimeout(()=>send({type:'chimera-result',ticketId:ticket.id,result:g.missionResult}),1200);}};
  await import('./main.js');
+ if(game.members){const {installSquadUI}=await import('./chimera-squad-ui.js');installSquadUI(game);}
 }

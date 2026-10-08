@@ -1,0 +1,14 @@
+diff --git a/src/presentation.js b/src/presentation.js
+index 3d9ce7c..7f61428 100644
+--- a/src/presentation.js
++++ b/src/presentation.js
+@@ -10,7 +10,8 @@ import {enemyDef} from './enemy-data.js';
+ const observers=new WeakMap(),activeSteps=new WeakSet();
+ export function snapshot(game){
+   const {rng,effects,onEnemyCallout,...data}=game;
+-  return Object.assign(Object.create(Object.getPrototypeOf(game)),structuredClone(data),{effects:[]});
++  const view=Object.assign(Object.create(Object.getPrototypeOf(game)),structuredClone(data),{effects:[]});
++  return game.presentView?game.presentView(view):view;   // 奇美拉（hex-world chimera/ash 的補丁）：小隊的快照以操作中的隊員為玩家
+ }
+ export function presentStep(game,action,quietActor=null){
+   const steps=observers.get(game);

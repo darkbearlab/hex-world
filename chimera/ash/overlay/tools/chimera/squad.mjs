@@ -70,13 +70,14 @@ export class SquadBot extends ClearBot{
 // 裝到遊戲上：每名倖存友軍一個 SquadBot（各有自己的記憶），每次輪到它時決定一步
 export function installSquadBrain(g,{trace=null}={}){
  const bots=new Map();
- g.allyBrain=(game,a,api)=>{
+ // 不可列舉：ASH 每一步動畫前用 structuredClone 複製遊戲（presentation.js snapshot），函式複製不了
+ Object.defineProperty(g,'allyBrain',{configurable:true,writable:true,enumerable:false,value:(game,a,api)=>{
   const {f,acted}=facade(game,a,api);
   let bot=bots.get(a.id);
   if(!bot){bot=new SquadBot(f,{seed:(Number(game.seed)||1)+a.id.length*7919});bots.set(a.id,bot);}
   bot.g=f;
   try{bot.step();}catch(error){(trace||console.warn)(`squad brain ${a.id}: ${error.stack||error}`);return false;}
   return acted();
- };
+ }});
  return bots;
 }

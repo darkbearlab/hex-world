@@ -591,7 +591,7 @@ let mission = null;
 function openMission(tk) {
   closeMission();
   const box = document.createElement('div'); box.id = 'mission';
-  box.innerHTML = `<div class="mbar"><b>${esc(tk.title)}</b><span class="mini">隊長陣亡＝敗・走到電梯撤離＝勝</span><button data-mx>先不打（關掉，票還在）</button></div><iframe title="任務戰鬥" src="ash/mission.html#${encodeURIComponent(JSON.stringify(tk))}"></iframe>`;
+  box.innerHTML = `<div class="mbar"><b>${esc(tk.title)}</b><span class="mini">走到電梯撤離＝勝・全員倒下＝敗・上方按鈕或 Tab 切換操作的隊員，倒下時自動交棒</span><button data-mx>先不打（關掉，票還在）</button></div><iframe title="任務戰鬥" src="ash/mission.html#${encodeURIComponent(JSON.stringify(tk))}"></iframe>`;
   document.body.appendChild(box); mission = {id: tk.id, box};
   box.querySelector('[data-mx]').onclick = () => { if (!mission) return; send({type: 'abort'}); closeMission(); };
 }
