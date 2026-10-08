@@ -446,3 +446,4 @@ Claude 的沙盒劇本草案（等確認）：
 - 隊友：階段 1 武器沿用兵種卡（`allyWeapon`），生命、命中、閃避、近戰帶奇美拉的數值。
 - 敵人對應（暫定，Alan 可改）：掠奪者 raider→破口突擊兵 `raider`、重裝掠奪者→叛變哨兵 `gunner`；原住民→`raider_infected`、原住民獵手→盲眼狙擊手 `sniper`；士兵→斷訊槍兵 `rifleman`、重裝士兵→`rifleman_armored`、複製兵→`raider_armored`；持遺產級的頭目→小隊長 `squad_leader`；衝鋒車→自爆機器人 `bomber_bot`、武裝車→固定砲台 `turret`、戰鬥卡車→`gunner`。
 - 嵌入版關掉 ASH 的 service worker 和存檔。
+- 已實作（2026-10-08）：階段 0、階段 1。chimera 分支的 `chimera/ash/` 插進 ASH 3.223.0（三個補丁＋overlay），任務票可以「親自打」：iframe 開 ASH 第一層，隊長＋三名由通關機器人驅動的隊友，撤離＝勝、隊長陣亡＝敗，戰果回傳結算。細節見 chimera 分支的 README「親自打」一節。
