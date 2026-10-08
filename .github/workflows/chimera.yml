@@ -1,0 +1,30 @@
+# chimera 分支的 chimera/ 有變動時，部署奇美拉沙盒觀看頁（獨立的 Worker：chimera，只有靜態檔案）
+name: 部署奇美拉沙盒
+
+on:
+  push:
+    branches: [chimera]
+    paths: ['chimera/**', '.github/workflows/chimera.yml']
+  workflow_dispatch: {}
+
+concurrency:
+  group: chimera
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 安裝套件
+        run: npm ci
+      - name: 把模擬核心放進網頁
+        run: cp chimera/sim.js chimera/public/sim.js
+      - name: 部署
+        run: npx wrangler deploy --config chimera/wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

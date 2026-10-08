@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>奇美拉沙盒</title>
+<meta name="description" content="被企業遺棄的荒漠星球：看總督府崩塌、各自為王、陣營成形的一百五十年。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><b>奇美拉</b><span>被遺棄的星球</span></div>
+  <div class="seed">
+    <input id="seed" value="奇美拉-1" aria-label="種子" spellcheck="false">
+    <button id="gen" title="用這個種子重新生成星球">生成</button>
+  </div>
+  <div class="play">
+    <button id="playBtn" class="primary" aria-label="播放">▶</button>
+    <select id="speed" aria-label="播放速度">
+      <option value="1">每秒 1 年</option>
+      <option value="3" selected>每秒 3 年</option>
+      <option value="8">每秒 8 年</option>
+      <option value="30">最快</option>
+    </select>
+    <div class="year"><b id="yearNum">第 0 年</b><span id="phase">等待</span></div>
+  </div>
+  <div class="timeline">
+    <input type="range" id="slider" min="0" max="0" value="0" aria-label="年份">
+    <span id="computing" class="muted">推演中…</span>
+    <button id="more" hidden>再推 50 年</button>
+  </div>
+</header>
+<main>
+  <section class="mapwrap">
+    <canvas id="map"></canvas>
+    <div class="layers" role="group" aria-label="圖層">
+      <button data-layer="fac" class="on">勢力</button>
+      <button data-layer="pop">人口</button>
+      <button data-layer="bandit">掠奪者</button>
+      <button data-layer="trench">戰壕</button>
+    </div>
+    <div class="zoom"><button id="zin" aria-label="放大">＋</button><button id="zout" aria-label="縮小">－</button><button id="zfit" aria-label="全圖">⤢</button></div>
+    <div class="maplegend" id="legend"></div>
+    <div class="tip" id="tip" hidden></div>
+  </section>
+  <aside class="panel">
+    <nav class="tabs" role="tablist">
+      <button data-tab="log" class="on">編年史</button>
+      <button data-tab="fac">勢力</button>
+      <button data-tab="tile">地點</button>
+      <button data-tab="gear">遺產級</button>
+    </nav>
+    <div class="pane" id="pane-log">
+      <div class="filters" id="filters">
+        <button data-f="legend" class="on">大事</button>
+        <button data-f="war">戰爭</button>
+        <button data-f="econ">經濟</button>
+        <button data-f="bandit">掠奪者</button>
+        <button data-f="all">全部</button>
+      </div>
+      <ol id="log" class="log"></ol>
+    </div>
+    <div class="pane" id="pane-fac" hidden></div>
+    <div class="pane" id="pane-tile" hidden><p class="muted">點地圖上的格子看細節。</p></div>
+    <div class="pane" id="pane-gear" hidden></div>
+  </aside>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

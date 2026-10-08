@@ -1,5 +1,5 @@
 // 地形與戰壕對照：node terrain.mjs <戰壕 0|1> <種子數> [炸藥車 0|1，預設 1]
-const TR=+process.argv[2],SEEDS=+(process.argv[3]||10),BM=process.argv[4]===undefined?1:+process.argv[4];if(TR)globalThis.TRENCH=1;globalThis.BOMB=BM;
+const TR=+process.argv[2],SEEDS=+(process.argv[3]||10),BM=process.argv[4]===undefined?1:+process.argv[4];globalThis.TRENCH=TR?1:0;globalThis.BOMB=BM;
 const m=await import('../sim.js');
 const all=[];const ev={stale:0,lost:0,cede:0,wars:0};
 for(let sd=1;sd<=SEEDS;sd++){globalThis.BSTAT=[];const w=m.generate('奇美拉-'+sd);all.push(...globalThis.BSTAT);

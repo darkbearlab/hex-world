@@ -621,8 +621,8 @@ function createSim(w,rand,pick){
     const kill=(f,amt)=>{const F=fac[f];if(F.clones>0){const c=Math.min(F.clones,amt*.7);F.clones-=c;amt-=c;rec(f,y,'cloneDead',c)}rec(f,y,'popDead',Math.min(.06,amt/Math.max(1,fp[f]))*fp[f]);const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive||W.done)continue;
       if(owner[W.goal]===W.att){W.done=1;continue}if(owner[W.goal]!==W.def){W.done=2;continue}
-      // 戰壕（globalThis.TRENCH 開啟時）：雙方在前線上自己這一側挖壕，每季加深一點，要用廢料撐壕壁
-      if(globalThis.TRENCH){for(const [x,y_] of [[W.att,W.def],[W.def,W.att]]){let dug=0;for(const [,nn] of front[y_][x]){if(owner[nn]!==x||trench[nn]>=3||dug>=6)continue;if(facStock(x,'scrap')<1)break;facTake(x,'scrap',.5);trench[nn]=Math.min(3,trench[nn]+.25);trench[nn]>=1&&!W.tTold&&(W.tTold=1,say(y,'war',`${fac[a].n}與${fac[b].n}在${nm(nn)}一帶都挖了壕溝，戰線卡住了。`,nn));dug++}}}
+      // 戰壕（預設開啟；globalThis.TRENCH=0 關掉）：雙方在前線上自己這一側挖壕，每季加深一點，要用廢料撐壕壁
+      if(globalThis.TRENCH!==0){for(const [x,y_] of [[W.att,W.def],[W.def,W.att]]){let dug=0;for(const [,nn] of front[y_][x]){if(owner[nn]!==x||trench[nn]>=3||dug>=6)continue;if(facStock(x,'scrap')<1)break;facTake(x,'scrap',.5);trench[nn]=Math.min(3,trench[nn]+.25);trench[nn]>=1&&!W.tTold&&(W.tTold=1,say(y,'war',`${fac[a].n}與${fac[b].n}在${nm(nn)}一帶都挖了壕溝，戰線卡住了。`,nn));dug++}}}
       let A=W.att,D=W.def,counter=false,prs;
       // 守方兵多時會反攻，想把這場戰爭丟掉的地方拿回來
       if(lev(D)>lev(A)*1.3&&rand()<.5){const back=front[D][A].filter(([i,n])=>owner[i]===D&&owner[n]===A&&W.taken.includes(n));if(back.length){counter=true;[A,D]=[D,A];prs=back}}
@@ -644,13 +644,13 @@ function createSim(w,rand,pick){
       const vpow=(f,V)=>{for(const v of VEH)V[v]/=nw2(f);const need=VEH.reduce((x,v)=>x+V[v]*VFUEL[v],0)*(1-Math.min(.5,V.gt*.05));let fr=1;
         if(need>.1){const got=facTake(f,'fuel',need);fr=Math.min(1,got/need);if(fr<.3&&V.armor+V.rush*.3>=3&&(!fac[f].dryY||y-fac[f].dryY>=10)){fac[f].dryY=y;say(y,'war',`燃料見底，${fac[f].n}的車隊停在${nm(n)}一帶動不了。`,n)}}
         return {fr,p:VEH.reduce((x,v)=>x+V[v]*VPOW[v],0)*vt*fr,mor:1+Math.min(.2,V.gt*.04),sup:Math.min(.6,V.gt*.1)}};
-      const PA=vpow(A,VA),PD=vpow(D,VD),supA=1/(1+.08*dT*(1-PA.sup)),tr=globalThis.TRENCH?trench[n]:0;
+      const PA=vpow(A,VA),PD=vpow(D,VD),supA=1/(1+.08*dT*(1-PA.sup)),tr=globalThis.TRENCH!==0?trench[n]:0;
       // 炸藥車（造衝鋒車時一半綁上炸藥）：遇到壕溝全數衝上去引爆；衝成功的（三到七成）每輛填平 0.15 級壕溝、守方戰力 −5%（最多 −40%）、炸死 3 人
       let bombs=0,boomOk=0;
       if(tr&&globalThis.BOMB!==0&&VA.bomb>=.5){bombs=VA.bomb;vehLose(A,{truck:0,armor:0,rush:0,gt:0,bomb:1/nw2(A)});
           boomOk=bombs*(.3+rand()*.4);trench[n]=Math.max(0,trench[n]-boomOk*.15);
           if(!fac[A].bombY){fac[A].bombY=y;say(y,'war',`${fac[A].n}把炸藥綁在衝鋒車上，一輛接一輛衝進${nm(n)}的壕溝。`,n)}}
-      const tr2=globalThis.TRENCH?trench[n]:0;
+      const tr2=globalThis.TRENCH!==0?trench[n]:0;
       if(tr2){PA.p*=1-.25*tr2}   // 反戰車壕：攻方的車開不過去
       const sa=(LA+xA+PA.p)*fac[A].aggr*wf*supA*kA*rA*PA.mor,sd=((LD+xD)*.8+mil+PD.p*.9)*tm*wm*kD*rD*PD.mor*(1+.3*tr2)*(1-Math.min(.4,boomOk*.05));
       const siege=!counter&&(town[n]||wall[n]>=1);
@@ -975,8 +975,12 @@ function createSim(w,rand,pick){
       else if(g.toGang){const W2=gangs.find(x=>x.id===g.toGang);if(W2)toGang(wp,W2,y,`${W2.name}吞併了${g.name}，奪得遺產級「${wp.name}」。`);else loseW(wp,g.lair,y,`遺產級「${wp.name}」在據點的廢墟裡失落。`)}
       else loseW(wp,g.lair,y,`${g.name}的據點人去樓空，遺產級「${wp.name}」被埋在${nm(g.lair)}的沙裡。`)}
     gangs=gangs.filter(g=>!g.gone)}
-  function runHistory(){initLegends();for(let y=1;y<=YEARS;y++){yearStart(y);for(let s=0;s<4;s++){T+=PS;season(y,s)}yearEnd(y);snaps.push(makeSnap());
-    if(globalThis.CSTAT){const P=new Float32Array(FMAX),Tl=new Int16Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0){P[owner[i]]+=pop[i];Tl[owner[i]]++}for(const f of fac)if(f.alive){rec(f.id,y,'pop',P[f.id]);rec(f.id,y,'tiles',Tl[f.id]);rec(f.id,y,'clones',f.clones||0);rec(f.id,y,'food',f.ratio.food+1e-6);rec(f.id,y,'water',f.ratio.water+1e-6)}}}}
+  // 一年一年推演：觀看網頁用 begin() 開局，再每次呼叫 stepYear() 推進一年（runHistory 就是把它跑 YEARS 次）
+  let histY=0;
+  function begin(){initLegends();histY=0}
+  function stepYear(){const y=++histY;yearStart(y);for(let s=0;s<4;s++){T+=PS;season(y,s)}yearEnd(y);snaps.push(makeSnap());
+    if(globalThis.CSTAT){const P=new Float32Array(FMAX),Tl=new Int16Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0){P[owner[i]]+=pop[i];Tl[owner[i]]++}for(const f of fac)if(f.alive){rec(f.id,y,'pop',P[f.id]);rec(f.id,y,'tiles',Tl[f.id]);rec(f.id,y,'clones',f.clones||0);rec(f.id,y,'food',f.ratio.food+1e-6);rec(f.id,y,'water',f.ratio.water+1e-6)}}}
+  function runHistory(){begin();for(let y=1;y<=YEARS;y++)stepYear()}
 
   // ===== 線上模式：時段層與即時層（角色：NPC 與玩家走同一套行動介面）=====
   let actors=[],story=0,lastComputed=0,nextId=1,ownerHist=[];
@@ -1152,8 +1156,8 @@ function createSim(w,rand,pick){
 
   w.events=ev;w.graves=graves;w.snaps=snaps;w.fac=fac;w.stats=stats;
   const legendData=()=>({leagues,weapons:weapons.map(wp=>{const h=wp.holder?heroById(wp.holder):null;return {...wp,at:h?(h.fief>=0?h.fief:fac[h.f].cap):wp.fac>=0?fac[wp.fac].cap:wp.gang?(gangs.find(g=>g.id===wp.gang)||{lair:wp.loc}).lair:(wp.lake&&wp.shore!==undefined?wp.shore:wp.loc)}}),saga,ARC,houseAff,aff,heroes:heroes.filter(h=>h.legend||h.ruled||h.famed||h.wins>=4),fac:fac.map(f=>({id:f.id,n:f.n,alive:f.alive,born:f.born,diedY:f.diedY,cap:f.cap,ruler:f.ruler,house:f.house,liege:f.liege,bloc:f.bloc||0,league:f.league||0,free:!!f.free,works:!!f.works,native:!!f.native})),names:w.names,owner:owner.slice(),events:ev});
-  const peek=()=>({owner,pop,bandit,town,mkt,markets,gangs,fac,routeTiles,biome,game,gameK,timber,timberK,vein,known,ev,T,curY,weapons,heroes,war,caravans,carts,stamp:stamp(),season:curSeason()});
-  return {peek,legendData,runHistory,startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+  const peek=()=>({owner,pop,bandit,town,mkt,markets,gangs,fac,routeTiles,biome,trench,wall,ruin,ARC,leagues,saga,game,gameK,timber,timberK,vein,known,ev,T,curY,weapons,heroes,war,caravans,carts,stamp:stamp(),season:curSeason()});
+  return {peek,legendData,runHistory,begin,stepYear,get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 
@@ -1162,4 +1166,4 @@ function createSim(w,rand,pick){
 function staticOf(w){const {sim,events,snaps,graves,fac,...rest}=w;return rest}
 function restore(Wst,S){const rand=mulberry32(1),pick=a=>a[Math.floor(rand()*a.length)];const w={...Wst};const sim=createSim(w,rand,pick);sim.importState(S);w.sim=sim;return w}
 
-export {generate,staticOf,restore,W,H,N,YEARS,BIOMES,FDEF,FMAX,NBR,GOODS,GN,BASEP,SEASON,MOVE,col,row,hdist};
+export {generate,staticOf,restore,W,H,N,YEARS,BIOMES,FDEF,FMAX,NBR,GOODS,GN,BASEP,SEASON,MOVE,VEH,VN,col,row,hdist};
