@@ -1,0 +1,70 @@
+diff --git a/src/controller-comms.js b/src/controller-comms.js
+index ed7e8da..61bd47f 100644
+--- a/src/controller-comms.js
++++ b/src/controller-comms.js
+@@ -184,6 +184,8 @@ let outro=null;
+ export function endOutro(){outro=null;outroShade.classList.remove('on');renderer.extraction=null;}
+ export const ending=()=>Boolean(outro)||Boolean(kia&&!kia.shown);
+ export function endRun(){
++  // 奇美拉嵌入版：戰鬥結束交給入口（回傳戰果給奇美拉），不播 ASH 的結算
++  if(globalThis.ASH_EMBED){globalThis.ASH_EMBED.finish?.(game);return;}
+   if(isSimulation(game)){if(courseActive(game)&&game.status==='won')courseExtraction();else showResult();return;}
+   const round={plan:outroPlan(game,{voiced:!replay})};outro=round;
+   const darken=()=>{if(outro!==round)return;outroShade.classList.add('on');setTimeout(()=>outroChannel(round,0),OUTRO_TUNING.darkMs);};
+diff --git a/src/controller-hud.js b/src/controller-hud.js
+index b4cce15..d260a1c 100644
+--- a/src/controller-hud.js
++++ b/src/controller-hud.js
+@@ -134,9 +134,9 @@ export function update(view=renderer.game) {
+   if(playback)return;
+   if(view.floor!==previousFloor){setPreviousFloor(view.floor);floorToast();}
+   // 3.186.0 (src/run-log.js): the run on screen is recorded, except simulations and test-mode replays.
+-  if(!replay&&!isSimulation(game)&&game.status==='playing'&&(entered||resumable))trackRun(game);
++  if(!replay&&!globalThis.ASH_EMBED&&!isSimulation(game)&&game.status==='playing'&&(entered||resumable))trackRun(game);
+   if(entered)persist();
+-  if(game.status!=='playing'&&lastStatus==='playing'){setLastStatus(game.status);if(!replay)recordResult(game);if(kia)kia.resultPending=true;else endRun();}
++  if(game.status!=='playing'&&lastStatus==='playing'){setLastStatus(game.status);if(!replay&&!globalThis.ASH_EMBED)recordResult(game);if(kia)kia.resultPending=true;else endRun();}
+   else if(entered&&courseActive(game)&&game.status==='playing'){if(!$('#modal').open)playCourse();}
+   else if(entered&&isSimulation(game)&&game.status==='playing'&&!$('#modal').open&&promptDue(game,promptLog(game)))showRoomPrompt();
+   else if(entered&&game.pendingPerks&&game.status==='playing'&&!bossScene)showLevelUp();   // 3.204.0: a level-up waits for a boss scene
+diff --git a/src/controller.js b/src/controller.js
+index a22ca9f..b5dea2b 100644
+--- a/src/controller.js
++++ b/src/controller.js
+@@ -77,13 +77,15 @@ import {INVENTORY_TABS,inventoryTab,refreshTerminalDeal,setTerminalDraft,showBlu
+ import {DECK_LAYOUTS,PAD_SIZES,applyBrightness,applyDeck,applyHotkeyHints,captureHotkey,downloadJSON,exportSave,pickDeckSlot,saveDeckLayout,saveHotkeys,settings,showDeckEditor,showHotkeys,showSettingsTab,sizeDeck} from './controller-settings.js';
+ 
+ const $=s=>document.querySelector(s),audio=new AudioEngine();
+-const savedGame=loadGame();
++// 奇美拉嵌入版（hex-world chimera/ash 的補丁）：入口先把建好的遊戲放在 globalThis.ASH_EMBED.game，不讀也不寫存檔。
++const EMBED=globalThis.ASH_EMBED||null;
++const savedGame=EMBED?null:loadGame();
+ let deploymentFaces={};
+ // Title flow (3.98.1, user report): the title screen and every menu reached from it take the full-screen terminal
+ // treatment. A bottom sheet left the finished run showing above it; closing the dialog always reveals the battle.
+ let titleFlow=false;
+-let playback=null,entered=false,orientationBlocked=false,orientationOverride=false,pendingBackup=null,resumable=Boolean(savedGame);
+-let game=savedGame||new Game(undefined,profile().unlocks.weapons,profile().upgrades.carrying),renderer=new Renderer($('#battle'),game),lockUntil=0,lastStatus='playing',previousFloor=game.floor;
++let playback=null,entered=Boolean(EMBED),orientationBlocked=false,orientationOverride=false,pendingBackup=null,resumable=Boolean(savedGame);
++let game=EMBED?.game||savedGame||new Game(undefined,profile().unlocks.weapons,profile().upgrades.carrying),renderer=new Renderer($('#battle'),game),lockUntil=0,lastStatus='playing',previousFloor=game.floor;
+ renderer.targetingEnabled=read('ash-targeting')!=='off';
+ renderer.movementBoundaries=read('ash-movement-boundaries')==='on';
+ // 3.114.0 (user request): a command pressed while the last turn is still animating ends that animation and runs. On by
+@@ -161,7 +163,7 @@ let saveWarned=false,saveWarningDue=false;
+ // 3.150.0: the tab opened last owns the save; one that has been overtaken stops saving and says so.
+ let tabLost=false;claimTab();
+ addEventListener('storage',e=>{if(e.key!==tabKey()||!e.newValue||e.newValue===TAB_ID||tabLost)return;tabLost=true;modal(t('controller.otherTab'));});
+-function persist(){if(tabLost)return false;const ok=saveGame(game);persistRunLog(game);$('#save-warning').hidden=ok;if(!ok&&!saveWarned){saveWarned=true;saveWarningDue=true;}return ok;}
++function persist(){if(EMBED)return true;if(tabLost)return false;const ok=saveGame(game);persistRunLog(game);$('#save-warning').hidden=ok;if(!ok&&!saveWarned){saveWarned=true;saveWarningDue=true;}return ok;}
+ function showSaveWarning(){saveWarningDue=false;modal(t('controller.saveFailed'));}
+ const pad=n=>String(n).padStart(2,'0');
+ const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+@@ -655,7 +657,7 @@ document.addEventListener('contextmenu',e=>{const target=e.target instanceof Ele
+ document.addEventListener('touchmove',e=>{if(document.documentElement.classList.contains('scroll-locked')&&!(e.target instanceof Element&&e.target.closest('dialog')))e.preventDefault();},{passive:false});
+ // No pinch zoom (3.98.1, user request): iOS Safari ignores user-scalable=no, so block the WebKit gesture events too.
+ for(const type of ['gesturestart','gesturechange','gestureend'])document.addEventListener(type,e=>e.preventDefault(),{passive:false});
+-window.addEventListener('pagehide',()=>{if(entered){saveGame(game);persistRunLog(game);}});update();showIntro();
++window.addEventListener('pagehide',()=>{if(entered&&!EMBED){saveGame(game);persistRunLog(game);}});update();if(EMBED)EMBED.ready?.();else showIntro();
+ // The title modal is open by now, so revealing the shell cannot flash the battle UI.
+ document.body.classList.remove('booting');
+ // 奇美拉嵌入版：不註冊 service worker，避免 /ash/ 被快取成舊版

@@ -76,6 +76,26 @@ function act(m) {
   if (m.type === 'procure') return G.procure(g, b, w, m.town, m.mat, m.qty, m.uids || [], h);
   if (m.type === 'quotes') { postMessage({type: 'quotes', data: G.quotes(g, w)}); return null; }
   if (m.type === 'resolve') { C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
+  // 親自打（ASH 任務戰鬥）：把任務票和小隊交給畫面去開 iframe；打的時候公司的時間停住
+  if (m.type === 'fight') {
+    const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === g.name), sq = tk && b.squads[tk.squad];
+    if (!sq) return '這張票已經不在了';
+    const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100}}));
+    if (!squad.length) return '這一隊沒有活著的人';
+    let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    if (game.fighting == null) game.fighting = game.speed; game.speed = 0;
+    postMessage({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: tk.enemy.side === 'faction' ? 'loyalist' : 'rebel', night: tk.night, enemy: tk.enemy, squad}});
+    return null;
+  }
+  if (m.type === 'submit' || m.type === 'abort') {
+    if (game.fighting != null) { game.speed = game.fighting; game.fighting = null; }
+    if (m.type === 'abort') return null;
+    const tk = b.tickets.find(x => x.id === m.ticket && !x.done), sq = tk && b.squads[tk.squad];
+    if (!sq) return '這張票已經結算了';
+    const win = !!m.result.win, dead = (m.result.dead || []).filter(id => sq.clones.some(c => c.id === id && c.alive));
+    const wipe = !sq.clones.some(c => c.alive && !dead.includes(c.id));
+    C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe)}, h); G.hour(g, b, w, h); return null;
+  }
   return '不認得的指令';
 }
 
@@ -86,7 +106,7 @@ onmessage = e => {
     game = {book: C.newBook(m.base * 31 + 7), G: G.newCompany(w, m.base, m.name || '我的公司', m.base * 17 + 3), h: 0, acc: 0, speed: 3, yearDays: 30};
     clearInterval(clock); clock = setInterval(gtick, 250); gview(); return;
   }
-  if (game && ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'procure', 'quotes', 'recall', 'recallCol', 'path'].includes(m.type)) { const err = act(m); gview(err); return; }
+  if (game && ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'quotes', 'recall', 'recallCol', 'path'].includes(m.type)) { const err = act(m); gview(err); return; }
   if (m.type === 'start') {
     running = false; lastEv = 0; game = null; clearInterval(clock);
     w = S.generate(m.seed, {history: false}); sim = w.sim; sim.begin();

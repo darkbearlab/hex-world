@@ -2,7 +2,7 @@
 // 不動 ash_protocol 本身。用法：node chimera/ash/build.mjs（ASH_REPO 可指向本機複本，預設 GitHub）。
 import {execFileSync} from 'node:child_process';
 import {existsSync, readFileSync, readdirSync} from 'node:fs';
-import {cp, rm, mkdir} from 'node:fs/promises';
+import {cp, rm, mkdir, readFile, writeFile, readdir} from 'node:fs/promises';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -28,7 +28,21 @@ await cp(join(here, 'overlay'), work, {recursive: true});
 // 4. 建置
 execFileSync(process.execPath, ['tools/build.mjs'], {cwd: work, stdio: 'inherit'});
 
-// 5. 放進奇美拉的網頁
+// 5. 奇美拉的任務頁與隊友大腦：mission.html 換入口；tools/ 底下的機器人照 ASH 的版本號引用 src/，
+//    不然瀏覽器會把同一個模組載兩份
+const dist = join(work, 'dist'), index = await readFile(join(dist, 'index.html'), 'utf8');
+const rev = index.match(/main\.js\?v=([0-9a-f]+)/)?.[1];
+if (!rev) throw new Error('index.html 裡找不到 main.js 的版本號');
+await writeFile(join(dist, 'mission.html'), index.replace(`./src/main.js?v=${rev}`, `./src/chimera-entry.js?v=${rev}`));
+for (const dir of ['tools/chimera', 'tools/clear-bot', 'tools/clear-bot/classes']) {
+  await mkdir(join(dist, dir), {recursive: true});
+  for (const n of readdirSync(join(work, dir)).filter(n => n.endsWith('.mjs'))) {
+    const body = await readFile(join(work, dir, n), 'utf8');
+    await writeFile(join(dist, dir, n), body.replace(/(['"])((?:\.\.\/)+src\/[^'"?]+\.js)\1/g, (_, q, u) => `${q}${u}?v=${rev}${q}`));
+  }
+}
+
+// 6. 放進奇美拉的網頁
 await rm(out, {recursive: true, force: true});
 await cp(join(work, 'dist'), out, {recursive: true});
 console.log(`ASH ${commit.slice(0, 7)} → ${out}`);

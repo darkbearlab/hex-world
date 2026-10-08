@@ -32,6 +32,7 @@ function start(seed) {
       if (!GV && page === 'co' && hist.length % 10 === 0) renderCo();
     } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = false; }
     else if (m.type === 'game') onGame(m);
+    else if (m.type === 'mission') openMission(m.data);
     else if (m.type === 'path') { selPath = m; draw(); }
     else if (m.type === 'quotes') { QT = m.data; if (procSel && !QT.some(q => q.t === procSel.t)) procSel = null; if (page === 'co') renderProc(); }
   };
@@ -383,7 +384,7 @@ function renderCo() {
       <div>敵人：<b>${esc(t.enemy.name)}</b>（戰力 ${t.enemy.power}）${U ? '・' + U : ''}${V ? '・' + V : ''}${t.enemy.boss ? `・頭目帶著遺產級「${esc(t.enemy.boss.weapon)}」` : ''}</div>
       ${t.transit ? '<div class="mini">行軍遇襲，不算案件積分</div>' : `<div class="mini">目標：${t.objectives.map(o => `${esc(o.text)}（${o.pts}）`).join('、')}</div>`}
       ${t.est ? `<div class="mini">小隊戰力 ${t.est.pow}・自動結算勝算約 <span class="odds-est ${t.est.p < .4 ? 'bad' : t.est.p < .75 ? 'mid' : 'good'}">${Math.round(t.est.p * 100)}%</span>・預估陣亡 ${t.est.dead.toFixed(1)} 人</div>` : ''}
-      <div class="row"><button disabled title="戰鬥層還沒接上">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的任務票。</p>';
+      <div class="row"><button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的任務票。</p>';
   $('co-cases').innerHTML = G.cases.length ? G.cases.map(c => {
     const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}` : ''}`) : c.own ? `來回中・約 ${fmtH(c.end - h)}後回到總部` : c.open ? `出票中・${fmtH(c.end - 24 - h)}後停止出票` : `收尾中・${fmtH(c.end + 24 - h)}後結算`;
     return `<div class="card"><h4><a href="#" data-center="${c.tile}">${esc(c.title)}</a><span class="mini">${c.own ? '採購' : '●'.repeat(c.lv) + '○'.repeat(3 - c.lv)}</span></h4>
@@ -572,6 +573,7 @@ $('pane-co').onclick = e => {
   else if (A === 'tpl') send({type: 'build', tpl: id});
   else if (A === 'keep') send({type: 'keep', uid: +id});
   else if (A === 'resolve') send({type: 'resolve', ticket: id});
+  else if (A === 'fight') send({type: 'fight', ticket: id});
   else if (A === 're') { pickRe = {squad: id, uids: new Set()}; renderCo(); }
   else if (A === 're-go') { send({type: 'reinforce', squad: pickRe.squad, uids: [...pickRe.uids]}); pickRe = null; }
   else if (A === 're-x') { pickRe = null; renderCo(); }
@@ -582,3 +584,19 @@ $('legend').innerHTML = '<span>機會：</span>' + Object.values(OK).map(v => `<
 const seed0 = new URL(location).searchParams.get('seed') || '奇美拉-1';
 $('seed').value = seed0; start(seed0);
 window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); if (page === 'rep') { const P = $('pane-rep'); P.innerHTML = ''; renderRepPage(); } });
+
+// ===== 親自打：ASH 的任務戰鬥開在全螢幕 iframe（public/ash/mission.html，由 chimera/ash/build.mjs 建置），
+// 打完 ASH 用 postMessage 傳回 {win, dead}，交給 worker 的 submit。打的時候公司的時間停住。
+let mission = null;
+function openMission(tk) {
+  closeMission();
+  const box = document.createElement('div'); box.id = 'mission';
+  box.innerHTML = `<div class="mbar"><b>${esc(tk.title)}</b><span class="mini">隊長陣亡＝敗・走到電梯撤離＝勝</span><button data-mx>先不打（關掉，票還在）</button></div><iframe title="任務戰鬥" src="ash/mission.html#${encodeURIComponent(JSON.stringify(tk))}"></iframe>`;
+  document.body.appendChild(box); mission = {id: tk.id, box};
+  box.querySelector('[data-mx]').onclick = () => { if (!mission) return; send({type: 'abort'}); closeMission(); };
+}
+function closeMission() { if (mission) { mission.box.remove(); mission = null; } }
+window.addEventListener('message', e => {
+  const m = e.data; if (!mission || !m || e.source !== mission.box.querySelector('iframe')?.contentWindow) return;
+  if (m.type === 'chimera-result' && m.ticketId === mission.id) { send({type: 'submit', ticket: mission.id, result: m.result}); closeMission(); }
+});
