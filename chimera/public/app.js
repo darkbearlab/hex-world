@@ -444,6 +444,8 @@ function mailItems() {
 function renderMail() {
   const items = mailItems();
   if (mailFirst && items.length) { for (const x of items) if (x.kind === 'log' && x.h === 0) mailSeen.add(x.sig); mailFirst = false; }
+  // 伺服器記著的已讀（換裝置、重新登入也一樣）
+  const R = GM.mailRead; if (R) for (const x of items) if (x.h < R.h || (x.h === R.h && R.sigs.includes(x.sig))) mailSeen.add(x.sig);
   const open = !$('mail').hidden;
   const unread = items.filter(x => !mailSeen.has(x.sig)).length;
   $('mailN').hidden = !unread || open; $('mailN').textContent = unread > 99 ? '99+' : unread;
@@ -453,7 +455,10 @@ function renderMail() {
   const sig2 = items.map(x => x.fight || '').join(','); if (sig2 !== mailFights) { mailFights = sig2; mailSig = ''; }
   $('mailBody').innerHTML = items.map(x => `<div class="msg ${x.kind}${mailSeen.has(x.sig) ? '' : ' new'}${x.fight || x.tile != null ? ' go' : ''}"${x.fight ? ` data-mfight="${esc(x.fight)}"` : ''}${x.tile != null ? ` data-mtile="${x.tile}"` : ''}><div class="mh"><b>${MK[x.kind] || '通知'}</b><span>${x.fight ? '點一下親自打・' : x.tile != null ? '點一下看地圖・' : ''}${fmtH(x.h)}</span></div>${esc(x.text)}</div>`).join('') || '<p class="muted">沒有通知。</p>';
 }
-function closeMail() { $('mail').hidden = true; for (const x of mailItems()) mailSeen.add(x.sig); renderMail(); }
+function closeMail() {
+  $('mail').hidden = true; const items = mailItems(); for (const x of items) mailSeen.add(x.sig); renderMail();
+  if (items.length) { const h = Math.max(...items.map(x => x.h)), R = GM.mailRead; if (!R || h > R.h || items.some(x => x.h === h && !R.sigs.includes(x.sig))) send({type: 'read', h, sigs: items.filter(x => x.h === h).map(x => x.sig)}); }
+}
 $('mailBtn').onclick = e => { e.stopPropagation(); if (!$('mail').hidden) { closeMail(); return; } $('mail').hidden = false; mailSig = ''; renderMail(); };
 $('mailClose').onclick = closeMail;
 // 點通知：還沒打的任務票（交戰）直接親自打；其他有位置的（案件、補員、戰果）切到戰略地圖並指過去

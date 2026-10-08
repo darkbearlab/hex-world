@@ -8,7 +8,7 @@ import * as G from './company.js';
 
 const r1 = v => Math.round(v * 10) / 10;
 // 會改變遊戲狀態、要記進指令紀錄的指令（path、quotes 只是查詢）
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -109,7 +109,7 @@ export class Core {
   // 一家公司看到的畫面資料（回傳訊息物件，由呼叫的人送出）
   view(name, err) {
     const game = this.game, g = this.co(name); if (!g) return null;
-    return {type: 'game', err: err || null, year: this.sim.year, speed: game.speed, yearDays: game.yearDays,
+    return {type: 'game', err: err || null, year: this.sim.year, speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null,
       inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: G.view(g, game.book, this.w)};
   }
   // 指令（name：下指令的公司）：會改狀態的記進 log（遊戲小時＋公司＋指令），回傳錯誤訊息或 null
@@ -124,6 +124,8 @@ export class Core {
     if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
     if (m.type === 'build') return G.build(g, m.recipe, m.tpl);
+    // 通知看過了（Alan 2026-10-09：重新登入後看過的通知又變紅）：記到看過的最後一個小時，和那個小時裡看過的幾則（同一小時之後才來的仍算新的）
+    if (m.type === 'read') { const h = +m.h || 0, sigs = (Array.isArray(m.sigs) ? m.sigs : []).slice(0, 40).map(String); if (!g.mailRead || h > g.mailRead.h) g.mailRead = {h, sigs}; else if (h === g.mailRead.h) g.mailRead.sigs = [...new Set([...g.mailRead.sigs, ...sigs])].slice(-80); return null; }
     if (m.type === 'keep') { const c = g.roster.find(x => x.uid === m.uid); if (c) c.keep = !c.keep; return null; }
     if (m.type === 'accept') { const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile); if (!o) return '這個機會已經不在了'; return G.accept(g, b, w, o, m.side, m.uids, h); }
     if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, h);
