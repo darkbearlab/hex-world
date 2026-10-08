@@ -16,7 +16,7 @@ export const BOSS_TYPE='squad_leader';
 // 隊友用哪張兵種卡（決定武器：階段 1 沿用 allyWeapon）
 export const ALLY_TYPE={soldier:'rifleman',recon:'rifleman',bulwark:'gunner',berserker:'brute',engineer:'raider'};
 // 奇美拉的職業 → ASH 的職業（同名）；沒有的退回士兵
-const character=cls=>CHARACTERS[cls]?cls:'soldier';
+export const character=cls=>CHARACTERS[cls]?cls:'soldier';
 
 // 任務票展開成兵種清單（固定順序，同一張票每次一樣）
 export function ticketUnits(ticket){
@@ -38,8 +38,8 @@ export class MissionGame extends Game{
   try{super(ticket.seed,[],0,character(lead.cls),portrait,'extraction',{facilityFaction:ticket.faction||'rebel',simulation:{kind:'chimera'}});}finally{building=null;}
   this.ticket=ticket;this.chimera={members:ticket.squad.map(c=>c.id),units:{}};
   this.chimera.units[lead.id]='player';applyStats(this.player,lead,CHARACTERS[this.player.character]);
-  // 三名隊友排在隊長身邊（兩步內的空格，不穿門）
-  for(const c of ticket.squad.slice(1)){
+  // 三名隊友排在隊長身邊（兩步內的空格，不穿門）；SquadGame（隊友是完整的玩家角色）自己排
+  if(!new.target.fullSquad)for(const c of ticket.squad.slice(1)){
    const cell=routeCells(this,this.player,{limit:3,openDoors:false}).find(q=>q.d>0);if(!cell)continue;
    const a=addAlly(this,'survivor',ALLY_TYPE[c.cls]||'rifleman',{sourceId:`chimera:${c.id}`,point:cell});if(!a)continue;
    applyStats(a,c,null);a.chimera={id:c.id,cls:c.cls,name:c.name||c.id};this.chimera.units[c.id]=a.id;
@@ -82,7 +82,7 @@ export class MissionGame extends Game{
  serialize(){throw Error('奇美拉的任務戰鬥不存檔');}
 }
 // 奇美拉的數值：生命直接用；命中、閃避、近戰是總值，扣掉職業本身的部分當作個體修正
-function applyStats(unit,c,charDef){
+export function applyStats(unit,c,charDef){
  const st=c.st||{},base=charDef?.combat||{};
  if(st.hp){unit.maxHp=unit.hp=Math.round(st.hp);}
  unit.combatModifiers={rangedAccuracy:(st.acc||0)-(base.rangedAccuracy||0),rangedEvasion:(st.eva||0)-(base.rangedEvasion||0),meleeAccuracy:(st.mel||0)-(base.meleeAccuracy||0)};

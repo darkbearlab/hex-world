@@ -1,0 +1,21 @@
+diff --git a/src/game-actions.js b/src/game-actions.js
+index 895b5af..6c005e5 100644
+--- a/src/game-actions.js
++++ b/src/game-actions.js
+@@ -218,6 +218,8 @@ export class GameActions {
+       else if(type==='meleeChoice'){p.meleeSlot=arg;this.log(arg===null?t('game.meleeChoiceDefault'):t('game.meleeChoice',{weapon:this.weaponAt(arg).name}));return true;}
+       return true;
+     }
++    // 奇美拉（hex-world chimera/ash 的補丁）：小隊的其他隊員在隊長那一格裡各做一個動作（soloTurn），不推進世界。
++    if(this.soloTurn)return this.soloPaid(type,arg);
+     if(this.pursuit&&!p.recovery&&['fire','blindFire','launch','bumpMelee','grenade','grapple','hookBlade','suppressiveFire'].includes(type)){
+       this.pursuit=0;const intent=type==='fire'?{id:this.target,x:this.targeted.x,y:this.targeted.y}:arg;
+       const success=this.executePlayer(type,intent);p.guard=false;p.focus=false;p.evasive=false;p.moved=success&&['grapple','hookBlade','fire'].includes(type)&&p.moved;
+@@ -263,6 +265,7 @@ export class GameActions {
+         p.guard=success&&type==='wait';p.moved=success&&(type==='move'||['grapple','hookBlade','fire'].includes(type)&&p.moved);p.focus=success&&type==='wait';p.evasive=success&&type==='wait';
+         // 3.209.0 (src/game-damage.js settleAttackNotes): what your step taught the enemies, once it is over.
+         this.settleAttackNotes();petReactions(this);this.reveal();checkMines(this);this.settleAttackNotes();
++        this.squadAfterPlayer?.();   // 奇美拉：輪到其他隊員
+       }else if(actor.kind){const wasIn=inToxic(this,actor);presentStep(this,()=>{if(isMunition(actor))munitionAct(this,actor);else if(isBomber(actor))bomberAct(this,actor);else allyAct(this,actor);this.settleAttackNotes();this.reveal();},actor);toxicAllyTurn(this,actor,wasIn);}
+       else if(actor.hp>0&&(actor.alert||actor.concealed))presentStep(this,()=>{this.enemyAct(actor);checkMines(this);this.settleAttackNotes();},speed!==0||playerSpeed!==0||phase!==null?actor:null);   // concealed: 3.217.0, a hidden unit watches for you
+       if(immunityBefore&&!anchorExtra)actor.control.immune=Math.max(0,actor.control.immune-1);
