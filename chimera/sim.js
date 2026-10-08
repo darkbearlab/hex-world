@@ -652,7 +652,8 @@ function createSim(w,rand,pick){
       // 載具的損失：衝鋒車打一仗就耗掉一大半；敗方的武裝車被打爆或被勝方開走
       {const used=f=>({truck:0,armor:Math.min(1,1/nw2(f)),rush:Math.min(1,1/nw2(f)),gt:Math.min(1,1/nw2(f))});
         const uL=used(lose),uW=used(win),dryL=(lose===A?PA:PD).fr<.5;const lostL=vehLose(lose,{truck:0,armor:(dryL?.3:.15)*uL.armor,rush:.7*uL.rush,gt:.12*uL.gt});vehLose(win,{truck:0,armor:.08*uW.armor,rush:.45*uW.rush,gt:.04*uW.gt});
-        const took2={armor:lostL.armor*(dryL?.6:.3),gt:lostL.gt*.3};   // 沒油的武裝車只能丟在原地if(took2.armor>0){vehGive(win,took2);if(took2.armor>=.3&&!W.vtold){W.vtold=1;say(y,'war',dryL?`${fac[lose].n}的武裝車在${nm(n)}燒乾了油，被丟在原地，${fac[win].n}加滿油就開走了。`:`${nm(n)}之戰後，${fac[win].n}開走了${fac[lose].n}丟下的武裝車。`,n)}}}
+        // 沒油的武裝車只能丟在原地
+        const took2={armor:lostL.armor*(dryL?.6:.3),gt:lostL.gt*.3};if(took2.armor>0){vehGive(win,took2);if(took2.armor>=.3&&!W.vtold){W.vtold=1;say(y,'war',dryL?`${fac[lose].n}的武裝車在${nm(n)}燒乾了油，被丟在原地，${fac[win].n}加滿油就開走了。`:`${nm(n)}之戰後，${fac[win].n}開走了${fac[lose].n}丟下的武裝車。`,n)}}}
       if(xD>0&&fac[D].liege>=0)fac[D].helped=1;
       const hw=win===A?hA:hD,hl2=win===A?hD:hA;if(hw){hw.battles++;hw.wins++;for(const wp of weaponsOf(hw))wp.wins++;hw.fame=(hw.fame||0)+.25+Math.min(1.75,trafNear(n)/FAMEK);hw.lastWin=n}if(hl2)hl2.battles++;
       kill(lose,dead);kill(win,dead*.4);pop[i]*=.96;
