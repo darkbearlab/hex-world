@@ -156,8 +156,6 @@ button:disabled{opacity:.45;cursor:not-allowed}
 .cohead .kpi b{font-size:16px;color:var(--text);font-family:var(--mono);font-weight:600}
 .cocols{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start}
 .cocol{flex:1 1 340px;min-width:0}
-.cofull{margin-top:6px}
-.cofull .roster{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
 .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:2px 12px 10px;margin-bottom:14px}
 .box>.sec:first-child{margin-top:10px}
 table.rep{width:100%;border-collapse:collapse;font-size:12px}
@@ -170,7 +168,7 @@ table.rep tr[data-qt]{cursor:pointer}
 table.rep tr[data-qt]:hover td{background:rgba(255,255,255,.04)}
 .pos{color:var(--ok)}.neg{color:var(--war)}
 .spark{position:relative}
-.spark svg{display:block;width:100%;height:120px}
+.spark svg{display:block;width:100%}
 .spark .tt{position:absolute;pointer-events:none;background:rgba(20,18,15,.95);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:11px;font-family:var(--mono);white-space:nowrap}
 .procform{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;font-size:12px;margin-top:8px}
 .procform select,.procform input{width:100%}
@@ -203,3 +201,14 @@ button.warn{background:#5a2018;border-color:var(--war);color:#ffd9cf}
 .msg[data-tile]{cursor:pointer}
 .msg.kia{border-left-color:#8a2a1e}.msg.kia .mh b{color:#e07a6a}
 .msg.vat{border-left-color:#6fd0d8}.msg.vat .mh b{color:#9fe3ea}
+
+/* 公司頁：左邊營運／報表分頁，右邊名冊 */
+.colay{display:flex;gap:14px;align-items:flex-start}
+.comain{flex:1;min-width:0}
+.coside{width:380px;flex:none;position:sticky;top:0;max-height:calc(100vh - 70px);overflow:auto;border-radius:10px}
+.coside .roster{grid-template-columns:1fr}
+.coside .box{margin-bottom:0}
+.cotabs{display:flex;gap:4px;margin-bottom:10px}
+.cotabs button{padding:5px 16px}
+@media (max-width:980px){.colay{flex-direction:column}.coside{width:auto;position:static;max-height:none;align-self:stretch}}
+.cocols[hidden]{display:none}

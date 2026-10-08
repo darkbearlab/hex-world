@@ -314,7 +314,7 @@ let lastPanelY = -1;
 function renderAll() { renderHeader(); draw(); if (hist[cur].y !== lastPanelY || curTab() !== 'log') { lastPanelY = hist[cur].y; renderPanel(); } if (hover >= 0) showTip(mouse.x, mouse.y); }
 
 /* ───────── 公司 ───────── */
-let GV = null, GM = null, coBuilt = false, pickOpp = null, pickRe = null, rosterF = 'home', toastT = null;
+let coTab = 'ops', GV = null, GM = null, coBuilt = false, pickOpp = null, pickRe = null, rosterF = 'home', toastT = null;
 const recipe = {food: 30, water: 30, implant: 30, neural: 30};
 const send = m => worker.postMessage(m);
 const img = p => `portraits/${p}.png`;
@@ -350,22 +350,25 @@ function renderCo() {
   }
   if (!coBuilt) {
     P.innerHTML = `<div class="cohead" id="co-head"></div>
-      <div class="cocols">
-        <div class="cocol">
-          <div class="box"><h3 class="sec">任務票 <span class="muted">24 小時內要打完，不然自動結算（火力、積分打八折）</span></h3><div id="co-tk"></div></div>
-          <div class="box"><h3 class="sec">案件與車隊</h3><div id="co-cases"></div></div>
+      <div class="colay">
+        <div class="comain">
+          <nav class="cotabs"><button data-cotab="ops" class="${coTab === 'ops' ? 'on' : ''}">營運</button><button data-cotab="rep" class="${coTab === 'rep' ? 'on' : ''}">報表</button></nav>
+          <div class="cocols" id="co-ops"${coTab === 'ops' ? '' : ' hidden'}>
+            <div class="cocol">
+              <div class="box"><h3 class="sec">任務票 <span class="muted">24 小時內要打完，不然自動結算（火力、積分打八折）</span></h3><div id="co-tk"></div></div>
+              <div class="box"><h3 class="sec">案件與車隊</h3><div id="co-cases"></div></div>
+            </div>
+            <div class="cocol">
+              <div class="box"><h3 class="sec">培養槽 <span class="muted" id="co-vatinfo"></span></h3><div id="co-mats"></div>
+                <div class="recipe">${MATS.map(m => `<label>${MN[m]}<input type="number" min="${GCFG.MIN}" max="${GCFG.MAX}" step="10" value="${recipe[m]}" data-rc="${m}"></label>`).join('')}</div>
+                <div class="odds" id="co-odds"></div><div class="row"><button class="primary" data-act="build">開始培養</button><span class="mini" id="co-queue"></span></div><div id="co-tpl"></div></div>
+              <div class="box"><h3 class="sec">採購路線 <span class="muted">派車隊去別座城買料，來回都可能被劫</span></h3><div id="co-proc"></div></div>
+            </div>
+          </div>
+          <div id="co-reptab"${coTab === 'rep' ? '' : ' hidden'}><div class="box"><h3 class="sec">報表</h3><div id="co-rep"></div></div></div>
         </div>
-        <div class="cocol">
-          <div class="box"><h3 class="sec">培養槽 <span class="muted" id="co-vatinfo"></span></h3><div id="co-mats"></div>
-            <div class="recipe">${MATS.map(m => `<label>${MN[m]}<input type="number" min="${GCFG.MIN}" max="${GCFG.MAX}" step="10" value="${recipe[m]}" data-rc="${m}"></label>`).join('')}</div>
-            <div class="odds" id="co-odds"></div><div class="row"><button class="primary" data-act="build">開始培養</button><span class="mini" id="co-queue"></span></div><div id="co-tpl"></div></div>
-          <div class="box"><h3 class="sec">採購路線 <span class="muted">派車隊去別座城買料，來回都可能被劫</span></h3><div id="co-proc"></div></div>
-        </div>
-        <div class="cocol">
-          <div class="box"><h3 class="sec">報表</h3><div id="co-rep"></div></div>
-        </div>
-      </div>
-      <div class="box cofull"><h3 class="sec">名冊 <span class="muted" id="co-rcount"></span></h3><div class="filters" id="co-rf"></div><div class="roster" id="co-roster"></div></div>`;
+        <aside class="coside"><div class="box"><h3 class="sec">名冊 <span class="muted" id="co-rcount"></span></h3><div class="filters" id="co-rf"></div><div class="roster" id="co-roster"></div></div></aside>
+      </div>`;
     coBuilt = true; renderOdds();
   }
   const G = GV, h = G.h;
@@ -399,7 +402,7 @@ function renderCo() {
   $('co-mats').innerHTML = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">總部單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}）</button></td></tr>`).join('') + '</table>';
   $('co-queue').textContent = G.queue.length ? G.queue.map(q => `${q.tpl ? CLS[q.tpl].n + '模板' : '培養中'}：${fmtH(q.done - h)}後出槽`).join('・') : `空著 ${G.vats} 座`;
   $('co-tpl').innerHTML = G.templates.length ? `<div class="mini" style="margin-top:8px">模板（保證拿到這一位，數值固定在約前 20%）：</div>` + G.templates.map(t => `<div class="row"><span class="chip static"><img src="${img(t.portrait)}" alt="">${CLS[t.cls].n}</span><span class="mini">${MATS.map(m => `${MN[m]} ${t.recipe[m]}`).join('・')}</span><button data-act="tpl" data-id="${t.id}">用模板培養</button></div>`).join('') : '';
-  renderProc(); renderRep();
+  if (coTab === 'ops') renderProc(); else renderRep();
   const RF = {home: '待命', away: '出勤', keep: '供在家裡', kia: '陣亡', all: '全部'};
   const inF = (c, f = rosterF) => f === 'all' || (f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : c.status === f);
   $('co-rf').innerHTML = Object.entries(RF).map(([k, n]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${n} <span class="muted">${G.roster.filter(c => inF(c, k)).length}</span></button>`).join('');
@@ -483,7 +486,7 @@ function renderRep() {
   const el = $('co-rep'); if (!el) return;
   const R = GV.report, money = v => `<span class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${Math.round(v || 0)}</span>`;
   const tot = o => FK.reduce((x, [k]) => x + (o[k] || 0), 0);
-  let html = `<div class="mini">現金走勢（每天一點）</div><div class="spark" id="co-spark">${sparkSvg(R.daily)}</div>`;
+  let html = `<div class="mini">現金走勢（每天一點）</div><div class="spark" id="co-spark">${sparkSvg(R.daily, Math.max(280, (el.clientWidth || 320) - 4), 180)}</div>`;
   html += `<table class="rep" style="margin-top:8px"><tr><th>收支</th><th>近 30 天</th><th>累計</th></tr>` + FK.map(([k, n]) => `<tr><td>${n}</td><td>${money(R.d30[k])}</td><td>${money(R.all[k])}</td></tr>`).join('') +
     `<tr class="tot"><td>現金合計</td><td>${money(tot(R.d30))}</td><td>${money(tot(R.all))}</td></tr><tr><td class="muted">帳面業務損失（陣亡）</td><td>${money(R.d30.loss)}</td><td>${money(R.all.loss)}</td></tr></table>`;
   html += `<div class="mini" style="margin-top:10px">結案紀錄</div>` + (R.hist.length ? `<table class="rep"><tr><th>案件</th><th>票（勝／自動）</th><th>陣亡</th><th>收入</th></tr>` + R.hist.slice(0, 15).map(c => `<tr><td>${esc(c.title)}${c.delivered !== undefined ? ` <span class="mini">送達 ${Math.round(c.delivered * 100)}%</span>` : ''}</td><td>${c.tickets}（${c.wins}／${c.auto}）</td><td>${c.dead || ''}</td><td>${c.own ? '<span class="muted">—</span>' : money(c.income + c.upkeep)}</td></tr>`).join('') + '</table>' : '<p class="muted">還沒有結案。</p>');
@@ -491,12 +494,12 @@ function renderRep() {
   html += `<div class="mini" style="margin-top:10px">人員：${Object.entries(byC).map(([k, n]) => `${CLS[k].n} ${n}`).join('・') || '沒有'}・金冠 ${al.filter(c => c.crown === 'gold').length}・銀冠 ${al.filter(c => c.crown === 'silver').length}</div>`;
   el.innerHTML = html;
 }
-function sparkSvg(D) {
+function sparkSvg(D, W = 320, H = 120) {
   if (!D || D.length < 2) return '<p class="muted" style="margin:6px 0">過一天之後就會畫出來。</p>';
-  const W = 320, H = 120, pl = 40, pr = 6, pt = 8, pb = 18, v = D.map(d => d.cash), lo = Math.min(0, ...v), hi = Math.max(...v, 1);
+  const pl = 40, pr = 6, pt = 8, pb = 18, v = D.map(d => d.cash), lo = Math.min(0, ...v), hi = Math.max(...v, 1);
   const X = i => pl + (W - pl - pr) * i / (D.length - 1), Y = c => pt + (H - pt - pb) * (1 - (c - lo) / (hi - lo || 1));
   const pts = D.map((d, i) => `${X(i).toFixed(1)},${Y(d.cash).toFixed(1)}`).join(' ');
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="現金走勢" data-n="${D.length}">
+  return `<svg viewBox="0 0 ${W} ${H}" style="height:${H}px" role="img" aria-label="現金走勢" data-w="${W}">
     <line x1="${pl}" x2="${W - pr}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--line)" stroke-width="1"/>
     <text x="${pl - 4}" y="${Y(hi) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(hi)}</text>
     <text x="${pl - 4}" y="${Y(lo) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(lo)}</text>
@@ -506,10 +509,10 @@ function sparkSvg(D) {
 }
 $('pane-co').addEventListener('pointermove', e => {
   const box = e.target.closest('#co-spark'); if (!box || !GV) return; const svg = box.querySelector('svg'); if (!svg) return;
-  const D = GV.report.daily, r = svg.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width * 320, i = Math.max(0, Math.min(D.length - 1, Math.round((fx - 40) / (274) * (D.length - 1))));
-  const x = 40 + 274 * i / (D.length - 1), tt = box.querySelector('.tt'), xh = svg.querySelector('.xh');
+  const D = GV.report.daily, r = svg.getBoundingClientRect(), W = +svg.dataset.w, iw = W - 46, fx = (e.clientX - r.left) / r.width * W, i = Math.max(0, Math.min(D.length - 1, Math.round((fx - 40) / iw * (D.length - 1))));
+  const x = 40 + iw * i / (D.length - 1), tt = box.querySelector('.tt'), xh = svg.querySelector('.xh');
   xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.setAttribute('visibility', 'visible');
-  tt.hidden = false; tt.textContent = `第 ${Math.round(D[i].h / 24)} 天　$${D[i].cash}　活著 ${D[i].alive}`; tt.style.left = Math.min(r.width - tt.offsetWidth, Math.max(0, x / 320 * r.width - tt.offsetWidth / 2)) + 'px'; tt.style.top = '0px';
+  tt.hidden = false; tt.textContent = `第 ${Math.round(D[i].h / 24)} 天　$${D[i].cash}　活著 ${D[i].alive}`; tt.style.left = Math.min(r.width - tt.offsetWidth, Math.max(0, x / W * r.width - tt.offsetWidth / 2)) + 'px'; tt.style.top = '0px';
 });
 $('pane-co').addEventListener('pointerleave', () => { const b = $('co-spark'); if (b) { const tt = b.querySelector('.tt'); if (tt) tt.hidden = true; b.querySelector('.xh')?.setAttribute('visibility', 'hidden'); } }, true);
 
@@ -548,6 +551,7 @@ $('pane-co').addEventListener('change', e => { const f = e.target.dataset.pf; if
 $('pane-co').addEventListener('input', e => { const m = e.target.dataset.rc; if (!m) return; recipe[m] = Math.max(0, +e.target.value || 0); renderOdds(); });
 $('pane-co').onclick = e => {
   if (recallClick(e)) return;
+  const ct = e.target.closest('[data-cotab]'); if (ct) { coTab = ct.dataset.cotab; for (const x of document.querySelectorAll('.cotabs button')) x.classList.toggle('on', x.dataset.cotab === coTab); $('co-ops').hidden = coTab !== 'ops'; $('co-reptab').hidden = coTab !== 'rep'; renderCo(); return; }
   const c = e.target.closest('[data-center]'); if (c && !e.target.closest('button')) { e.preventDefault(); select(+c.dataset.center, true, true); return; }
   const f = e.target.closest('[data-found]'); if (f) { found(+f.dataset.found); return; }
   const r = e.target.closest('[data-rf]'); if (r) { rosterF = r.dataset.rf; renderCo(); return; }
@@ -572,3 +576,4 @@ $('legend').innerHTML = '<span>機會：</span>' + Object.values(OK).map(v => `<
 
 const seed0 = new URL(location).searchParams.get('seed') || '奇美拉-1';
 $('seed').value = seed0; start(seed0);
+window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); });
