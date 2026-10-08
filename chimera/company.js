@@ -197,7 +197,7 @@ export function hour(G, book, w, h) {
       note(G, h, `採購車隊回到總部：${MN[c.mat]} ${got}／${c.qty}${got < c.qty ? `（路上被劫走 ${c.qty - got}）` : ''}。`); continue;
     }
     const back = C.travelHours(w, c.tile, G.base);
-    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name) continue; for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: h + (isFinite(back) ? back : 24)}); } }
+    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name) continue; const path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24); for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
     note(G, h, `「${c.title}」結案${c.delivered !== undefined ? `，送達 ${Math.round(c.delivered * 100)}%` : ''}，分到尾款 ${got}。`);
     if (got > 0 && rnd(G) < GCFG.TEMPLATE_P) { const t = mkTemplate(G, () => rnd(G)); G.templates.push(t); note(G, h, `雇主另外送了一張模板：${CLS[t.cls].n}。`); }
@@ -208,15 +208,37 @@ export function hour(G, book, w, h) {
   for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
 }
 
+// ===== 召回：派出去的小隊（合約算毀約）、還在路上的補員 =====
+function sendHome(G, w, clones, from, h) {
+  const back = C.travelHours(w, from, G.base), t1 = h + (isFinite(back) ? back : 24), path = w.sim.pmc.route(from, G.base);
+  for (const x of clones) if (x.alive) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); }
+  return t1 - h;
+}
+export function recall(G, book, w, squadId, now) {
+  const sq = book.squads[squadId]; if (!sq || sq.player !== G.name) return '找不到這一隊';
+  const r = C.withdraw(book, w, squadId, now); if (!r.ok) return r.why;
+  const hrs = sendHome(G, w, sq.clones, r.here, now);
+  for (const col of r.cols) sendHome(G, w, col.clones, col.here, now);
+  note(G, now, `召回${sq.name}${r.penalty ? `，付違約金 $${r.penalty}` : ''}，約 ${hrs} 小時後回到總部。`);
+  return null;
+}
+export function recallColumn(G, book, w, amendId, now) {
+  const r = C.cancelAmend(book, amendId, now); if (!r) return '補員正在路上交戰，打完才能撤回';
+  const hrs = sendHome(G, w, r.clones, r.here, now);
+  note(G, now, `撤回補員，${r.clones.length} 人約 ${hrs} 小時後回到總部。`);
+  return null;
+}
+
 // 給畫面用的樣子
 export function view(G, book, w) {
   const nm = t => w.names[t] || '無名之地';
   const sqOf = {}; for (const sq of Object.values(book.squads)) for (const c of sq.clones) sqOf[c.uid] = sq;
   const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || G.h - c.settledAt < 72).map(c => ({
     id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
-    payout: c.payout?.[G.name], delivered: c.delivered, convoys: c.convoys, lost: c.lostConvoys.length, pay: c.pay, tickets: c.tickets,
+    payout: c.payout?.[G.name], midPaid: c.midPaid, quit: !!c.quit?.[G.name], delivered: c.delivered, convoys: c.convoys, lost: c.lostConvoys.length, pay: c.pay, tickets: c.tickets,
     squads: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).map(sq => ({id: sq.id, name: sq.name, readyAt: sq.readyAt, busy: sq.busy, refused: !!sq.refused,
-      clones: sq.clones.map(x => x.uid), pending: book.amends.filter(a => a.squad === sq.id && !a.done).map(a => ({n: a.n, eta: a.eta}))}))}));
+      clones: sq.clones.map(x => x.uid), pending: book.amends.filter(a => a.squad === sq.id && !a.done).map(a => ({id: a.id, n: a.n, eta: a.eta}))}))}));
+  const units = unitsView(G, book, G.h);
   const tickets = book.tickets.filter(t => t.player === G.name && !t.done).map(t => ({id: t.id, title: t.title, type: t.type, transit: !!t.transit, deadline: t.deadline, issued: t.issued, tile: t.tile,
     biome: t.biome, night: t.night, trench: t.trench, enemy: {name: t.enemy.name, power: t.enemy.power, side: t.enemy.side, units: t.enemy.units, boss: t.enemy.boss, veh: t.enemy.veh},
     objectives: t.objectives, squad: book.squads[t.squad]?.name, est: book.squads[t.squad] ? C.estimate(book.squads[t.squad], t.enemy) : null, caseTitle: book.cases.find(c => c.id === t.caseId)?.title}));
@@ -230,6 +252,34 @@ export function view(G, book, w) {
   }).reverse();
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
-  return {report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map(q => ({done: q.done, tpl: q.tpl ? q.tpl.cls : null})),
+  return {units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map(q => ({done: q.done, tpl: q.tpl ? q.tpl.cls : null})),
     templates: G.templates, roster: G.roster.map(c => ({...c, squad: sqOf[c.uid]?.name || ''})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H};
+}
+
+// 地圖上要標的：每一支派出去的人馬現在在哪、往哪走
+function rest(move, h) { if (!move || !move.path?.length) return []; const f = Math.max(0, Math.min(1, (h - move.t0) / Math.max(1, move.t1 - move.t0))); return move.path.slice(Math.floor(f * (move.path.length - 1))); }
+function unitsView(G, book, h) {
+  const out = [];
+  for (const sq of Object.values(book.squads)) {
+    if (sq.player !== G.name) continue;
+    const n = sq.clones.filter(c => c.alive).length; if (!n) continue;
+    if (sq.column) {
+      const a = book.amends.find(x => x.col === sq.id && !x.done); if (!a) continue;
+      const c = book.cases.find(x => x.id === a.caseId);
+      out.push({key: sq.id, kind: 'column', name: sq.name, n, pos: C.whereIs(sq, null, h), path: rest(sq.move, h), status: `補員行軍中，約 ${Math.max(0, a.eta - h)} 小時後到`, where: c?.title || '', recall: {type: 'column', id: a.id}, busy: !!sq.busy});
+      continue;
+    }
+    const c = sq.caseId && book.cases.find(x => x.id === sq.caseId); if (!c || c.settled) continue;
+    const moving = sq.move && h < sq.move.t1;
+    out.push({key: sq.id, kind: c.own ? 'escort' : 'squad', name: sq.name, n, pos: C.whereIs(sq, c, h), path: moving ? rest(sq.move, h) : [], where: c.title, own: !!c.own,
+      status: sq.busy ? '正在打任務票' : moving ? `行軍中，約 ${sq.move.t1 - h} 小時後到位` : c.own ? '護送車隊中' : '在現場待命',
+      recall: {type: 'squad', id: sq.id, penalty: c.own ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, busy: !!sq.busy});
+  }
+  for (const id of G.cases) { const c = book.cases.find(x => x.id === id); if (!c || !c.own || c.settled) continue;
+    const f = (h - c.start) / Math.max(1, c.end - c.start);
+    out.push({key: c.id, kind: 'convoy', name: c.title, n: 0, pos: C.whereIs({}, c, h), path: f < .5 ? [...c.path].reverse() : c.path, status: f < .5 ? '採購車隊去程' : '採購車隊回程', where: c.title}); }
+  const grp = {};
+  for (const r of G.returning) { if (!r.move) continue; const k = r.move.t0 + ':' + r.move.path[0]; (grp[k] = grp[k] || {move: r.move, n: 0}).n++; }
+  for (const k in grp) { const g = grp[k]; out.push({key: 'R' + k, kind: 'returning', name: '歸途', n: g.n, pos: C.posOn(g.move.path, (h - g.move.t0) / Math.max(1, g.move.t1 - g.move.t0)), path: rest(g.move, h), status: `回總部途中，約 ${Math.max(0, g.move.t1 - h)} 小時後到`, where: ''}); }
+  return out;
 }

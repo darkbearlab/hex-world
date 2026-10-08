@@ -176,3 +176,4 @@ table.rep tr[data-qt]:hover td{background:rgba(255,255,255,.04)}
 .procform select,.procform input{width:100%}
 html,body{overscroll-behavior-x:none}
 @media (max-width:820px){body.game .seed{display:none}.pager button{padding:4px 10px}}
+button.warn{background:#5a2018;border-color:var(--war);color:#ffd9cf}

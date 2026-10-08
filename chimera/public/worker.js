@@ -70,6 +70,9 @@ function act(m) {
   if (m.type === 'keep') { const c = g.roster.find(x => x.uid === m.uid); if (c) c.keep = !c.keep; return null; }
   if (m.type === 'accept') { const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile); if (!o) return '這個機會已經不在了'; return G.accept(g, b, w, o, m.side, m.uids, h); }
   if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, h);
+  if (m.type === 'recall') return G.recall(g, b, w, m.squad, h);
+  if (m.type === 'recallCol') return G.recallColumn(g, b, w, m.amend, h);
+  if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to); postMessage({type: 'path', to: m.to, path, hours: path.length ? C.travelHours(w, g.base, m.to) : -1}); return null; }
   if (m.type === 'procure') return G.procure(g, b, w, m.town, m.mat, m.qty, m.uids || [], h);
   if (m.type === 'quotes') { postMessage({type: 'quotes', data: G.quotes(g, w)}); return null; }
   if (m.type === 'resolve') { C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
@@ -83,7 +86,7 @@ onmessage = e => {
     game = {book: C.newBook(m.base * 31 + 7), G: G.newCompany(w, m.base, m.name || '我的公司', m.base * 17 + 3), h: 0, acc: 0, speed: 3, yearDays: 30};
     clearInterval(clock); clock = setInterval(gtick, 250); gview(); return;
   }
-  if (game && ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'procure', 'quotes'].includes(m.type)) { const err = act(m); gview(err); return; }
+  if (game && ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'procure', 'quotes', 'recall', 'recallCol', 'path'].includes(m.type)) { const err = act(m); gview(err); return; }
   if (m.type === 'start') {
     running = false; lastEv = 0; game = null; clearInterval(clock);
     w = S.generate(m.seed, {history: false}); sim = w.sim; sim.begin();

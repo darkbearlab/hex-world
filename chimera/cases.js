@@ -113,6 +113,7 @@ export function enlist(book, caseId, squadId, now, w) {
   if (eta >= c.end - (c.freeze ?? CFG.FREEZE)) return false;   // 趕不上：到的時候已經不出票了
   const from = sq.at;
   sq.caseId = c.id; sq.readyAt = eta; c.squads.push(sq.id); sq.at = c.tile;
+  if (w && eta > now) sq.move = {path: w.sim.pmc.route(from, c.tile), t0: now, t1: eta};
   if (w) planTrip(book, w, c, sq.id, from, now, eta);
   pay(book, now, sq.player, c.pay.deposit, 'deposit', `${c.title}：訂金（${sq.name}）`, c.id);
   if (eta > now) notify(book, now, sq.player, 'move', `${sq.name} 出發前往${c.title}，約 ${eta - now} 小時後到位。`, c.id);
@@ -147,6 +148,7 @@ export function amend(book, w, squadId, n, from, now, o = {}) {
   else if (!o.clones) pay(book, now, sq.player, -CFG.CLONE_VALUE * n, 'reinforce', `${c.title}：契約變更，從總部培養槽調 ${n} 人補${sq.name}`, c.id);
   // 調來的人編成一支行軍縱隊，路上一樣可能被劫
   const col = makeSquad(book, sq.player, {size: n, clones: o.clones, at: from, gear: sq.gear, name: `${sq.name} 的補員`}); col.column = true; col.caseId = null;
+  col.move = {path: w.sim.pmc.route(from, c.tile), t0: now, t1: eta};
   const a = {id: 'A' + book.nextId++, squad: sq.id, col: col.id, caseId: c.id, n, from, at: now, eta, done: false};
   book.amends.push(a);
   planTrip(book, w, c, col.id, from, now, eta);
@@ -167,6 +169,49 @@ function arrive(book, a, now) {
   for (const g of got) { g.hp = 20; sq.clones.push(g); }
   sq.clones = sq.clones.filter(c => c.alive).concat(sq.clones.filter(c => !c.alive)).slice(0, 12);
   notify(book, now, sq.player, 'move', `補員到位：${sq.name} 回到 ${alive(sq).length} 人。`, a.id);
+}
+
+// ===== 召回 =====
+// 沿路徑算出某一刻在哪：回傳 {a, b, f}（在 a、b 兩格之間，走了 f）
+export function posOn(path, f) {
+  if (!path || !path.length) return null; if (path.length === 1) return {a: path[0], b: path[0], f: 0};
+  const x = Math.max(0, Math.min(1, f)) * (path.length - 1), i = Math.min(path.length - 2, Math.floor(x));
+  return {a: path[i], b: path[i + 1], f: x - i};
+}
+export function whereIs(sq, c, now) {
+  if (sq.move && now < sq.move.t1) return posOn(sq.move.path, (now - sq.move.t0) / Math.max(1, sq.move.t1 - sq.move.t0));
+  if (c && c.own) { const f = (now - c.start) / Math.max(1, c.end - c.start); return f < .5 ? posOn([...c.path].reverse(), f * 2) : posOn(c.path, f * 2 - 1); }
+  const t = c ? c.tile : sq.at; return {a: t, b: t, f: 0};
+}
+// 把小隊從案件裡撤出來。正式合約算毀約：付違約金（這一隊拿過的訂金、期中款，再加 10×程度），
+// 公司在這個案件裡已經沒有別的小隊的話，積分作廢、不分尾款。手上的任務票交給案件的護衛自己打。
+export function withdraw(book, w, squadId, now) {
+  const sq = book.squads[squadId], c = sq && book.cases.find(x => x.id === sq.caseId);
+  if (!sq || !c || c.settled) return {ok: false, why: '沒有進行中的案件'};
+  const pos = whereIs(sq, c, now), here = pos ? (pos.f < .5 ? pos.a : pos.b) : c.tile;
+  if (sq.busy) { const tk = book.tickets.find(t => t.id === sq.busy); if (tk && !tk.done) { tk.player = null; tk.squad = null; tk.abandoned = true; if (!tk.transit) npcResolve(book, w, c, tk, now); else tk.done = true; } }
+  sq.busy = null; c.squads = c.squads.filter(id => id !== sq.id); sq.caseId = null; sq.move = null; sq.at = here;
+  for (const tr of book.trips) if (tr.unit === sq.id) tr.done = true;
+  let penalty = 0;
+  if (!c.own) {
+    penalty = c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv;
+    pay(book, now, sq.player, -penalty, 'penalty', `${c.title}：毀約召回${sq.name}，違約金`, c.id);
+    if (!c.squads.some(id => book.squads[id]?.player === sq.player)) { c.score[sq.player] = 0; (c.quit = c.quit || {})[sq.player] = true; }
+  }
+  // 還在路上的補員一起掉頭
+  const cols = [];
+  for (const a of book.amends) if (a.squad === sq.id && !a.done) { const r = cancelAmend(book, a.id, now); if (r) cols.push(r); }
+  notify(book, now, sq.player, 'move', `${sq.name} 被召回${c.own ? '' : `（毀約，違約金 $${penalty}）`}，從${w.names[here] || '野外'}動身回總部。`, c.id);
+  return {ok: true, penalty, here, cols};
+}
+export function cancelAmend(book, amendId, now) {
+  const a = book.amends.find(x => x.id === amendId); if (!a || a.done) return null;
+  const col = book.squads[a.col]; if (col && col.busy) return null;   // 正在路上打，打完再說
+  a.done = true; a.cancelled = true;
+  for (const tr of book.trips) if (tr.unit === a.col) tr.done = true;
+  const pos = col ? whereIs(col, null, now) : null, here = pos ? (pos.f < .5 ? pos.a : pos.b) : a.from;
+  const clones = col ? alive(col) : []; if (col) delete book.squads[col.id];
+  return {here, clones};
 }
 
 // ===== 事件骰：這個案件現在每小時出事的機率（跟沙盒的真實狀況走） =====
@@ -395,7 +440,7 @@ function settleTicket(book, w, tk, res, now) {
   writeBack(book, w, c, tk, res.win, gearLost, now);
   sq.busy = null; sq.readyAt = Math.max(sq.readyAt, now + CFG.REST);
   if (tk.transit && !res.win) {   // 被打退：重整隊伍再走，多花 6 小時
-    sq.readyAt += 6; const a = book.amends.find(x => x.col === sq.id && !x.done); if (a) a.eta += 6; }
+    sq.readyAt += 6; if (sq.move) sq.move.t1 += 6; const a = book.amends.find(x => x.col === sq.id && !x.done); if (a) a.eta += 6; }
   for (const cl of alive(sq)) cl.hp = 20;   // 休整：活著的人傷勢恢復
   notify(book, now, sq.player, 'result', `${tk.title}：${res.win ? '勝' : '敗'}${res.auto ? '（自動結算）' : ''}，積分 ${tk.pts}${res.dead.length ? `，陣亡 ${res.dead.length}` : ''}。`, tk.id);
 }
@@ -469,7 +514,7 @@ function settleCase(book, w, c, now) {
   }
   const pool = c.pay.final * mult, tot = Object.values(c.score).reduce((x, y) => x + y, 0);
   c.payout = {};
-  if (tot > 0 && pool > 0) for (const p in c.score) { const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 ${Math.round(v)}。`, c.id); }
+  if (tot > 0 && pool > 0) for (const p in c.score) { if (!c.score[p] || c.quit?.[p]) continue; const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 ${Math.round(v)}。`, c.id); }
   // 維持費、小隊歸建
   for (const id of c.squads) { const s = book.squads[id]; const days = (Math.min(now, c.end) - c.start) / 24; pay(book, now, s.player, -CFG.UPKEEP * days, 'upkeep', `${c.title}：維持費（${s.name}）`, c.id); s.caseId = null; s.busy = null; }
   // 編年史：只記值得記的

@@ -19,7 +19,7 @@ let worker = null;
 function start(seed) {
   if (worker) worker.terminate();
   worker = new Worker('worker.js', {type: 'module'});
-  hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; QT = null; procSel = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
+  hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
   $('computing').hidden = false; $('computing').textContent = '生成地形…'; $('more').hidden = true;
   worker.onmessage = e => {
     const m = e.data;
@@ -32,6 +32,7 @@ function start(seed) {
       if (!GV && page === 'co' && hist.length % 10 === 0) renderCo();
     } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = false; }
     else if (m.type === 'game') onGame(m);
+    else if (m.type === 'path') { selPath = m; draw(); }
     else if (m.type === 'quotes') { QT = m.data; if (procSel && !QT.some(q => q.t === procSel.t)) procSel = null; if (page === 'co') renderProc(); }
   };
   worker.onerror = e => { $('computing').textContent = '推演出錯：' + (e.message || ''); };
@@ -147,6 +148,26 @@ function drawNow() {
     const bx = cx(GV.base), by = cy(GV.base);
     ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1.5, 2.4 / k); ctx.beginPath(); ctx.arc(bx, by, S0 * .9, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, S0 * 1.15, 0, 7); ctx.stroke();
     for (const c of GV.cases) { if (c.settled) continue; const x = cx(c.tile), y = cy(c.tile), r = S0 * .85; ctx.strokeStyle = '#f1e6cf'; ctx.lineWidth = Math.max(1.4, 2 / k); ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.stroke(); }
+    // 選取的點：從總部沿實際道路拉一條虛線
+    if (selPath && selPath.to === sel && selPath.path.length > 1) {
+      ctx.save(); ctx.setLineDash([S0 * .5, S0 * .35]); ctx.lineWidth = Math.max(1.6, 2.6 / k); ctx.strokeStyle = 'rgba(255,240,210,.95)'; ctx.lineJoin = 'round';
+      ctx.beginPath(); selPath.path.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore();
+      if (selPath.hours >= 0) { const t = selPath.path[selPath.path.length - 1]; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; label(`單程 ${fmtH(selPath.hours)}`, cx(t), cy(t) + S0 * .9, Math.max(9 / k, S0 * .6), '#fff0d2'); }
+    }
+    // 派出去的人馬：剩下的路（淡虛線）＋現在的位置
+    for (const u of GV.units || []) {
+      if (u.path && u.path.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = Math.max(1, 1.4 / k); ctx.strokeStyle = u.kind === 'returning' ? 'rgba(160,200,170,.6)' : u.kind === 'convoy' ? 'rgba(224,166,74,.6)' : 'rgba(111,208,216,.65)';
+        ctx.beginPath(); u.path.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
+    }
+    for (const u of GV.units || []) {
+      if (!u.pos) continue; const x = cx(u.pos.a) + (cx(u.pos.b) - cx(u.pos.a)) * u.pos.f, y = cy(u.pos.a) + (cy(u.pos.b) - cy(u.pos.a)) * u.pos.f, r = S0 * .42;
+      const col = u.kind === 'returning' ? '#a0c8aa' : u.kind === 'convoy' ? '#e0a64a' : u.kind === 'column' ? '#9fe3ea' : '#6fd0d8';
+      ctx.fillStyle = col; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.5 / k);
+      if (u.kind === 'convoy') { ctx.beginPath(); ctx.rect(x - r * .8, y - r * .6, r * 1.6, r * 1.2); ctx.fill(); ctx.stroke(); }
+      else { ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+      if (u.n) { ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.05}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(u.n, x, y + r * .05); }
+      if (u.busy) { ctx.strokeStyle = '#e05a43'; ctx.lineWidth = Math.max(1.4, 2 / k); ctx.beginPath(); ctx.arc(x, y, r * 1.35, 0, 7); ctx.stroke(); }
+    }
     for (const t of GV.tickets) { const x = cx(t.tile) - S0 * .4, y = cy(t.tile) - S0 * .45, r = S0 * .42; ctx.fillStyle = t.transit ? '#b3784a' : '#e05a43'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = `700 ${r * 1.4}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y + r * .05); }
   }
   // 名字：首府一定標，放大後標城鎮
@@ -223,7 +244,7 @@ function renderFac() {
   }
   $('pane-fac').innerHTML = html;
 }
-$('pane-tile').onclick = e => { const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('co'); send({type: 'quotes'}); } };
+$('pane-tile').onclick = e => { if (recallClick(e)) return; const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('co'); send({type: 'quotes'}); } };
 $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) return; const id = +r.dataset.f; hiFac = hiFac === id ? -1 : id; const f = hist[cur].fac.find(x => x.id === id); if (f && hiFac >= 0) centerOn(f.cap); draw(); };
 
 function renderTile() {
@@ -236,6 +257,8 @@ function renderTile() {
   if (i === s.arc.elevator) html += `<dt>地標</dt><dd>軌道電梯</dd>`;
   html += '</dl>';
   for (const o of (s.opps || []).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}<br><span class="muted">${esc(o.detail)}</span></p>`; }
+  if (GV) { const here = (GV.units || []).filter(u => u.pos && (u.pos.f < .5 ? u.pos.a : u.pos.b) === i);
+    if (here.length) html += `<h2 style="margin-top:10px">我的人馬</h2>` + here.map(u => `<div class="card"><b>${esc(u.name)}</b>${u.n ? ` <span class="mini">${u.n} 人</span>` : ''}<div class="mini">${esc(u.status)}${u.where ? '・' + esc(u.where) : ''}</div>${recallBtn(u)}</div>`).join(''); }
   if (GV && t && i !== GV.base) html += `<p><button data-proc="${i}">派車隊來這裡採購</button></p>`;
   if (!GV && s.fac.some(f => f.cap === i)) html += `<p><button class="primary" data-found="${i}">在這裡開公司</button> <span class="muted">總部設在這座主城，從這一年開始經營。</span></p>`;
   for (const x of g) html += `<p>${x.native ? '原住民' : '掠奪者據點'}：<b>${esc(x.name)}</b>（勢力 ${x.str}${x.legacy ? '，手上有遺產級' : ''}）</p>`;
@@ -281,7 +304,7 @@ function renderGear() {
   $('pane-gear').innerHTML = `<p class="muted" style="margin:0 0 10px">企業時代留下、再也造不出來的裝備。</p><ul class="gear" style="padding-left:18px">` + s.weapons.map(x => `<li><b>「${esc(x.name)}」</b>${esc(x.kind)}<br><span class="muted">${x.holder ? `在 ${esc(x.holder)} 手上` : x.fac ? `收在${esc(x.fac)}的軍械庫` : x.gang ? `在 ${esc(x.gang)} 手上` : x.lost ? `${x.sealed ? '封在' : '失落在'}${esc(ST.names[x.at] || '某處')}${x.sealed ? '的舊倉庫' : ''}` : ''}・易手 ${x.owners} 次・打贏 ${x.wins} 場</span></li>`).join('') + '</ul>';
 }
 function renderPanel() { if (!hist.length) return; const t = curTab(); if (t === 'opp') renderOpp(); else if (t === 'log') renderLog(); else if (t === 'fac') renderFac(); else if (t === 'tile') renderTile(); else renderGear(); }
-function select(i, center, keep) { sel = i; if (center) centerOn(i); if (!keep) tab('tile'); draw(); }
+function select(i, center, keep) { sel = i; if (GV && worker) { if (!selPath || selPath.to !== i) selPath = null; send({type: 'path', to: i}); } if (center) centerOn(i); if (!keep) tab('tile'); draw(); }
 
 function renderHeader() {
   const s = hist[cur], a = s.arc; $('yearNum').textContent = `第 ${s.y} 年`; $('slider').value = cur;
@@ -309,7 +332,7 @@ function onGame(m) {
   $('gclock').textContent = `第 ${m.year} 年・第 ${day} 天 ${String(hh).padStart(2, '0')}:00`;
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
   $('gcash').textContent = `$${GV.cash}`; $('gcash').classList.toggle('neg', GV.cash < 0);
-  if (page === 'co') renderCo();
+  if (page === 'co') renderCo(); else if (curTab() === 'tile' && sel >= 0) renderTile();
   draw();
 }
 $('gspeed').onchange = e => send({type: 'speed', v: +e.target.value});
@@ -369,6 +392,8 @@ function renderCo() {
         const sts = sq.busy ? '打任務票中' : sq.readyAt > h ? `行軍中，${fmtH(sq.readyAt - h)}後到位` : '待命中';
         return `<div style="margin-top:6px"><b>${esc(sq.name)}</b> <span class="mini">${c.settled ? '' : sts}・${al} 人${sq.pending.length ? `・補員 ${sq.pending.map(p => `${p.n} 人 ${fmtH(p.eta - h)}後到`).join('、')}` : ''}${sq.refused ? '・<span style="color:var(--war)">雇主不准再補人</span>' : ''}</span>
         <div class="chips">${cl.map(x => chip(x, false)).join('')}</div>
+        ${!c.settled ? recallBtn({recall: {type: 'squad', id: sq.id, penalty: c.own ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, kind: c.own ? 'escort' : 'squad', busy: !!sq.busy}) : ''}
+        ${sq.pending.map(p => recallBtn({recall: {type: 'column', id: p.id}, kind: 'column', n: p.n})).join('')}
         ${!c.own && !c.settled && c.open && al < 4 && !sq.refused ? (pickRe && pickRe.squad === sq.id ? rePicker(4 - al - sq.pending.reduce((a, p) => a + p.n, 0)) : `<div class="row"><button data-act="re" data-id="${sq.id}">契約變更：補員</button></div>`) : ''}</div>`; }).join('')}</div>`; }).join('') : '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>';
   $('co-vatinfo').textContent = `${G.vats} 座・每個 ${G.buildH} 小時`;
   $('co-mats').innerHTML = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">總部單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}）</button></td></tr>`).join('') + '</table>';
@@ -384,6 +409,23 @@ function renderCo() {
     <div class="st">生命 ${c.st.hp}・命中 ${sg(c.st.acc)}・閃避 ${sg(c.st.eva)}・近戰 ${sg(c.st.mel)}</div><div class="st">前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%・${STATUS[c.status] || c.status}${c.squad && c.status === 'away' ? '・' + esc(c.squad) : ''}・出勤 ${c.missions} 次</div>
     ${c.alive && c.status === 'home' ? `<button class="keep${c.keep ? ' on' : ''}" data-act="keep" data-id="${c.uid}" title="供在家裡的不會被派出去">${c.keep ? '供著' : '供'}</button>` : ''}</div>`).join('') || '<p class="muted">沒有。</p>';
   $('co-log').innerHTML = [...GM.inbox.map(x => ({h: x.t, text: x.text})), ...G.log].sort((a, b) => b.h - a.h).slice(0, 40).map(x => `<li><span class="yr">${fmtH(x.h)}</span>${esc(x.text)}</li>`).join('');
+}
+
+// ───── 召回（兩段式確認：第一下變成「確定？」，三秒內再按一下才送出） ─────
+let selPath = null, armed = null, armT = null;
+function recallBtn(u) {
+  if (!u.recall) return '';
+  const key = u.recall.type + ':' + u.recall.id, on = armed === key;
+  const txt = u.recall.type === 'column' ? `撤回補員${u.n ? `（${u.n} 人）` : ''}` : u.kind === 'escort' ? '召回護衛' : `召回（毀約，違約金 $${u.recall.penalty}）`;
+  return `<div class="row"><button class="${on ? 'warn' : ''}" data-recall="${key}">${on ? '確定召回？' : txt}</button>${u.busy && u.recall.type === 'squad' ? '<span class="mini">手上的任務票會交給案件的護衛去打</span>' : ''}</div>`;
+}
+function recallClick(e) {
+  const b = e.target.closest('[data-recall]'); if (!b) return false;
+  const key = b.dataset.recall, [type, id] = key.split(/:(.+)/);
+  if (armed !== key) { armed = key; clearTimeout(armT); armT = setTimeout(() => { armed = null; if (page === 'co') renderCo(); else renderTile(); }, 3000); }
+  else { armed = null; clearTimeout(armT); send(type === 'column' ? {type: 'recallCol', amend: id} : {type: 'recall', squad: id}); }
+  if (page === 'co') renderCo(); else renderTile();
+  return true;
 }
 
 // ───── 採購路線 ─────
@@ -482,6 +524,7 @@ function renderOdds() { const o = classOdds(recipe); $('co-odds').innerHTML = Ob
 $('pane-co').addEventListener('change', e => { const f = e.target.dataset.pf; if (!f || !procSel) return; procSel[f] = f === 'qty' ? Math.max(10, +e.target.value || 0) : e.target.value; renderProc(); });
 $('pane-co').addEventListener('input', e => { const m = e.target.dataset.rc; if (!m) return; recipe[m] = Math.max(0, +e.target.value || 0); renderOdds(); });
 $('pane-co').onclick = e => {
+  if (recallClick(e)) return;
   const c = e.target.closest('[data-center]'); if (c && !e.target.closest('button')) { e.preventDefault(); select(+c.dataset.center, true, true); return; }
   const f = e.target.closest('[data-found]'); if (f) { found(+f.dataset.found); return; }
   const r = e.target.closest('[data-rf]'); if (r) { rosterF = r.dataset.rf; renderCo(); return; }
