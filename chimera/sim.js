@@ -1150,7 +1150,7 @@ function createSim(w,rand,pick){
     markets=S.markets||{};carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;battles=S.battles||[];nextHero=S.nextHero||1;
     if(S.legend){const L=S.legend;for(const k of Object.keys(ARC))delete ARC[k];Object.assign(ARC,L.ARC);weapons.splice(0,weapons.length,...L.weapons);saga.splice(0,saga.length,...L.saga);
       for(const o of [aff,houseAff])for(const k of Object.keys(o))delete o[k];Object.assign(aff,L.aff);Object.assign(houseAff,L.houseAff);leagues.splice(0,leagues.length,...(L.leagues||[]))}
-    netSig='';netYear=-99;if(live)yearStartNetOnly(S)}
+    netSig='';netYear=-99;if(live)yearStartNetOnly(S);else{refreshCE();if(S.townNet)townNet=S.townNet;if(S.front){bc=S.bc;front=S.front;covet=S.covet}}}   // 移動成本表（CE）不存檔，讀檔要重算，不然所有路都是零成本（尋路亂繞、車程 0 小時）
   // 讀檔後路網與前線要重建（不存檔，因為可以重算）
   function yearStartNetOnly(S){refreshCE();bindMarkets();if(S.townNet)townNet=S.townNet;else buildTownNet();if(S.front){bc=S.bc;front=S.front;covet=S.covet}else buildFronts()}
   function view(){const econ=fac.map(f=>({n:f.n,c:f.c,born:f.born,merc:Math.round(f.merc),liege:f.alive?f.liege:-1,loyal:+(f.loyal||0).toFixed(2),alive:f.alive,cap:f.alive?f.cap:-1,ratio:f.ratio,price:f.price,store:f.store||0,tiles:0,pop:0}));

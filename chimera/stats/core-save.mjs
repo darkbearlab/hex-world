@@ -17,6 +17,10 @@ console.log(`存檔 ${Math.round(save.length / 1024)} KB；讀回後指紋 ${a.f
 const split = Object.values(b.game.book.squads).flatMap(sq => sq.clones.map(c => [sq, c])).filter(([sq, c]) => c.uid != null && b.game.cos[sq.player]?.roster.find(x => x.uid === c.uid) !== c).length;
 console.log(split ? `小隊成員有 ${split} 位和名冊不是同一個物件！` : '小隊成員與名冊是同一個物件');
 if (split) process.exit(1);
+// 讀回後尋路要和原本一樣（移動成本表不存檔，要重算）
+const far = Object.keys(a.sim.peek().markets).map(Number).filter(t => t !== base).at(-1), ra = a.sim.pmc.dist(base, far), rb = b.sim.pmc.dist(base, far);
+console.log(ra === rb ? `尋路一致（距離 ${ra.toFixed(1)}）` : `尋路不一致！原本 ${ra} 讀檔 ${rb}`);
+if (ra !== rb) process.exit(1);
 a.advanceTo(h2); b.advanceTo(h2);
 const fa = a.fingerprint(), fb = b.fingerprint();
 console.log(fa === fb ? `往後推到 ${h2} 小時仍一致 ${fa}（沙盒第 ${a.year} 年）` : `不一致！\n  原本 ${fa}\n  讀檔 ${fb}`);
