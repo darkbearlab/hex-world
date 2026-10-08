@@ -110,7 +110,7 @@ function createSim(w,rand,pick){
   const {land,res,names,temp,waterK,river}=w;
   const biome=w.biome.slice(),fert=w.fert.slice(),timberK=w.timberK.slice(),gameK=w.gameK.slice();
   const timber=Float32Array.from(timberK),game=Float32Array.from(gameK),vein=Float32Array.from(w.vein0);
-  const known=new Uint8Array(N),deforest=new Uint16Array(N),wall=new Float32Array(N),vcap=Float32Array.from(w.vein0),vex=Uint8Array.from(w.vein0,v=>v>0?1:0);
+  const known=new Uint8Array(N),deforest=new Uint16Array(N),wall=new Float32Array(N),trench=new Float32Array(N),vcap=Float32Array.from(w.vein0),vex=Uint8Array.from(w.vein0,v=>v>0?1:0);
   const owner=new Int8Array(N).fill(-1),pop=new Float32Array(N),bandit=new Float32Array(N),ruin=new Uint8Array(N),peak=new Float32Array(N);
   const zero=()=>({food:0,water:0,fuel:0,scrap:0,parts:0,ammo:0}),one=()=>({food:1,water:1,fuel:1,scrap:1,parts:1,ammo:1});
   const fac=FDEF.map((d,i)=>({...d,taboo:.85,id:i,alive:true,cap:-1,aggr:.8+rand()*.6,stock:{food:60,water:30,fuel:10,parts:4,scrap:10,ammo:6},
@@ -618,6 +618,8 @@ function createSim(w,rand,pick){
     const kill=(f,amt)=>{const F=fac[f];if(F.clones>0){const c=Math.min(F.clones,amt*.7);F.clones-=c;amt-=c;rec(f,y,'cloneDead',c)}rec(f,y,'popDead',Math.min(.06,amt/Math.max(1,fp[f]))*fp[f]);const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive||W.done)continue;
       if(owner[W.goal]===W.att){W.done=1;continue}if(owner[W.goal]!==W.def){W.done=2;continue}
+      // 戰壕（globalThis.TRENCH 開啟時）：雙方在前線上自己這一側挖壕，每季加深一點，要用廢料撐壕壁
+      if(globalThis.TRENCH){for(const [x,y_] of [[W.att,W.def],[W.def,W.att]]){let dug=0;for(const [,nn] of front[y_][x]){if(owner[nn]!==x||trench[nn]>=3||dug>=6)continue;if(facStock(x,'scrap')<1)break;facTake(x,'scrap',.5);trench[nn]=Math.min(3,trench[nn]+.25);trench[nn]>=1&&!W.tTold&&(W.tTold=1,say(y,'war',`${fac[a].n}與${fac[b].n}在${nm(nn)}一帶都挖了壕溝，戰線卡住了。`,nn));dug++}}}
       let A=W.att,D=W.def,counter=false,prs;
       // 守方兵多時會反攻，想把這場戰爭丟掉的地方拿回來
       if(lev(D)>lev(A)*1.3&&rand()<.5){const back=front[D][A].filter(([i,n])=>owner[i]===D&&owner[n]===A&&W.taken.includes(n));if(back.length){counter=true;[A,D]=[D,A];prs=back}}
@@ -639,8 +641,9 @@ function createSim(w,rand,pick){
       const vpow=(f,V)=>{for(const v of VEH)V[v]/=nw2(f);const need=VEH.reduce((x,v)=>x+V[v]*VFUEL[v],0)*(1-Math.min(.5,V.gt*.05));let fr=1;
         if(need>.1){const got=facTake(f,'fuel',need);fr=Math.min(1,got/need);if(fr<.3&&V.armor+V.rush*.3>=3&&(!fac[f].dryY||y-fac[f].dryY>=10)){fac[f].dryY=y;say(y,'war',`燃料見底，${fac[f].n}的車隊停在${nm(n)}一帶動不了。`,n)}}
         return {fr,p:VEH.reduce((x,v)=>x+V[v]*VPOW[v],0)*vt*fr,mor:1+Math.min(.2,V.gt*.04),sup:Math.min(.6,V.gt*.1)}};
-      const PA=vpow(A,VA),PD=vpow(D,VD),supA=1/(1+.08*dT*(1-PA.sup));
-      const sa=(LA+xA+PA.p)*fac[A].aggr*wf*supA*kA*rA*PA.mor,sd=((LD+xD)*.8+mil+PD.p*.9)*tm*wm*kD*rD*PD.mor;
+      const PA=vpow(A,VA),PD=vpow(D,VD),supA=1/(1+.08*dT*(1-PA.sup)),tr=globalThis.TRENCH?trench[n]:0;
+      if(tr){PA.p*=1-.25*tr}   // 反戰車壕：攻方的車開不過去
+      const sa=(LA+xA+PA.p)*fac[A].aggr*wf*supA*kA*rA*PA.mor,sd=((LD+xD)*.8+mil+PD.p*.9)*tm*wm*kD*rD*PD.mor*(1+.3*tr);
       const siege=!counter&&(town[n]||wall[n]>=1);
       let win,lose,dead,took=false,note='';
       if(sa>sd){win=A;lose=D;dead=LD*.12;
@@ -649,8 +652,9 @@ function createSim(w,rand,pick){
           if(W.siege.prog>=need||(starving&&W.siege.prog>=1)){took=true;note=starving?`，${nm(n)}斷糧開門`:`，${nm(n)}在圍城 ${W.siege.prog} 季後陷落`;W.siege=null}
           else note=`，${nm(n)}被圍`}
         else took=true}
-      else{win=D;lose=A;dead=LA*.12;if(siege&&W.siege&&W.siege.t===n)W.siege.prog=Math.max(0,W.siege.prog-1)}
+      else{win=D;lose=A;dead=LA*.12*(1+.4*tr);if(siege&&W.siege&&W.siege.t===n)W.siege.prog=Math.max(0,W.siege.prog-1)}
       W.score+=win===W.att?1:-1;
+      if(globalThis.BSTAT){const cA=(fac[A].clones||0)*(.6+.4*fac[A].ratio.ammo),cD=(fac[D].clones||0)*(.6+.4*fac[D].ratio.ammo);globalThis.BSTAT.push({y,b:biome[n],siege:siege?1:0,town:town[n]?1:0,wall:wall[n],tr,aw:win===A?1:0,took:took?1:0,sa,sd,vA:PA.p/(LA+xA+PA.p||1),vD:PD.p/((LD+xD)*.8+mil+PD.p*.9||1),cA:cA/(LA+xA+PA.p||1),cD:cD/((LD+xD)*.8+mil+PD.p*.9||1),dead,ctr:counter?1:0})}
       if(globalThis.CSTAT)for(const [f,L,x,P] of [[A,LA,xA,PA],[D,LD,xD,PD]]){const F=fac[f],cl=(F.clones||0)*(.6+.4*F.ratio.ammo);rec(f,y,'battles',1);rec(f,y,'wins',f===win?1:0);rec(f,y,'strTot',L+x+P.p);rec(f,y,'strClone',cl);rec(f,y,'strVeh',P.p);rec(f,y,'strMerc',F.merc||0)}
       // 載具的損失：衝鋒車打一仗就耗掉一大半；敗方的武裝車被打爆或被勝方開走
       {const used=f=>({truck:0,armor:Math.min(1,1/nw2(f)),rush:Math.min(1,1/nw2(f)),gt:Math.min(1,1/nw2(f))});
@@ -781,6 +785,8 @@ function createSim(w,rand,pick){
       const SP=globalThis.TSP??4;let near=false;for(const k in markets)if((SP>3||owner[+k]===o)&&hdist(i,+k)<=SP){near=true;break}if(near)continue;
       town[i]=1;markets[i]=newMarket();nT[o]++;say(y,'found',`${nm(i)}商旅往來漸多，發展成${fac[o].n}的市鎮。`,i)}}
 
+    // 3e. 沒人打仗的壕溝會被沙埋掉
+    for(let i=0;i<N;i++)if(trench[i]>0)trench[i]=trench[i]*.8<.05?0:trench[i]*.8;
     // 3d. 載具保養：每年要零件，沒有就壞掉一部分；本來就會慢慢折舊
     for(const k in markets){const m=markets[k];if(!m.veh||owner[+k]<0)continue;const g=m.veh,need=VEH.reduce((x,v)=>x+g[v]*VKEEP[v],0);const got=Math.min(need,m.stock.parts);m.stock.parts-=got;
       const r=need>0?got/need:1;for(const v of VEH)g[v]*=(v==='rush'?.75:.95)-(1-r)*.15}   // 衝鋒車是拼裝貨，放著也會爛
@@ -1104,10 +1110,10 @@ function createSim(w,rand,pick){
     lastComputed=computed;return ended}
 
   // ===== 存檔：把整個世界的可變狀態匯出成一個物件，之後原樣讀回 =====
-  const MUT={biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town};
+  const MUT={biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,trench,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town};
   function exportState(){const o={};for(const k in MUT)o[k]=MUT[k];
     return {...o,fac,events:ev.slice(-1500),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
-  function importState(S){for(const k in MUT)MUT[k].set(S[k]);
+  function importState(S){for(const k in MUT)if(S[k])MUT[k].set(S[k]);
     fac.splice(0,fac.length,...S.fac);ev.splice(0,ev.length,...S.events);graves.splice(0,graves.length,...S.graves);heroes.splice(0,heroes.length,...S.heroes);
     for(const k of Object.keys(routeSeen))delete routeSeen[k];Object.assign(routeSeen,S.routeSeen);
     for(let a=0;a<FMAX;a++){tension[a]=S.tension[a].slice();war[a]=S.war[a].slice()}
