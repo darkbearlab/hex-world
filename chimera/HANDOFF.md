@@ -31,6 +31,7 @@
 | `public/portraits/` | 暫用 ASH 的 16 張 64×64 頭像 |
 | `stats/` | 統計腳本：`cases.mjs`（案件管線，`SPEED=1`、`REINF=none|base|post`）、`clone-*.mjs`、`terrain.mjs`、`opps.mjs` |
 | `run.mjs` | 在終端機印編年史 |
+| `ash/` | 插進來的 ASH PROTOCOL（不動 ash_protocol 本身）：`ASH_COMMIT` 固定版本、`patches/` 補丁、`overlay/` 新增的檔案（含從本機複製的通關機器人 `tools/clear-bot/`）。`node chimera/ash/build.mjs` 抓原始碼、套補丁、蓋 overlay、建置到 `public/ash/`（不進 git；`.work/` 是工作區）。改補丁：在 `.work/` 改完 `git diff > ../patches/000N-名字.patch`。本機可設 `ASH_REPO=C:/codex_projects/shooter_roguelike` 省下載 |
 
 部署：推到 hex-world 的 `chimera` 分支、動到 `chimera/**` 就會跑 `.github/workflows/chimera.yml`，部署到 https://chimera.darkbearlab.workers.dev 。
 
@@ -79,7 +80,9 @@ ASH 研究重點（檔案在 ash_protocol）：
   - 用 URL 參數或 `postMessage` 傳任務票，打完用 `postMessage` 把結果傳回；`cases.js` 的 `submit(book,w,ticketId,{win,done,dead},now)` 已經接得住。
 - 驗證：`src/replay.js` 的 `stateHash` 可以在 Node 重播驗證，但 `Game.restore` 不接受子類別，要另開路徑（階段 3）。
 
-建議的階段（Alan 已看過，細節待確認）：
+2026-10-08 Alan 定案（DESIGN.md「接上 ASH 的做法定案」）：不動 ash_protocol，全部插拔進 `chimera/ash/`；交棒＝換下一個活著的人、可循環切換（階段 2；階段 1 隊長陣亡判敗）；用第一層；隊友武器先用兵種卡、數值帶奇美拉的。階段 0 已完成（插拔結構、關掉 service worker 的補丁、部署流程；機器人在 3.223.0 上 6 局贏 5）。
+
+建議的階段（原提案；階段 0 的分支做法已被上面取代）：
 
 - **階段 0**：在 ash_protocol 開 `chimera` 分支（從標籤分出），部署時把建置結果複製進奇美拉。
   - 先問 Alan：clear-bot 分支要不要推上 GitHub。
