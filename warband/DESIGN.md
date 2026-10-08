@@ -434,3 +434,15 @@ Claude 的沙盒劇本草案（等確認）：
   - 本機只多了一個 C:\claude_project\_transfer\clear-bot.bundle。
   - 機器人只透過 game.action 操作玩家角色；要驅動隊友，有兩條路（見回覆）。
 - 2026-10-08 Alan：隊友走方案 A（沿用 ASH 的友軍系統，把通關機器人改成能控制隊友），參數再調。交接說明寫在 chimera 分支的 chimera/HANDOFF.md。
+
+**接上 ASH 的做法定案（2026-10-08，接手的 Claude Code 與 Alan）**
+- Alan：不動 ash_protocol（不開分支、不打標籤、不推 clear-bot），把要用的東西插拔進 hex-world。
+  - `chimera/ash/ASH_COMMIT` 固定 ASH 的版本（GitHub 上的 3.223.0，`b567d58`）。
+  - `chimera/ash/patches/`：對 ASH 原始碼的小補丁（控制器改成接收外面建好的遊戲、`actAlly` 開頭加隊友大腦的鉤子）。
+  - `chimera/ash/overlay/`：新增的檔案（`MissionGame`、`mission.html`、入口模組）和從本機複製來的通關機器人 `tools/clear-bot/`（Alan 同意公開；不帶 replays、reports）。
+  - 部署時抓那個版本的 ASH、套補丁、蓋 overlay、建置，放進 `public/ash/`。要跟上 ASH 新版就改 `ASH_COMMIT`。
+- 交棒：隊長陣亡由下一個活著的人接手，也可以循環切換正在操作誰。階段 2 做；階段 1 隊長陣亡就判敗，活著的隊友算存活。
+- 地圖：先用第一層的設施地圖。
+- 隊友：階段 1 武器沿用兵種卡（`allyWeapon`），生命、命中、閃避、近戰帶奇美拉的數值。
+- 敵人對應（暫定，Alan 可改）：掠奪者 raider→破口突擊兵 `raider`、重裝掠奪者→叛變哨兵 `gunner`；原住民→`raider_infected`、原住民獵手→盲眼狙擊手 `sniper`；士兵→斷訊槍兵 `rifleman`、重裝士兵→`rifleman_armored`、複製兵→`raider_armored`；持遺產級的頭目→小隊長 `squad_leader`；衝鋒車→自爆機器人 `bomber_bot`、武裝車→固定砲台 `turret`、戰鬥卡車→`gunner`。
+- 嵌入版關掉 ASH 的 service worker 和存檔。
