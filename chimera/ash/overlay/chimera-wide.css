@@ -10,7 +10,7 @@
 #ash-root:not(.wide) #chimera-side .mhead b,#ash-root:not(.wide) #chimera-side .mhead small{display:none}
 #ash-root:not(.wide) #chimera-side button{padding:6px 10px;background:#1b211f;border:1px solid #4a5a55;color:#e8e2d0;font-size:11px}
 
-#ash-root.wide{--side:300px;--bar:92px}
+#ash-root.wide{--side:300px;--bar:124px}
 #ash-root.wide .app,#ash-root.wide .workspace{max-width:none;width:100vw;height:100vh;padding:0;margin:0}
 #ash-root.wide .battle-panel{position:fixed;inset:0;display:block}
 /* 戰場：右側欄與下方行動列以外的全部 */
@@ -26,12 +26,12 @@
 /* 上方中央：訊息、回合、選單 */
 #ash-root.wide .battle-header{position:fixed;top:8px;left:calc((100vw - var(--side)) / 2);transform:translateX(-50%);z-index:5;display:flex;gap:10px;align-items:center;padding:6px 12px;background:#141a19e6;border:1px solid var(--line);width:auto;max-width:60vw}
 #ash-root.wide #field-messages{max-width:36vw}
-/* 下方行動列：武器與狀態｜行動鍵；方向鍵收起（WASD／點相鄰格移動） */
-#ash-root.wide .loadout-bar{position:fixed;left:0;bottom:0;width:250px;height:var(--bar);display:flex;flex-wrap:wrap;align-content:center;gap:4px;padding:8px 10px;background:#141a19;border-top:1px solid var(--line);border-right:1px solid var(--line);z-index:4;margin:0}
+/* 下方行動列：武器與狀態｜方向鍵與等待｜行動鍵（WASD、點相鄰格也能移動） */
+#ash-root.wide .loadout-bar{position:fixed;left:0;bottom:0;top:auto;width:250px;height:var(--bar)!important;max-height:none!important;display:flex;flex-wrap:wrap;align-content:center;gap:4px;padding:8px 10px;background:#141a19;border-top:1px solid var(--line);border-right:1px solid var(--line);z-index:4;margin:0}
 #ash-root.wide .loadout-bar .loadout-status{width:100%;text-align:left}
-#ash-root.wide .control-deck{position:fixed;left:250px;right:var(--side);bottom:0;height:var(--bar);display:flex!important;align-items:stretch;gap:0;padding:8px;background:#141a19;border-top:1px solid var(--line);z-index:4;margin:0}
-#ash-root.wide .direction-pad{display:none!important}
-#ash-root.wide .action-buttons{display:flex!important;flex:1;gap:8px;height:100%}
+#ash-root.wide .control-deck{position:fixed;left:250px;right:var(--side);bottom:0;height:var(--bar);display:flex!important;align-items:center;gap:12px;padding:8px 10px;--pad-cell:34px!important;--pad-gap:3px!important;background:#141a19;border-top:1px solid var(--line);z-index:4;margin:0}
+#ash-root.wide .direction-pad{display:grid!important;flex:none;--pad-cell:34px!important;--pad-gap:3px!important}
+#ash-root.wide .action-buttons{display:flex!important;flex:1;gap:8px;height:100%;align-self:stretch}
 #ash-root.wide .action-buttons .action{flex:1;min-width:0;height:100%;grid-area:auto!important}
 #ash-root.wide #effects-panel{position:fixed;left:8px;bottom:calc(var(--bar) + 8px);z-index:6;max-width:420px}
 /* 右側欄 */

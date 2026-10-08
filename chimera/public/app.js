@@ -31,7 +31,7 @@ function start(seed) {
       else if (GV) { cur = hist.length - 1; lastPanelY = -1; renderAll(); send({type: 'quotes'}); }
       if (!GV && page === 'co' && hist.length % 10 === 0) renderCo();
     } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = false; }
-    else if (m.type === 'game') onGame(m);
+    else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); }
     else if (m.type === 'mission') openMission(m.data);
     else if (m.type === 'path') { selPath = m; draw(); }
     else if (m.type === 'quotes') { QT = m.data; if (procSel && !QT.some(q => q.t === procSel.t)) procSel = null; if (page === 'co') renderProc(); }
@@ -556,6 +556,13 @@ function rePicker(room) {
 function renderOdds() { const o = classOdds(recipe); $('co-odds').innerHTML = Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${CLS[k].n} ${Math.round(v * 100)}%</span>`).join(''); }
 $('pane-co').addEventListener('change', e => { const f = e.target.dataset.pf; if (!f || !procSel) return; procSel[f] = f === 'qty' ? Math.max(10, +e.target.value || 0) : e.target.value; renderProc(); });
 $('pane-co').addEventListener('input', e => { const m = e.target.dataset.rc; if (!m) return; recipe[m] = Math.max(0, +e.target.value || 0); renderOdds(); });
+// 任務票的「親自打」「現在自動結算」在按下去那一刻就送出：公司時間跑得快時清單每秒重畫好幾次，
+// 按下與放開落在不同的按鈕上就不會有 click（2026-10-08 Alan 回報：按了親自打一直沒反應）
+$('pane-co').addEventListener('pointerdown', e => {
+  const b = e.target.closest('[data-act="fight"],[data-act="resolve"]'); if (!b || e.button !== 0) return;
+  e.preventDefault(); const id = b.dataset.id;
+  if (b.dataset.act === 'fight') { send({type: 'fight', ticket: id}); showMissionLoading(); } else send({type: 'resolve', ticket: id});
+});
 $('pane-co').onclick = e => {
   if (recallClick(e)) return;
   const c = e.target.closest('[data-center]'); if (c && !e.target.closest('button')) { e.preventDefault(); select(+c.dataset.center, true, true); return; }
@@ -572,8 +579,7 @@ $('pane-co').onclick = e => {
   else if (A === 'build') send({type: 'build', recipe: {...recipe}});
   else if (A === 'tpl') send({type: 'build', tpl: id});
   else if (A === 'keep') send({type: 'keep', uid: +id});
-  else if (A === 'resolve') send({type: 'resolve', ticket: id});
-  else if (A === 'fight') send({type: 'fight', ticket: id});
+  else if (A === 'resolve' || A === 'fight') return;   // 上面 pointerdown 已經送出
   else if (A === 're') { pickRe = {squad: id, uids: new Set()}; renderCo(); }
   else if (A === 're-go') { send({type: 'reinforce', squad: pickRe.squad, uids: [...pickRe.uids]}); pickRe = null; }
   else if (A === 're-x') { pickRe = null; renderCo(); }
@@ -594,4 +600,12 @@ const ash = import('./ash/chimera-boot.js').then(m => m.bootAsh()).then(E => {
   E.onabort = id => { if (mission && mission.id === id) { send({type: 'abort'}); mission = null; } };
   return E;
 });
-async function openMission(tk) { mission = {id: tk.id}; (await ash).start(tk); }
+async function openMission(tk) { mission = {id: tk.id}; const E = await ash; hideMissionLoading(); E.start(tk); }
+// ASH 還在背景載入時先蓋上一層「載入中」，按下去立刻有反應
+let loadingBox = null;
+function showMissionLoading() {
+  if (window.ASH_EMBED?.renderer) return;
+  loadingBox ??= Object.assign(document.createElement('div'), {id: 'mission-loading', innerHTML: '<b>載入戰鬥中…</b><span>第一次開戰要先把戰鬥程式載好，公司的時間已經停住。</span>'});
+  document.body.appendChild(loadingBox);
+}
+function hideMissionLoading() { loadingBox?.remove(); }

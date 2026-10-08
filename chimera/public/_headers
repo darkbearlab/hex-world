@@ -1,0 +1,3 @@
+# Cloudflare 靜態檔的標頭。ASH 的 service worker 放在 /ash/，讓它也能管奇美拉的主頁（戰鬥程式優先讀快取），見 ash/chimera-boot.js
+/ash/sw.js
+  Service-Worker-Allowed: /
