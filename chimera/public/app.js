@@ -418,7 +418,7 @@ const SKN = {early_warning: '預警', signal_break: '訊號斷層', anchor: '下
 const MK = {ticket: '任務票', result: '戰果', pay: '結案', move: '調動', refused: '雇主', kia: '陣亡', vat: '培養槽', log: '公司'};
 function mailItems() {
   if (!GV || !GM) return [];
-  const a = [...GM.inbox.map(x => ({h: x.t, kind: x.kind, text: x.text})), ...GV.log.map(x => ({h: x.h, kind: /陣亡/.test(x.text) ? 'kia' : /出槽/.test(x.text) ? 'vat' : /結案|回到總部/.test(x.text) ? 'pay' : 'log', text: x.text}))];
+  const a = [...GM.inbox.map(x => ({h: x.t, kind: x.kind, text: x.text, tile: x.tile, fight: x.fight})), ...GV.log.map(x => ({h: x.h, kind: /陣亡/.test(x.text) ? 'kia' : /出槽/.test(x.text) ? 'vat' : /結案|回到總部/.test(x.text) ? 'pay' : 'log', text: x.text}))];
   a.sort((p, q) => q.h - p.h); return a.slice(0, 60).map(x => ({...x, sig: x.h + '|' + x.text}));
 }
 function renderMail() {
@@ -428,17 +428,25 @@ function renderMail() {
   const unread = items.filter(x => !mailSeen.has(x.sig)).length;
   $('mailN').hidden = !unread || open; $('mailN').textContent = unread > 99 ? '99+' : unread;
   if (!open) return;
-  const sig = items.length + ':' + (items[0]?.sig || ''); if (sig === mailSig) return; mailSig = sig;
+  const sig = items.length + ':' + (items[0]?.sig || '') + ':' + items.map(x => x.fight || '').join(','); if (sig === mailSig) return; mailSig = sig;
   $('mailSub').textContent = `最近 ${items.length} 則`;
-  $('mailBody').innerHTML = items.map(x => `<div class="msg ${x.kind}${mailSeen.has(x.sig) ? '' : ' new'}"><div class="mh"><b>${MK[x.kind] || '通知'}</b><span>${fmtH(x.h)}</span></div>${esc(x.text)}</div>`).join('') || '<p class="muted">沒有通知。</p>';
+  const sig2 = items.map(x => x.fight || '').join(','); if (sig2 !== mailFights) { mailFights = sig2; mailSig = ''; }
+  $('mailBody').innerHTML = items.map(x => `<div class="msg ${x.kind}${mailSeen.has(x.sig) ? '' : ' new'}${x.fight || x.tile != null ? ' go' : ''}"${x.fight ? ` data-mfight="${esc(x.fight)}"` : ''}${x.tile != null ? ` data-mtile="${x.tile}"` : ''}><div class="mh"><b>${MK[x.kind] || '通知'}</b><span>${x.fight ? '點一下親自打・' : x.tile != null ? '點一下看地圖・' : ''}${fmtH(x.h)}</span></div>${esc(x.text)}</div>`).join('') || '<p class="muted">沒有通知。</p>';
 }
 function closeMail() { $('mail').hidden = true; for (const x of mailItems()) mailSeen.add(x.sig); renderMail(); }
 $('mailBtn').onclick = e => { e.stopPropagation(); if (!$('mail').hidden) { closeMail(); return; } $('mail').hidden = false; mailSig = ''; renderMail(); };
 $('mailClose').onclick = closeMail;
+// 點通知：還沒打的任務票（交戰）直接親自打；其他有位置的（案件、補員、戰果）切到戰略地圖並指過去
+$('mailBody').addEventListener('pointerdown', e => {
+  const m = e.target.closest('.msg.go'); if (!m || e.button !== 0) return;
+  e.preventDefault(); closeMail();
+  if (m.dataset.mfight) { send({type: 'fight', ticket: m.dataset.mfight}); showMissionLoading(); return; }
+  if (m.dataset.mtile != null) { showPage('map'); select(+m.dataset.mtile, true, false); }
+});
 document.addEventListener('pointerdown', e => { if (!$('mail').hidden && !e.target.closest('#mail,#mailBtn')) closeMail(); });
 
 // ───── 召回（兩段式確認：第一下變成「確定？」，三秒內再按一下才送出） ─────
-let selPath = null, armed = null, armT = null;
+let selPath = null, armed = null, armT = null, mailFights = '';
 function recallBtn(u) {
   if (!u.recall) return '';
   const key = u.recall.type + ':' + u.recall.id, on = armed === key;

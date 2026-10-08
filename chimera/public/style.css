@@ -220,3 +220,7 @@ button.warn{background:#5a2018;border-color:var(--war);color:#ffd9cf}
 #mission-loading{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;background:#0d1010ee;color:var(--text)}
 #mission-loading b{font-size:18px}
 #mission-loading span{color:var(--muted);font-size:13px}
+
+/* 通知信：可以點的（親自打、看地圖） */
+.msg.go{cursor:pointer}
+.msg.go:hover{border-color:var(--accent)}

@@ -48,8 +48,17 @@ function loop() {
 
 // ===== 公司模式：沙盒停在當下這一年，改用小時推進；每過 yearDays 天，沙盒推一年 =====
 let game = null, clock = null;
+// 通知信指向哪裡：任務票（還沒打的可以直接親自打）、案件、補員縱隊所在的地圖位置
+function mailRef(b, x) {
+  if (!x.ref) return {};
+  const tk = b.tickets.find(t => t.id === x.ref);
+  if (tk) return {tile: tk.tile, fight: !tk.done && tk.player === game.G.name && tk.squad ? tk.id : null};
+  const c = b.cases.find(k => k.id === x.ref); if (c) return {tile: c.tile};
+  const am = b.amends.find(k => k.id === x.ref), ac = am && b.cases.find(k => k.id === am.caseId); if (ac) return {tile: ac.tile};
+  return {};
+}
 function gview(err) { postMessage({type: 'game', err: err || null, year: sim.year, speed: game.speed, yearDays: game.yearDays,
-  inbox: game.book.inbox.filter(x => x.player === game.G.name).slice(-30).reverse(), data: G.view(game.G, game.book, w)}); }
+  inbox: game.book.inbox.filter(x => x.player === game.G.name).slice(-30).reverse().map(x => ({...x, ...mailRef(game.book, x)})), data: G.view(game.G, game.book, w)}); }
 function gtick() {
   if (!game || !game.speed) return;
   game.acc += game.speed / 4; let n = 0, yearDone = false;
