@@ -305,6 +305,8 @@ function createSim(w,rand,pick){
       if(y>=ARC.ackY)acknowledge(y)}
     else if(ARC.phase===1&&y>=ARC.collapseY)collapse(y)}
   const pr=(a,b,c)=>Math.max(b,Math.min(c,a));
+  // 統計用（globalThis.CSTAT 給了才記）：CSTAT[勢力][年][項目]
+  const rec=(f,y,k,v)=>{const S=globalThis.CSTAT;if(!S||!v)return;const a=(S[f]||(S[f]={})),b=(a[y]||(a[y]={}));b[k]=(b[k]||0)+v};
   const BIGLOOT=globalThis.BIGLOOT??120,LOOTSTR=globalThis.LOOTSTR??1,FAMEK=globalThis.FAMEK??1500,FAMET=globalThis.FAMET??8,RICH=globalThis.RICH??400;
   function acknowledge(y){
     ARC.phase=1;const cap=fac[0].cap;
@@ -593,7 +595,7 @@ function createSim(w,rand,pick){
     // 複製兵：有培養槽的勢力打仗時（或正被威脅時）用糧、水、零件養兵；養著的兵每季要吃喝，養不起就散掉
     for(const f of fac){if(!f.alive)continue;let vats=0;for(const k in markets)if(owner[+k]===f.id)vats+=markets[k].vat||0;f.vats=vats;
       let atw=0;for(let k=0;k<FMAX;k++)if(atWar(f.id,k))atw++;
-      if(f.clones>0){const need=f.clones*CLONE_KEEP,fd=facTake(f.id,'food',need),wt=facTake(f.id,'water',need),r=Math.min(fd,wt)/Math.max(.01,need);if(r<.9){f.clones*=.6+.4*r;if(r<.5&&rand()<.2)say(y,'war',`${f.n}養不起培養槽裡出來的兵，一批複製兵被放走了。`,f.cap)}}
+      if(f.clones>0){const need=f.clones*CLONE_KEEP,fd=facTake(f.id,'food',need),wt=facTake(f.id,'water',need),r=Math.min(fd,wt)/Math.max(.01,need);rec(f.id,y,'keepFood',fd);rec(f.id,y,'keepWater',wt);if(r<.9){rec(f.id,y,'starved',f.clones*(.4-.4*r));f.clones*=.6+.4*r;if(r<.5&&rand()<.2)say(y,'war',`${f.n}養不起培養槽裡出來的兵，一批複製兵被放走了。`,f.cap)}}
       if(s===0&&!f.native&&f.taboo>0&&ARC.phase>=1)f.taboo=Math.max(0,f.taboo-.005);   // 一代一代，顧忌慢慢淡掉
       if(!vats||!(atw||f.frontsPrev>0||(f.bloc&&y>=ARC.blocY))||ARC.phase<1||f.native)continue;
       // 顧忌：培養槽做出來的是長官們的身體。越講體面的勢力越不肯拿它當兵；首府被圍、快撐不住時才破例
@@ -601,7 +603,7 @@ function createSim(w,rand,pick){
       const tb=(f.taboo||0)*(globalThis.TABOO??1),use=desp?1:tb>=.5?0:1-tb;if(use<.05)continue;   // TABOO：實驗用的顧忌倍率
       const room=Math.max(0,vats*VAT_CAP-(f.clones||0));let n=Math.min(room,vats*VAT_RATE*use);if(n<1)continue;
       for(const g in CLONE_COST)n=Math.min(n,facStock(f.id,g)*.3/CLONE_COST[g]);if(n<1)continue;
-      for(const g in CLONE_COST)facTake(f.id,g,n*CLONE_COST[g]);f.clones=(f.clones||0)+n;
+      for(const g in CLONE_COST)facTake(f.id,g,n*CLONE_COST[g]);f.clones=(f.clones||0)+n;rec(f.id,y,'made',n);rec(f.id,y,'makeFood',n*CLONE_COST.food);rec(f.id,y,'makeParts',n*CLONE_COST.parts);
       if(!f.clonesY){f.clonesY=y;if((f.taboo||0)>=.3||desp&&(f.taboo||0)>=.15)(f.id===0||desp?sagaSay:(yy,tt,ti)=>say(yy,'war',tt,ti))(y,desp?`${nm(f.cap)}被圍到第 ${war.flat().find(W_=>W_&&W_.def===f.id&&W_.siege)?.siege.prog||1} 季，${f.n}打開了培養槽。第一批走出來的兵，長著的是${rulerT(f)}和課長們的臉。`:`${f.n}終於也開始拿培養槽養兵。沒有人公開說什麼，但那些兵長著的是長官們的臉。`,f.cap);
         else say(y,'war',`${f.n}開始用培養槽養兵：糧和水進去，拿得動槍的人出來。`,f.cap)}}
     // 本季戰事：每場戰爭每季一場戰鬥。兵力＝全國徵召（人口、零件、彈藥、糧），分攤到同時打的每場戰爭，再加上收編的兵
@@ -613,7 +615,7 @@ function createSim(w,rand,pick){
     const ally=(f,foe,def)=>{let x=0;for(const v of vas[f])if(v!==foe)x+=lev(v)*.25;const L=fac[f].liege;if(def&&L>=0&&fac[L].alive&&L!==foe)x+=lev(L)*.5;return x};
     // 主將：封地離戰場最近的領主帶兵；沒有封地的英雄當作從首都出發
     const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f&&!h.noCmd&&!h.captive){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
-    const kill=(f,amt)=>{const F=fac[f];if(F.clones>0){const c=Math.min(F.clones,amt*.7);F.clones-=c;amt-=c}const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
+    const kill=(f,amt)=>{const F=fac[f];if(F.clones>0){const c=Math.min(F.clones,amt*.7);F.clones-=c;amt-=c;rec(f,y,'cloneDead',c)}rec(f,y,'popDead',Math.min(.06,amt/Math.max(1,fp[f]))*fp[f]);const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive||W.done)continue;
       if(owner[W.goal]===W.att){W.done=1;continue}if(owner[W.goal]!==W.def){W.done=2;continue}
       let A=W.att,D=W.def,counter=false,prs;
@@ -649,6 +651,7 @@ function createSim(w,rand,pick){
         else took=true}
       else{win=D;lose=A;dead=LA*.12;if(siege&&W.siege&&W.siege.t===n)W.siege.prog=Math.max(0,W.siege.prog-1)}
       W.score+=win===W.att?1:-1;
+      if(globalThis.CSTAT)for(const [f,L,x,P] of [[A,LA,xA,PA],[D,LD,xD,PD]]){const F=fac[f],cl=(F.clones||0)*(.6+.4*F.ratio.ammo);rec(f,y,'battles',1);rec(f,y,'wins',f===win?1:0);rec(f,y,'strTot',L+x+P.p);rec(f,y,'strClone',cl);rec(f,y,'strVeh',P.p);rec(f,y,'strMerc',F.merc||0)}
       // 載具的損失：衝鋒車打一仗就耗掉一大半；敗方的武裝車被打爆或被勝方開走
       {const used=f=>({truck:0,armor:Math.min(1,1/nw2(f)),rush:Math.min(1,1/nw2(f)),gt:Math.min(1,1/nw2(f))});
         const uL=used(lose),uW=used(win),dryL=(lose===A?PA:PD).fr<.5;const lostL=vehLose(lose,{truck:0,armor:(dryL?.3:.15)*uL.armor,rush:.7*uL.rush,gt:.12*uL.gt});vehLose(win,{truck:0,armor:.08*uW.armor,rush:.45*uW.rush,gt:.04*uW.gt});
@@ -957,7 +960,8 @@ function createSim(w,rand,pick){
       else if(g.toGang){const W2=gangs.find(x=>x.id===g.toGang);if(W2)toGang(wp,W2,y,`${W2.name}吞併了${g.name}，奪得遺產級「${wp.name}」。`);else loseW(wp,g.lair,y,`遺產級「${wp.name}」在據點的廢墟裡失落。`)}
       else loseW(wp,g.lair,y,`${g.name}的據點人去樓空，遺產級「${wp.name}」被埋在${nm(g.lair)}的沙裡。`)}
     gangs=gangs.filter(g=>!g.gone)}
-  function runHistory(){initLegends();for(let y=1;y<=YEARS;y++){yearStart(y);for(let s=0;s<4;s++){T+=PS;season(y,s)}yearEnd(y);snaps.push(makeSnap())}}
+  function runHistory(){initLegends();for(let y=1;y<=YEARS;y++){yearStart(y);for(let s=0;s<4;s++){T+=PS;season(y,s)}yearEnd(y);snaps.push(makeSnap());
+    if(globalThis.CSTAT){const P=new Float32Array(FMAX),Tl=new Int16Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0){P[owner[i]]+=pop[i];Tl[owner[i]]++}for(const f of fac)if(f.alive){rec(f.id,y,'pop',P[f.id]);rec(f.id,y,'tiles',Tl[f.id]);rec(f.id,y,'clones',f.clones||0);rec(f.id,y,'food',f.ratio.food+1e-6);rec(f.id,y,'water',f.ratio.water+1e-6)}}}}
 
   // ===== 線上模式：時段層與即時層（角色：NPC 與玩家走同一套行動介面）=====
   let actors=[],story=0,lastComputed=0,nextId=1,ownerHist=[];
