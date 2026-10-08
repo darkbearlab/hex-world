@@ -429,3 +429,7 @@ Claude 的沙盒劇本草案（等確認）：
   - 階段 1：一隊長加三名 AI 隊友，打設施地圖；任務票的敵人對到 ASH 的兵種卡；iframe 開戰，結果用 postMessage 傳回，交給 submit。
   - 階段 2：小隊手感：隊長陣亡就交棒、隊友命令、隊友帶職業武器、依事件類型給不同目標（護送、炸工事、守點用生存任務、清剿用頭目）。
   - 階段 3：中途存檔與回放驗證、帶回戰利品、戶外地圖（車隊道路、壕溝線）。
+- 2026-10-08 Alan：本機 ash_protocol 的 claude/clear-bot 分支（tools/clear-bot/，說明在 docs/CLEAR_BOT.md）是很強的通關機器人；開發階段把它當作隊友的預設 AI。
+  - 已用 git bundle 把它的 23 個提交搬到雲端工作區（/home/claude/ash-clear-bot），本機原本的東西沒動。
+  - 本機只多了一個 C:\claude_project\_transfer\clear-bot.bundle。
+  - 機器人只透過 game.action 操作玩家角色；要驅動隊友，有兩條路（見回覆）。
