@@ -8,13 +8,16 @@ import {hdist} from './sim.js';
 
 export const MATS = ['food', 'water', 'implant', 'neural'];
 export const MN = {food: '糧', water: '水', implant: '植入物', neural: '神經介質'};
+// 職業與出生配發的武器，對上 ASH 的同名職業（chimera/ash）。槍都是「土製」（只有壞詞條）；職業天生的近戰武器（動力拳、斧頭）不是
 export const CLS = {
-  soldier:   {n: '士兵', base: {hp: 100, acc: 8, eva: 0, mel: 0}, k: 1, weapon: '土製步槍'},
-  recon:     {n: '偵察兵', base: {hp: 100, acc: 0, eva: 10, mel: 0}, k: .95, weapon: '土製卡賓槍'},
-  bulwark:   {n: '重裝兵', base: {hp: 100, acc: 0, eva: 0, mel: 0}, k: 1.05, weapon: '土製霰彈槍與鐵板盾'},
-  berserker: {n: '狂戰士', base: {hp: 160, acc: -10, eva: 0, mel: 10}, k: 1.05, weapon: '土製砍刀'},
-  engineer:  {n: '工兵', base: {hp: 100, acc: 0, eva: 0, mel: 0}, k: .95, weapon: '土製手槍與焊槍'},
+  soldier:   {n: '士兵', base: {hp: 100, acc: 8, eva: 0, mel: 0}, k: 1, weapon: '土製步槍、土製霰彈槍'},
+  recon:     {n: '偵察兵', base: {hp: 100, acc: 0, eva: 10, mel: 0}, k: .95, weapon: '土製衝鋒槍、土製霰彈槍'},
+  bulwark:   {n: '重裝兵', base: {hp: 100, acc: 0, eva: 0, mel: 0}, k: 1.05, weapon: '土製輕機槍、動力拳'},
+  berserker: {n: '狂戰士', base: {hp: 160, acc: -10, eva: 0, mel: 0}, k: 1.05, weapon: '斧頭、土製霰彈槍'},
+  engineer:  {n: '工兵', base: {hp: 100, acc: 0, eva: 0, mel: 0}, k: .95, weapon: '土製衝鋒槍、土製霰彈槍'},
 };
+// ASH 技能的中文名（複製人出生沒有技能，3 級學會職業技能；chimera/ash/overlay/src/chimera-squad.js）
+export const SKILL_NAME = {early_warning: '預警', signal_break: '訊號斷層', anchor: '下錨', grapple: '鉤鎖', workshop: '工坊'};
 export const PORTRAITS = ['ember', 'onyx', 'silver', 'cedar', ...Array.from({length: 12}, (_, i) => `portrait-${String(i + 5).padStart(2, '0')}`)];
 export const GCFG = {
   START_CASH: 400, START_MATS: {food: 400, water: 400, implant: 200, neural: 200},

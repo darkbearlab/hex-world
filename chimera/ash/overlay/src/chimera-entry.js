@@ -13,9 +13,8 @@ let resolveLoaded;E.loaded=new Promise(r=>{resolveLoaded=r;});
 const WARMUP={id:null,seed:1,faction:'rebel',enemy:{units:{}},squad:[{id:'-',cls:'soldier',st:{hp:100}}]};
 // 依序載入：ASH 的模組彼此循環引用，要先從 game.js 這一頭進去（和 Node 裡一樣），再載機器人
 const {SquadGame}=await import('./chimera-squad.js'),{installFullSquad}=await import('../tools/chimera/full-squad.mjs');
-// 隊友是完整的玩家角色（chimera-squad.js），其他隊員由通關機器人操作；ticket.survivors 時改用階段 1 的倖存友軍版本
+// 隊友是完整的玩家角色（chimera-squad.js），其他隊員由通關機器人操作
 async function build(tk){
- if(tk.survivors){const {MissionGame}=await import('./chimera-mission.js'),{installSquadBrain}=await import('../tools/chimera/squad.mjs');const g=new MissionGame(tk);installSquadBrain(g);return g;}
  const g=new SquadGame(tk);installFullSquad(g);return g;
 }
 let current=WARMUP,sent=false;

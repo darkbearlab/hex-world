@@ -212,10 +212,10 @@
 - 線上模式裡的 NPC 旅人（獵人、樵夫、礦工）還是舊的奇幻文字；奇美拉不用它（`startLive(0)`）。
 
 ## 親自打：ASH 任務戰鬥（階段 1，`chimera/ash/`）
-- ASH PROTOCOL 是插拔進來的，不動 ash_protocol 本身：`ash/ASH_COMMIT` 固定版本（3.223.0），`ash/patches/` 四個小補丁，`ash/overlay/` 新增的檔案。`node chimera/ash/build.mjs` 建置到 `public/ash/`（部署時自動跑）。
+- ASH PROTOCOL 是插拔進來的，不動 ash_protocol 本身：`ash/ASH_COMMIT` 固定版本（3.223.0），`ash/patches/` 三個小補丁，`ash/overlay/` 新增的檔案。`node chimera/ash/build.mjs` 建置到 `public/ash/`（部署時自動跑）。
 - **不用 iframe（2026-10-08 Alan）：ASH 直接跑在奇美拉的頁面裡。** `public/ash/chimera-boot.js` 把 ASH 的畫面元素（建置時從 ASH 的 index.html 取出，`battle-dom.html`）放進 `#ash-root`，載入改寫成只作用在 `#ash-root` 裡的樣式（`chimera.css`，`ash/scope-css.mjs`），再載入 ASH。頁面一打開就在背景載好，`#ash-root` 平常藏著；藏著時 ASH 掛在整個頁面上的鍵盤、點擊、選取、右鍵、縮放、捲動鎖定、音樂、繪圖都不作用。ASH 改掉的分頁標題、加在 body 底下的元素，載好後改回、收進 `#ash-root`。奇美拉自己的按鈕與輸入框樣式不套進戰鬥畫面（`:where(:not(#ash-root *))`）。單獨測一場：`ash/battle-test.html#任務票JSON`。
-  - 補丁：`actAlly` 的隊友大腦鉤子（0002，階段 1 的倖存友軍用）；嵌入版控制器（0003：接收外面建好的遊戲 `globalThis.ASH_EMBED`、換下一場 `EMBED.load`、顯示切換 `EMBED.setActive`、藏著時全域事件不作用、不擋橫向、不讀寫存檔、不記 ASH 戰績、結束時交給入口）；`action()` 的兩個小隊掛鉤（0004）；動畫快照的掛鉤（0005）。
-  - overlay：`chimera-boot.js`（載入器）、`chimera-wide.css`（戰鬥畫面樣式）、`battle-test.html`、`src/chimera-mission.js`（`MissionGame`）、`src/chimera-squad.js`、`src/chimera-squad-ui.js`、`src/chimera-wide.js`、`src/chimera-entry.js`（入口）、`tools/clear-bot/`（從本機 clear-bot 分支複製的通關機器人）、`tools/chimera/squad.mjs`（隊友大腦）、`tools/chimera/sim.mjs`（無頭模擬）。
+  - 補丁：嵌入版控制器（0003：接收外面建好的遊戲 `globalThis.ASH_EMBED`、換下一場 `EMBED.load`、顯示切換 `EMBED.setActive`、藏著時全域事件不作用、不擋橫向、不讀寫存檔、不記 ASH 戰績、結束時交給入口）；`action()` 的兩個小隊掛鉤（0004）；動畫快照的掛鉤（0005）。
+  - overlay：`chimera-boot.js`（載入器）、`chimera-wide.css`（戰鬥畫面樣式）、`battle-test.html`、`src/chimera-mission.js`（`MissionGame`）、`src/chimera-squad.js`、`src/chimera-squad-ui.js`、`src/chimera-wide.js`、`src/chimera-entry.js`（入口）、`tools/clear-bot/`（從本機 clear-bot 分支複製的通關機器人）、`tools/chimera/full-squad.mjs`（隊員機器人）、`tools/chimera/full-sim.mjs`（無頭模擬，交棒壞掉會報錯）。
 - 流程：任務票按「親自打」→ worker 停住公司的時間、送出任務資料 → `ASH_EMBED.start(任務資料)` 換成新的戰鬥並顯示（約 0.4 秒）→ 打完 `onresult` 回傳 `{win, dead}` → worker 用 `submit` 結算（目標照 `objectivesDone`）→ 時間恢復。中途可以按「先不打」關掉，票還在。
 - **寬螢幕（ASH docs/LANDSCAPE_UI.md 的 P1 橫向骨架）**：寬度 900 以上且寬比高大時（`#ash-root.wide`）戰場滿版；左上小隊面板（直排）；上方中央訊息、回合、選單；右側欄：任務名稱與「先不打」、鎖定目標（ASH 的目標卡搬進來，不再浮在戰場上）、視野內敵人（點選鎖定）、紀錄；下方行動列（武器與狀態、行動鍵；方向鍵收起，用 WASD 或點相鄰格）；背包與選單是右側抽屜。手機直向照 ASH 原本的版面。方向鍵與等待在下方行動列（武器欄與行動鍵之間）。P2 滑鼠：游標停在敵人上顯示名稱、生命、距離、命中率、掩護；右鍵點敵人直接鎖定並開火；滾輪縮放。P3 鍵盤：1～4 換第幾把武器、X 切換隊員（其餘照 ASH 的熱鍵）。還沒做：手把。
 - 親自打的反應：公司時間跑得快時任務票清單每秒重畫好幾次，按鈕改成按下那一刻就送出；ASH 還在載入時先蓋上「載入戰鬥中」。ASH 的 service worker 另外註冊一份管整個網站（`public/_headers` 給 `/ash/sw.js` 加 `Service-Worker-Allowed: /`），第一次之後戰鬥程式從快取讀（實測每個檔案約 200ms → 27ms）。奇美拉自己的戰鬥檔案（樣式、畫面元素、機器人）另算一個版本號 CREV，改了才會換網址。
@@ -226,10 +226,12 @@
   - 只有操作中的隊員能和隊友換位；機器人隊員把其他隊員當牆（互相換位會在走廊裡來回換、誰都走不動）。視野由操作中的那位最後揭露（光線與視野跟著他）。
   - 機器人的檔案在建置時帶上 ASH 的版本號，同一個模組只用一個網址載入一次。
   - 繪圖：包住 `Renderer.prototype.drawActors` 補畫其他隊員（`src/chimera-squad-ui.js`），不改 ASH 檔案。
-  - 還沒做：各自的先手順序（現在是你之後其他人依序行動）。任務票加 `survivors:true` 會改用下面階段 1 的倖存友軍版本。
+  - 還沒做：各自的先手順序（現在是你之後其他人依序行動）。階段 1 的倖存友軍版本已經拿掉。
   - 統計（`node tools/chimera/full-sim.mjs`，每位都由機器人操作，6 個種子）：掠奪者 12 名全勝、無人陣亡；隊長生命 20、敵人 17 名＋頭目全勝，交棒 3 次。
+- **職業與成長（2026-10-08）**：
+  - 五個職業對上 ASH 的同名職業（狂戰士的基礎近戰改成 0，和 ASH 一致；出生配發的武器名稱照 ASH 實際給的寫）。
+  - 土製武器：出生配發的槍都帶「土製」詞條（只取 ASH 詞條壞的一面：傷害 ×0.9、彈匣 ×0.75、命中 −8），到終端改裝可以換掉；職業天生的近戰武器（動力拳、斧頭）不套。
+  - 複製人出生沒有技能；等級、經驗、升級三選一（只重新套用永久的效果）、技能、預備欄都跟著人走，打完寫回名冊。3 級學會職業技能（士兵預警、偵察兵訊號斷層、重裝兵下錨、狂戰士鉤鎖、工兵工坊）。技能可插拔：學會的放一份清單，預備欄放一個（ASH 原本的設計）。經驗算在擊殺的那個人身上。名冊顯示等級、經驗、技能；升級的人在戰果通知裡列出。
+  - 天生被動（職業特性，例如偵察兵的夜視）還沒檢討。
 - 戰鬥：ASH 第一層的設施地圖（種子由票決定），敵人照票上的編成擺在原本的敵人站位，不夠再補在離起點 7 格以外的地板；ASH 不另外加徵召兵、巡邏小隊、詭雷箱。撤離＝勝。
   - 敵人對應（暫定）：掠奪者→破口突擊兵、重裝掠奪者→叛變哨兵、原住民→被感染突擊兵、原住民獵手→盲眼狙擊手、士兵→斷訊槍兵、重裝士兵→裝甲斷訊槍兵、複製兵→裝甲破口突擊兵；帶遺產級的頭目→小隊長；衝鋒車→自爆機器人、武裝車→固定砲台、戰鬥卡車→叛變哨兵。掠奪者與原住民打叛軍設施，勢力部隊打忠誠派設施。
-- 階段 1 的小隊（`survivors:true`）：隊長是玩家角色（職業同名：士兵、偵察兵、重裝兵、狂戰士、工兵），其餘是倖存友軍。生命直接用奇美拉的數值；命中、閃避、近戰扣掉職業本身的部分，當作個體修正。隊友的武器先用兵種卡（士兵、偵察兵→斷訊槍兵，重裝兵→叛變哨兵，狂戰士→破壞者，工兵→破口突擊兵）。
-- 階段 1 的隊友大腦（`squad.mjs`）：通關機器人的決策層不變。每回合做一個以那名隊友為中心的唯讀外殼（隊友是外殼的玩家、真的隊長變成友軍），只接受移動、開火、等待；沒有敵人時跟著隊長（兩步內）。
-- 統計（`node tools/chimera/sim.mjs`，機器人當隊長，10 個種子，掠奪者 6＋重裝 4＋原住民獵手 2＋頭目）：隊友大腦勝 10、陣亡 0；ASH 原本的友軍 AI 勝 10、陣亡 8。機器人隊長推進很快，隊友開火的機會不多（參數之後再調）。

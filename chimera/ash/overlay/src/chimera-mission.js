@@ -1,8 +1,8 @@
 // 奇美拉的任務戰鬥（hex-world chimera/ash/overlay；不屬於 ASH 本體）。照 KillhouseGame 的做法：一場戰鬥＝第一層，
-// 敵人照任務票擺（simulation.kind='chimera' 讓 ASH 不另外加徵召兵、巡邏小隊、詭雷箱），撤離＝勝；隊長是玩家角色，其餘三人是倖存友軍（survivor）。不存檔。
+// 敵人照任務票擺（simulation.kind='chimera' 讓 ASH 不另外加徵召兵、巡邏小隊、詭雷箱），撤離＝勝。不存檔。
+// 小隊（四位完整的玩家角色）在子類別 SquadGame（chimera-squad.js）。
 import {Game} from './game.js';
 import {generate,makeEnemy} from './world.js';
-import {addAlly,routeCells} from './allies.js';
 import {isNoncombatant} from './enemy-data.js';
 import {CHARACTERS} from './characters.js';
 import {pickPortrait,validPortrait} from './portraits.js';
@@ -13,8 +13,6 @@ export const ENEMY_MAP={raider:'raider',raider_heavy:'gunner',native:'raider_inf
  trooper:'rifleman',trooper_heavy:'rifleman_armored',clone_trooper:'raider_armored'};
 export const VEHICLE_MAP={rush:'bomber_bot',armor:'turret',gt:'gunner'};
 export const BOSS_TYPE='squad_leader';
-// 隊友用哪張兵種卡（決定武器：階段 1 沿用 allyWeapon）
-export const ALLY_TYPE={soldier:'rifleman',recon:'rifleman',bulwark:'gunner',berserker:'brute',engineer:'raider'};
 // 奇美拉的職業 → ASH 的職業（同名）；沒有的退回士兵
 export const character=cls=>CHARACTERS[cls]?cls:'soldier';
 
@@ -38,12 +36,6 @@ export class MissionGame extends Game{
   try{super(ticket.seed,[],0,character(lead.cls),portrait,'extraction',{facilityFaction:ticket.faction||'rebel',simulation:{kind:'chimera'}});}finally{building=null;}
   this.ticket=ticket;this.chimera={members:ticket.squad.map(c=>c.id),units:{}};
   this.chimera.units[lead.id]='player';applyStats(this.player,lead,CHARACTERS[this.player.character]);
-  // 三名隊友排在隊長身邊（兩步內的空格，不穿門）；SquadGame（隊友是完整的玩家角色）自己排
-  if(!new.target.fullSquad)for(const c of ticket.squad.slice(1)){
-   const cell=routeCells(this,this.player,{limit:3,openDoors:false}).find(q=>q.d>0);if(!cell)continue;
-   const a=addAlly(this,'survivor',ALLY_TYPE[c.cls]||'rifleman',{sourceId:`chimera:${c.id}`,point:cell});if(!a)continue;
-   applyStats(a,c,null);a.chimera={id:c.id,cls:c.cls,name:c.name||c.id};this.chimera.units[c.id]=a.id;
-  }
   this.logs=[];this.log(t('game.arrived'));
  }
  generateFloor(){
@@ -68,16 +60,6 @@ export class MissionGame extends Game{
   if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));
   if(this.exitBlocked)return this.fail(this.exitBlocked);
   this.status='won';this.log('撤離完成。');return true;
- }
- // 戰果：誰陣亡（隊長陣亡＝敗，階段 2 才有交棒）
- get missionResult(){
-  const dead=[];
-  for(const [id,unit]of Object.entries(this.chimera.units)){
-   if(unit==='player'){if(this.player.hp<=0)dead.push(id);continue;}
-   const a=this.allies.find(x=>x.id===unit);if(!a||a.hp<=0||a.status==='destroyed')dead.push(id);
-  }
-  const kills=this.enemies.filter(e=>e.hp<=0&&!isNoncombatant(e)).length,total=this.enemies.filter(e=>!isNoncombatant(e)).length;
-  return {win:this.status==='won',dead,kills,total,turns:this.turn};
  }
  serialize(){throw Error('奇美拉的任務戰鬥不存檔');}
 }

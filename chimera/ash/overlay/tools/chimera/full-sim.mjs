@@ -15,6 +15,8 @@ for(let s=from;s<from+seeds;s++){
  let n=0,handovers=0,last=g.player;
  while(g.status==='playing'&&n++<4000){botFor(g.player).step();if(g.player!==last){handovers++;last=g.player;}}
  for(const b of bots.values())for(const [k,v]of Object.entries(b.stats.intents))intents[k]=(intents[k]||0)+v;
+ // 防回歸：還有隊員活著卻判敗，就是交棒壞了（2026-10-08 改視野時不小心刪掉交棒，模擬沒抓到）
+ if(g.status==='dead'&&g.living.length){errors++;console.log(`交棒失敗：種子 ${s}，還有 ${g.living.length} 人活著卻判敗`);}
  const r=g.missionResult,byMember=g.members.map(m=>`${m.squadId}:${m.hp}/${m.maxHp} k${m.kills||0}`).join(' ');
  rows.push({seed:s,status:g.status,turns:g.turn,kills:`${r.kills}/${r.total}`,dead:r.dead.join('')||'-',handovers,members:byMember});
 }

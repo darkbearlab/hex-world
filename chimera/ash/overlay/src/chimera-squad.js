@@ -24,6 +24,23 @@ import {toxicPlayerTurn} from './swarm-fields.js';
 import {scalding} from './vents.js';
 import {VENT_TUNING} from './vent-map.js';
 import {FIRE_TUNING,burningAt} from './fire.js';
+import {AFFIXES,weaponStats} from './weapons.js';
+import {WEAPONS,PERKS} from './data.js';
+import {perkDef} from './perks.js';
+import {initialSkillState,SKILLS} from './skills.js';
+import {initializeAllies} from './allies.js';
+
+// 土製（DESIGN.md「本輪規劃」B）：ASH 的詞條都是一好一壞，土製只取壞的那一面。出生配發的槍都帶著；到終端改裝換掉詞條，
+// 就是把土製槍升級成正規槍。職業天生的近戰武器（動力拳、斧頭）不套。dropOnly:[] 讓它不會隨機出現在掉落與商店裡。
+AFFIXES.homemade??={name:'土製',text:'土法拼裝：傷害 −10%、彈匣 −25%、命中 −8。到終端改裝可以換掉。',damage:.9,mag:.75,accuracy:-8,dropOnly:[]};
+// 技能跟著人走（C）：出生沒有技能；職業技能在 SKILL_LEVEL 級學會（跨戰役的等級）。技能可插拔：學會的放在 skills，預備欄放一個。
+export const CLASS_SKILL={soldier:'early_warning',recon:'signal_break',bulwark:'anchor',berserker:'grapple',engineer:'workshop'};
+export const SKILL_LEVEL=3;
+// 升級三選一跨戰役保留（Alan 2026-10-08：暫時保留，待檢討）：進戰鬥時重新套用永久的效果，一次性的（補給、醫療包、廢料、護甲板）不重複給
+const PERMANENT={weapon:(p,o)=>{p.perkWeaponBonus+=o.amount;},health:(p,o)=>{p.maxHp+=o.amount;p.hp+=o.amount;},stat:(p,o)=>{p[o.stat]+=o.amount;},
+ scavenger:(p,o)=>{p.scavenger+=o.amount;},medic:(p,o)=>{p.healBonus+=o.amount;},hazmat:(p,o)=>{p.hazmat+=o.amount;},
+ combat:(p,o)=>{p.combatModifiers={...p.combatModifiers};for(const k of o.stats)p.combatModifiers[k]=Math.min(100,(p.combatModifiers[k]||0)+o.amount);}};
+const COUNTERS=['perkPicks','classPerkMisses','legacyPerkPicks'];
 
 const PERSONAL=['target','shadowSteps','pursuit','pursuitPending','pursuitBlocked','pendingPerks','perkDraft','perkPicks','classPerkMisses','legacyPerkPicks','sensorContacts','refusal'];
 
@@ -32,6 +49,7 @@ export class SquadGame extends MissionGame{
  constructor(ticket){
   super(ticket);
   const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;
+  this.equip(lead,ticket.squad[0]);for(const k of COUNTERS)this[k]=ticket.squad[0][k]||0;
   // brains（函式）與 stash 不可列舉：ASH 每一步動畫前用 structuredClone 複製遊戲（presentation.js snapshot）
   for(const [k,v]of [['stash',new Map([[lead,{}]])],['brains',new Map()]])Object.defineProperty(this,k,{configurable:true,writable:true,enumerable:false,value:v});
   this.members=[lead];this.controlled=lead;
@@ -39,14 +57,38 @@ export class SquadGame extends MissionGame{
    // 一位完整的玩家角色：借一個同種子的新遊戲建出來，只拿它的 player
    const cls=character(c.cls),spare=new Game(this.seed,[],0,cls,validPortrait(c.portrait)?c.portrait:pickPortrait(),'extraction',{facilityFaction:this.facilityFaction,simulation:{kind:'chimera'}});
    const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;applyStats(m,c,CHARACTERS[cls]);
-   this.shareArmory(m,lead);
+   this.shareArmory(m,lead);this.equip(m,c);
    const cell=this.freeCellNear(lead);if(!cell)continue;Object.assign(m,{x:cell.x,y:cell.y});
-   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:0,perkDraft:null,perkPicks:0,classPerkMisses:0,legacyPerkPicks:0,sensorContacts:[],refusal:null});
+   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:0,perkDraft:null,perkPicks:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
    this.chimera.units[c.id]=m;
   }
   this.chimera.units[ticket.squad[0].id]=lead;
   this.reveal();
  }
+ // 複製人的成長帶進戰鬥（ticket 的 c：lv、xp、picks、skills、prep）；槍套上土製
+ equip(m,c){
+  for(const slot of m.owned)if(!WEAPONS[m.weaponBases[slot]]?.melee){m.affixes[slot]='homemade';m.ammo[slot]=Math.min(m.ammo[slot],weaponStats(m.weaponBases[slot],'homemade',m).mag);}
+  m.level=Math.max(1,c.lv||1);m.xp=Math.max(0,c.xp||0);m.chimeraPicks=[...(c.picks||[])];
+  for(const id of m.chimeraPicks){const o=perkDef(this,PERKS.find(x=>x.id===id));if(!o)continue;PERMANENT[o.effect]?.(m,o);m.perks[o.id]=(m.perks[o.id]||0)+1;}
+  m.skills=(c.skills||[]).filter(id=>SKILLS[id]);m.skillState=initialSkillState(m.skills);
+  m.prepared={...m.prepared,skill:m.skills.includes(c.prep)?c.prep:m.skills[0]||null};
+  if(!m.skills.includes('workshop'))m.productionLines=[];
+  this.learnClassSkill(m);
+ }
+ // 到了 SKILL_LEVEL 級學會職業技能（升級當下也會檢查，見 settleLevels）
+ learnClassSkill(m){
+  const id=CLASS_SKILL[m.character];if(!id||m.level<SKILL_LEVEL||m.skills.includes(id))return false;
+  m.skills=[...m.skills,id];m.skillState={...m.skillState,[id]:{remaining:0,cooldown:0}};if(!m.prepared.skill)m.prepared={...m.prepared,skill:id};
+  if(this.members&&id==='workshop'){const keep=this.player;this.swap(m);try{initializeAllies(this);}finally{this.swap(keep);}}
+  return true;
+ }
+ settleLevels(){
+  const p=this.player,before=p.level;super.settleLevels();
+  if(p.level>before&&this.learnClassSkill(p))this.log(`${p.squadId||''} 升到 ${p.level} 級，學會了「${SKILLS[CLASS_SKILL[p.character]]?.name||CLASS_SKILL[p.character]}」。`,true);
+ }
+ choosePerk(id){const ok=super.choosePerk(id);if(ok)(this.player.chimeraPicks||=[]).push(id);return ok;}
+ // 戰後寫回名冊的成長
+ progressOf(m){const own=m===this.player,st=this.stash?.get(m)||{};return {lv:m.level,xp:m.xp,picks:[...(m.chimeraPicks||[])],skills:[...m.skills],prep:m.prepared?.skill||null,...Object.fromEntries(COUNTERS.map(k=>[k,own?this[k]:st[k]||0]))};}
  // 武器登錄表（weaponBases／affixes／ammo／upgrades，地上的武器用它的編號）全隊共用同一份；
  // 隊員的初始武器各自登錄成新的一把，同職業才不會共用彈匣
  shareArmory(m,lead){
@@ -115,6 +157,12 @@ export class SquadGame extends MissionGame{
   return super.reveal(opts);
  }
  // 交棒：還有人活著就不算結束（ASH 在「玩家」倒下時會判死，這位玩家可能是被敵人借去的其他隊員）
+ // 每個行動之後檢查交棒（隊員在 soloTurn 裡的行動不算，那時「玩家」是他自己）
+ action(type,arg){
+  const r=super.action(type,arg);
+  if(!this.soloTurn&&this.members)this.handOver();
+  return r;
+ }
  handOver(){
   const next=this.living[0];if(!next)return false;
   if(this.status==='dead')this.status='playing';
@@ -129,6 +177,7 @@ export class SquadGame extends MissionGame{
  get missionResult(){
   const dead=Object.entries(this.chimera.units).filter(([,m])=>m.hp<=0).map(([id])=>id);
   const foes=this.enemies.filter(e=>!isNoncombatant(e)),kills=foes.filter(e=>e.hp<=0).length,total=foes.length;
-  return {win:this.status==='won',dead,kills,total,turns:this.turn};
+  const progress=Object.fromEntries(Object.entries(this.chimera.units).map(([id,m])=>[id,this.progressOf(m)]));
+  return {win:this.status==='won',dead,kills,total,turns:this.turn,progress};
  }
 }

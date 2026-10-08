@@ -408,12 +408,13 @@ function renderCo() {
   $('co-rcount').textContent = `活著 ${alive.length}・陣亡 ${G.roster.length - alive.length}`;
   const R = G.roster.filter(c => inF(c)).sort((a, b) => b.pct - a.pct);
   $('co-roster').innerHTML = R.map(c => `<div class="cl${c.alive ? '' : ' kia'}${c.uid === G.fresh ? ' fresh' : ''}"><img src="${img(c.portrait)}" alt=""><div><b>${c.id}</b> ${CLS[c.cls].n}${crownTag(c)}</div>
-    <div class="st">生命 ${c.st.hp}・命中 ${sg(c.st.acc)}・閃避 ${sg(c.st.eva)}・近戰 ${sg(c.st.mel)}</div><div class="st">前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%・${STATUS[c.status] || c.status}${c.squad && c.status === 'away' ? '・' + esc(c.squad) : ''}・出勤 ${c.missions} 次</div>
+    <div class="st">生命 ${c.st.hp}・命中 ${sg(c.st.acc)}・閃避 ${sg(c.st.eva)}・近戰 ${sg(c.st.mel)}</div><div class="st">${c.lv || 1} 級・經驗 ${c.xp || 0}・${(c.skills || []).length ? '技能 ' + c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有技能（3 級學會職業技能）'}</div><div class="st">前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%・${STATUS[c.status] || c.status}${c.squad && c.status === 'away' ? '・' + esc(c.squad) : ''}・出勤 ${c.missions} 次</div>
     ${c.alive && c.status === 'home' ? `<button class="keep${c.keep ? ' on' : ''}" data-act="keep" data-id="${c.uid}" title="供在家裡的不會被派出去">${c.keep ? '供著' : '供'}</button>` : ''}</div>`).join('') || '<p class="muted">沒有。</p>';
 }
 
 // ───── 通知：收在右上角的信封，點開一疊卡片 ─────
 const mailSeen = new Set(); let mailFirst = true, mailSig = '';
+const SKN = {early_warning: '預警', signal_break: '訊號斷層', anchor: '下錨', grapple: '鉤鎖', workshop: '工坊'};
 const MK = {ticket: '任務票', result: '戰果', pay: '結案', move: '調動', refused: '雇主', kia: '陣亡', vat: '培養槽', log: '公司'};
 function mailItems() {
   if (!GV || !GM) return [];

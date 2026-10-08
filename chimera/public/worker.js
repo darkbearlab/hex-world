@@ -80,7 +80,8 @@ function act(m) {
   if (m.type === 'fight') {
     const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === g.name), sq = tk && b.squads[tk.squad];
     if (!sq) return '這張票已經不在了';
-    const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100}}));
+    const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
+      lv: c.lv || 1, xp: c.xp || 0, picks: c.picks || [], skills: c.skills || [], prep: c.prep || null, perkPicks: c.perkPicks || 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: c.legacyPerkPicks || 0}));
     if (!squad.length) return '這一隊沒有活著的人';
     let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
     if (game.fighting == null) game.fighting = game.speed; game.speed = 0;
@@ -94,7 +95,16 @@ function act(m) {
     if (!sq) return '這張票已經結算了';
     const win = !!m.result.win, dead = (m.result.dead || []).filter(id => sq.clones.some(c => c.id === id && c.alive));
     const wipe = !sq.clones.some(c => c.alive && !dead.includes(c.id));
-    C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe)}, h); G.hour(g, b, w, h); return null;
+    // 成長寫回名冊（等級、經驗、升級三選一、技能、預備欄），升級的人另外發一則通知
+    const ups = [];
+    for (const [id, pr] of Object.entries(m.result.progress || {})) {
+      const c = sq.clones.find(x => x.id === id); if (!c || !pr) continue;
+      if ((pr.lv || 1) > (c.lv || 1)) ups.push(`${c.id} ${c.lv || 1}→${pr.lv} 級${(pr.skills || []).length > (c.skills || []).length ? `，學會了${pr.skills.filter(s => !(c.skills || []).includes(s)).map(s => G.SKILL_NAME[s] || s).join('、')}` : ''}`);
+      Object.assign(c, {lv: pr.lv, xp: pr.xp, picks: pr.picks, skills: pr.skills, prep: pr.prep, perkPicks: pr.perkPicks, classPerkMisses: pr.classPerkMisses, legacyPerkPicks: pr.legacyPerkPicks});
+    }
+    C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe)}, h);
+    if (ups.length) b.inbox.push({t: h, player: g.name, kind: 'result', text: `${tk.title}：升級　${ups.join('；')}`, ref: tk.id});
+    G.hour(g, b, w, h); return null;
   }
   return '不認得的指令';
 }
