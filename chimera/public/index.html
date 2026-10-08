@@ -13,6 +13,7 @@
 <body>
 <header class="bar">
   <div class="brand"><b>奇美拉</b><span>被遺棄的星球</span></div>
+  <nav class="pager" aria-label="切換畫面"><button data-page="map" class="on">戰略地圖</button><button data-page="co">公司</button></nav>
   <div class="seed">
     <input id="seed" value="奇美拉-1" aria-label="種子" spellcheck="false">
     <button id="gen" title="用這個種子重新生成星球">生成</button>
@@ -45,10 +46,12 @@
     <b id="gcash" class="cash">—</b>
   </div>
 </header>
-<main>
+<div class="pages" id="pages"><div class="track" id="track">
+<main class="page" id="page-map">
   <section class="mapwrap">
     <canvas id="map"></canvas>
     <div class="layers" role="group" aria-label="圖層">
+      <button data-legend="1" title="圖例">圖例</button>
       <button data-layer="fac" class="on">勢力</button>
       <button data-layer="pop">人口</button>
       <button data-layer="bandit">掠奪者</button>
@@ -62,14 +65,12 @@
   </section>
   <aside class="panel">
     <nav class="tabs" role="tablist">
-      <button data-tab="co">公司</button>
       <button data-tab="opp" class="on">機會</button>
       <button data-tab="log">編年史</button>
       <button data-tab="fac">勢力</button>
       <button data-tab="tile">地點</button>
       <button data-tab="gear">遺產級</button>
     </nav>
-    <div class="pane" id="pane-co" hidden></div>
     <div class="pane" id="pane-opp"></div>
     <div class="pane" id="pane-log" hidden>
       <div class="filters" id="filters">
@@ -86,6 +87,8 @@
     <div class="pane" id="pane-gear" hidden></div>
   </aside>
 </main>
+<section class="page copage" id="page-co"><div id="pane-co"></div></section>
+</div></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

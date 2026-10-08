@@ -25,15 +25,24 @@ body{display:flex;flex-direction:column}
 .year span{font-size:11px;color:var(--accent)}
 .timeline{display:flex;gap:8px;align-items:center;flex:1;min-width:220px}
 .timeline input{flex:1;accent-color:var(--accent);padding:0}
-main{flex:1;display:flex;min-height:0}
+/* 兩頁：戰略地圖｜公司，左右滑或按上方切換 */
+.pages{flex:1;min-height:0;overflow:hidden;position:relative}
+.track{display:flex;width:200%;height:100%;transition:transform .28s ease}
+.track.co{transform:translateX(-50%)}
+.page{width:50%;height:100%;min-height:0;flex:none}
+#page-map{display:flex}
+.copage{overflow:auto;-webkit-overflow-scrolling:touch}
+.pager{display:flex;gap:2px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px}
+.pager button{border:0;background:transparent;padding:4px 12px}
+.pager button.on{background:#3b3124;color:var(--accent)}
 .mapwrap{position:relative;flex:1;min-width:0;background:#0d0c0a;overflow:hidden;touch-action:none}
 #map{width:100%;height:100%;display:block;cursor:grab}
 #map.drag{cursor:grabbing}
-.layers{position:absolute;left:10px;top:10px;display:flex;gap:4px;flex-wrap:wrap}
+.layers{position:absolute;left:10px;bottom:10px;display:flex;gap:4px;flex-wrap:wrap;max-width:calc(100% - 60px)}
 .layers button,.zoom button{background:rgba(28,25,21,.88);font-size:12px;padding:3px 8px}
 .zoom{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:4px}
 .zoom button{width:30px;padding:3px 0}
-.maplegend{position:absolute;left:10px;bottom:10px;background:rgba(20,18,15,.88);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 12px;max-width:calc(100% - 20px)}
+.maplegend{position:absolute;left:10px;bottom:48px;background:rgba(20,18,15,.88);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 12px;max-width:calc(100% - 20px)}
 .maplegend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:-1px;border-radius:2px}
 .tip{position:absolute;pointer-events:none;background:rgba(20,18,15,.95);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px;max-width:240px;z-index:3}
 .panel{width:380px;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel);min-height:0}
@@ -72,7 +81,7 @@ table.stock td:first-child,table.stock th:first-child{text-align:left}
 .gear b{color:var(--accent)}
 h2{font-size:16px;margin:0 0 4px}
 @media (max-width:820px){
-  main{flex-direction:column}
+  #page-map{flex-direction:column}
   .mapwrap{flex:none;height:56vh}
   .panel{width:auto;border-left:0;border-top:1px solid var(--line);flex:1}
   .bar{padding:8px 10px;gap:6px 10px}
@@ -136,3 +145,34 @@ body.game .play,body.game .timeline{display:none}
 .tabs{overflow-x:auto}
 .tabs button{flex:1 0 auto;white-space:nowrap;padding:4px 8px}
 button:disabled{opacity:.45;cursor:not-allowed}
+
+.maplegend[hidden]{display:none}
+/* 公司頁 */
+#pane-co{max-width:1500px;margin:0 auto;padding:12px 16px 40px}
+.cohead{display:flex;flex-wrap:wrap;gap:8px 22px;align-items:baseline;padding:4px 2px 10px;border-bottom:1px solid var(--line);margin-bottom:6px}
+.cohead .big{font-family:var(--mono);font-size:22px;color:var(--ok)}
+.cohead .big.neg{color:var(--war)}
+.cohead .kpi{display:flex;flex-direction:column;font-size:12px;color:var(--muted)}
+.cohead .kpi b{font-size:16px;color:var(--text);font-family:var(--mono);font-weight:600}
+.cocols{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start}
+.cocol{flex:1 1 340px;min-width:0}
+.cofull{margin-top:6px}
+.cofull .roster{grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:2px 12px 10px;margin-bottom:14px}
+.box>.sec:first-child{margin-top:10px}
+table.rep{width:100%;border-collapse:collapse;font-size:12px}
+table.rep th,table.rep td{padding:3px 4px;border-bottom:1px solid var(--line);text-align:right}
+table.rep th{color:var(--muted);font-weight:400}
+table.rep td:first-child,table.rep th:first-child{text-align:left}
+table.rep tr.tot td{font-weight:700;border-top:1px solid var(--dim)}
+table.rep tr.sel td{background:#3b3124}
+table.rep tr[data-qt]{cursor:pointer}
+table.rep tr[data-qt]:hover td{background:rgba(255,255,255,.04)}
+.pos{color:var(--ok)}.neg{color:var(--war)}
+.spark{position:relative}
+.spark svg{display:block;width:100%;height:120px}
+.spark .tt{position:absolute;pointer-events:none;background:rgba(20,18,15,.95);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:11px;font-family:var(--mono);white-space:nowrap}
+.procform{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;font-size:12px;margin-top:8px}
+.procform select,.procform input{width:100%}
+html,body{overscroll-behavior-x:none}
+@media (max-width:820px){body.game .seed{display:none}.pager button{padding:4px 10px}}

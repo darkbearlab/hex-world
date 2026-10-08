@@ -56,6 +56,7 @@ export function openCase(book, w, spec, now) {
   }
   const L = c.lv, H = (c.end - c.start) / 168;
   c.pay = {deposit: 5 * L, mid: 5 * L, final: Math.round(160 * L * H * (c.kind === 'front' ? 1.4 : c.kind === 'hunt' ? 1.2 : c.kind === 'route' ? 1.2 : 1))};
+  if (spec.own) { c.own = spec.own; c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.basePow = spec.guard ?? c.basePow; }
   book.cases.push(c);
   return c;
 }
@@ -109,7 +110,7 @@ export function enlist(book, caseId, squadId, now, w) {
   const c = book.cases.find(x => x.id === caseId), sq = book.squads[squadId];
   if (!c || !sq || !c.open || sq.caseId) return false;
   const eta = now + (w ? travelHours(w, sq.at, c.tile) : 0);
-  if (eta >= c.end - CFG.FREEZE) return false;   // 趕不上：到的時候已經不出票了
+  if (eta >= c.end - (c.freeze ?? CFG.FREEZE)) return false;   // 趕不上：到的時候已經不出票了
   const from = sq.at;
   sq.caseId = c.id; sq.readyAt = eta; c.squads.push(sq.id); sq.at = c.tile;
   if (w) planTrip(book, w, c, sq.id, from, now, eta);
@@ -141,7 +142,7 @@ export function amend(book, w, squadId, n, from, now, o = {}) {
   const fromPost = from !== C.base && !o.clones;
   if (fromPost && (C.posts[from] || 0) < n) return {ok: false, why: '駐紮地人手不夠'};
   const eta = now + travelHours(w, from, c.tile);
-  if (eta >= c.end - CFG.FREEZE) return {ok: false, why: '趕不上'};
+  if (eta >= c.end - (c.freeze ?? CFG.FREEZE)) return {ok: false, why: '趕不上'};
   if (fromPost) C.posts[from] -= n;
   else if (!o.clones) pay(book, now, sq.player, -CFG.CLONE_VALUE * n, 'reinforce', `${c.title}：契約變更，從總部培養槽調 ${n} 人補${sq.name}`, c.id);
   // 調來的人編成一支行軍縱隊，路上一樣可能被劫
@@ -409,8 +410,8 @@ function writeBack(book, w, c, tk, win, gearLost, now) {
       K.bandit[t] = Math.min(100, K.bandit[t] + 3);
       if (c.cargo && tk.convoy !== undefined && !c.lostConvoys.includes(tk.convoy)) {
         c.lostConvoys.push(tk.convoy);
-        const v = c.cargo.amt / c.convoys * BASEP[c.cargo.g];
-        if (tk.type === 'intercept') { const m = K.markets[Object.keys(K.markets).map(Number).filter(x => K.owner[x] === tk.enemy.fac).sort((a, b) => hdist(a, t) - hdist(b, t))[0]]; if (m) m.stock[c.cargo.g] += c.cargo.amt / c.convoys; }
+        const v = c.cargo.amt / c.convoys * (c.cargo.val ?? BASEP[c.cargo.g] ?? 1);
+        if (tk.type === 'intercept') { const m = K.markets[Object.keys(K.markets).map(Number).filter(x => K.owner[x] === tk.enemy.fac).sort((a, b) => hdist(a, t) - hdist(b, t))[0]]; if (m && m.stock[c.cargo.g] !== undefined) m.stock[c.cargo.g] += c.cargo.amt / c.convoys; }
         else P.drop(t, v);   // 被搶走的貨：附近的人馬撿去坐大
       }
     }
@@ -450,10 +451,10 @@ function hour(book, w, now) {
     // 3. 期中款
     if (!c.midPaid && now >= (c.start + c.end) / 2) { c.midPaid = true; for (const id of c.squads) { const s = book.squads[id]; if (alive(s).length) pay(book, now, s.player, c.pay.mid, 'mid', `${c.title}：期中款（${s.name}）`, c.id); } }
     // 4. 抽事件：結束前一段時間不再出票；案件已經不成立也不出
-    if (c.open && (now >= c.end - CFG.FREEZE || c.closedEarly || !stillValid(c, w))) { c.open = false; c.closedAt = now; }
+    if (c.open && (now >= c.end - (c.freeze ?? CFG.FREEZE) || c.closedEarly || !stillValid(c, w))) { c.open = false; c.closedAt = now; }
     if (c.open && rng(book) < hazard(c, w)) { const tk = issue(book, w, c, now); if (tk) assign(book, c, tk, now); }
     // 5. 結算：結束（或提早收尾）後再留一段緩衝
-    const endAt = Math.min(c.end, (c.closedAt ?? c.end) + CFG.FREEZE) + CFG.BUFFER;
+    const FZ = c.freeze ?? CFG.FREEZE, endAt = Math.min(c.end, (c.closedAt ?? c.end) + FZ) + (c.own ? 0 : CFG.BUFFER);
     if (now >= endAt && !book.tickets.some(tk => tk.caseId === c.id && !tk.done)) settleCase(book, w, c, now);
   }
 }
@@ -464,16 +465,16 @@ function settleCase(book, w, c, now) {
   let mult = 1;
   if (c.kind === 'route') {
     const delivered = 1 - c.lostConvoys.length / c.convoys; c.delivered = delivered; mult = delivered;
-    if (c.cargo && K.markets[c.to]) K.markets[c.to].stock[c.cargo.g] += c.cargo.amt * delivered;   // 送到的貨真的進了市場
+    if (c.cargo && !c.own && K.markets[c.to]) K.markets[c.to].stock[c.cargo.g] += c.cargo.amt * delivered;   // 送到的貨真的進了市場
   }
   const pool = c.pay.final * mult, tot = Object.values(c.score).reduce((x, y) => x + y, 0);
   c.payout = {};
-  if (tot > 0) for (const p in c.score) { const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 ${Math.round(v)}。`, c.id); }
+  if (tot > 0 && pool > 0) for (const p in c.score) { const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 ${Math.round(v)}。`, c.id); }
   // 維持費、小隊歸建
   for (const id of c.squads) { const s = book.squads[id]; const days = (Math.min(now, c.end) - c.start) / 24; pay(book, now, s.player, -CFG.UPKEEP * days, 'upkeep', `${c.title}：維持費（${s.name}）`, c.id); s.caseId = null; s.busy = null; }
   // 編年史：只記值得記的
   const top = Object.entries(c.score).sort((a, b) => b[1] - a[1])[0];
-  if (top && tot >= 10 * c.lv) {
+  if (top && tot >= 10 * c.lv && !c.own) {
     if (c.kind === 'route' && c.delivered >= .99) P.say('trade', `${top[0]}護送的${c.cargo ? GN[c.cargo.g] : ''}車隊一路打到${nm(c.to)}，貨一車沒少。`, c.to);
     else if (c.kind === 'front') P.say('war', `${top[0]}替${K.fac[c.fac].n}在${nm(c.tile)}一帶打了 ${book.tickets.filter(t => t.caseId === c.id && t.player === top[0]).length} 場硬仗。`, c.tile);
   }

@@ -70,6 +70,8 @@ function act(m) {
   if (m.type === 'keep') { const c = g.roster.find(x => x.uid === m.uid); if (c) c.keep = !c.keep; return null; }
   if (m.type === 'accept') { const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile); if (!o) return '這個機會已經不在了'; return G.accept(g, b, w, o, m.side, m.uids, h); }
   if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, h);
+  if (m.type === 'procure') return G.procure(g, b, w, m.town, m.mat, m.qty, m.uids || [], h);
+  if (m.type === 'quotes') { postMessage({type: 'quotes', data: G.quotes(g, w)}); return null; }
   if (m.type === 'resolve') { C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
   return '不認得的指令';
 }
@@ -81,7 +83,7 @@ onmessage = e => {
     game = {book: C.newBook(m.base * 31 + 7), G: G.newCompany(w, m.base, m.name || '我的公司', m.base * 17 + 3), h: 0, acc: 0, speed: 3, yearDays: 30};
     clearInterval(clock); clock = setInterval(gtick, 250); gview(); return;
   }
-  if (game && ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve'].includes(m.type)) { const err = act(m); gview(err); return; }
+  if (game && ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'procure', 'quotes'].includes(m.type)) { const err = act(m); gview(err); return; }
   if (m.type === 'start') {
     running = false; lastEv = 0; game = null; clearInterval(clock);
     w = S.generate(m.seed, {history: false}); sim = w.sim; sim.begin();

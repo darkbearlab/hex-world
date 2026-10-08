@@ -47,7 +47,7 @@ export function makeClone(G, rng, cls, portrait, u, o = {}) {
 
 // ===== 公司 =====
 export function newCompany(w, base, name = '我的公司', seed = 7) {
-  const G = {name, base, cash: GCFG.START_CASH, mats: {...GCFG.START_MATS}, roster: [], templates: [], queue: [], seq: 1, rs: seed | 0, h: 0, ledgerAt: 0, inboxAt: 0, log: [], cases: [], returning: []};
+  const G = {flows: [], daily: [], name, base, cash: GCFG.START_CASH, mats: {...GCFG.START_MATS}, roster: [], templates: [], queue: [], seq: 1, rs: seed | 0, h: 0, ledgerAt: 0, inboxAt: 0, log: [], cases: [], returning: []};
   const r = () => rnd(G);
   // 開局：一隊四人（配方平均），外加一張模板
   for (let i = 0; i < 6; i++) G.roster.push(makeClone(G, r, pickW(r, classOdds({food: 30, water: 30, implant: 30, neural: 30})), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()]));
@@ -75,11 +75,60 @@ export function buy(G, w, mat, qty) {
   const pr = prices(G, w)[mat], cost = Math.round(pr * qty);
   if (cost > G.cash) return '錢不夠';
   const K = w.sim.peek(), m = K.markets[G.base];
-  // 糧和水直接從市場存貨裡買走；植入物用零件做（每 4 份吃 1 份零件）
+  // 糧和水直接從市場存貨裡買走（100 份吃掉 5 份存貨）；植入物在有廠區或培養槽的城直接有賣，其他城要用零件存貨做（100 份吃掉 0.5 份零件）
   if (m && (mat === 'food' || mat === 'water')) { if (m.stock[mat] < qty * .05) return `${w.names[G.base]}的${MN[mat]}不夠賣`; m.stock[mat] -= qty * .05; }
-  if (m && mat === 'implant') { if (m.stock.parts < qty / 40) return `${w.names[G.base]}的零件不夠做植入物`; m.stock.parts -= qty / 40; }
-  G.cash -= cost; G.mats[mat] += qty; return null;
+  if (m && mat === 'implant' && !m.works && !(m.vat > 0)) { if (m.stock.parts < qty / 200) return `${w.names[G.base]}的零件不夠做植入物`; m.stock.parts -= qty / 200; }
+  G.cash -= cost; G.mats[mat] += qty; flow(G, 'buy', -cost, `本地買進${MN[mat]} ${qty}`); return null;
 }
+function flow(G, kind, amount, text) { G.flows.push({h: G.h, kind, amount: Math.round(amount), text}); if (G.flows.length > 3000) G.flows.splice(0, 500); }
+
+// ===== 採購路線：派車隊去別座城買料，沿實際道路來回，路上可能被劫 =====
+// 價格看那座城的市價；廠區和有培養槽的城賣植入物（廠區便宜），有培養槽的城才有神經介質。跟總部所屬勢力交戰中的城不賣。
+const TRIP_FEE = 1.2, TRIP_LOAD = 6;
+function offerAt(w, t) {
+  const K = w.sim.peek(), m = K.markets[t], p = g => m?.price?.[g] ?? 1;
+  if (!m) return null;
+  return {
+    food: {price: +(.2 * p('food')).toFixed(2), max: Math.min(999, Math.floor(m.stock.food / .05 / 100) * 100)},
+    water: {price: +(.24 * p('water')).toFixed(2), max: Math.min(999, Math.floor(m.stock.water / .05 / 100) * 100)},
+    implant: {price: +(.25 * p('parts') * (m.works ? .7 : 1)).toFixed(2), max: m.works ? 999 : (m.vat || 0) > 0 ? 500 : Math.min(999, Math.floor(m.stock.parts * 200 / 100) * 100)},
+    neural: {price: .8, max: (m.vat || 0) > 0 ? 999 : 0},
+  };
+}
+export function quotes(G, w) {
+  const K = w.sim.peek(), P = w.sim.pmc, T = P.tree(G.base), me = K.owner[G.base];
+  const out = [];
+  for (const k of Object.keys(K.markets)) {
+    const t = +k, o = K.owner[t]; if (o < 0 || t === G.base || !isFinite(T.dist[t])) continue;
+    const path = T.path(t), risk = path.reduce((x, i) => x + K.bandit[i] + (me >= 0 && K.owner[i] >= 0 && P.atWar(K.owner[i], me) ? 40 : 0), 0);
+    const hours = Math.ceil(T.dist[t] * C.CFG.TRAVEL);
+    out.push({t, name: w.names[t], fac: K.fac[o]?.n || '', war: me >= 0 && P.atWar(o, me), works: !!K.markets[t].works, vat: K.markets[t].vat || 0,
+      hours, trip: hours * 2 + TRIP_LOAD, risk: Math.min(.99, 1 - Math.exp(-risk / 1500 * 2)), fee: Math.round(hours * 2 * TRIP_FEE), offer: offerAt(w, t)});
+  }
+  return out.sort((a, b) => a.hours - b.hours).slice(0, 40);
+}
+export function procure(G, book, w, t, mat, qty, uids, now) {
+  const q = quotes(G, w).find(x => x.t === t); if (!q) return '到不了那座城';
+  if (q.war) return `${q.fac}跟我們這邊在打仗，不賣`;
+  const o = q.offer[mat]; qty = Math.floor(qty / 10) * 10;
+  if (qty <= 0) return '數量要大於 0';
+  if (qty > o.max) return `${q.name}只賣得出 ${o.max}`;
+  const cost = Math.round(o.price * qty) + q.fee; if (cost > G.cash) return `錢不夠（要 $${cost}）`;
+  const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
+  const K = w.sim.peek(), m = K.markets[t];
+  if (mat === 'food' || mat === 'water') m.stock[mat] -= qty * .05; else if (mat === 'implant' && !m.works && !(m.vat > 0)) m.stock.parts -= qty / 200;
+  C.registerCompany(book, G.name, G.base);
+  const c = C.openCase(book, w, {kind: 'route', own: G.name, guard: 16, title: `採購：${MN[mat]} ${qty}（${q.name}）`, tile: t, from: t, to: G.base, fac: K.owner[G.base], lv: 1, hours: q.trip,
+    cargo: {g: mat, amt: qty, val: o.price}}, now);
+  c.mat = mat; c.qty = qty;
+  G.cash -= cost; flow(G, 'trip', -cost, `採購路線：${q.name}的${MN[mat]} ${qty}（貨款 $${Math.round(o.price * qty)}、車隊 $${q.fee}）`);
+  const groups = []; for (let i = 0; i < pick.length; i += 4) groups.push(pick.slice(i, i + 4));
+  for (const g of groups) { if (g.length < 2) continue; const sq = C.makeSquad(book, G.name, {clones: g, gear: 3, at: G.base, name: `${G.name}・護衛${G.seq++}隊`}); if (C.enlist(book, c.id, sq.id, now)) for (const x of g) { x.status = 'away'; x.missions++; } }
+  G.cases.push(c.id);
+  note(G, now, `車隊出發去${q.name}買${MN[mat]} ${qty}，來回約 ${fmtH(q.trip)}${pick.length >= 2 ? '，有護衛' : '，沒有護衛（只有雇來的車隊守衛）'}。`);
+  return null;
+}
+const fmtH = x => x < 48 ? `${Math.round(x)} 小時` : `${Math.floor(x / 24)} 天 ${Math.round(x % 24)} 小時`;
 
 // ===== 培養槽 =====
 export function build(G, recipe, tplId) {
@@ -136,18 +185,24 @@ export function hour(G, book, w, h) {
   G.h = h;
   for (const q of G.queue.slice()) if (h >= q.done) { G.queue.splice(G.queue.indexOf(q), 1); finishBuild(G, q, h); }
   // 帳：真正進出的錢（陣亡是帳面上的業務損失，不再扣一次現金：人和素材早就付過了）
-  for (; G.ledgerAt < book.ledger.length; G.ledgerAt++) { const x = book.ledger[G.ledgerAt]; if (x.player !== G.name) continue; if (x.kind !== 'loss') G.cash += x.amount; else G.lossBook = (G.lossBook || 0) - x.amount; }
+  for (; G.ledgerAt < book.ledger.length; G.ledgerAt++) { const x = book.ledger[G.ledgerAt]; if (x.player !== G.name) continue; if (x.kind !== 'loss') { G.cash += x.amount; if (x.amount) flow(G, x.kind, x.amount, x.text); } else { G.lossBook = (G.lossBook || 0) - x.amount; flow(G, 'loss', x.amount, x.text); } }
   // 陣亡
   for (const c of G.roster) if (!c.alive && c.status !== 'kia') { c.status = 'kia'; c.diedH = h; note(G, h, `${CLS[c.cls].n} ${c.id} 陣亡${c.crown === 'gold' ? '（金冠）' : ''}。`); }
   // 結案：活著的人走回總部
   for (const id of G.cases) {
     const c = book.cases.find(x => x.id === id); if (!c || !c.settled || c.backHome) continue; c.backHome = true;
+    if (c.own) {
+      const got = Math.round(c.qty * (c.delivered ?? 1)); G.mats[c.mat] += got;
+      for (const sid of c.squads) for (const x of book.squads[sid].clones) if (x.alive && x.status === 'away') x.status = 'home';
+      note(G, h, `採購車隊回到總部：${MN[c.mat]} ${got}／${c.qty}${got < c.qty ? `（路上被劫走 ${c.qty - got}）` : ''}。`); continue;
+    }
     const back = C.travelHours(w, c.tile, G.base);
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name) continue; for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: h + (isFinite(back) ? back : 24)}); } }
     const got = c.payout?.[G.name] || 0;
     note(G, h, `「${c.title}」結案${c.delivered !== undefined ? `，送達 ${Math.round(c.delivered * 100)}%` : ''}，分到尾款 ${got}。`);
     if (got > 0 && rnd(G) < GCFG.TEMPLATE_P) { const t = mkTemplate(G, () => rnd(G)); G.templates.push(t); note(G, h, `雇主另外送了一張模板：${CLS[t.cls].n}。`); }
   }
+  if (h % 24 === 0) { G.daily.push({h, cash: Math.round(G.cash), alive: G.roster.filter(c => c.alive).length, kia: G.roster.filter(c => !c.alive).length}); if (G.daily.length > 400) G.daily.shift(); }
   for (const r of G.returning.slice()) if (h >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive) c.status = 'home'; }
   // 補員縱隊全滅、或到的時候案件已結算：人留在現場（駐紮），MVP 先直接讓他們走回來
   for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
@@ -158,7 +213,7 @@ export function view(G, book, w) {
   const nm = t => w.names[t] || '無名之地';
   const sqOf = {}; for (const sq of Object.values(book.squads)) for (const c of sq.clones) sqOf[c.uid] = sq;
   const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || G.h - c.settledAt < 72).map(c => ({
-    id: c.id, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
+    id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
     payout: c.payout?.[G.name], delivered: c.delivered, convoys: c.convoys, lost: c.lostConvoys.length, pay: c.pay, tickets: c.tickets,
     squads: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).map(sq => ({id: sq.id, name: sq.name, readyAt: sq.readyAt, busy: sq.busy, refused: !!sq.refused,
       clones: sq.clones.map(x => x.uid), pending: book.amends.filter(a => a.squad === sq.id && !a.done).map(a => ({n: a.n, eta: a.eta}))}))}));
@@ -166,6 +221,15 @@ export function view(G, book, w) {
     biome: t.biome, night: t.night, trench: t.trench, enemy: {name: t.enemy.name, power: t.enemy.power, side: t.enemy.side, units: t.enemy.units, boss: t.enemy.boss, veh: t.enemy.veh},
     objectives: t.objectives, squad: book.squads[t.squad]?.name, est: book.squads[t.squad] ? C.estimate(book.squads[t.squad], t.enemy) : null, caseTitle: book.cases.find(c => c.id === t.caseId)?.title}));
   const done = book.tickets.filter(t => t.player === G.name && t.done).slice(-12).reverse().map(t => ({id: t.id, title: t.title, win: t.win, auto: t.auto, pts: t.pts, dead: (t.dead || []).length, at: t.doneAt}));
-  return {name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map(q => ({done: q.done, tpl: q.tpl ? q.tpl.cls : null})),
+  // 報表
+  const hist = G.cases.map(id => book.cases.find(x => x.id === id)).filter(c => c && c.settled).map(c => {
+    const T = book.tickets.filter(t => t.caseId === c.id && t.player === G.name && t.done);
+    const L = book.ledger.filter(x => x.caseId === c.id && x.player === G.name);
+    return {title: c.title, own: !!c.own, kind: c.kind, at: c.settledAt, tickets: T.length, wins: T.filter(t => t.win).length, auto: T.filter(t => t.auto).length, dead: T.reduce((x, t) => x + (t.dead?.length || 0), 0),
+      income: L.filter(x => ['deposit', 'mid', 'final'].includes(x.kind)).reduce((a, x) => a + x.amount, 0), upkeep: L.filter(x => x.kind === 'upkeep').reduce((a, x) => a + x.amount, 0), delivered: c.delivered};
+  }).reverse();
+  const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
+  const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
+  return {report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map(q => ({done: q.done, tpl: q.tpl ? q.tpl.cls : null})),
     templates: G.templates, roster: G.roster.map(c => ({...c, squad: sqOf[c.uid]?.name || ''})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H};
 }
