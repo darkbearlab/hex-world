@@ -92,8 +92,8 @@ const SEASON=['涼季','熱季','收季','寒季'];
 const HARVEST=[.1,.35,.55,0],WATERS=[.3,.2,.25,.3];
 // 零件：精煉一份零件要燒 CHAR 份燃料；平民用零件隨價格伸縮，舊零件有一部分拆了重用
 // 載具：停在城裡的車庫（市集的 veh），城被攻下就被搶。卡車管物流；武裝車是主力；衝鋒車便宜、打一仗就耗掉一大半；戰鬥卡車儲油、送油、廣播，多合一
-const VEH=['truck','armor','rush','gt'],VN={truck:'卡車',armor:'武裝車',rush:'衝鋒車',gt:'戰鬥卡車'};
-const VCOST={truck:1,armor:3,rush:.5,gt:2},VPOW={truck:0,armor:30,rush:3,gt:4},VFUEL={truck:.2,armor:3,rush:.2,gt:.5},VKEEP={truck:.2,armor:1.5,rush:0,gt:.3};   // 武裝車像虎王：很能打，但出一趟門燒的油、平常要的零件都很兇
+const VEH=['truck','armor','rush','gt','bomb'],VN={truck:'卡車',armor:'武裝車',rush:'衝鋒車',gt:'戰鬥卡車',bomb:'炸藥車'};   // 炸藥車＝綁了炸藥的衝鋒車
+const VCOST={truck:1,armor:3,rush:.5,gt:2},VPOW={truck:0,armor:30,rush:3,gt:4,bomb:3},VFUEL={truck:.2,armor:3,rush:.2,gt:.5,bomb:.2},VKEEP={truck:.2,armor:1.5,rush:0,gt:.3,bomb:0};   // 武裝車像虎王：很能打，但出一趟門燒的油、平常要的零件都很兇
 // 開闊地（旱原、沙海、寒漠、礫丘）載具好用；岩山、油棘林、鹽沼幾乎開不進去
 const VTERR=[0,0,0,.25,.8,1,.3,1,1,.25];
 // 培養槽：每座槽每季最多養 VAT_RATE 名複製兵，最多存 VAT_CAP 名；每名要糧、水、零件，之後每季還要吃喝
@@ -148,7 +148,7 @@ function createSim(w,rand,pick){
   const trafNear=t=>traffic[t]+NBR[t].reduce((x,n)=>x+traffic[n],0);
   const newMarket=st=>({stock:st||{food:30,water:15,fuel:6,parts:2,scrap:6,ammo:2},price:one(),need:zero(),rsum:zero(),ratio:one(),store:2,pop:0,cold:0,walls:0,famineCD:0});
   for(const f of fac)if(f.alive){town[f.cap]=1;markets[f.cap]=newMarket({...f.stock})}
-  const vz=()=>({truck:0,armor:0,rush:0,gt:0});
+  const vz=()=>({truck:0,armor:0,rush:0,gt:0,bomb:0});
   const garage=m=>m.veh||(m.veh=vz());
   const vehOf=fid=>{const o=vz();for(const k in markets)if(owner[+k]===fid&&markets[k].veh)for(const v of VEH)o[v]+=markets[k].veh[v];return o};
   // 打仗時從各車庫按比例扣車（被打爆、被開走）
@@ -557,7 +557,10 @@ function createSim(w,rand,pick){
     {const atwF=new Uint8Array(FMAX);for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)if(war[a][b]&&fac[a].alive&&fac[b].alive){atwF[a]=1;atwF[b]=1}
     for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0||!fac[o].alive)continue;
       // 衝鋒車：真正的廢料車，誰都造得起——廢料焊一焊、裝上一點零件和油就能開
-      if(atwF[o]){const g=garage(m),n=Math.min(m.pop*.003,m.pop/50-g.rush,m.stock.scrap/1.5,m.stock.fuel/.2,m.stock.parts/.1);if(n>0){g.rush+=n;m.stock.scrap-=n*1.5;m.stock.fuel-=n*.2;m.stock.parts-=n*.1}}
+      if(atwF[o]){const g=garage(m);g.bomb=g.bomb||0;const n=Math.min(m.pop*.003,m.pop/50-g.rush-g.bomb,m.stock.scrap/1.5,m.stock.fuel/.2,m.stock.parts/.1);if(n>0){m.stock.scrap-=n*1.5;m.stock.fuel-=n*.2;m.stock.parts-=n*.1;
+        // 一半綁上炸藥：先拆彈藥（0.3），不夠就用燃料土製（0.6）
+        let nb=n*.5;const ua=Math.min(m.stock.ammo,nb*.3);m.stock.ammo-=ua;let rest=nb-ua/.3;const uf=Math.min(m.stock.fuel,rest*.6);m.stock.fuel-=uf;rest-=uf/.6;nb-=rest;
+        g.bomb+=nb;g.rush+=n-nb}}
       if(fac[o].native)continue;
       const W_=m.works,bud0=W_?m.pop*.003:m.pop>=200?m.pop*.0008:0;if(bud0<.05)continue;
       const tense=atwF[o]||(fac[o].bloc&&y>=ARC.blocY);
@@ -642,8 +645,14 @@ function createSim(w,rand,pick){
         if(need>.1){const got=facTake(f,'fuel',need);fr=Math.min(1,got/need);if(fr<.3&&V.armor+V.rush*.3>=3&&(!fac[f].dryY||y-fac[f].dryY>=10)){fac[f].dryY=y;say(y,'war',`燃料見底，${fac[f].n}的車隊停在${nm(n)}一帶動不了。`,n)}}
         return {fr,p:VEH.reduce((x,v)=>x+V[v]*VPOW[v],0)*vt*fr,mor:1+Math.min(.2,V.gt*.04),sup:Math.min(.6,V.gt*.1)}};
       const PA=vpow(A,VA),PD=vpow(D,VD),supA=1/(1+.08*dT*(1-PA.sup)),tr=globalThis.TRENCH?trench[n]:0;
-      if(tr){PA.p*=1-.25*tr}   // 反戰車壕：攻方的車開不過去
-      const sa=(LA+xA+PA.p)*fac[A].aggr*wf*supA*kA*rA*PA.mor,sd=((LD+xD)*.8+mil+PD.p*.9)*tm*wm*kD*rD*PD.mor*(1+.3*tr);
+      // 炸藥車（造衝鋒車時一半綁上炸藥）：遇到壕溝全數衝上去引爆；衝成功的（三到七成）每輛填平 0.15 級壕溝、守方戰力 −5%（最多 −40%）、炸死 3 人
+      let bombs=0,boomOk=0;
+      if(tr&&globalThis.BOMB!==0&&VA.bomb>=.5){bombs=VA.bomb;vehLose(A,{truck:0,armor:0,rush:0,gt:0,bomb:1/nw2(A)});
+          boomOk=bombs*(.3+rand()*.4);trench[n]=Math.max(0,trench[n]-boomOk*.15);
+          if(!fac[A].bombY){fac[A].bombY=y;say(y,'war',`${fac[A].n}把炸藥綁在衝鋒車上，一輛接一輛衝進${nm(n)}的壕溝。`,n)}}
+      const tr2=globalThis.TRENCH?trench[n]:0;
+      if(tr2){PA.p*=1-.25*tr2}   // 反戰車壕：攻方的車開不過去
+      const sa=(LA+xA+PA.p)*fac[A].aggr*wf*supA*kA*rA*PA.mor,sd=((LD+xD)*.8+mil+PD.p*.9)*tm*wm*kD*rD*PD.mor*(1+.3*tr2)*(1-Math.min(.4,boomOk*.05));
       const siege=!counter&&(town[n]||wall[n]>=1);
       let win,lose,dead,took=false,note='';
       if(sa>sd){win=A;lose=D;dead=LD*.12;
@@ -652,18 +661,18 @@ function createSim(w,rand,pick){
           if(W.siege.prog>=need||(starving&&W.siege.prog>=1)){took=true;note=starving?`，${nm(n)}斷糧開門`:`，${nm(n)}在圍城 ${W.siege.prog} 季後陷落`;W.siege=null}
           else note=`，${nm(n)}被圍`}
         else took=true}
-      else{win=D;lose=A;dead=LA*.12*(1+.4*tr);if(siege&&W.siege&&W.siege.t===n)W.siege.prog=Math.max(0,W.siege.prog-1)}
+      else{win=D;lose=A;dead=LA*.12*(1+.4*tr2);if(siege&&W.siege&&W.siege.t===n)W.siege.prog=Math.max(0,W.siege.prog-1)}
       W.score+=win===W.att?1:-1;
-      if(globalThis.BSTAT){const cA=(fac[A].clones||0)*(.6+.4*fac[A].ratio.ammo),cD=(fac[D].clones||0)*(.6+.4*fac[D].ratio.ammo);globalThis.BSTAT.push({y,b:biome[n],siege:siege?1:0,town:town[n]?1:0,wall:wall[n],tr,aw:win===A?1:0,took:took?1:0,sa,sd,vA:PA.p/(LA+xA+PA.p||1),vD:PD.p/((LD+xD)*.8+mil+PD.p*.9||1),cA:cA/(LA+xA+PA.p||1),cD:cD/((LD+xD)*.8+mil+PD.p*.9||1),dead,ctr:counter?1:0})}
+      if(globalThis.BSTAT){const cA=(fac[A].clones||0)*(.6+.4*fac[A].ratio.ammo),cD=(fac[D].clones||0)*(.6+.4*fac[D].ratio.ammo);globalThis.BSTAT.push({y,b:biome[n],siege:siege?1:0,town:town[n]?1:0,wall:wall[n],tr,tr2,bombs,boomOk,rushA:VA.rush,armA:VA.armor,aw:win===A?1:0,took:took?1:0,sa,sd,vA:PA.p/(LA+xA+PA.p||1),vD:PD.p/((LD+xD)*.8+mil+PD.p*.9||1),cA:cA/(LA+xA+PA.p||1),cD:cD/((LD+xD)*.8+mil+PD.p*.9||1),dead,ctr:counter?1:0})}
       if(globalThis.CSTAT)for(const [f,L,x,P] of [[A,LA,xA,PA],[D,LD,xD,PD]]){const F=fac[f],cl=(F.clones||0)*(.6+.4*F.ratio.ammo);rec(f,y,'battles',1);rec(f,y,'wins',f===win?1:0);rec(f,y,'strTot',L+x+P.p);rec(f,y,'strClone',cl);rec(f,y,'strVeh',P.p);rec(f,y,'strMerc',F.merc||0)}
       // 載具的損失：衝鋒車打一仗就耗掉一大半；敗方的武裝車被打爆或被勝方開走
       {const used=f=>({truck:0,armor:Math.min(1,1/nw2(f)),rush:Math.min(1,1/nw2(f)),gt:Math.min(1,1/nw2(f))});
-        const uL=used(lose),uW=used(win),dryL=(lose===A?PA:PD).fr<.5;const lostL=vehLose(lose,{truck:0,armor:(dryL?.3:.15)*uL.armor,rush:.7*uL.rush,gt:.12*uL.gt});vehLose(win,{truck:0,armor:.08*uW.armor,rush:.45*uW.rush,gt:.04*uW.gt});
+        const uL=used(lose),uW=used(win),dryL=(lose===A?PA:PD).fr<.5;const lostL=vehLose(lose,{truck:0,armor:(dryL?.3:.15)*uL.armor,rush:.7*uL.rush,gt:.12*uL.gt,bomb:.7*uL.rush});vehLose(win,{truck:0,armor:.08*uW.armor,rush:.45*uW.rush,gt:.04*uW.gt,bomb:.45*uW.rush});
         // 沒油的武裝車只能丟在原地
         const took2={armor:lostL.armor*(dryL?.6:.3),gt:lostL.gt*.3};if(took2.armor>0){vehGive(win,took2);if(took2.armor>=.3&&!W.vtold){W.vtold=1;say(y,'war',dryL?`${fac[lose].n}的武裝車在${nm(n)}燒乾了油，被丟在原地，${fac[win].n}加滿油就開走了。`:`${nm(n)}之戰後，${fac[win].n}開走了${fac[lose].n}丟下的武裝車。`,n)}}}
       if(xD>0&&fac[D].liege>=0)fac[D].helped=1;
       const hw=win===A?hA:hD,hl2=win===A?hD:hA;if(hw){hw.battles++;hw.wins++;for(const wp of weaponsOf(hw))wp.wins++;hw.fame=(hw.fame||0)+.25+Math.min(1.75,trafNear(n)/FAMEK);hw.lastWin=n}if(hl2)hl2.battles++;
-      kill(lose,dead);kill(win,dead*.4);pop[i]*=.96;
+      kill(lose,dead);kill(win,dead*.4);if(boomOk)kill(D,boomOk*3);pop[i]*=.96;
       if(took&&n===ARC.protect){took=false;note=`，${nm(n)}久圍不下`}
       if(took&&markets[n]?.vat){const m=markets[n],dc=fac[D].cap;
         if(dc!==n&&owner[dc]===D&&markets[dc]&&rand()<.35){markets[dc].vat=(markets[dc].vat||0)+m.vat;say(y,'war',`城破之前，${fac[D].n}把${nm(n)}的 ${m.vat} 座培養槽拆下來，連夜運回${nm(dc)}。`,n);m.vat=0}
@@ -789,7 +798,7 @@ function createSim(w,rand,pick){
     for(let i=0;i<N;i++)if(trench[i]>0)trench[i]=trench[i]*.8<.05?0:trench[i]*.8;
     // 3d. 載具保養：每年要零件，沒有就壞掉一部分；本來就會慢慢折舊
     for(const k in markets){const m=markets[k];if(!m.veh||owner[+k]<0)continue;const g=m.veh,need=VEH.reduce((x,v)=>x+g[v]*VKEEP[v],0);const got=Math.min(need,m.stock.parts);m.stock.parts-=got;
-      const r=need>0?got/need:1;for(const v of VEH)g[v]*=(v==='rush'?.75:.95)-(1-r)*.15}   // 衝鋒車是拼裝貨，放著也會爛
+      const r=need>0?got/need:1;for(const v of VEH)g[v]*=(v==='rush'||v==='bomb'?.75:.95)-(1-r)*.15}   // 衝鋒車是拼裝貨，放著也會爛
     // 3c. 培養槽好搬：人口多的城遲早會有人運一座過來
     for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(o<0||m.vat||m.pop<(globalThis.VATPOP??250)||rand()>.08)continue;m.vat=1;say(y,'econ',`有人把一座培養槽運進${nm(t)}，${fac[o].n}多了一處能養兵的地方。`,t)}
     // 4. 防壁：廢料夠就加固首府與前線
