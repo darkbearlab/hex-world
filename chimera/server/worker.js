@@ -8,6 +8,7 @@
 // - 戰鬥（S1 還在瀏覽器裡跑）：fight 回傳任務資料，submit 收戰果。S2 搬到伺服器。
 import {DurableObject} from 'cloudflare:workers';
 import {Core, COMMANDS, QUERIES, YEARS} from '../core.js';
+export {Skirmish} from './battle.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) => ArrayBuffer.isView(v) ? Array.from(v) : v), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
@@ -103,6 +104,8 @@ export class Planet extends DurableObject {
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
+    // 開發用：直接開一場戰鬥、讓機器人打完（DEV=1 才開）
+    if (env.DEV === '1' && url.pathname.startsWith('/api/dev/battle/')) { const [, , , , id, op] = url.pathname.split('/'); return env.SKIRMISH.get(env.SKIRMISH.idFromName('dev-' + id)).fetch(new Request('https://battle/' + op, req)); }
     if (url.pathname.startsWith('/api/')) return env.PLANET.get(env.PLANET.idFromName('planet-' + (env.WORLD_VERSION || '1'))).fetch(req);
     return env.ASSETS.fetch(req);
   },

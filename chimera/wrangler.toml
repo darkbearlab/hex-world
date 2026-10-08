@@ -15,12 +15,26 @@ run_worker_first = ["/api/*"]
 name = "PLANET"
 class_name = "Planet"
 
+# 每張任務票一場戰鬥（S2）：規則與隊員機器人在伺服器上跑
+[[durable_objects.bindings]]
+name = "SKIRMISH"
+class_name = "Skirmish"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Planet"]
 
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Skirmish"]
+
 [limits]
 cpu_ms = 30000
+
+# 伺服器上的戰鬥（server/battle.js）會載入 ASH 的模組；其中幾個在載入時用 import.meta.url 組圖片網址（伺服器不畫圖），
+# 打包後的 Worker 沒有自己的網址，給一個固定的就好
+[define]
+"import.meta.url" = '"https://chimera.invalid/ash/src/server.js"'
 
 [vars]
 # 改這個數字並推送，星球就從頭重新產生（所有公司一起重來）
