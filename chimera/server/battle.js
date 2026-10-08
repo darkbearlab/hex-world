@@ -66,7 +66,7 @@ export class Skirmish extends DurableObject {
   snap() { if (this.g.pendingPerks) void this.g.perkChoices; return this.view(snapshot(this.g)); }
   // 打完：把戰果交給星球結算（只做一次）
   async settle() {
-    if (this.meta.settled || this.g.status === 'playing') return;
+    if (this.meta.settled || this.meta.arena || this.g.status === 'playing') return;   // 測試場的戰鬥不結算
     this.meta.settled = true; await this.save();
     const planet = this.env.PLANET.get(this.env.PLANET.idFromName('planet-' + (this.env.WORLD_VERSION || '1')), this.env.PLANET_HINT ? {locationHint: this.env.PLANET_HINT} : undefined);
     await planet.fetch(new Request('https://planet/api/internal/settle', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({ticket: this.meta.ticket, owner: this.meta.owner, result: this.g.missionResult})}));
@@ -79,7 +79,7 @@ export class Skirmish extends DurableObject {
       if (await this.load()) { if (body.owner && body.owner !== this.meta.owner) { this.meta.owner = body.owner; await this.save(); } return json({state: this.snap(), resumed: true}); }
       const t0 = Date.now();
       this.g = new SquadGame(body.mission); installFullSquad(this.g);
-      this.meta = {ticket: body.mission.id, owner: body.owner, startedAt: Date.now(), vseed: vseed()};
+      this.meta = {ticket: body.mission.id, owner: body.owner, startedAt: Date.now(), vseed: vseed(), arena: !!body.arena};
       await this.save();
       return json({state: this.snap(), ms: Date.now() - t0});
     }

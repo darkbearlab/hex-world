@@ -246,3 +246,6 @@ body.server #seed,body.server #gen,body.server #more,body.server #playBtn,body.s
 #devlogBody h3{margin:14px 0 4px;color:var(--accent);font-size:14px}
 #devlogBody p{margin:3px 0;color:var(--text)}
 .titlescreen[hidden],.devlog[hidden]{display:none}
+.arenabox{border:1px dashed var(--line);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;align-items:center}
+.arenabox p{font-size:13px}
+.arenabox[hidden]{display:none}

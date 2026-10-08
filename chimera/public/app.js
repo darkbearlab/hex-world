@@ -676,6 +676,19 @@ async function devlog() {
   $('devlog').hidden = false;
 }
 $('devlogBtn').onclick = devlog;
+
+/* ───────── 戰鬥測試場（開發用，網址加 ?arena）：開一場隨機的伺服器戰鬥，打完不結算、不影響公司 ───────── */
+if (!LOCAL && new URL(location).searchParams.has('arena')) $('arenaBox').hidden = false;
+async function arena() {
+  const btn = $('arenaGo'); btn.disabled = true; btn.textContent = '開戰中…';
+  try {
+    const r = await fetch('/api/arena', {method: 'POST', headers: {...authHeaders(), 'content-type': 'application/json'}, body: JSON.stringify({size: +$('arenaSize').value, night: $('arenaNight').checked, boss: $('arenaBoss').checked})});
+    const tk = await r.json(); if (!r.ok) throw new Error(tk.error || '開戰失敗');
+    const E = await ash; hideTitle(); mission = {id: tk.id, arena: true}; E.startRemote(tk, tk.state);
+  } catch (e) { $('titleMsg').hidden = false; $('titleMsg').textContent = e.message; }
+  finally { btn.disabled = false; btn.textContent = '開一場測試戰鬥'; }
+}
+$('arenaGo').onclick = arena;
 $('devlogClose').onclick = () => $('devlog').hidden = true;
 $('devlog').onclick = e => { if (e.target.id === 'devlog') $('devlog').hidden = true; };
 if (LOCAL) start(seed0); else showTitle();
@@ -687,9 +700,9 @@ window.addEventListener('resize', () => { if (page === 'co' && GV) renderCo(); i
 let mission = null;
 const ash = import('./ash/chimera-boot.js').then(m => m.bootAsh()).then(E => {
   // 伺服器上的戰鬥由伺服器自己結算，這裡只要更新畫面；單人測試模式把戰果交給背景的核心
-  E.onresult = (id, result) => { if (mission && mission.id === id) { if (result?.server) worker.poll?.(); else send({type: 'submit', ticket: id, result}); mission = null; } };
+  E.onresult = (id, result) => { if (mission && mission.id === id) { if (mission.arena) showTitle('測試戰鬥打完了（不結算）'); else if (result?.server) worker?.poll?.(); else send({type: 'submit', ticket: id, result}); mission = null; } };
   // 先不打：伺服器上的戰鬥留在伺服器，下次按親自打接著打；單人測試模式要讓時間恢復
-  E.onabort = id => { if (mission && mission.id === id) { if (LOCAL) send({type: 'abort'}); mission = null; } };
+  E.onabort = id => { if (mission && mission.id === id) { if (mission.arena) showTitle(); else if (LOCAL) send({type: 'abort'}); mission = null; } };
   return E;
 });
 async function openMission(tk) { mission = {id: tk.id}; const E = await ash; hideMissionLoading(); if (tk.remote) E.startRemote(tk, tk.state); else E.start(tk); }
