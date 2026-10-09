@@ -79,14 +79,30 @@ export function installOutdoor(renderer) {
   };
   // 溝緣擋住溝裡的人（Alan 2026-10-09：敵人下沉了但沒有被蓋住）：人往下畫之後下半身會伸出自己那一格，
   // 畫人的時候裁到南邊溝緣的位置為止，伸出去的部分就像被溝緣擋住
+  const sunk = (r, e) => { const lv = e && r.game?.chimeraOutdoor?.trench?.[e.y]?.[e.x]; return lv ? TRENCH_DEPTH[lv] : 0; };
+  const clipped = (r, e, draw) => {
+    const o = r.game.chimeraOutdoor, c = r.ctx, d = sunk(r, e);
+    // 南邊那一格一樣深就不用擋（溝裡連著的格子），比較淺就擋到它的溝底那麼深為止
+    const b = r.project(e.x, e.y).y + r.tile * (.5 + Math.min(d, TRENCH_DEPTH[o.trench[e.y + 1]?.[e.x] || 0]));
+    c.save(); c.beginPath(); c.rect(-1e4, -1e4, 2e4, b + 1e4); c.clip();
+    try { return draw(); } finally { c.restore(); }
+  };
   const actor = R.actor;
   R.actor = function (a, type, time, e, ...rest) {
-    const o = this.game?.chimeraOutdoor, lv = e && o?.trench?.[e.y]?.[e.x];
-    if (!lv) return actor.call(this, a, type, time, e, ...rest);
-    // 南邊那一格一樣深就不用擋（溝裡連著的格子），比較淺就擋到它的溝底那麼深為止
-    const c = this.ctx, b = this.project(e.x, e.y).y + this.tile * (.5 + Math.min(TRENCH_DEPTH[lv], TRENCH_DEPTH[o.trench[e.y + 1]?.[e.x] || 0]));
-    c.save(); c.beginPath(); c.rect(-1e4, -1e4, 2e4, b + 1e4); c.clip();
-    try { return actor.call(this, a, type, time, e, ...rest); } finally { c.restore(); }
+    if (!sunk(this, e)) return actor.call(this, a, type, time, e, ...rest);
+    return clipped(this, e, () => actor.call(this, a, type, time, e, ...rest));
+  };
+  // 屍體也一樣（Alan 2026-10-09）：敵人的屍體 ASH 用 project 畫（沒經過 projectActor），這裡補上下沉；
+  // 隊員的屍體已經用 projectActor 往下移過，從位置找回是哪一個人。轉角度時 ASH 會在 (0,0) 再呼叫一次自己，那次不用管
+  const corpse = R.corpse;
+  R.corpse = function (a, type, character, dead, angle, layer, ...rest) {
+    const g = this.game;
+    if (!g?.chimeraOutdoor?.trench || (layer && !a.x && !a.y)) return corpse.call(this, a, type, character, dead, angle, layer, ...rest);
+    let e = dead, p = a;
+    if (e) { const d = sunk(this, e); if (!d) return corpse.call(this, a, type, character, dead, angle, layer, ...rest); p = {...a, y: a.y + d * this.tile}; }
+    else { e = (g.members || [g.player]).find(m => m?.hp <= 0 && sunk(this, m) && (q => Math.abs(q.x - a.x) < 1 && Math.abs(q.y - a.y) < 1)(this.projectActor(m)));
+      if (!e) return corpse.call(this, a, type, character, dead, angle, layer, ...rest); }
+    return clipped(this, e, () => corpse.call(this, p, type, character, dead, angle, layer, ...rest));
   };
   // 站在戰壕裡的人跟著溝底往下畫
   const project = R.projectActor;
