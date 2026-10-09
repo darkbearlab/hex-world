@@ -23,7 +23,7 @@ let allEvents = [];
 let sel = -1, hover = -1, hiFac = -1, mouse = {x: 0, y: 0};
 const layers = {fac: true, pop: false, bandit: false, trench: false, opp: true};
 let oppKind = 'all';
-const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}};
+const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}};
 let logFilter = 'legend';
 let worker = null;
 
@@ -316,12 +316,14 @@ function renderTile() {
 }
 function accPicker(o) {
   const key = o.kind + ':' + o.tile; if (!GV) return '';
-  if (!pickOpp || pickOpp.key !== key) return `<div class="row" style="margin-top:4px"><button data-acc="${key}">接案</button></div>`;
+  // 大戰役（Alan 2026-10-09）：不限隊數、接了之後可以一再加派、撤軍不違約
+  const camp = o.kind === 'camp', campNote = camp ? '<div class="mini">大戰役：派幾隊都可以，服務單一張接一張、越來越大；撤軍不算違約，已打下的貢獻照算。</div>' : '';
+  if (!pickOpp || pickOpp.key !== key) return `${camp && !o.joined ? campNote : ''}<div class="row" style="margin-top:4px"><button data-acc="${key}">${o.joined ? '加派' : '接案'}</button></div>`;
   const s = hist[cur], fn = id => s.fac.find(f => f.id === id)?.n || '';
-  const sides = o.kind === 'front' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : [];
+  const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : [];
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
-  return `<div class="picker">${sides.length ? `<div class="row">${sides.map(([v, n]) => `<button data-side="${v}" class="${pickOpp.side === v ? 'on' : ''}">${esc(n)}</button>`).join('')}</div>` : ''}
-    <div class="mini" style="margin-top:6px">選要派的人（四人一隊，最少兩人）：</div><div class="chips">${av.map(c => chip(c, pickOpp.uids.has(c.uid), 'pk')).join('') || '<span class="muted">沒有待命的人</span>'}</div>
+  return `<div class="picker">${campNote}${sides.length ? `<div class="row">${sides.map(([v, n]) => `<button data-side="${v}" class="${pickOpp.side === v ? 'on' : ''}">${esc(n)}</button>`).join('')}</div>` : ''}
+    <div class="mini" style="margin-top:6px">選要派的人（四人一隊，最少兩人${camp ? '；全部派上去也可以' : ''}）：</div><div class="chips">${av.map(c => chip(c, pickOpp.uids.has(c.uid), 'pk')).join('') || '<span class="muted">沒有待命的人</span>'}</div>
     ${speedRow(o.tile, pickOpp.uids.size, pickOpp.fast)}
     <div class="row"><button class="primary" data-go="1">${pickOpp.fast ? '加速' : ''}出發（${pickOpp.uids.size} 人）</button><button data-cancel="1">取消</button></div></div>`;
 }
@@ -339,13 +341,13 @@ function renderOpp() {
   let html = `<div class="opphead"><p class="muted" style="margin:0">${GM?.board ? '星球上公開的委託：每個公開三天，截止前一天不能再接；大家接同一個委託就在同一個案件裡搶積分。' : '如果玩家此刻進場，沙盒會給出的事。'}外圈越粗越亮，程度越高（●●● 最高）。</p></div><div class="filters">` +
     [['all', '全部'], ...Object.entries(OK).map(([k, v]) => [k, v.n])].map(([k, n]) => `<button data-ok="${k}" class="${oppKind === k ? 'on' : ''}">${n} <span class="muted">${cnt(k)}</span></button>`).join('') + '</div>';
   const list = O.filter(o => oppKind === 'all' || o.kind === oppKind);
-  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${o.closeAt != null ? `<span class="due">${o.joined ? `已接・${cd(o.end)}後結束` : `${cd(o.closeAt)}後截止`}${o.n ? `・${o.n} 家公司在打` : ''}</span>` : ''}${o.joined ? '' : accPicker(o)}</li>`; }).join('') + '</ol>';
+  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${o.closeAt != null ? `<span class="due">${o.joined ? `已接・${cd(o.end)}後結束` : `${cd(o.closeAt)}後截止`}${o.n ? `・${o.n} 家公司在打` : ''}</span>` : ''}${o.joined && o.kind !== 'camp' ? '' : accPicker(o)}</li>`; }).join('') + '</ol>';
   $('pane-opp').html = html || '';
 }
 $('pane-opp').onclick = e => {
   const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-fast]');
   if (a) {
-    if (a.dataset.acc) { pickOpp = {key: a.dataset.acc, side: '', uids: new Set(), fast: false}; const o = curOpps().find(x => x.kind + ':' + x.tile === a.dataset.acc); if (o) { pickOpp.side = o.kind === 'front' ? 'att' : o.kind === 'tense' ? 'a' : ''; if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile}); } }
+    if (a.dataset.acc) { pickOpp = {key: a.dataset.acc, side: '', uids: new Set(), fast: false}; const o = curOpps().find(x => x.kind + ':' + x.tile === a.dataset.acc); if (o) { pickOpp.side = o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' ? 'a' : ''; if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile}); } }
     else if (a.dataset.fast) pickOpp.fast = a.checked;
     else if (a.dataset.side) pickOpp.side = a.dataset.side;
     else if (a.dataset.pk) { const u = +a.dataset.pk; pickOpp.uids.has(u) ? pickOpp.uids.delete(u) : pickOpp.uids.add(u); }
@@ -616,7 +618,7 @@ let selPath = null, armed = null, armT = null, mailFights = '';
 // 一隊的召回、補員（同一行；按下後的說明卡片在下面）
 function squadActions(sq, c, al) {
   if (c.settled) return '';
-  const u = {recall: {type: 'squad', id: sq.id, penalty: c.own ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, kind: c.own ? 'escort' : 'squad', busy: !!sq.busy, fast: sq.fast};
+  const u = {recall: {type: 'squad', id: sq.id, penalty: c.own || c.kind === 'camp' ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, kind: c.own ? 'escort' : c.kind === 'camp' ? 'camp' : 'squad', busy: !!sq.busy, fast: sq.fast};
   const canRe = !c.own && c.open && al < 4 && !sq.refused, picking = pickRe && pickRe.squad === sq.id;
   const btns = [recallBtn(u, true), ...sq.pending.map(p => recallBtn({recall: {type: 'column', id: p.id}, kind: 'column', n: p.n}, true)), canRe && !picking ? `<button data-act="re" data-id="${sq.id}">補員</button>` : ''].join('');
   const cards = [recallBtn(u), ...sq.pending.map(p => recallBtn({recall: {type: 'column', id: p.id}, kind: 'column', n: p.n}))].filter(x => x.includes('confirm')).join('');
@@ -627,11 +629,13 @@ function squadActions(sq, c, al) {
 function recallBtn(u, onlyBtn = false) {
   if (!u.recall) return '';
   const key = u.recall.type + ':' + u.recall.id;
-  if (onlyBtn) return armed === key ? '' : `<button data-recall="${key}">召回</button>`;
+  const label = u.kind === 'camp' ? '撤軍' : '召回';
+  if (onlyBtn) return armed === key ? '' : `<button data-recall="${key}">${label}</button>`;
   if (armed !== key) return u.inRow ? '' : `<div class="row"><button data-recall="${key}">召回</button></div>`;
   const why = u.recall.type === 'column' ? `這 ${u.n || ''} 名補員在路上掉頭，走回總部。` : u.kind === 'escort' ? '護衛離開車隊，走回總部；車隊之後出事由雇來的守衛自己打。'
+    : u.kind === 'camp' ? `從大戰役撤軍：不算違約，已打下的貢獻照算，之後不再累積。${u.busy ? '手上那張服務單作廢。' : ''}`
     : `等於毀約：付違約金 <b>$${u.recall.penalty}k</b>，這個案件的積分作廢。${u.busy ? '手上的服務單交給案件的護衛去打。' : ''}`;
-  return `<div class="confirm"><div class="mini">${why}${u.fast ? '回程照樣加速，回程時扣加速的錢。' : ''}</div><div class="row"><button class="warn" data-recall="${key}">確定召回</button><button data-recall-x="1">取消</button></div></div>`;
+  return `<div class="confirm"><div class="mini">${why}${u.fast ? '回程照樣加速，回程時扣加速的錢。' : ''}</div><div class="row"><button class="warn" data-recall="${key}">確定${u.kind === 'camp' ? '撤軍' : '召回'}</button><button data-recall-x="1">取消</button></div></div>`;
 }
 function recallClick(e) {
   if (e.target.closest('[data-recall-x]')) { armed = null; if (page === 'map') renderTile(); else renderPage(); return true; }
@@ -670,7 +674,7 @@ function renderProc() {
 }
 
 // ───── 報表 ─────
-const FK = [['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費']];
+const FK = [['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費']];
 function renderRepPage() {
   const P = $('pane-rep');
   if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }

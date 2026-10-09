@@ -54,7 +54,7 @@ export function openCase(book, w, spec, now) {
   const P = w.sim.pmc, K = w.sim.peek();
   const c = {id: 'K' + book.nextId++, kind: spec.kind, title: spec.title, tile: spec.tile, from: spec.from ?? -1, to: spec.to ?? -1,
     fac: spec.fac ?? -1, foe: spec.foe ?? -1, gang: spec.gang ?? 0, lv: spec.lv || 1, start: now, end: now + (spec.hours || CFG.CASE_HOURS), settled: false, midPaid: false,
-    path: [], convoys: 0, lostConvoys: [], cargo: spec.cargo || null, squads: [], score: {}, tickets: 0, open: true, basePow: 14 + 4 * (spec.lv || 1), history: []};
+    path: [], convoys: 0, lostConvoys: [], cargo: spec.cargo || null, squads: [], score: {}, tickets: 0, open: true, basePow: 14 + 4 * (spec.lv || 1), history: [], camp: spec.camp ?? null};
   if (c.kind === 'route') {
     c.path = P.route(c.from, c.to);
     c.convoys = Math.max(4, Math.min(12, Math.round(c.path.length * .6)));
@@ -62,6 +62,8 @@ export function openCase(book, w, spec, now) {
   const L = c.lv, H = (c.end - c.start) / 168;
   c.pay = {deposit: 5 * L, mid: 5 * L, final: Math.round(160 * L * H * (c.kind === 'front' ? 1.4 : c.kind === 'hunt' ? 1.2 : c.kind === 'route' ? 1.2 : 1))};
   if (spec.own) { c.own = spec.own; c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.basePow = spec.guard ?? c.basePow; }
+  // 大戰役：沒有訂金、期中款；每張服務單照當下的傭兵行情付報酬，戰役結束時再照貢獻分一筆（settleCase）
+  if (c.kind === 'camp') { c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.wave = {}; }
   book.cases.push(c);
   return c;
 }
@@ -91,6 +93,10 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
   if (opp.kind === 'front') {
     const side = o.side === 'def' ? 'def' : 'att', f = opp[side], foe = side === 'att' ? opp.def : opp.att;
     return openCase(book, w, {kind: 'front', title: `${K.fac[f].n}的戰線：${opp.title}`, tile: opp.tile, fac: f, foe, lv: Math.max(2, lv), hours}, now);
+  }
+  if (opp.kind === 'camp') {
+    const side = o.side === 'def' ? 'def' : 'att', f = opp[side], foe = side === 'att' ? opp.def : opp.att;
+    return openCase(book, w, {kind: 'camp', title: `${K.fac[f].n}的${opp.title}`, tile: opp.tile, fac: f, foe, lv: 3, hours, camp: opp.camp}, now);
   }
   if (opp.kind === 'tense') {
     const f = o.side === 'b' ? opp.b : opp.a, foe = f === opp.a ? opp.b : opp.a;
@@ -128,7 +134,7 @@ export function enlist(book, caseId, squadId, now, w) {
   sq.caseId = c.id; sq.readyAt = eta; sq.joinedAt = now; c.squads.push(sq.id); sq.at = c.tile;
   if (w && eta > now) sq.move = {path: w.sim.pmc.route(from, c.tile), t0: now, t1: eta};
   if (w) planTrip(book, w, c, sq.id, from, now, eta);
-  pay(book, now, sq.player, c.pay.deposit, 'deposit', `${c.title}：訂金（${sq.name}）`, c.id);
+  if (c.pay.deposit) pay(book, now, sq.player, c.pay.deposit, 'deposit', `${c.title}：訂金（${sq.name}）`, c.id);
   if (eta > now) notify(book, now, sq.player, 'move', `${sq.name} ${sq.fast ? '加速' : ''}出發前往${c.title}，約 ${fmtDur(eta - now)}後到位。`, c.id);
   return true;
 }
@@ -203,11 +209,11 @@ export function withdraw(book, w, squadId, now) {
   const sq = book.squads[squadId], c = sq && book.cases.find(x => x.id === sq.caseId);
   if (!sq || !c || c.settled) return {ok: false, why: '沒有進行中的案件'};
   const pos = whereIs(sq, c, now), here = pos ? (pos.f < .5 ? pos.a : pos.b) : c.tile;
-  if (sq.busy) { const tk = book.tickets.find(t => t.id === sq.busy); if (tk && !tk.done) { tk.player = null; tk.squad = null; tk.abandoned = true; if (!tk.transit) npcResolve(book, w, c, tk, now); else tk.done = true; } }
+  if (sq.busy) { const tk = book.tickets.find(t => t.id === sq.busy); if (tk && !tk.done) { tk.player = null; tk.squad = null; tk.abandoned = true; if (!tk.transit && c.kind !== 'camp') npcResolve(book, w, c, tk, now); else tk.done = true; } }   // 大戰役：撤軍時手上那張就作廢
   sq.busy = null; c.squads = c.squads.filter(id => id !== sq.id); sq.caseId = null; sq.move = null; sq.at = here;
   for (const tr of book.trips) if (tr.unit === sq.id) tr.done = true;
   let penalty = 0;
-  if (!c.own) {
+  if (!c.own && c.kind !== 'camp') {   // 大戰役撤軍不算違約，已經打下的貢獻照算（Alan 2026-10-09）
     penalty = c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv;
     pay(book, now, sq.player, -penalty, 'penalty', `${c.title}：毀約召回${sq.name}，違約金`, c.id);
     if (!c.squads.some(id => book.squads[id]?.player === sq.player)) { c.score[sq.player] = 0; (c.quit = c.quit || {})[sq.player] = true; }
@@ -215,7 +221,7 @@ export function withdraw(book, w, squadId, now) {
   // 還在路上的補員一起掉頭
   const cols = [];
   for (const a of book.amends) if (a.squad === sq.id && !a.done) { const r = cancelAmend(book, a.id, now); if (r) cols.push(r); }
-  notify(book, now, sq.player, 'move', `${sq.name} 被召回${c.own ? '' : `（毀約，違約金 $${penalty}k）`}，從${w.names[here] || '野外'}動身回總部。`, c.id);
+  notify(book, now, sq.player, 'move', c.kind === 'camp' ? `${sq.name} 從${c.title}撤軍（不算違約，已打下的貢獻照算），從${w.names[here] || '野外'}動身回總部。` : `${sq.name} 被召回${c.own ? '' : `（毀約，違約金 $${penalty}k）`}，從${w.names[here] || '野外'}動身回總部。`, c.id);
   return {ok: true, penalty, here, cols};
 }
 export function cancelAmend(book, amendId, now) {
@@ -231,6 +237,7 @@ export function cancelAmend(book, amendId, now) {
 // ===== 事件骰：這個案件現在每小時出事的機率（跟沙盒的真實狀況走） =====
 function hazard(c, w) {
   const K = w.sim.peek(), P = w.sim.pmc;
+  if (c.kind === 'camp') return 0;   // 大戰役的服務單不是骰出來的：空出來的小隊直接接下一張（campTickets）
   if (c.kind === 'route') {
     let b = 0, warT = 0; for (const t of c.path) { b += K.bandit[t]; if (c.fac >= 0 && K.owner[t] >= 0 && P.atWar(K.owner[t], c.fac)) warT++; }
     const left = c.convoys - c.lostConvoys.length; if (left <= 0) return 0;
@@ -257,6 +264,7 @@ function stillValid(c, w) {
   if (c.kind === 'front') return !!P.war(c.fac, c.foe);
   if (c.kind === 'hunt') { const g = K.gangs.find(x => x.id === c.gang); return !!g && !g.gone; }
   if (c.kind === 'route') return c.lostConvoys.length < c.convoys;
+  if (c.kind === 'camp') { const v = w.sim.campaignOf(c.camp); return !!v && !v.done; }
   return K.fac[c.fac]?.alive && K.fac[c.foe]?.alive;
 }
 
@@ -361,7 +369,7 @@ export function enemyRoster(e) {
 }
 
 // 敵人：從沙盒裡真正在那裡的東西算出來
-function enemyOf(book, w, c, ev) {
+function enemyOf(book, w, c, ev, o = {}) {
   const K = w.sim.peek(), t = ev.tile, L = c.lv;
   if (ev.type === 'ambush' || ev.type === 'native' || ev.type === 'clear') {
     const g = ev.gang ? K.gangs.find(x => x.id === ev.gang) : K.gangs.filter(x => !x.gone && hdist(x.lair, t) <= 3).sort((a, b) => hdist(a.lair, t) - hdist(b.lair, t))[0];
@@ -379,20 +387,20 @@ function enemyOf(book, w, c, ev) {
   for (const v of ['rush', 'armor', 'gt']) veh[v] = m && m.veh ? Math.min(v === 'rush' ? 3 : 1, Math.floor((m.veh[v] || 0) * (.2 + rng(book) * .3))) : 0;
   if (ev.type === 'trench' || ev.type === 'sabotage') { veh.rush = 0; }
   const tr = K.trench[t] || 0, cl = Math.min(1, (F.clones || 0) / 80);
-  const power = (16 + 6 * L + (ev.type === 'hold' ? 6 : 0) + (ev.type === 'trench' ? tr * 8 : 0) + 8 * cl) * (ev.type === 'probe' ? .7 : 1) + veh.rush * 3 + veh.armor * 10 + veh.gt * 4;
+  const power = ((16 + 6 * L + (ev.type === 'hold' ? 6 : 0) + (ev.type === 'trench' ? tr * 8 : 0) + 8 * cl) * (ev.type === 'probe' ? .7 : 1) + veh.rush * 3 + veh.armor * 10 + veh.gt * 4) * (o.scale || 1);   // 大戰役：一張比一張大
   // 戰鬥卡車只在公路戰：一般戰場換成車上下來的三名乘員
   const crew = veh.gt * 3; veh.gt = 0;
-  const units = unitsOf(book, side, power - veh.rush * 3 - veh.armor * 10 - crew * 1.3, cl, ev.type);
+  const units = unitsOf(book, side, power - veh.rush * 3 - veh.armor * 10 - crew * 1.3, cl, ev.type, o.cap);
   if (crew) { const k = side === 'works' ? 'guard_elite' : side === 'free' ? 'merc' : side === 'native' ? 'warrior' : 'trooper'; units[k] = (units[k] || 0) + crew; }
   // 軍官：正規軍、工廠群的大仗（突擊、守點、戰壕）案件等級 2 以上時有機會由 ASH 陣營的頭目帶隊
-  const officer = (side === 'army' || side === 'works') && L >= 2 && ['assault', 'hold', 'trench'].includes(ev.type) && rng(book) < .3;
+  const officer = (side === 'army' || side === 'works') && L >= 2 && ['assault', 'hold', 'trench'].includes(ev.type) && rng(book) < .3 + (o.wave ? Math.min(.5, .05 * o.wave) : 0);   // 大戰役越後面越常有軍官
   const boss = officer ? (side === 'army' ? (L >= 3 ? {ash: 'gunline', name: '火線官'} : {ash: 'designator', name: '標定官'}) : {ash: 'burnline', name: '焚線官'}) : null;
   return {side, name: F.n, fac: f, power: Math.round(power + bossPow(boss)), clones: cl, trench: +tr.toFixed(2), veh: Object.fromEntries(Object.entries(veh).filter(([, n]) => n > 0)), units, boss};
 }
 // 頭目算進戰力（自動結算用）：遺產級頭目最強
 const bossPow = b => !b ? 0 : b.legacy ? 3 + 10 * (b.bonus || .1) : b.ash === 'squad_leader' ? 1 : 3;
-function unitsOf(book, side, power, cloneShare, type) {
-  const n = Math.max(3, Math.min(14, Math.round(power / 4))), u = {};
+function unitsOf(book, side, power, cloneShare, type, cap = 14) {
+  const n = Math.max(3, Math.min(cap, Math.round(power / 4))), u = {};
   const add = k => u[k] = (u[k] || 0) + 1;
   let table = ROSTER[side] || ROSTER.raider;
   if (side === 'works' && ['hold', 'probe'].includes(type)) table = [...table, ['turret', 1.5]];   // 砲塔只在廠區守點
@@ -416,6 +424,35 @@ function issue(book, w, c, now) {
   if (c.kind === 'route') { const left = []; for (let i = 0; i < c.convoys; i++) if (!c.lostConvoys.includes(i)) left.push(i); tk.convoy = pickOf(book, left); }
   book.tickets.push(tk); c.tickets++;
   return tk;
+}
+
+// ===== 大戰役的服務單（Alan 2026-10-09）=====
+// 在場、空著、休整完的小隊直接接下一張；每家公司自己一串，一張比一張大（×CAMP_GROW，沒有上限；地圖放不下的之後用增援波次）。
+// 攻方打突擊或夜襲戰壕，守方守點。打到人死光或撤軍為止。
+export const CAMP_GROW = 1.2, CAMP_CAP = 60;
+function campTickets(book, w, c, now) {
+  const att = w.sim.campaignOf(c.camp)?.att === c.fac, K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
+  for (const id of c.squads) {
+    const sq = book.squads[id]; if (!sq || sq.busy || sq.readyAt > now || alive(sq).length < 2) continue;
+    const wave = c.wave[sq.player] = (c.wave[sq.player] || 0) + 1, type = att ? (rng(book) < .35 ? 'trench' : 'assault') : 'hold', T = TYPES[type];
+    const enemy = enemyOf(book, w, c, {type, tile: c.tile, foe: c.foe}, {scale: Math.pow(CAMP_GROW, wave - 1), cap: CAMP_CAP, wave});
+    const tk = {id: 'T' + book.nextId++, caseId: c.id, type, camp: true, wave, title: `${nm(c.tile)}大戰役第 ${wave} 波：${T.n}`, tile: c.tile,
+      biome: BIOMES[K.biome[c.tile]]?.n || '', night: rng(book) < T.night, trench: +(K.trench[c.tile] || 0).toFixed(2), enemy,
+      objectives: T.obj.map(([k, text, pts]) => ({k, text, pts: pts * c.lv})), born: now, squad: null, player: null, issued: -1, deadline: -1, done: false};
+    book.tickets.push(tk); c.tickets++;
+    sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE;
+    notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，敵人 ${Object.values(enemy.units).reduce((x, y) => x + y, 0)} 名，戰力 ${enemy.power}）。若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。`, tk.id);
+  }
+}
+// 大戰役的貢獻與報酬：打倒的敵人 × 當下的傭兵行情；貢獻直接變成雇主下一輪交戰的戰功，報酬當場付
+function campSettle(book, w, c, tk, res, sq, now) {
+  const v = w.sim.campaignOf(c.camp), mul = v ? (v.att === c.fac ? v.mulA : v.mulD) : 1;
+  const total = enemyRoster(tk.enemy).length, kills = Math.max(0, Math.min(total, res.kills ?? (res.win ? total : Math.round(total * .3))));
+  const contrib = Math.round(kills * mul * 10) / 10, reward = Math.round((2 + kills * 1.2) * mul);
+  tk.pts = contrib; tk.kills = kills; tk.mul = mul;
+  c.score[sq.player] = (c.score[sq.player] || 0) + contrib;
+  if (contrib > 0) w.sim.pmc.aid(c.fac, contrib * .5);
+  if (reward > 0) pay(book, now, sq.player, reward, 'camp', `${tk.title}：戰役報酬（打倒 ${kills}、行情 ×${mul}）`, c.id);
 }
 
 // ===== 行軍途中遇襲 =====
@@ -509,7 +546,7 @@ export function submit(book, w, ticketId, result, now) {
   if (!tk || tk.done || !tk.squad) return false;
   const sq = book.squads[tk.squad];
   for (const id of result.dead || []) { const c = sq.clones.find(x => x.id === id); if (c && c.alive) { c.alive = false; c.hp = 0; } }
-  settleTicket(book, w, tk, {win: !!result.win, done: result.done || [], dead: result.dead || [], auto: false, boss: result.boss || null, legacy: !!result.legacy}, now);
+  settleTicket(book, w, tk, {win: !!result.win, done: result.done || [], dead: result.dead || [], auto: false, boss: result.boss || null, legacy: !!result.legacy, kills: result.kills}, now);
   return true;
 }
 
@@ -535,13 +572,14 @@ function settleTicket(book, w, tk, res, now) {
   const valid = new Set(tk.objectives.map(o => o.k));
   const pts = tk.objectives.filter(o => res.done.includes(o.k) && valid.has(o.k)).reduce((x, o) => x + o.pts, 0) * (res.auto ? CFG.AUTO_PTS : 1);
   tk.pts = Math.round(pts * 10) / 10;
-  if (!tk.transit) c.score[sq.player] = (c.score[sq.player] || 0) + tk.pts;
+  if (c.kind === 'camp' && !tk.transit) campSettle(book, w, c, tk, res, sq, now);
+  else if (!tk.transit) c.score[sq.player] = (c.score[sq.player] || 0) + tk.pts;
   // 陣亡的複製人：當下就是業務損失；身上的裝備掉在那一格
   let gearLost = 0;
   for (const id of res.dead) { pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 陣亡`, c.id); gearLost += sq.gear; }
   const wiped = !alive(sq).length;
   if (wiped && sq.veh) { gearLost += VPOW[sq.veh] * 4; pay(book, now, sq.player, -VPOW[sq.veh] * 4, 'loss', `${tk.title}：${sq.name} 的${sq.veh === 'rush' ? '衝鋒車' : sq.veh === 'gt' ? '戰鬥卡車' : '武裝車'}丟在戰場上`, c.id); sq.veh = null; }
-  writeBack(book, w, c, tk, res.win, gearLost, now);
+  if (c.kind !== 'camp') writeBack(book, w, c, tk, res.win, gearLost, now); else if (gearLost > 0) w.sim.pmc.drop(c.tile, gearLost);
   tk.bossOut = bossOutcome(book, w, tk, res, sq.player, now);
   sq.busy = null; sq.readyAt = Math.max(sq.readyAt, now + CFG.REST);
   if (tk.transit && !res.win) {   // 被打退：重整隊伍再走，多花 6 小時
@@ -623,7 +661,8 @@ function hour(book, w, now) {
     if (!c.midPaid && now >= (c.start + c.end) / 2) { c.midPaid = true; for (const id of c.squads) { const s = book.squads[id]; if (alive(s).length) pay(book, now, s.player, c.pay.mid, 'mid', `${c.title}：期中款（${s.name}）`, c.id); } }
     // 4. 抽事件：結束前一段時間不再出票；案件已經不成立也不出
     if (c.open && (now >= c.end - (c.freeze ?? CFG.FREEZE) || c.closedEarly || !stillValid(c, w))) { c.open = false; c.closedAt = now; }
-    if (c.open && rng(book) < Math.min(.9, hazard(c, w) * CFG.TICKET_RATE)) { const tk = issue(book, w, c, now); if (tk) assign(book, c, tk, now); }
+    if (c.open && c.kind === 'camp') campTickets(book, w, c, now);
+    else if (c.open && rng(book) < Math.min(.9, hazard(c, w) * CFG.TICKET_RATE)) { const tk = issue(book, w, c, now); if (tk) assign(book, c, tk, now); }
     // 5. 結算：結束（或提早收尾）後再留一段緩衝
     const FZ = c.freeze ?? CFG.FREEZE, endAt = Math.min(c.end, (c.closedAt ?? c.end) + FZ) + (c.own ? 0 : CFG.BUFFER);
     if (now >= endAt && !book.tickets.some(tk => tk.caseId === c.id && !tk.done)) settleCase(book, w, c, now);
@@ -638,6 +677,8 @@ function settleCase(book, w, c, now) {
     const delivered = 1 - c.lostConvoys.length / c.convoys; c.delivered = delivered; mult = delivered;
     if (c.cargo && !c.own && K.markets[c.to]) K.markets[c.to].stock[c.cargo.g] += c.cargo.amt * delivered;   // 送到的貨真的進了市場
   }
+  // 大戰役：戰役結束時照貢獻再分一筆（每點貢獻 1k；雇主輸了只付一半）
+  if (c.kind === 'camp') { const v = w.sim.campaignOf(c.camp); c.pay.final = Math.round(Object.values(c.score).reduce((x, y) => x + y, 0) * (v && v.done && v.win !== c.fac ? .5 : 1)); }
   const pool = c.pay.final * mult, tot = Object.values(c.score).reduce((x, y) => x + y, 0);
   c.payout = {};
   if (tot > 0 && pool > 0) for (const p in c.score) { if (!c.score[p] || c.quit?.[p]) continue; const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 $${Math.round(v)}k。`, c.id); }

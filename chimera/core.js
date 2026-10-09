@@ -120,6 +120,8 @@ export class Core {
     for (const o of this.sim.opportunities()) {
       const key = o.kind + ':' + o.tile, e = B[key]; seen.add(key);
       // 公開時刻依地點錯開。第一批（星球剛開）往前錯開 0～47 小時，當作開服前就公開了：一開服就有委託可接，而且進度各不相同
+      // 大戰役的委託：一開打就公開，開到戰役結束（opportunities 不再列出時就收掉）
+      if (!e && o.kind === 'camp') { B[key] = {key, opp: o, start: h, end: h + 24 * 14, cases: {}}; continue; }
       if (!e) { let s = 7; for (const ch of key) s = (s * 31 + ch.charCodeAt(0)) >>> 0; const st = first ? h - s % 48 : h + s % 24; B[key] = {key, opp: o, start: st, end: st + C.CFG.CASE_HOURS, cases: {}}; continue; }
       e.opp = o; e.gone = false;
       if (h >= e.end + BOARD_COOL) { e.start = h; e.end = h + C.CFG.CASE_HOURS; e.cases = {}; }
@@ -133,7 +135,8 @@ export class Core {
     return Object.values(book.board || {}).map(e => {
       const ids = Object.values(e.cases), joined = ids.some(id => mine.has(id)), cs = ids.map(id => book.cases.find(c => c.id === id)).filter(Boolean);
       const n = new Set(cs.flatMap(c => c.squads.map(s => book.squads[s]?.player).filter(Boolean))).size;
-      return {...e.opp, key: e.key, start: e.start, end: e.end, closeAt: e.end - C.CFG.FREEZE, gone: !!e.gone, joined, n};
+      const side = Object.entries(e.cases).find(([, id]) => mine.has(id))?.[0];   // 自己接的是哪一邊（大戰役加派時沿用）
+      return {...e.opp, key: e.key, start: e.start, end: e.end, closeAt: e.end - C.CFG.FREEZE, gone: !!e.gone, joined, side, n};
     }).filter(e => h >= e.start && ((h < e.closeAt && !e.gone) || (e.joined && h < e.end)));
   }
   // 準時出槽：時間（帶小數的遊戲小時）到了的培養槽出槽。回傳出槽了幾個
@@ -179,8 +182,8 @@ export class Core {
       const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile), e = b.board?.[m.kind + ':' + m.tile];
       if (!o || !e || e.gone) return '這個委託已經不在了';
       if (h < e.start) return '這個委託還沒公開';
-      if (h >= e.end - C.CFG.FREEZE) return '這個委託已經截止';
-      return G.accept(g, b, w, o, m.side, m.uids, this.exactNow ?? h, !!m.fast, e);
+      if (h >= e.end - (o.kind === 'camp' ? 0 : C.CFG.FREEZE)) return '這個委託已經截止';
+      return G.accept(g, b, w, o, m.side, m.uids, this.exactNow ?? h, !!m.fast, e);   // 大戰役可以一再加派
     }
     if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, this.exactNow ?? h, !!m.fast);
     if (m.type === 'recall') return G.recall(g, b, w, m.squad, this.exactNow ?? h);
@@ -222,7 +225,7 @@ export class Core {
       if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}k${selfPay ? '（自費，已扣）' : '（雇主吸收）'}`, ref: tk.id});
       // 遺產級頭目（Alan 2026-10-09）：戰場回報撤退或戰死；戰死時有人活著帶出遺產級就進倉庫
       const carrier = m.result.legacy && sq.clones.find(c => c.id === m.result.legacy && c.alive && !dead.includes(c.id));
-      C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier}, h);
+      C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier, kills: Number.isFinite(m.result.kills) ? m.result.kills : undefined}, h);
       if (tk.bossOut === 'taken') G.gainLegacy(g, tk.enemy.boss, h);
       if (ups.length) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：升級　${ups.join('；')}`, ref: tk.id});
       G.hour(g, b, w, h); return null;

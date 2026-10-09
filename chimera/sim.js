@@ -1296,6 +1296,9 @@ function createSim(w,rand,pick){
         if(best)c.push({t,o,m,...best,rank:best.sc*Math.sqrt(m.pop+1)})}
       c.sort((p,q)=>q.rank-p.rank);
       for(const x of c.slice(0,12))out.push({kind:'short',tile:x.t,lv:x.sc>.75?3:x.sc>.4?2:1,risk:0,fac:x.o,g:x.g,title:`${nm(x.t)}缺${GN[x.g]}`,detail:`${fn(x.o)}・需求只滿足 ${Math.round(x.r*100)}%・服務人口 ${Math.round(x.m.pop)}`})}
+    // 0. 大戰役（Alan 2026-10-09）：進行中的大戰役，雙方都在找傭兵——可以派很多隊，服務單一張接一張、越來越大
+    for(const c of campaigns){if(c.done)continue;const v={fa:c.FA/c.FA0,fd:c.FD/c.FD0};
+      out.push({kind:'camp',tile:c.n,lv:3,risk:3,camp:c.id,fac:c.att,att:c.att,def:c.def,title:`${nm(c.n)}大戰役`,detail:`${fn(c.att)}攻打${fn(c.def)}・第 ${Math.floor(c.round*CAMP_ROUND/24)+1} 天・兵力 ${Math.round(v.fa*100)}%：${Math.round(v.fd*100)}%・傭兵行情 ×${campMul(v.fa)}／×${campMul(v.fd)}`})}
     // 3. 快爆發的邊界（還沒開戰）與 4. 前線
     if(bc)for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){if(!fac[a].alive||!fac[b].alive||!bc[a][b])continue;const W=war[a][b];
       if(W&&W.att!==undefined){const t=W.siege?W.siege.t:W.goal,tr=trench[t]||0,lv=W.siege?3:tr>=1?3:tr>.3?2:2;
@@ -1327,7 +1330,8 @@ function createSim(w,rand,pick){
     say(type,text,tile=-1){return say(histY||curY,type,text,tile)},
     get year(){return histY||curY},
     drops,pmcAid};
-  return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},campaignHour,campaignView,setCampaigns(v){campOn=!!v},get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+  return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},campaignHour,campaignView,setCampaigns(v){campOn=!!v},
+    campaignOf(id){const c=campaigns.find(x=>x.id===id);return c?{id:c.id,done:!!c.done,win:c.win,att:c.att,def:c.def,tile:c.n,round:c.round,mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),fa:c.FA/c.FA0,fd:c.FD/c.FD0}:null},get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 

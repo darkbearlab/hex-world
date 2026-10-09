@@ -287,12 +287,14 @@ const avail = G => G.roster.filter(c => c.alive && c.status === 'home' && !c.kee
 export function accept(G, book, w, opp, side, uids, now, fast = false, contract = null) {
   const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
   if (pick.length < 2) return '至少派兩個人';
-  if (G.cases.some(k => { const c = book.cases.find(x => x.id === k); return c && !c.settled && c.tile === opp.tile && c.kind === kindOf(opp); })) return '這個點已經接了';
+  const camp = opp.kind === 'camp';   // 大戰役：不限隊數，接了之後還可以再加派（Alan 2026-10-09）
+  if (!camp && G.cases.some(k => { const c = book.cases.find(x => x.id === k); return c && !c.settled && c.tile === opp.tile && c.kind === kindOf(opp); })) return '這個點已經接了';
   C.registerCompany(book, G.name, G.base);
   // 委託板上的委託：同一邊已經有人開了案件就加入；沒有就開一個，案期照委託的公開時刻算（晚接的人能打的時間就少）
   const sideKey = side || '';
   let c = contract ? book.cases.find(x => x.id === contract.cases[sideKey] && !x.settled) : null, created = false;
-  if (c && G.cases.includes(c.id)) return '這個委託已經接了';
+  if (c && G.cases.includes(c.id) && !camp) return '這個委託已經接了';
+  if (camp && contract && Object.entries(contract.cases).some(([k, id]) => k !== sideKey && G.cases.includes(id))) return '已經替另一邊打了';
   if (!c) { c = C.caseFromOpp(book, w, opp, contract ? contract.start : now, {side, hours: contract ? contract.end - contract.start : undefined}); if (!c) return '這個案子開不起來'; created = true; if (contract) contract.cases[sideKey] = c.id; }
   const groups = []; for (let i = 0; i < pick.length; i += 4) groups.push(pick.slice(i, i + 4));
   if (groups.length > 1 && groups[groups.length - 1].length < 2) groups[groups.length - 2].push(...groups.pop());
@@ -306,11 +308,11 @@ export function accept(G, book, w, opp, side, uids, now, fast = false, contract 
     if (created) { book.cases.splice(book.cases.indexOf(c), 1); if (contract) delete contract.cases[sideKey]; }
     return '趕不上：到現場的時候已經不再派服務單了';
   }
-  G.cases.push(c.id);
-  note(G, now, `接下「${c.title}」，${fast ? '加速' : ''}派出 ${n} 隊。`);
+  const again = G.cases.includes(c.id); if (!again) G.cases.push(c.id);
+  note(G, now, again ? `「${c.title}」加派 ${n} 隊${fast ? '（加速）' : ''}。` : `接下「${c.title}」，${fast ? '加速' : ''}派出 ${n} 隊。`);
   return null;
 }
-const kindOf = o => ({short: 'route', route: 'route', exp: 'route', front: 'front', tense: 'garrison', lair: 'hunt'})[o.kind];
+const kindOf = o => ({short: 'route', route: 'route', exp: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp'})[o.kind];
 export function reinforce(G, book, w, squadId, uids, now, fast = false) {
   const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
   if (!pick.length) return '沒有選人';
