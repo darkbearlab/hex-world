@@ -25,7 +25,7 @@ export const VEHICLE_NAME={rush:'衝鋒車',armor:'武裝車'};
 // 車輛（ASH 沒有的兵種，照 ASH 自己加砲塔的做法在這裡加進兵種表；圖先借 ASH 的）：
 // - 衝鋒車：自爆機器人的邏輯（衝過來撞上引爆），耐打得多，爆炸範圍兩格（MissionGame.explode）
 // - 武裝車：加裝甲的房車，車頂機槍連發；兩回合才走一格（MissionGame.enemyAct）；車身先畫一塊裝甲板底（chimera-outdoor-render.js）
-ENEMY_TYPES.chimera_rush={...ENEMY_TYPES.bomber_bot,sprite:{key:'bomber_bot',corpse:'bomber_bot',scale:1.45},name:'衝鋒車',hp:120,armor:4,damage:45,xp:3,color:'#b0793f'};
+ENEMY_TYPES.chimera_rush={...ENEMY_TYPES.bomber_bot,sprite:{key:'bomber_bot',corpse:'bomber_bot',size:1.7},name:'衝鋒車',hp:120,armor:4,damage:45,xp:3,color:'#b0793f'};
 ENEMY_TYPES.chimera_armor={...ENEMY_TYPES.turret,fixed:false,behavior:undefined,sprite:{key:'turret',corpse:'turret',scale:1.3},tags:['breaker'],name:'武裝車',hp:220,armor:6,damage:20,rounds:4,range:7,xp:6,color:'#6f7a64',chimeraVehicle:true};
 export const RUSH_BLAST={radius:2,damage:50};
 // 奇美拉的職業 → ASH 的職業（同名）；沒有的退回士兵
