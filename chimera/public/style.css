@@ -414,3 +414,14 @@ table.gear td:last-child{text-align:right;width:3em}
 .shoprow b{width:4em;color:var(--muted);font-weight:500}
 .shoprow button{font-size:12px}
 td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
+
+/* 大戰役（Alan 2026-10-09）：地圖左上，進行中的大戰役與雙方剩下的兵力、傭兵行情 */
+.campbar{position:absolute;left:10px;top:10px;max-width:min(320px,calc(100% - 70px));display:flex;flex-direction:column;gap:6px;z-index:4;pointer-events:none}
+.campbar[hidden]{display:none}
+.campbar .camp{background:rgba(40,16,12,.88);border:1px solid var(--war);border-radius:6px;padding:6px 8px;font-size:12px;color:#ffd9cf}
+.campbar .camp.done{background:rgba(20,18,15,.85);border-color:var(--line);color:var(--muted)}
+.campbar .cside{display:grid;grid-template-columns:7.5em 1fr auto;align-items:center;gap:6px;margin-top:3px;font-size:11px}
+.campbar .cside span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.campbar .cside i{display:block;height:6px;background:#e0843a;border-radius:3px;min-width:2px}
+.campbar .cside.d i{background:#5d9fd6}
+.campbar .cside em{font-style:normal;color:#ffb39c;white-space:nowrap}

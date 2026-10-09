@@ -102,8 +102,20 @@ const facById = s => { const m = {}; for (const f of s.fac) m[f.id] = f; return 
 /* ───────── 畫地圖 ───────── */
 let drawQueued = false;
 function draw() { if (!drawQueued) { drawQueued = true; requestAnimationFrame(() => { drawQueued = false; drawNow(); }); } }
+// 大戰役：公司模式照公司畫面（每 15 秒更新），觀看模式照年度資料
+const campaignsNow = s => (GM?.campaigns || s?.campaigns || []);
+function renderCampBar() {
+  const el = $('campbar'); if (!el) return; const s = hist[cur], L = campaignsNow(s), fn = id => esc(s?.fac.find(f => f.id === id)?.n || '?');
+  const live = L.filter(c => !c.done), ended = L.filter(c => c.done).slice(-2);
+  el.hidden = !live.length && !ended.length;
+  el.innerHTML = live.map(c => `<div class="camp"><b>⚔ ${esc(c.name)}大戰役</b> <span class="mini">第 ${Math.floor(c.days) + 1} 天</span>
+    <div class="cside"><span>${fn(c.att)}</span><i style="width:${Math.round(c.fa * 100)}%"></i><em>${Math.round(c.fa * 100)}%${c.mulA > 1 ? `・傭兵 ×${c.mulA}` : ''}</em></div>
+    <div class="cside d"><span>${fn(c.def)}</span><i style="width:${Math.round(c.fd * 100)}%"></i><em>${Math.round(c.fd * 100)}%${c.mulD > 1 ? `・傭兵 ×${c.mulD}` : ''}</em></div></div>`).join('')
+    + ended.map(c => `<div class="camp done">${esc(c.name)}大戰役結束：${fn(c.win)}獲勝（${Math.max(1, Math.round(c.days))} 天）</div>`).join('');
+}
 function drawNow() {
   if (!ST || !hist.length) return;
+  renderCampBar();
   const s = hist[cur], F = facById(s), N = ST.N;
   ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#0d0c0a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(dpr * k, 0, 0, dpr * k, dpr * ox, dpr * oy);
@@ -149,6 +161,15 @@ function drawNow() {
     const x = cx(g.lair), y = cy(g.lair), r = S0 * .32;
     if (g.native) { ctx.fillStyle = '#e0915a'; ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y + r * .8); ctx.lineTo(x - r, y + r * .8); ctx.closePath(); ctx.fill(); }
     else { ctx.strokeStyle = g.legacy ? '#ffd27a' : '#c4593c'; ctx.lineWidth = Math.max(1.2, 1.8 / k); ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke(); }
+  }
+  // 大戰役（Alan 2026-10-09）：戰場上兩圈紅環，外圈照雙方剩下的兵力（攻方左半、守方右半）
+  for (const c of campaignsNow(s)) {
+    if (c.done) continue;
+    const x = cx(c.tile), y = cy(c.tile), r = S0 * 1.25, lw = Math.max(2, 3 / k);
+    ctx.strokeStyle = '#ff4a2e88'; ctx.lineWidth = lw * 2.2; ctx.beginPath(); ctx.arc(x, y, r * 1.25, 0, 7); ctx.stroke();
+    ctx.lineWidth = lw * 1.6; ctx.strokeStyle = F[c.att]?.c || '#f66'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI / 2, Math.PI / 2 + Math.PI * Math.max(.02, c.fa)); ctx.stroke();
+    ctx.strokeStyle = F[c.def]?.c || '#66f'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI / 2, Math.PI / 2 - Math.PI * Math.max(.02, c.fd), true); ctx.stroke();
+    ctx.fillStyle = '#ffd9cf'; ctx.font = `700 ${S0 * 1.1}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('⚔', x, y - r * 1.55);
   }
   // 機會：圓牌上一個字，外圈越粗越亮程度越高
   if (layers.opp) for (const o of curOpps(s)) {
@@ -383,6 +404,7 @@ function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false
 function found(base) { if (WATCH) return; send({type: 'found', base}); }
 function onGame(m) {
   const first = !GV; GV = m.data; GM = m;
+  if (m.campaigns?.some(c => !c.done) || $('campbar') && !$('campbar').hidden) draw();   // 大戰役每 6 小時變一次
   if (m.err) toast(m.err);
   if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('mailBtn').hidden = false; $('gyd').value = m.yearDays; showPage('co'); renderAll(); send({type: 'quotes'}); }
   $('gclock').textContent = clockText(Math.max(GV.h, hourNow() ?? GV.h), m);

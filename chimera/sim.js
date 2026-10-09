@@ -622,6 +622,7 @@ function createSim(w,rand,pick){
     const cmdr=(f,at)=>{let b=null,bd=1e9;for(const h of heroes)if(h.alive&&h.f===f&&!h.noCmd&&!h.captive){const d=hdist(h.fief>=0?h.fief:fac[f].cap,at)+rand()*3;if(d<bd){bd=d;b=h}}return b};
     const kill=(f,amt)=>{const F=fac[f];if(F.clones>0){const c=Math.min(F.clones,amt*.7);F.clones-=c;amt-=c;rec(f,y,'cloneDead',c)}rec(f,y,'popDead',Math.min(.06,amt/Math.max(1,fp[f]))*fp[f]);const r=Math.min(.06,amt/Math.max(1,fp[f]));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r;fp[f]*=1-r};
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){const W=war[a][b];if(!W||!fac[a].alive||!fac[b].alive||W.done)continue;
+      if(W.camp&&campaigns.some(c=>c.id===W.camp&&!c.done))continue;   // 正在打大戰役的戰爭，這一季不另外打
       if(owner[W.goal]===W.att){W.done=1;continue}if(owner[W.goal]!==W.def){W.done=2;continue}
       // 戰壕（預設開啟；globalThis.TRENCH=0 關掉）：雙方在前線上自己這一側挖壕，每季加深一點，要用廢料撐壕壁
       if(globalThis.TRENCH!==0){for(const [x,y_] of [[W.att,W.def],[W.def,W.att]]){let dug=0;for(const [,nn] of front[y_][x]){if(owner[nn]!==x||trench[nn]>=3||dug>=6)continue;if(facStock(x,'scrap')<1)break;facTake(x,'scrap',.5);trench[nn]=Math.min(3,trench[nn]+.25);trench[nn]>=1&&!W.tTold&&(W.tTold=1,say(y,'war',`${fac[a].n}與${fac[b].n}在${nm(nn)}一帶都挖了壕溝，戰線卡住了。`,nn));dug++}}}
@@ -654,9 +655,16 @@ function createSim(w,rand,pick){
           if(!fac[A].bombY){fac[A].bombY=y;say(y,'war',`${fac[A].n}把炸藥綁在衝鋒車上，一輛接一輛衝進${nm(n)}的壕溝。`,n)}}
       const tr2=globalThis.TRENCH!==0?trench[n]:0;
       if(tr2){PA.p*=1-.25*tr2}   // 反戰車壕：攻方的車開不過去
+      // 大戰役：圍攻市鎮、雙方都還有相當的動員力時，這一仗升級成照現實時間打的大戰役（公司模式才有）
+      // 勢均力敵才打得成大戰役（有效戰力 1:2 以內）；剛打完大戰役的一方還沒恢復（exhaust，每季減半）就打不起來
+      if(campOn&&!counter&&(town[n]||wall[n]>=1||Math.min(LA+xA,LD+xD+mil)>=CAMP_MIN*2)&&Math.min(LA+xA,LD+xD+mil)>=CAMP_MIN&&LA+xA+LD+xD+mil>=CAMP_SUM&&!W.camp&&(fac[A].exhaust||0)<.2&&(fac[D].exhaust||0)<.2){
+        const FA=(LA+xA+PA.p)*2,FD=((LD+xD)*.8+mil+PD.p*.9)*2,mA=fac[A].aggr*wf*supA*kA*PA.mor,mD=tm*wm*kD*PD.mor*(1+.3*tr2)*(1-Math.min(.4,boomOk*.05)),q=FA*mA/Math.max(1,FD*mD);
+        if(q>=.4&&q<=2.5&&rand()<CAMP_P){fac[A].fronts++;fac[D].fronts++;campStart({W,a,b,A,D,i,n,dd,y,s,FA,FD,mA,mD,tr:tr2,hA,hD});continue}}
+      // 打完大戰役之後的一兩季，兵力還沒補回來
+      const exA=1-.6*(fac[A].exhaust||0),exD=1-.6*(fac[D].exhaust||0);
       // 玩家公司替某方打下的戰功（夜襲戰壕、突擊、守點）：下一場仗的戰力加成，最多 +50%，用掉一半
       const pA=Math.min(.5,pmcAid[A]/100),pD=Math.min(.5,pmcAid[D]/100);if(pA||pD){pmcAid[A]*=.5;pmcAid[D]*=.5}
-      const sa=(LA+xA+PA.p)*fac[A].aggr*wf*supA*kA*rA*PA.mor*(1+pA),sd=((LD+xD)*.8+mil+PD.p*.9)*tm*wm*kD*rD*PD.mor*(1+.3*tr2)*(1-Math.min(.4,boomOk*.05))*(1+pD);
+      const sa=(LA+xA+PA.p)*fac[A].aggr*wf*supA*kA*rA*PA.mor*(1+pA)*exA,sd=((LD+xD)*.8+mil+PD.p*.9)*tm*wm*kD*rD*PD.mor*(1+.3*tr2)*(1-Math.min(.4,boomOk*.05))*(1+pD)*exD;
       const siege=!counter&&(town[n]||wall[n]>=1);
       let win,lose,dead,took=false,note='';
       if(sa>sd){win=A;lose=D;dead=LD*.12;
@@ -718,6 +726,93 @@ function createSim(w,rand,pick){
       for(const fl of flows){const key=fl.a+'-'+fl.b;(agg[key]=agg[key]||{a:fl.a,b:fl.b,path:fl.path,flow:zero(),sea:fl.sea}).flow[fl.g]+=fl.amt;for(const t of fl.path)routeTiles.add(t)}
       routes=Object.values(agg);flows=[]}
   }
+
+  // ===== 大戰役（Alan 2026-10-09，warband/DESIGN.md「大戰役」）=====
+  // 一場戰爭的賭注夠大（圍攻市鎮，或雙方都是大軍的野戰）、雙方都還有相當的動員力（合計 80 以上、弱的一方也有 25 以上，有效戰力 1:2.5 以內）時，那一季的決戰升級成大戰役：照現實時間打，每 6 小時交戰一輪，
+  // 打到一方兵力見底（剩不到一成五）或士氣崩潰為止（大約 3～6 天），當場割地。只有公司模式（campOn，照小時推進）會開。
+  // - 兵力池：雙方全國動員（平常一仗的兩倍），加上車輛；修正（好戰、補給線、主將、地形、城牆、戰壕）照平常那一仗。
+  // - 物資：每一輪從雙方市鎮撥彈藥、燃料、熱量、淨水，撥不夠戰力就打折；撥走之後物價照庫存重算（沙盒自己的定價，不另外加倍）。
+  // - 最後的存底：剩不到四分之一時，雙方把後方守軍、剛出槽的複製兵壓上去（一次），培養槽趕工、糧水零件被抽走。
+  // - 傭兵行情：照「還需要的兵力／自己剩下的兵力」——剩一半約原價、四分之一約兩倍、八分之一約四倍（公式自然長出來，不按天數切）。
+  // - 玩家的戰功：每一輪照當下的戰功加成（最多 +50%），用掉四分之一。
+  const CAMP_MIN=globalThis.CAMP_MIN??25,CAMP_SUM=globalThis.CAMP_SUM??80,CAMP_P=globalThis.CAMP_P??.75,CAMP_ROUND=6,CAMP_RATE=.13,CAMP_BREAK=.1,CAMP_MAXR=32;
+  let campOn=false,campaigns=[],campSeq=1;
+  const campFp=()=>{const fp=new Float32Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)fp[owner[i]]+=pop[i];return fp};
+  // 陣亡：先死複製兵，再死人口（一次最多一成人口）
+  function campKill(f,amt){const F=fac[f];if(F.clones>0){const c=Math.min(F.clones,amt*.7);F.clones-=c;amt-=c}const fp=campFp()[f],r=Math.min(.1,amt/Math.max(1,fp));if(r<=0)return;for(let t=0;t<N;t++)if(owner[t]===f)pop[t]*=1-r}
+  // 物價照庫存重算（和每季的定價同一條公式）
+  function campReprice(f){for(const k in markets){if(owner[+k]!==f)continue;const m=markets[k];if(!m.need)continue;for(const g of GOODS){const cover=m.stock[g]/Math.max(.01,m.need[g]*4),pr=Math.min(3.5,Math.max(.3,1/(.35+cover)));m.price[g]=m.price[g]*.6+pr*.4}}}
+  const campMul=fr=>Math.round(Math.min(6,Math.max(1,.5/Math.max(.05,fr)))*10)/10;
+  function campStart(o){
+    const c={id:campSeq++,a:o.a,b:o.b,att:o.A,def:o.D,i:o.i,n:o.n,dd:o.dd,y:o.y,s:o.s,FA0:o.FA,FD0:o.FD,FA:o.FA,FD:o.FD,mA:o.mA,mD:o.mD,tr:o.tr,hA:o.hA?o.hA.id:0,hD:o.hD?o.hD.id:0,
+      round:0,next:null,startH:null,resA:false,resD:false,done:false,log:[],supA:1,supD:1};
+    campaigns.push(c);o.W.camp=c.id;
+    say(o.y,'war',`${fac[o.A].n}與${fac[o.D].n}在${nm(o.n)}打成大戰役：雙方全國動員，${Math.round(o.FA)} 對 ${Math.round(o.FD)}。`,o.n);
+    return c;
+  }
+  // 公司模式每小時呼叫一次（h：第幾個遊戲小時）。回傳這一小時發生的事（給公司發通知）
+  function campaignHour(h){
+    const out=[];
+    for(const c of campaigns){if(c.done)continue;
+      if(c.next==null){c.next=h+CAMP_ROUND;c.startH=h;out.push({c,kind:'start'});continue}
+      if(h<c.next)continue;c.next+=CAMP_ROUND;campRound(c,out)}
+    campaigns=campaigns.filter(c=>!c.done||c.endH>h-24*14);   // 結束的留兩週給畫面看
+    return out;
+  }
+  function campRound(c,out){
+    const A=c.att,D=c.def,y=histY||curY;c.round++;
+    if(!fac[A].alive||!fac[D].alive||owner[c.n]!==D){c.done=true;c.endY=y;out.push({c,kind:'end'});return}
+    // 物資：每一輪照兵力撥；撥不夠，戰力打折
+    const draw=(f,F)=>{let r=1;for(const [g,k] of [['ammo',.006],['fuel',.004],['food',.012],['water',.012]]){const want=F*k;if(want<.01)continue;const got=facTake(f,g,want);r=Math.min(r,.4+.6*got/want)}campReprice(f);return r};
+    c.supA=draw(A,c.FA);c.supD=draw(D,c.FD);
+    const pA=Math.min(.5,pmcAid[A]/100),pD=Math.min(.5,pmcAid[D]/100);pmcAid[A]*=.75;pmcAid[D]*=.75;
+    const powA=c.FA*c.mA*c.supA*(1+pA)*(.8+.4*rand()),powD=c.FD*c.mD*c.supD*(1+pD)*(.8+.4*rand());
+    const lossA=Math.min(c.FA,powD*CAMP_RATE*(1+.4*c.tr)),lossD=Math.min(c.FD,powA*CAMP_RATE);
+    c.FA-=lossA;c.FD-=lossD;
+    // 最後的存底：剩不到四分之一，後方守軍與剛出槽的複製兵壓上去（一次）
+    for(const [side,f] of [['A',A],['D',D]]){const key='res'+side,F0=side==='A'?c.FA0:c.FD0,F=side==='A'?c.FA:c.FD;
+      if(c[key]||F/F0>=.25)continue;c[key]=true;
+      const fp=campFp()[f],back=fp*.03,Fc=fac[f];let vat=0;for(const k in markets)if(owner[+k]===f)vat+=markets[k].vat||0;
+      let made=0;if(vat&&!Fc.native){made=vat*VAT_RATE*.5;for(const g in CLONE_COST)made=Math.min(made,facStock(f,g)*.5/CLONE_COST[g]);if(made>=1){for(const g in CLONE_COST)facTake(f,g,made*CLONE_COST[g]);Fc.clones=(Fc.clones||0)+made}else made=0}
+      const add=back+made*.6+(Fc.clones||0)*.2;if(side==='A')c.FA+=add;else c.FD+=add;
+      say(y,'war',`${nm(c.n)}大戰役打到第 ${Math.ceil(c.round/4)} 天，${Fc.n}的兵快打光了，把後方的守軍${made>=1?`和剛從培養槽出來的 ${Math.round(made)} 名複製兵`:''}都壓上前線。`,c.n);
+      out.push({c,kind:'reserve',f})}
+    const fa=c.FA/c.FA0,fd=c.FD/c.FD0,mul={a:campMul(fa),d:campMul(fd)};
+    for(const k of ['a','d'])if(mul[k]>=2&&!(c['told'+k]>=Math.floor(mul[k]))){c['told'+k]=Math.floor(mul[k]);out.push({c,kind:'price',side:k,mul:mul[k]})}
+    c.log.push({r:c.round,fa:+fa.toFixed(3),fd:+fd.toFixed(3),sa:+c.supA.toFixed(2),sd:+c.supD.toFixed(2)});
+    const brokeA=fa<=CAMP_BREAK||(fa<.2&&rand()<.06*(1.5-c.supA)),brokeD=fd<=CAMP_BREAK||(fd<.2&&rand()<.06*(1.5-c.supD));   // 士氣崩潰：剩兩成以下、補給越差越容易
+    if(brokeA||brokeD||c.round>=CAMP_MAXR)campEnd(c,brokeA&&brokeD?(fa>=fd?A:D):brokeA?D:brokeD?A:(fa>=fd?A:D),out);
+  }
+  function campEnd(c,win,out){
+    const A=c.att,D=c.def,lose=win===A?D:A,y=histY||curY,n=c.n,W=war[c.a][c.b];
+    c.done=true;c.win=win;c.endY=y;c.endH=c.next;
+    const lostA=c.FA0-c.FA,lostD=c.FD0-c.FD;
+    campKill(A,lostA*.5);campKill(D,lostD*.5);
+    vehLose(lose,{truck:.1,armor:.5,rush:.9,gt:.3,bomb:.9});vehLose(win,{truck:.05,armor:.2,rush:.6,gt:.1,bomb:.6});
+    const gear=(lose===A?lostA:lostD)*.03;facGive(win,'parts',gear*.6);facGive(win,'ammo',gear*.3);
+    fac[lose].shock=(fac[lose].shock||0)+.5;
+    // 消耗殆盡：雙方都要一兩季才恢復得過來（敗方更久）；這段期間打不起下一場大戰役，平常的仗兵力也打折
+    fac[win].exhaust=Math.max(fac[win].exhaust||0,.8);fac[lose].exhaust=Math.max(fac[lose].exhaust||0,1);
+    let took=false;
+    if(win===A&&owner[n]===D&&n!==ARC.protect){took=true;owner[n]=A;if(markets[n])for(const g of GOODS)markets[n].stock[g]*=.5;pop[n]*=.5;wall[n]=Math.max(0,wall[n]-1);
+      if(markets[n]?.veh){const g=markets[n].veh;for(const v of VEH)g[v]*=v==='truck'?.5:.3}
+      if(W){W.gain[A]=(W.gain[A]||0)+1;W.taken.push(n);W.siege=null}}
+    if(W){W.score+=win===W.att?3:-3;W.camp=0}
+    // 敗方主將：四成戰死
+    const hl=heroes.find(h=>h.id===(lose===A?c.hA:c.hD)&&h.alive);
+    let fell='';if(hl&&!(hl.plot&&ARC.phase<3)&&rand()<.4){fell=hl.name;const hw=heroes.find(h=>h.id===(win===A?c.hA:c.hD)&&h.alive);
+      for(const wp of weaponsOf(hl)){if(hw&&rand()<.5)giveW(wp,hw,y,`${hl.name}戰死於${nm(n)}大戰役，「${wp.name}」被${hw.name}奪走。`);else loseW(wp,n,y,`${hl.name}戰死於${nm(n)}大戰役，「${wp.name}」遺落在戰場上。`)}
+      graves.push({tile:n,y,name:hl.name});heroDies(hl,y,`戰死於${nm(n)}大戰役`)}
+    const days=Math.max(1,Math.round(c.round*CAMP_ROUND/24));
+    say(y,'war',`${nm(n)}大戰役歷時 ${days} 天，${fac[win].n}擊潰${fac[lose].n}${took?`，奪下${nm(n)}`:win===D?`，${nm(n)}守住了`:''}。雙方折損 ${Math.round(lostA+lostD)}${fell?`，${fell}陣亡`:''}。`,n);
+    battles.push({y,s:c.s,a:A,d:D,an:fac[A].n,dn:fac[D].n,t:n,b:biome[n],dd:c.dd,ctr:0,LA:Math.round(c.FA0/2),LD:Math.round(c.FD0/2),xA:0,xD:0,mil:0,camp:c.id,rounds:c.round,
+      sa:Math.round(c.FA0),sd:Math.round(c.FD0),win:win===A?'a':'d',took:took?1:0,siege:1,note:'大戰役',dead:Math.round((lostA+lostD)*.5),hA:'',hD:'',fell});
+    out.push({c,kind:'end',win,took});
+  }
+  // 給畫面：進行中與剛結束的大戰役
+  function campaignView(){return campaigns.map(c=>({id:c.id,att:c.att,def:c.def,an:fac[c.att]?.n,dn:fac[c.def]?.n,tile:c.n,name:nm(c.n),round:c.round,days:Math.round(c.round*CAMP_ROUND/24*10)/10,
+    fa:+(c.FA/c.FA0).toFixed(3),fd:+(c.FD/c.FD0).toFixed(3),FA:Math.round(c.FA),FD:Math.round(c.FD),mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),supA:c.supA,supD:c.supD,
+    next:c.next,done:c.done,win:c.win,log:c.log}))}
 
   // ===== 被劫的商隊：附近的盜匪因此坐大；沒有盜匪的地方，劫商隊的人可能就此起家 =====
   // 回傳 true 表示已經寫了故事，呼叫端不必再寫一般的遭劫紀錄
@@ -1000,6 +1095,7 @@ function createSim(w,rand,pick){
   // 第一季開始時年初、第四季結束時年底。qs：這一年已經結算了幾季（存檔要接上）。回傳 true＝這一年剛結束
   let qs=0;
   function stepSeason(){if(qs===0)yearStart(++histY);else if(!live)bindMarkets();const y=histY;   // 每季開始重綁市場（年中讀檔也一樣）
+   for(const f of fac)if(f.exhaust)f.exhaust=f.exhaust<.05?0:f.exhaust*.5;   // 大戰役後的消耗慢慢恢復
    T+=PS;season(y,qs);qs++;if(qs<4)return false;qs=0;yearEnd(y);snaps.push(makeSnap());return true}
 
   // ===== 線上模式：時段層與即時層（角色：NPC 與玩家走同一套行動介面）=====
@@ -1145,9 +1241,9 @@ function createSim(w,rand,pick){
   // ===== 存檔：把整個世界的可變狀態匯出成一個物件，之後原樣讀回 =====
   const MUT={drops,pmcAid,biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,trench,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town,traffic,famineH};   // traffic、famineH：奇美拉的委託板要（機會層的商路看 traffic），原本沒存，讀檔後歸零
   function exportState(){const o={};for(const k in MUT)o[k]=MUT[k];
-    return {...o,histY,qs,fac,events:ev.slice(-20000),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
+    return {...o,histY,qs,campaigns,campSeq,fac,events:ev.slice(-20000),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
   // 奇美拉（伺服器存檔）：JSON 存過的型別陣列會變成普通物件，先轉回陣列再 set；推演到第幾年（histY）也要接上
-  function importState(S){for(const k in MUT)if(S[k])MUT[k].set(Array.isArray(S[k])||ArrayBuffer.isView(S[k])?S[k]:Object.values(S[k]));if(S.histY!=null)histY=S.histY;qs=S.qs||0;
+  function importState(S){for(const k in MUT)if(S[k])MUT[k].set(Array.isArray(S[k])||ArrayBuffer.isView(S[k])?S[k]:Object.values(S[k]));if(S.histY!=null)histY=S.histY;qs=S.qs||0;campaigns=S.campaigns||[];campSeq=S.campSeq||1;
     fac.splice(0,fac.length,...S.fac);ev.splice(0,ev.length,...S.events);graves.splice(0,graves.length,...S.graves);heroes.splice(0,heroes.length,...S.heroes);
     for(const k of Object.keys(routeSeen))delete routeSeen[k];Object.assign(routeSeen,S.routeSeen);
     for(let a=0;a<FMAX;a++){tension[a]=S.tension[a].slice();war[a]=S.war[a].slice()}
@@ -1231,7 +1327,7 @@ function createSim(w,rand,pick){
     say(type,text,tile=-1){return say(histY||curY,type,text,tile)},
     get year(){return histY||curY},
     drops,pmcAid};
-  return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+  return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},campaignHour,campaignView,setCampaigns(v){campOn=!!v},get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 

@@ -57,7 +57,7 @@ export class Core {
     const gangs = K.gangs.filter(g => !g.gone).map(g => ({name: g.name, lair: g.lair, native: !!g.native, hive: C.isHive(K, g), str: Math.round(g.str), legacy: K.weapons.some(x => x.gang === g.id)}));
     const weapons = L.weapons.map(x => ({name: x.name, kind: x.kind, at: x.at, holder: x.holder ? x.holderName : '', fac: x.fac >= 0 ? K.fac[x.fac]?.n : '', gang: x.gang ? x.gangName : '', lost: x.lost, sealed: x.sealed, owners: x.owners || 0, wins: x.wins || 0}));
     const ev = w.events.slice(this.lastEv).filter(e => e.y === y || e.y === y - 1 || e.y === 0); this.lastEv = w.events.length;
-    return {y, stamp: this.stamp, owner, pop, trench, bandit, biome: Uint8Array.from(K.biome), towns, fac, wars, gangs, weapons,
+    return {y, stamp: this.stamp, campaigns: sim.campaignView(), owner, pop, trench, bandit, biome: Uint8Array.from(K.biome), towns, fac, wars, gangs, weapons,
       blocs: (K.ARC.blocs || []).filter(B => !B.gone).map(B => ({id: B.id, n: B.n, lead: B.lead})), leagues: (K.leagues || []).map(x => ({id: x.id, n: x.n})),
       arc: {ackY: K.ARC.ackY, fallY: K.ARC.fallY, blocY: K.ARC.blocY, elevator: K.ARC.elevator, phase: K.ARC.phase},
       opps: this.sim.opportunities(),
@@ -76,6 +76,7 @@ export class Core {
     let seed = 7; for (const ch of String(this.seed)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
     this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: SEASONAL_YEAR_DAYS, seasonal: true};
     this.log = [{h: 0, year: this.sim.year, cmd: {type: 'open'}}];
+    this.sim.setCampaigns(true);   // 大戰役只在照小時推進時開
   }
   // 開公司（任何一座主城）。第一家公司開張時星球改用小時推進。回傳錯誤訊息或 null
   found(base, name) {
@@ -89,6 +90,13 @@ export class Core {
     g.h = this.game.h; this.game.cos[name] = g;
     return null;
   }
+  // 大戰役的消息發給每一家公司（開打、行情翻倍、壓上存底、結束）
+  campaignNews(e, t) {
+    const c = e.c, K = this.sim.peek(), fn = f => K.fac[f]?.n || '?', nm = this.w.names[c.n] || '某地', side = e.side === 'a' ? c.att : c.def;
+    const text = e.kind === 'start' ? `大戰役：${fn(c.att)}與${fn(c.def)}在${nm}全國動員，開打了。` : e.kind === 'price' ? `${nm}大戰役：${fn(side)}的兵快見底，傭兵行情漲到 ×${e.mul}。`
+      : e.kind === 'reserve' ? `${nm}大戰役：${fn(e.f)}把後方的守軍和剛出槽的兵都壓上前線。` : `${nm}大戰役結束：${fn(e.win)}${e.took ? `奪下${nm}` : '獲勝'}（打了 ${Math.max(1, Math.round(c.round / 4))} 天）。`;
+    for (const name of Object.keys(this.game.cos)) this.game.book.inbox.push({t, player: name, kind: 'war', text, ref: 'camp' + c.id});
+  }
   // 推進到第 h 個遊戲小時（伺服器：依現實時間補算；瀏覽器：加速時鐘）。回傳這段期間沙盒有沒有結算（推了一季）
   advanceTo(h) {
     const game = this.game; if (!game) return false;
@@ -98,6 +106,7 @@ export class Core {
       C.tick(game.book, this.w, t);
       this.postBoard(t);
       for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
+      for (const e of this.sim.campaignHour(t)) this.campaignNews(e, t);
       if (t % Math.max(1, Math.round(24 * game.yearDays / 4)) === 0) { this.sim.stepSeason(); yearDone = true; }
     }
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});
@@ -143,7 +152,7 @@ export class Core {
   // 一家公司看到的畫面資料（回傳訊息物件，由呼叫的人送出）
   view(name, err) {
     const game = this.game, g = this.co(name); if (!g) return null;
-    return {type: 'game', err: err || null, year: this.sim.year, season: this.sim.season, speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
+    return {type: 'game', err: err || null, year: this.sim.year, season: this.sim.season, campaigns: this.sim.campaignView(), speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
       inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: G.view(g, game.book, this.w)};
   }
   // 指令（name：下指令的公司）：會改狀態的記進 log（遊戲小時＋公司＋指令），回傳錯誤訊息或 null
@@ -237,6 +246,7 @@ export class Core {
   load(seed, d) {
     this.w = S.generate(seed, {history: false}); this.sim = this.w.sim; this.sim.begin(); this.seed = seed;
     this.sim.importState(d.sim); this.lastEv = d.lastEv; this.game = d.game; this.log = d.log || [];
+    if (this.game) this.sim.setCampaigns(true);
     if (this.game && !this.game.seasonal) { this.game.yearDays = SEASONAL_YEAR_DAYS; this.game.seasonal = true; }   // 舊存檔：90 天一年改成兩週一季
     this.relink();
   }
