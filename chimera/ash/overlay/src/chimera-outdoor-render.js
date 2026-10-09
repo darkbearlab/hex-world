@@ -47,12 +47,12 @@ function darkWall(r, x, y, rect) {
 }
 
 // 公路戰（Alan 2026-10-09）：車斗（我方花紋鋼板、敵方鏽鐵或木板）、路面往右捲（由右往左開）、車斗下緣的車底陰影與輪子；圖在 truck.png
-const ROAD_SPEED = 5;   // 每秒捲幾格
+const ROAD_SPEED = 10;   // 每秒捲幾格（Alan 2026-10-09：加快一倍）
 function road(r, o, p, a, t) {
-  const c = r.ctx, l = Math.round(a.x - t / 2), tp = Math.round(a.y - t / 2), n = o.ground[p.y]?.[p.x] ?? 12;
+  const c = r.ctx, l = Math.round(a.x - t / 2), tp = Math.round(a.y - t / 2), n = o.ground[p.y]?.[p.x] ?? 0;   // 車外是沙漠（ground.png）
   const off = Math.round(((r.time || performance.now()) / 1000 * ROAD_SPEED % 1) * t);
   c.save(); c.beginPath(); c.rect(l, tp, t, t); c.clip(); c.imageSmoothingEnabled = false;
-  for (const dx of [off - t, off]) c.drawImage(ATLAS.truck, (n % 4) * 32, Math.floor(n / 4) * 32, 32, 32, l + dx, tp, t, t);
+  for (const dx of [off - t, off]) c.drawImage(ATLAS.ground, (n % 4) * 32, Math.floor(n / 4) * 32, 32, 32, l + dx, tp, t, t);
   // 車斗正下方的那一格：車底的陰影與輪子（不跟著捲）
   const up = o.deck[p.y - 1]?.[p.x];
   if (up) { c.fillStyle = 'rgba(0,0,0,.5)'; c.fillRect(l, tp, t, Math.round(t * .4)); const T = o.trucks.find(q => q.id === up);
@@ -68,15 +68,32 @@ function highwayFloor(r, o, p, a, t) {
 // cab.png：車頂 (0,0) 我方橄欖綠、(64,0) 敵方鏽鐵，各 64×96；車側 y 96 起每條 64×16（橄欖綠 ×2、鏽鐵 ×2）
 const CAB_LIFT = .5;
 function cab(r, o, x, y, a, t) {
-  const T = o.trucks.find(q => y > q.y0 && y < q.y0 + 4 && (x === q.x0 - 1 || x === q.x0 - 2));
+  const T = o.trucks.find(q => y >= (q.c0 ?? q.y0 + 1) && y < (q.c0 ?? q.y0 + 1) + 3 && (x === q.x0 - 1 || x === q.x0 - 2));
   road(r, o, {x, y}, a, t);   // 車頭底下（斜角、尖刺之間透出來的）是路面
   if (!T || !ready(ATLAS.cab)) { blit(r.ctx, ATLAS.truck, T?.id === 1 ? 4 : 6, a.x, a.y, t); return; }
-  const c = r.ctx, cx = x - (T.x0 - 2), cy = y - (T.y0 + 1), l = Math.round(a.x - t / 2), top = Math.round(a.y - t / 2), h = Math.round(t * CAB_LIFT), ox = T.id === 1 ? 0 : 64, band = T.id === 1 ? 0 : 2;
+  const c = r.ctx, cx = x - (T.x0 - 2), cy = y - (T.c0 ?? T.y0 + 1), l = Math.round(a.x - t / 2), top = Math.round(a.y - t / 2), h = Math.round(t * CAB_LIFT), ox = T.id === 1 ? 0 : 64, band = T.id === 1 ? 0 : 2;
   c.save(); c.imageSmoothingEnabled = false;
   c.drawImage(ATLAS.cab, ox + cx * 32, cy * 32, 32, 32, l, top - h, t, t);
   if (cy === 2) c.drawImage(ATLAS.cab, cx * 32, 96 + 16 * band, 32, 16, l, top - h + t, t, h);
   c.restore();
   darkWall(r, x, y, {left: l, top: top - h, width: t, height: t + (cy === 2 ? h : 0)});
+}
+
+// 煙霧（Alan 2026-10-09）：每台車後面（右邊）兩道揚起的沙塵、車頭冒的排氣，往右飄散變淡。只是畫面，照時間算，不存
+function smoke(r, o, time) {
+  const c = r.ctx, t = r.tile, s = time / 1000, puff = (x, y, rad, color) => { const p = r.project(x, y); c.fillStyle = color; c.beginPath(); c.arc(p.x, p.y, rad, 0, Math.PI * 2); c.fill(); };
+  c.save();
+  for (const T of o.trucks) {
+    for (const [k, y0] of [[0, T.y0 - .15], [1, T.y0 + T.w - .7]]) for (let i = 0; i < 12; i++) {
+      const ph = (s * 1.8 + i / 12 + T.id * .37 + k * .5) % 1;
+      puff(T.x1 + .3 + ph * 7, y0 + Math.sin(i * 7.3 + T.id + k) * .3 - ph * .25, (.25 + ph * 1.2) * t, `rgba(206,182,132,${(.32 * (1 - ph)).toFixed(3)})`);
+    }
+    for (let i = 0; i < 8; i++) {
+      const ph = (s * 1.3 + i / 8 + T.id * .21) % 1;
+      puff(T.x0 - 1.2 + ph * 3.8, (T.c0 ?? T.y0) - .55 - ph * .7, (.12 + ph * .55) * t, `rgba(58,56,54,${(.42 * (1 - ph)).toFixed(3)})`);
+    }
+  }
+  c.restore();
 }
 
 export function installOutdoor(renderer) {
@@ -161,6 +178,12 @@ export function installOutdoor(renderer) {
     const y = this.project(p.x, p.y).y, b = y + this.tile * (.5 + Math.min(d, TRENCH_DEPTH[this.game.chimeraOutdoor.trench[p.y + 1]?.[p.x] || 0]));
     c.save(); c.setTransform(k, 0, 0, k, sx, sy); c.beginPath(); c.rect(-1e4, -1e4, 2e4, b + 1e4); c.setTransform(m); c.clip();
     try { return classSprite.call(this, a, ...rest); } finally { c.restore(); }
+  };
+  const drawWalls = R.drawWalls;
+  R.drawWalls = function (cells, ...rest) {
+    const r = drawWalls.call(this, cells, ...rest), o = this.game?.chimeraOutdoor;
+    if (o?.deck) smoke(this, o, this.time || performance.now());
+    return r;
   };
   // 站在戰壕裡的人跟著溝底往下畫
   const project = R.projectActor;

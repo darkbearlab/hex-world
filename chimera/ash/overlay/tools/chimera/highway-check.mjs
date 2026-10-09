@@ -20,14 +20,14 @@ for (const [seed, n] of [[1, 6], [2, 12], [3, 14], [4, 5]]) {
 }
 console.table(rows);
 { // 路面不能走
-  const g = mk(5, 6), p = g.player, road = {x: p.x, y: 17};
+  const g = mk(5, 6), p = g.player, T1 = g.chimeraOutdoor.trucks[0], road = {x: p.x, y: T1.y0 + T1.w + 2};
   if (g.passable(road.x, road.y, p)) fail('路面可以走');
   // 跨車：站在我方車斗北緣，往北走一格到敵方車上
   const e = g.enemies; for (const x of e) x.hp = 0;
-  const T2 = g.chimeraOutdoor.trucks[1]; p.x = T2.x0 + 2; p.y = 11; const ok = g.action('move', [0, -1]);
-  if (!ok || p.y !== 10) fail(`跨不過去 ${ok} ${p.x},${p.y}`); else if (!p.vaultExposed || !(p.suppression > 0)) fail(`跨車沒有破綻或壓制 ${p.vaultExposed} ${p.suppression}`); else console.log('✓ 跨上敵車：破綻', p.vaultExposed, '壓制', p.suppression);
+  const T2 = g.chimeraOutdoor.trucks[1]; p.x = T2.x0 + 2; p.y = T1.y0; const ok = g.action('move', [0, -1]);
+  if (!ok || p.y !== T1.y0 - 1) fail(`跨不過去 ${ok} ${p.x},${p.y}`); else if (!p.vaultExposed || !(p.suppression > 0)) fail(`跨車沒有破綻或壓制 ${p.vaultExposed} ${p.suppression}`); else console.log('✓ 跨上敵車：破綻', p.vaultExposed, '壓制', p.suppression);
   // 摔下車
-  const g2 = mk(6, 6), m = g2.members[1]; m.x = 13; m.y = 17; g2.action('wait');
+  const g2 = mk(6, 6), m = g2.members[1], U = g2.chimeraOutdoor.trucks[0]; m.x = 13; m.y = U.y0 + U.w + 2; g2.action('wait');
   if (m.hp > 0) fail('摔下車沒死'); else console.log('✓ 摔下車：', g2.logs.map(l => l.text || l).find(t => t.includes('摔下車')));
 }
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');
