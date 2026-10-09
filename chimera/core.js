@@ -185,7 +185,7 @@ export class Core {
       if (!squad.length) return '這一隊沒有活著的人';
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
       if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
-      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: tk.enemy.side === 'faction' ? 'loyalist' : 'rebel', night: tk.night, enemy: tk.enemy, squad}});
+      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: tk.enemy.side === 'faction' ? 'loyalist' : 'rebel', night: tk.night, enemy: tk.enemy, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome}});
       return null;
     }
     if (m.type === 'submit' || m.type === 'abort') {

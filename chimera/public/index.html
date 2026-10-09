@@ -109,6 +109,8 @@
     <div id="arenaBox" class="arenabox" hidden>
       <b>戰鬥測試場（開發用）</b>
       <p class="muted">隨機地圖、四名 3 級隊員（士兵、偵察兵、重裝兵、狂戰士），在伺服器上跑，打完不結算。</p>
+      <label>類型 <select id="arenaType"><option value="ambush">車隊遇襲</option><option value="native">原住民襲擊</option><option value="intercept">敵軍攔截</option><option value="transit">行軍遇襲（走到另一頭）</option><option value="assault">突擊陣地</option><option value="hold">守點</option><option value="trench">夜襲戰壕</option><option value="sabotage">破壞車場</option><option value="probe">巡邏遭遇</option><option value="clear">清剿據點</option></select></label>
+      <label>地形 <select id="arenaBiome"><option value="">隨機</option><option>沙海</option><option>旱原</option><option>礫丘</option><option>岩山</option><option>鹼灘</option><option>油棘林</option><option>鹽沼</option><option>寒漠</option><option>總督府</option></select></label>
       <label>敵人 <select id="arenaSize"><option value="1">少</option><option value="2" selected>中</option><option value="3">多</option><option value="4">很多</option></select></label>
       <label>方式 <select id="arenaMode"><option value="verify" selected>瀏覽器跑、伺服器驗證</option><option value="authority">伺服器跑（舊）</option></select></label>
       <label><input type="checkbox" id="arenaNight"> 夜間</label> <label><input type="checkbox" id="arenaBoss"> 頭目</label>

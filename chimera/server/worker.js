@@ -163,10 +163,17 @@ export class Planet extends DurableObject {
 
 // 測試場的任務：隨機種子、四名 3 級隊員（學會兵種技能）、一隊混編的敵人；夜間、頭目可選
 const ARENA_CLS = ['soldier', 'recon', 'bulwark', 'berserker'], ARENA_FACES = ['ember', 'onyx', 'silver', 'cedar'];
+// 戰鬥類型（cases.js 的服務單類型）與生態（sim.js 的 BIOMES）：測試場可以選，戶外地圖照這兩個產生（chimera-outdoor.js）
+const ARENA_TYPES = ['ambush', 'native', 'intercept', 'transit', 'assault', 'hold', 'trench', 'sabotage', 'probe', 'clear'];
+const ARENA_BIOMES = ['鹼灘', '斷崖', '岩山', '礫丘', '寒漠', '油棘林', '旱原', '沙海', '鹽沼', '總督府'];
 function arenaMission(b) {
-  const r = crypto.getRandomValues(new Uint32Array(2)), n = Math.max(1, Math.min(4, b.size | 0 || 2));
-  return {id: 'arena-' + Date.now().toString(36) + r[1].toString(36).slice(0, 4), title: '戰鬥測試場', seed: 1 + r[0] % 999999, faction: r[1] % 2 ? 'rebel' : 'loyalist', night: !!b.night,
-    enemy: {name: '測試敵人', side: 'gang', power: 0, units: {raider: 2 * n, raider_heavy: n, trooper: n}, veh: {}, boss: b.boss ? {weapon: '測試'} : null},
+  const r = crypto.getRandomValues(new Uint32Array(3)), n = Math.max(1, Math.min(4, b.size | 0 || 2));
+  const type = ARENA_TYPES.includes(b.type) ? b.type : ARENA_TYPES[r[2] % ARENA_TYPES.length], biome = ARENA_BIOMES.includes(b.biome) ? b.biome : ARENA_BIOMES[(r[2] >>> 8) % ARENA_BIOMES.length];
+  // 敵人照類型：原住民、正規軍、掠奪者
+  const units = type === 'native' ? {native: 2 * n, native_hunter: n} : ['intercept', 'assault', 'hold', 'trench', 'sabotage', 'probe'].includes(type) ? {trooper: 2 * n, trooper_heavy: n} : {raider: 2 * n, raider_heavy: n};
+  const night = b.night === true || (b.night == null && ['trench', 'sabotage'].includes(type));
+  return {id: 'arena-' + Date.now().toString(36) + r[1].toString(36).slice(0, 4), title: '戰鬥測試場', seed: 1 + r[0] % 999999, faction: r[1] % 2 ? 'rebel' : 'loyalist', night, type, biome,
+    enemy: {name: '測試敵人', side: 'gang', power: 0, units, veh: {}, boss: b.boss || type === 'clear' ? {weapon: '測試'} : null},
     squad: ARENA_CLS.map((cls, i) => ({id: `T-${1001 + i}`, cls, portrait: ARENA_FACES[i], st: {hp: cls === 'berserker' ? 160 : 100}, lv: 3, xp: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0}))};
 }
 // 給瀏覽器的開戰資料：verify＝任務（含種子）與已收到的輸入，瀏覽器自己跑；authority＝過濾過的畫面

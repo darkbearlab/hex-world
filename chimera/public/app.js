@@ -870,7 +870,7 @@ if (!LOCAL && new URL(location).searchParams.has('arena')) $('arenaBox').hidden 
 async function arena() {
   const btn = $('arenaGo'); btn.disabled = true; btn.textContent = '開戰中…';
   try {
-    const r = await fetch('/api/arena', {method: 'POST', headers: {...authHeaders(), 'content-type': 'application/json'}, body: JSON.stringify({size: +$('arenaSize').value, night: $('arenaNight').checked, boss: $('arenaBoss').checked, mode: $('arenaMode').value})});
+    const r = await fetch('/api/arena', {method: 'POST', headers: {...authHeaders(), 'content-type': 'application/json'}, body: JSON.stringify({size: +$('arenaSize').value, night: $('arenaNight').checked || null, boss: $('arenaBoss').checked, mode: $('arenaMode').value, type: $('arenaType').value, biome: $('arenaBiome').value})});
     const tk = await r.json(); if (!r.ok) throw new Error(tk.error || '開戰失敗');
     const E = await ash; hideTitle(); mission = {id: tk.id, arena: true}; await launch(E, tk);
   } catch (e) { $('titleMsg').hidden = false; $('titleMsg').textContent = e.message; }

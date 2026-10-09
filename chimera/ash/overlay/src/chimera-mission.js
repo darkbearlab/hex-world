@@ -7,6 +7,7 @@ import {isNoncombatant} from './enemy-data.js';
 import {CHARACTERS} from './characters.js';
 import {pickPortrait,validPortrait} from './portraits.js';
 import {t} from './i18n.js';
+import {outdoorMap} from './chimera-outdoor.js';
 
 // 奇美拉的敵人 → ASH 的兵種卡（暫定，見 warband/DESIGN.md「接上 ASH 的做法定案」）
 export const ENEMY_MAP={raider:'raider',raider_heavy:'gunner',native:'raider_infected',native_hunter:'sniper',
@@ -27,7 +28,7 @@ export function ticketUnits(ticket){
 const lcg=seed=>{let s=(Number(seed)>>>0)||1;return ()=>((s=Math.imul(s,1664525)+1013904223>>>0)/4294967296);};
 const near=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
 
-let building=null;   // generateFloor 在 Game 的建構子裡就被叫到，這時 this.ticket 還沒設
+let building=null,outdoorBuilt=null;   // generateFloor 在 Game 的建構子裡就被叫到，這時 this.ticket 還沒設
 export class MissionGame extends Game{
  // ticket：{seed, faction:'loyalist'|'rebel', enemy:{units,veh,boss}, squad:[{id,cls,portrait?,st:{hp,acc,eva,mel}}]}
  constructor(ticket){
@@ -35,11 +36,23 @@ export class MissionGame extends Game{
   building=ticket;
   try{super(ticket.seed,[],0,character(lead.cls),portrait,'extraction',{facilityFaction:ticket.faction||'rebel',simulation:{kind:'chimera'}});}finally{building=null;}
   this.ticket=ticket;this.chimera={members:ticket.squad.map(c=>c.id),units:{}};
+  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;outdoorBuilt=null;const g=this.chimeraOutdoor.goal;this.log(g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
   this.chimera.units[lead.id]='player';applyStats(this.player,lead,CHARACTERS[this.player.character]);
   this.logs=[];this.log(t('game.arrived'));
  }
  generateFloor(){
-  const tk=building||this.ticket,map=generate(this.seed,1,[],this.difficultySpec,this.facilityFaction);
+  const tk=building||this.ticket;
+  // 戶外戰鬥（Alan 2026-10-09）：照服務單的類型與那一格的生態產生開闊地；ticket.facility 為真才用 ASH 的設施地圖
+  if(!tk.facility){
+   const {map,spots,outdoor}=outdoorMap({...tk,seed:this.seed},1),want=ticketUnits(tk),rnd=lcg(tk.seed^0xe1e);
+   for(let i=spots.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[spots[i],spots[j]]=[spots[j],spots[i]];}
+   const used=new Set(),cells=[];for(const p of spots){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
+   map.enemies=want.slice(0,cells.length).map((type,i)=>makeEnemy(type,cells[i].x,cells[i].y,`c${i+1}`,1,this.difficultySpec,this.facilityFaction));
+   // 對方來打的（守點、車隊遇襲、原住民、行軍遇襲）：開場就警戒，朝我方的位置摸過來；攻陣地、戰壕、據點的敵人守著自己的位置
+   if(outdoor.layout==='ring'||outdoor.layout==='road')for(const e of map.enemies){e.alert=true;e.lastKnown={x:map.start.x,y:map.start.y};}
+   outdoorBuilt=outdoor;return map;
+  }
+  const map=generate(this.seed,1,[],this.difficultySpec,this.facilityFaction);
   const want=ticketUnits(tk);if(!want.length)return map;
   // 位置：先用原本的敵人站位（合法的巡邏點），不夠再從離起點遠的地板格補
   const posts=map.enemies.filter(e=>!isNoncombatant(e)).map(e=>({x:e.x,y:e.y}));
@@ -54,9 +67,21 @@ export class MissionGame extends Game{
   return map;
  }
  awardProtocol(){}
+ // 戶外戰鬥的勝利：清光敵人（goal kill）；行軍遇襲是走到另一頭撤離（goal exit，descend）
+ action(type,arg){
+  const ok=super.action(type,arg);
+  const o=this.chimeraOutdoor;
+  if(o&&o.goal!=='exit'&&this.status==='playing'){
+   if(!this.enemies.some(e=>e.hp>0&&!isNoncombatant(e))){this.status='won';this.log('敵人清光了。');}
+   else if(o.goal==='hold'&&this.turn>=o.holdTurns){this.status='won';this.log(`撐過 ${o.holdTurns} 回合，陣地守住了。`);}
+   else if(o.goal==='hold'&&ok&&this.turn%10===0)this.log(`守住陣地：還要撐 ${o.holdTurns-this.turn} 回合。`);
+  }
+  return ok;
+ }
  // 撤離＝勝：走到電梯旁按撤離就結束，不下樓
  descend(){
   if(this.status!=='playing'||this.player.hp<=0)return false;
+  if(this.chimeraOutdoor&&this.chimeraOutdoor.goal!=='exit')return this.fail('這一場要把敵人清掉，不能撤離');
   if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));
   if(this.exitBlocked)return this.fail(this.exitBlocked);
   this.status='won';this.log('撤離完成。');return true;

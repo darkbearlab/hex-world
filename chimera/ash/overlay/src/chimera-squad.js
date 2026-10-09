@@ -204,7 +204,7 @@ export class SquadGame extends MissionGame{
  presentView(v){const c=v.members?.find(m=>m.id===this.controlled?.id);if(c&&v.player!==c)v.player=c;return v;}
  setControlled(m){if(!this.members.includes(m)||m.hp<=0||this.soloTurn)return false;this.swap(m);this.controlled=m;return true;}
  cycleControlled(){const L=this.living;if(L.length<2)return false;return this.setControlled(L[(L.indexOf(this.player)+1)%L.length]);}
- descend(){if(this.status!=='playing'||this.player.hp<=0)return false;if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);this.status='won';this.log('撤離完成。');return true;}
+ descend(){if(this.status!=='playing'||this.player.hp<=0)return false;if(this.chimeraOutdoor&&this.chimeraOutdoor.goal!=='exit')return this.fail('這一場要把敵人清掉，不能撤離');if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);this.status='won';this.log('撤離完成。');return true;}
  get missionResult(){
   const dead=Object.entries(this.chimera.units).filter(([,m])=>m.hp<=0).map(([id])=>id);
   const foes=this.enemies.filter(e=>!isNoncombatant(e)),kills=foes.filter(e=>e.hp<=0).length,total=foes.length;

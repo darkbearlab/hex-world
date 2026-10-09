@@ -125,4 +125,5 @@ E.renderer=renderer;
 const pause=renderer.isPaused;renderer.isPaused=()=>!E.active||pause?.();
 const {installSquadUI}=await import('./chimera-squad-ui.js');installSquadUI();
 const {installWide}=await import('./chimera-wide.js');installWide();
+const {installOutdoor}=await import('./chimera-outdoor-render.js');installOutdoor();
 resolveLoaded(E);
