@@ -8,6 +8,8 @@ const LOCAL = WATCH || new URL(location).searchParams.has('local');
 document.body.classList.toggle('watch', WATCH);
 document.body.classList.toggle('server', !LOCAL);
 const $ = id => document.getElementById(id);
+// 擋掉電腦瀏覽器的右鍵選單（Alan 2026-10-09）；輸入框照常可以貼上。戰鬥畫面的右鍵開火由 ASH 自己處理
+document.addEventListener('contextmenu', e => { if (!e.target.closest('input,textarea')) e.preventDefault(); });
 // 不能手勢縮放（Alan 2026-10-09）：iPhone 的 Safari 不理 user-scalable=no，要擋手勢事件；地圖自己的雙指縮放不受影響（用的是 touch 事件）
 for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault(), {passive: false});
 const canvas = $('map'), ctx = canvas.getContext('2d');

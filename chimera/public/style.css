@@ -370,3 +370,6 @@ html.vhs #map{filter:saturate(.85) contrast(1.06)}
 html.vhs body:has(#ash-root:not([hidden]))>.vhs-layer{display:none}   /* 戰鬥畫面有自己的一層 */
 /* iPhone 的網址列會伸縮：用動態的視窗高度，底部才不會被蓋到或超出 */
 @supports (height:100dvh){html,body{height:100dvh}}
+
+/* 疊上去的分頁背景半透明（Alan 2026-10-09：透明度 30～40%），看得到底下幾層；卡片本身還是不透明，字照樣清楚 */
+.page:not(#page-map){background:rgba(20,18,15,.64)}
