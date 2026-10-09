@@ -20,6 +20,9 @@ export const CFG = {
   CASE_HOURS: 72,   // 案件長度（現實時間一比一後改成三天，原本 168；Alan 2026-10-08）
   TRAVEL: .15,      // 行軍：每一點路程成本要幾小時（沿實際道路）。測試用：原本 1.5，2026-10-08 Alan 要求縮成十分之一；伺服器化 S1 時重新平衡
   SQUAD: 4,         // 小隊滿編人數
+  // 加速（Alan 2026-10-09）：付錢包車，路程時間乘上 FAST；每人每節省一小時 FAST_PRICE 元。來回同一套：去程加速，回程也加速、回程時再扣一次
+  FAST: .5,
+  FAST_PRICE: 1,
 };
 
 // ===== 亂數：狀態存在帳本裡，存檔讀檔後接得上 =====
@@ -41,7 +44,7 @@ export const alive = sq => sq.clones.filter(c => c.alive);
 export function squadPower(sq) { return alive(sq).reduce((x, c) => x + c.pow, 0) * (1 + sq.gear / 20) + (sq.veh ? VPOW[sq.veh] : 0); }
 
 // ===== 帳本與通知 =====
-function pay(book, t, player, amount, kind, text, caseId) { book.ledger.push({t, player, amount: Math.round(amount), kind, text, caseId}); }
+export function pay(book, t, player, amount, kind, text, caseId) { book.ledger.push({t, player, amount: Math.round(amount), kind, text, caseId}); }
 function notify(book, t, player, kind, text, ref) { book.inbox.push({t, player, kind, text, ref}); }
 
 // ===== 開案 =====
@@ -104,20 +107,25 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
 // 駐紮地是事先用遠征模式送到位的人手（已經付過錢），離戰場近，派過去快。
 export function registerCompany(book, player, base) { book.companies[player] = book.companies[player] || {player, base, posts: {}}; return book.companies[player]; }
 export function station(book, player, tile, n) { const C = book.companies[player]; C.posts[tile] = (C.posts[tile] || 0) + n; }
-export function travelHours(w, from, to) { if (from < 0 || from === to) return 0; const d = w.sim.pmc.dist(from, to); return isFinite(d) ? Math.ceil(d * CFG.TRAVEL) : Infinity; }
+export function travelHours(w, from, to, fast = false) { if (from < 0 || from === to) return 0; const d = w.sim.pmc.dist(from, to); return isFinite(d) ? Math.ceil(d * CFG.TRAVEL * (fast ? CFG.FAST : 1)) : Infinity; }
+// 加速的費用：n 個人、從 from 到 to，比一般走法省下的小時數 × 單價
+export function speedCost(w, from, to, n) { const a = travelHours(w, from, to), b = travelHours(w, from, to, true); return isFinite(a) && isFinite(b) ? Math.max(0, a - b) * n * CFG.FAST_PRICE : 0; }
+// 這一趟用加速：扣錢、記帳（kind 'speed'）
+export function paySpeed(book, w, player, from, to, n, now, what, caseId) { const cost = speedCost(w, from, to, n); if (cost > 0) pay(book, now, player, -cost, 'speed', `${what}：加速（${n} 人，$${cost}）`, caseId); return cost; }
 
 // ===== 報名：每隊付訂金；小隊從所在地沿路走到案件現場，到了才能接票 =====
 export function enlist(book, caseId, squadId, now, w) {
   const c = book.cases.find(x => x.id === caseId), sq = book.squads[squadId];
   if (!c || !sq || !c.open || sq.caseId) return false;
-  const eta = now + (w ? travelHours(w, sq.at, c.tile) : 0);
+  const eta = now + (w ? travelHours(w, sq.at, c.tile, sq.fast) : 0);
   if (eta >= c.end - (c.freeze ?? CFG.FREEZE)) return false;   // 趕不上：到的時候已經不出票了
   const from = sq.at;
+  if (sq.fast && w) paySpeed(book, w, sq.player, from, c.tile, alive(sq).length, now, `${c.title}（${sq.name}）去程`, c.id);
   sq.caseId = c.id; sq.readyAt = eta; c.squads.push(sq.id); sq.at = c.tile;
   if (w && eta > now) sq.move = {path: w.sim.pmc.route(from, c.tile), t0: now, t1: eta};
   if (w) planTrip(book, w, c, sq.id, from, now, eta);
   pay(book, now, sq.player, c.pay.deposit, 'deposit', `${c.title}：訂金（${sq.name}）`, c.id);
-  if (eta > now) notify(book, now, sq.player, 'move', `${sq.name} 出發前往${c.title}，約 ${eta - now} 小時後到位。`, c.id);
+  if (eta > now) notify(book, now, sq.player, 'move', `${sq.name} ${sq.fast ? '加速' : ''}出發前往${c.title}，約 ${eta - now} 小時後到位。`, c.id);
   return true;
 }
 
@@ -143,12 +151,13 @@ export function amend(book, w, squadId, n, from, now, o = {}) {
   if (o.clones) o.clones = o.clones.slice(0, n);
   const fromPost = from !== C.base && !o.clones;
   if (fromPost && (C.posts[from] || 0) < n) return {ok: false, why: '駐紮地人手不夠'};
-  const eta = now + travelHours(w, from, c.tile);
+  const eta = now + travelHours(w, from, c.tile, !!o.fast);
   if (eta >= c.end - (c.freeze ?? CFG.FREEZE)) return {ok: false, why: '趕不上'};
   if (fromPost) C.posts[from] -= n;
   else if (!o.clones) pay(book, now, sq.player, -CFG.CLONE_VALUE * n, 'reinforce', `${c.title}：契約變更，從總部培養槽調 ${n} 人補${sq.name}`, c.id);
   // 調來的人編成一支行軍縱隊，路上一樣可能被劫
-  const col = makeSquad(book, sq.player, {size: n, clones: o.clones, at: from, gear: sq.gear, name: `${sq.name} 的補員`}); col.column = true; col.caseId = null;
+  const col = makeSquad(book, sq.player, {size: n, clones: o.clones, at: from, gear: sq.gear, name: `${sq.name} 的補員`}); col.column = true; col.caseId = null; col.fast = !!o.fast;
+  if (col.fast) paySpeed(book, w, sq.player, from, c.tile, n, now, `${c.title}（${sq.name} 的補員）`, c.id);
   col.move = {path: w.sim.pmc.route(from, c.tile), t0: now, t1: eta};
   const a = {id: 'A' + book.nextId++, squad: sq.id, col: col.id, caseId: c.id, n, from, at: now, eta, done: false};
   book.amends.push(a);
@@ -211,8 +220,8 @@ export function cancelAmend(book, amendId, now) {
   a.done = true; a.cancelled = true;
   for (const tr of book.trips) if (tr.unit === a.col) tr.done = true;
   const pos = col ? whereIs(col, null, now) : null, here = pos ? (pos.f < .5 ? pos.a : pos.b) : a.from;
-  const clones = col ? alive(col) : []; if (col) delete book.squads[col.id];
-  return {here, clones};
+  const clones = col ? alive(col) : [], fast = !!col?.fast; if (col) delete book.squads[col.id];
+  return {here, clones, fast};
 }
 
 // ===== 事件骰：這個案件現在每小時出事的機率（跟沙盒的真實狀況走） =====
@@ -339,8 +348,8 @@ function planTrip(book, w, c, unitId, from, now, eta) {
   const K = w.sim.peek(), P = w.sim.pmc, path = P.route(from, c.tile).filter(t => t !== c.tile);
   if (!path.length) return;
   const tw = path.map(t => K.bandit[t] + (c.fac >= 0 && K.owner[t] >= 0 && P.atWar(K.owner[t], c.fac) ? 40 : 0));
-  const risk = tw.reduce((x, y) => x + y, 0);
-  if (rng(book) >= 1 - Math.exp(-risk / 1500)) return;
+  const risk = tw.reduce((x, y) => x + y, 0), p = 1 - Math.exp(-risk / 1500);
+  if (rng(book) >= (book.squads[unitId]?.fast ? p / 2 : p)) return;   // 加速：路上待得短，出事的機會減半
   let r = rng(book) * risk, i = 0; for (; i < tw.length - 1 && r > tw[i]; i++) r -= tw[i];
   book.trips.push({unit: unitId, caseId: c.id, tile: path[i], at: now + 1 + Math.floor(rng(book) * (eta - now - 1)), done: false});
 }

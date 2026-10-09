@@ -123,15 +123,15 @@ export class Core {
     if (m.type === 'speed') { game.speed = m.v; return null; }
     if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
-    if (m.type === 'build') return G.build(g, m.recipe, m.tpl);
+    if (m.type === 'build') return G.build(g, m.recipe, m.tpl, m.slot);
     // 通知看過了（Alan 2026-10-09：重新登入後看過的通知又變紅）：記到看過的最後一個小時，和那個小時裡看過的幾則（同一小時之後才來的仍算新的）
     if (m.type === 'read') { const h = +m.h || 0, sigs = (Array.isArray(m.sigs) ? m.sigs : []).slice(0, 40).map(String); if (!g.mailRead || h > g.mailRead.h) g.mailRead = {h, sigs}; else if (h === g.mailRead.h) g.mailRead.sigs = [...new Set([...g.mailRead.sigs, ...sigs])].slice(-80); return null; }
     if (m.type === 'keep') { const c = g.roster.find(x => x.uid === m.uid); if (c) c.keep = !c.keep; return null; }
-    if (m.type === 'accept') { const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile); if (!o) return '這個機會已經不在了'; return G.accept(g, b, w, o, m.side, m.uids, h); }
-    if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, h);
+    if (m.type === 'accept') { const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile); if (!o) return '這個機會已經不在了'; return G.accept(g, b, w, o, m.side, m.uids, h, !!m.fast); }
+    if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, h, !!m.fast);
     if (m.type === 'recall') return G.recall(g, b, w, m.squad, h);
     if (m.type === 'recallCol') return G.recallColumn(g, b, w, m.amend, h);
-    if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to); this.emit({type: 'path', to: m.to, path, hours: path.length ? C.travelHours(w, g.base, m.to) : -1}); return null; }
+    if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to), ok = path.length > 0; this.emit({type: 'path', to: m.to, path, hours: ok ? C.travelHours(w, g.base, m.to) : -1, fastHours: ok ? C.travelHours(w, g.base, m.to, true) : -1, fastPer: ok ? C.speedCost(w, g.base, m.to, 1) : 0}); return null; }
     if (m.type === 'procure') return G.procure(g, b, w, m.town, m.mat, m.qty, m.uids || [], h);
     if (m.type === 'quotes') { this.emit({type: 'quotes', data: G.quotes(g, w)}); return null; }
     if (m.type === 'resolve') { const tk = b.tickets.find(x => x.id === m.ticket); if (!tk || tk.player !== name) return '這張票不是你的'; C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }

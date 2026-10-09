@@ -13,7 +13,7 @@
 <body>
 <header class="bar">
   <div class="brand"><b>Project: Chimera</b><span>被遺棄的星球</span></div>
-  <nav class="pager" aria-label="切換畫面"><button data-page="map" class="on">戰略地圖</button><button data-page="co">公司</button><button data-page="rep">報表</button></nav>
+  <nav class="pager" aria-label="切換畫面"><button data-page="map" class="on">戰略地圖</button><button data-page="co">任務管制</button><button data-page="vat">培養槽</button><button data-page="trade">交易</button><button data-page="rep">報表</button></nav>
   <div class="seed">
     <input id="seed" value="奇美拉-1" aria-label="種子" spellcheck="false">
     <button id="gen" title="用這個種子重新生成星球">生成</button>
@@ -90,8 +90,12 @@
   </aside>
 </main>
 <section class="page copage" id="page-co"><div id="pane-co"></div></section>
+<section class="page copage" id="page-vat"><div id="pane-vat"></div></section>
+<section class="page copage" id="page-trade"><div id="pane-trade"></div></section>
 <section class="page copage" id="page-rep"><div id="pane-rep"></div></section>
 </div></div>
+<!-- 名冊：任務管制、培養槽、交易共用的底部面板（平常收著，點了往上展開；點人看詳細資料） -->
+<div id="drawer" class="drawer" hidden><button id="drawbar" class="drawbar" type="button"></button><div id="drawbody" class="drawbody"></div></div>
 <!-- 標題畫面（伺服器模式）：選 Google 登入或訪客、看開發日誌；連上之前蓋住整個頁面，不會先閃過沙盒的推演畫面 -->
 <section id="title" class="titlescreen" hidden>
   <div class="titlebox">
