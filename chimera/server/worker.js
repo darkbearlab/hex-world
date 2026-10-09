@@ -120,7 +120,7 @@ export class Planet extends DurableObject {
     if (this.catchUp()) await this.persist();
     this.out = [];
     const name = pid ? this.roster[pid] : null;
-    if (path === 'hello') return json({pid: !!pid, company: name, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), colo: await colo(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
+    if (path === 'hello') return json({pid: !!pid, company: name, seed: this.meta.seed, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), colo: await colo(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
     if (path === 'static') { if (!this.staticMsg) { const c = new Core(m => { if (m.type === 'static') this.staticMsg = m; }); c.w = this.core.w; c.emitStatic(); } return json(this.staticMsg); }
     if (path === 'year') { const y = +url.searchParams.get('y'); if (y === this.core.year) return json({same: true, year: y}); if (this.ysnap?.y !== this.core.year) this.ysnap = this.core.snapshot(); return json({type: 'year', data: this.ysnap}); }
     // 編年史：開服前的歷史加上開服後的事（Alan 2026-10-09：看不到開局前的事）

@@ -2,7 +2,10 @@
 import {CLS, MN, MATS, classOdds, GCFG} from './company.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
-const LOCAL = new URL(location).searchParams.has('local');
+// ?watch：觀看世界生成（Alan 2026-10-09，系統選單裡）：用星球的種子在這個瀏覽器從頭推演到開服那一年，只能看，不能開公司、不能再往後推
+const WATCH = new URL(location).searchParams.has('watch');
+const LOCAL = WATCH || new URL(location).searchParams.has('local');
+document.body.classList.toggle('watch', WATCH);
 document.body.classList.toggle('server', !LOCAL);
 const $ = id => document.getElementById(id);
 // 不能手勢縮放（Alan 2026-10-09）：iPhone 的 Safari 不理 user-scalable=no，要擋手勢事件；地圖自己的雙指縮放不受影響（用的是 touch 事件）
@@ -36,7 +39,7 @@ function start(seed) {
       if (hist.length === 1) { cur = 0; renderAll(); if (LOCAL) setPlaying(true); }
       else if (GV) { cur = hist.length - 1; lastPanelY = -1; renderAll(); send({type: 'quotes'}); }
       if (!GV && page === 'co' && hist.length % 10 === 0) renderCo();
-    } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = false; if (!LOCAL && !worker.company) { hideTitle(); showPage('co'); } }
+    } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = WATCH; if (!LOCAL && !worker.company) { hideTitle(); showPage('co'); } }
     else if (m.type === 'relogin') { showTitle(m.text); }
     else if (m.type === 'chronicle') { allEvents = m.events; if (curTab() === 'log') renderLog(); }
     else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); hideTitle(); }
@@ -370,7 +373,7 @@ setInterval(() => {
 Object.defineProperty(HTMLElement.prototype, 'html', {configurable: true, set(v) { const k = String(v).replace(/(<span class="cd"[^>]*>)[^<]*/g, '$1'); if (this._k === k && this.childNodes.length) return; this._k = k; this.innerHTML = v; }});
 const STATUS = {home: '待命', away: '出勤', returning: '歸途', kia: '陣亡'};
 function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3200); }
-function found(base) { send({type: 'found', base}); }
+function found(base) { if (WATCH) return; send({type: 'found', base}); }
 function onGame(m) {
   const first = !GV; GV = m.data; GM = m;
   if (m.err) toast(m.err);
@@ -764,6 +767,7 @@ function openSys() {
   const email = account(), co = GV?.name;
   $('sysBody').innerHTML = `<p class="mini">${LOCAL ? '單人測試模式' : email ? `已用 ${esc(email)} 登入` : '訪客（這個瀏覽器）'}${co ? `・公司：${esc(co)}` : ''}</p>
     <button data-sys="devlog">開發日誌</button>
+    ${LOCAL ? '' : '<button data-sys="watch">觀看世界生成</button>'}
     ${LOCAL ? '' : '<button data-sys="title">回標題畫面</button>'}
     ${!LOCAL && email ? '<button data-sys="logout">登出</button>' : ''}`;
   $('sys').hidden = false;
@@ -774,6 +778,7 @@ $('sys').onclick = e => {
   if (e.target.id === 'sys') { $('sys').hidden = true; return; }
   const b = e.target.closest('[data-sys]'); if (!b) return; $('sys').hidden = true;
   if (b.dataset.sys === 'devlog') devlog();
+  else if (b.dataset.sys === 'watch') location.href = '/?watch&seed=' + encodeURIComponent(worker?.hello?.seed || seed0);
   else if (b.dataset.sys === 'title') { if (!mission) showTitle(); }
   else if (b.dataset.sys === 'logout') { signOut(); showTitle(); }
 };
@@ -800,7 +805,7 @@ async function arena() {
 $('arenaGo').onclick = arena;
 $('devlogClose').onclick = () => $('devlog').hidden = true;
 $('devlog').onclick = e => { if (e.target.id === 'devlog') $('devlog').hidden = true; };
-if (LOCAL) start(seed0); else showTitle();
+if (LOCAL) { $('title').hidden = true; start(seed0); if (WATCH) { tab('log'); setPanel(false); } } else showTitle();
 window.addEventListener('resize', () => { if (page !== 'map' && page !== 'rep' && GV) renderPage(); if (page === 'rep') { const P = $('pane-rep'); P.innerHTML = ''; renderRepPage(); } });
 
 // ===== 親自打：ASH 的任務戰鬥直接跑在這個頁面裡（不用 iframe；public/ash/chimera-boot.js，由 chimera/ash/build.mjs 建置）。

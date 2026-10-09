@@ -334,3 +334,8 @@ html{touch-action:manipulation}
 .sysbox{display:flex;flex-direction:column;gap:10px;padding:12px 14px 16px}
 .sysbox button{text-align:left;padding:10px 12px}
 .sysbox .mini{margin:0}
+
+/* 觀看世界生成（?watch）：只能看歷史 */
+.watchback{display:none}
+body.watch .watchback{display:inline-block;padding:4px 12px;border:1px solid var(--accent);border-radius:6px;color:var(--accent);text-decoration:none}
+body.watch .pager,body.watch #mailBtn,body.watch #sysBtn,body.watch #more,body.watch #gen,body.watch #seed,body.watch [data-found],body.watch .tabs [data-tab="opp"],body.watch #pane-opp{display:none!important}

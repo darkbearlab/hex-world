@@ -31,6 +31,7 @@
     <input type="range" id="slider" min="0" max="0" value="0" aria-label="年份">
     <span id="computing" class="muted">推演中…</span>
     <button id="more" hidden>再推 50 年</button>
+    <a id="watchBack" class="watchback" href="/">回到遊戲</a>
   </div>
   <div class="gamebar" id="gamebar" hidden>
     <div class="year"><b id="gclock">—</b><span id="gsub">公司模式</span></div>
@@ -96,7 +97,7 @@
 <!-- 名冊：任務管制、培養槽、交易共用的底部面板（平常收著，點了往上展開；點人看詳細資料） -->
 <div id="drawer" class="drawer" hidden><button id="drawbar" class="drawbar" type="button"></button><div id="drawbody" class="drawbody"></div></div>
 <!-- 標題畫面（伺服器模式）：選 Google 登入或訪客、看開發日誌；連上之前蓋住整個頁面，不會先閃過沙盒的推演畫面 -->
-<section id="title" class="titlescreen" hidden>
+<section id="title" class="titlescreen">
   <div class="titlebox">
     <h1>Project: Chimera</h1>
     <p class="sub">被企業遺棄的荒漠星球</p>
