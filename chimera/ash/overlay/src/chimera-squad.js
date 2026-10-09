@@ -29,9 +29,12 @@ import {WEAPONS,PERKS} from './data.js';
 import {perkDef} from './perks.js';
 import {initialSkillState,SKILLS} from './skills.js';
 import {initializeAllies} from './allies.js';
+import {grantTrait,removeTraitSource} from './traits.js';
 
 // 土製（DESIGN.md「本輪規劃」B）：ASH 的詞條都是一好一壞，土製只取壞的那一面。出生配發的槍都帶著；到終端改裝換掉詞條，
 // 就是把土製槍升級成正規槍。職業天生的近戰武器（動力拳、斧頭）不套。dropOnly:[] 讓它不會隨機出現在掉落與商店裡。
+// 護甲詞條對應的特性（和 chimera/company.js ARMOR_AFFIXES 一致）
+const ARMOR_TRAITS={nightvision:['night_vision'],infrared:['infrared'],steady:['suppression_resistance'],antitox:['poison_resistance']};
 AFFIXES.homemade??={name:'土製',text:'土法拼裝：傷害 −10%、彈匣 −25%、命中 −8。到終端改裝可以換掉。',damage:.9,mag:.75,accuracy:-8,dropOnly:[]};
 // 技能跟著人走（C）：出生沒有技能；職業技能在 SKILL_LEVEL 級學會（跨戰役的等級）。技能可插拔：學會的放在 skills，預備欄放一個。
 export const CLASS_SKILL={soldier:'early_warning',recon:'signal_break',bulwark:'anchor',berserker:'grapple',engineer:'workshop'};
@@ -87,14 +90,21 @@ export class SquadGame extends MissionGame{
   m.weapon=m.owned[0]??m.weapon;
   const kits={meds:0,grenades:0,smoke:0,stun:0,emp:0};for(const it of g.kits||[])if(it&&it.base in kits)kits[it.base]+=it.n||0;Object.assign(m,kits);
   const P={light:10,medium:20,heavy:30}[g.armor?.base]||0;if(P)m.plates=Math.max(m.plates||0,P);
+  // 護甲的詞條＝特性（來源 chimera-armor），和 ASH 的穿戴品同一套
+  removeTraitSource(m,'chimera-armor');for(const id of ARMOR_TRAITS[g.armor?.affix]||[])grantTrait(m,id,'chimera-armor');
+  m.chimeraAmmo0=this.ammoTotals(m);   // 開戰時的彈藥，戰後算補滿要多少（彈藥費）
   return true;
  }
+ // 每種彈藥的總量：背包裡的＋彈匣裡的
+ ammoTotals(m){const K={rifle:'reserve',pistol:'pistol',shell:'shell',energy:'energy',ordnance:'ordnance'},t={pistol:m.pistol||0,reserve:m.reserve||0,shell:m.shell||0,energy:m.energy||0,ordnance:m.ordnance||0};
+  for(const s of m.owned){const k=K[WEAPONS[m.weaponBases[s]]?.ammoType];if(k)t[k]+=m.ammo[s]||0;}return t;}
  // 戰後身上剩下的（撿到的槍也算）：寫回奇美拉的裝備（company.js gearAfterBattle）
  gearOf(m){
   const w=s=>WEAPONS[m.weaponBases[s]],innate=s=>w(s)?.melee&&(w(s).locked||w(s).integrated);
   return {guns:m.owned.filter(s=>w(s)&&!w(s).melee).slice(0,3).map(s=>({base:w(s).id,affix:m.affixes[s]||null})),
    melee:(m.owned.find(s=>w(s)?.melee&&!innate(s))!=null?w(m.owned.find(s=>w(s)?.melee&&!innate(s))).id:null),
-   kits:{meds:m.meds||0,grenades:m.grenades||0,smoke:m.smoke||0,stun:m.stun||0,emp:m.emp||0}};
+   kits:{meds:m.meds||0,grenades:m.grenades||0,smoke:m.smoke||0,stun:m.stun||0,emp:m.emp||0},
+   ammoUsed:m.chimeraAmmo0?Object.fromEntries(Object.entries(this.ammoTotals(m)).map(([k,v])=>[k,Math.max(0,(m.chimeraAmmo0[k]||0)-v)])):{}};   // 補滿要多少（Alan 2026-10-09：算補滿的費用；撿到的補回來就不用錢）
  }
  // 到了 SKILL_LEVEL 級學會職業技能（升級當下也會檢查，見 settleLevels）
  learnClassSkill(m){

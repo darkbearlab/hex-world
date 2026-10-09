@@ -9,7 +9,7 @@ import * as G from './company.js';
 const r1 = v => Math.round(v * 10) / 10;
 // 會改變遊戲狀態、要記進指令紀錄的指令（path、quotes 只是查詢）
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'equip', 'sell', 'shop'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'equip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -155,7 +155,8 @@ export class Core {
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
     if (m.type === 'claim') return G.claim(g, +m.slot);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
-    if (m.type === 'sell') return G.sellItem(g, String(m.item));
+    if (m.type === 'sell') return G.sellItem(g, String(m.item), w);
+    if (m.type === 'mod') return G.modItem(g, String(m.item), String(m.affix));
     if (m.type === 'shop') return G.buyItem(g, String(m.kind), String(m.base));
     if (m.type === 'build') return G.build(g, m.recipe, m.tpl, m.slot, this.exactNow ?? h);   // exactNow：伺服器的精確時刻（單人測試模式沒有，就用整點）
     // 通知看過了（Alan 2026-10-09：重新登入後看過的通知又變紅）：記到看過的最後一個小時，和那個小時裡看過的幾則（同一小時之後才來的仍算新的）
@@ -202,6 +203,10 @@ export class Core {
         Object.assign(c, {lv: pr.lv, xp: pr.xp, picks: pr.picks, skills: pr.skills, prep: pr.prep, perkPicks: pr.perkPicks, classPerkMisses: pr.classPerkMisses, legacyPerkPicks: pr.legacyPerkPicks});
         if (pr.gear) G.gearAfterBattle(g, c, pr.gear);   // 撿到的槍、用剩的預備品
       }
+      // 彈藥費（Alan 2026-10-09）：接案的由雇主吸收；自費的（自己的車隊）結算時扣
+      const ammo = Object.values(m.result.progress || {}).reduce((x, pr) => x + G.ammoCost(pr?.gear?.ammoUsed), 0), cs = b.cases.find(x => x.id === tk.caseId), selfPay = !!(cs?.own || cs?.selfAmmo);
+      if (ammo > 0 && selfPay) C.pay(b, h, name, -ammo, 'ammo', `${tk.title}：彈藥費`, tk.caseId);
+      if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}${selfPay ? '（自費，已扣）' : '（雇主吸收）'}`, ref: tk.id});
       C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe)}, h);
       if (ups.length) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：升級　${ups.join('；')}`, ref: tk.id});
       G.hour(g, b, w, h); return null;

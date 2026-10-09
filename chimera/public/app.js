@@ -1,5 +1,5 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
-import {CLS, MN, MATS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice} from './company.js';
+import {CLS, MN, MATS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES} from './company.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
 // ?watch：觀看世界生成（Alan 2026-10-09，系統選單裡）：用星球的種子在這個瀏覽器從頭推演到開服那一年，只能看，不能開公司、不能再往後推
@@ -463,6 +463,9 @@ function tickVat() { const now = hourNow() ?? GV?.h; if (now == null) return; fo
 setInterval(() => { if (page === 'vat') tickVat(); }, 1000);
 
 // ───── 倉庫（Alan 2026-10-09）：所有人身上的裝備與沒在用的庫存。內容先留空，之後人員詳細資料的換裝會帶到這裡 ─────
+// 改裝：倉庫裡的槍換一個詞條（Alan 2026-10-09）
+let modPick = null;
+const ARMOR_TEXT = {nightvision: '夜視：射擊暗處的目標不扣命中', infrared: '紅外線：看穿煙霧（牆和門還是擋得住）', steady: '壓制抗性：每次被壓制少 1 層', antitox: '抗毒：中毒每回合少 1 點傷害'};   // 照 ASH 的特性說明
 function renderStore() {
   const P = $('pane-store'); if (!P) return;
   if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才有倉庫。</p></div>'; return; }
@@ -470,8 +473,8 @@ function renderStore() {
   const kit = c => { const get = gearOfC(c); return [get('armor'), get('kit0'), get('kit1')].filter(Boolean).map(itemName).join('、'); };
   P.html = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">身上的裝備 <span class="muted">點人換裝</span></h3>
     <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${img(c.portrait)}" alt="">${CLS[c.cls].n} ${c.id}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
-    <div class="cocol"><div class="box"><h3 class="sec">庫存 <span class="muted">戰鬥撿到的、換下來的</span></h3>
-    ${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${store.map(it => `<tr><td>${KN[it.kind]}</td><td>${esc(it.name)}</td><td><button data-sell="${it.id}">${it.value ? `賣 $${it.value}` : '丟棄'}</button></td></tr>`).join('')}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
+    <div class="cocol"><div class="box"><h3 class="sec">庫存 <span class="muted">戰鬥撿到的、換下來的・本地行情 ×${(GV.sellFactor ?? 1).toFixed(2)}</span></h3>
+    ${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${store.map(it => `<tr><td>${KN[it.kind]}</td><td>${esc(it.name)}${it.kind === 'armor' && it.affix ? `<div class="mini muted">${esc(ARMOR_TEXT[it.affix] || '')}</div>` : ''}</td><td class="acts">${it.kind === 'gun' ? `<button data-modpick="${it.id}">改裝</button>` : ''}<button data-sell="${it.id}">${it.value ? `賣 $${it.value}` : '丟棄'}</button></td></tr>${modPick === it.id ? `<tr><td colspan="3"><div class="gpick">${Object.keys(MOD_AFFIXES).filter(a => !MOD_AFFIXES[a].notOn?.includes(it.base) && a !== it.affix).map(a => `<button data-mod="${it.id}:${a}">${AFFIX_NAMES[a]}</button>`).join('')}<span class="mini">每次 $${modCost(it.base)}</span><button data-modx="1">取消</button></div></td></tr>` : ''}`).join('')}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
 }
 // ───── 交易：素材庫存、在總部買、派車隊去別座城採購（之後賣人也放這裡） ─────
 function renderTrade() {
@@ -640,7 +643,7 @@ function renderProc() {
 }
 
 // ───── 報表 ─────
-const FK = [['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣']];
+const FK = [['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費']];
 function renderRepPage() {
   const P = $('pane-rep');
   if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }
@@ -746,6 +749,9 @@ const coClick = e => {
   if (e.target.closest('[data-eqx]')) { gearPick = null; renderRoster(); return; }
   const eq = e.target.closest('[data-eq]'); if (eq && gearPick) { send({type: 'equip', uid: gearPick.uid, slot: gearPick.slot, item: eq.dataset.eq || null}); gearPick = null; return; }
   const sl = e.target.closest('[data-sell]'); if (sl) { send({type: 'sell', item: sl.dataset.sell}); return; }
+  const mp = e.target.closest('[data-modpick]'); if (mp) { modPick = modPick === mp.dataset.modpick ? null : mp.dataset.modpick; renderStore(); return; }
+  if (e.target.closest('[data-modx]')) { modPick = null; renderStore(); return; }
+  const md = e.target.closest('[data-mod]'); if (md) { const [item, affix] = md.dataset.mod.split(':'); send({type: 'mod', item, affix}); modPick = null; return; }
   const sh = e.target.closest('[data-shop]'); if (sh) { const [kind, base] = sh.dataset.shop.split(':'); send({type: 'shop', kind, base}); return; }
   const ps = e.target.closest('[data-person]'); if (ps) { gearPick = null; personSel = ps.dataset.person === '' ? null : +ps.dataset.person; drawerOpen = true; renderRoster(); return; }
   const rf2 = e.target.closest('[data-refast]'); if (rf2) { pickRe.fast = rf2.checked; renderCo(); return; }

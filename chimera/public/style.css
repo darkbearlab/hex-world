@@ -410,3 +410,4 @@ table.gear td:last-child{text-align:right;width:3em}
 .shoprow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
 .shoprow b{width:4em;color:var(--muted);font-weight:500}
 .shoprow button{font-size:12px}
+td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
