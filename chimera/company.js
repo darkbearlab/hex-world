@@ -7,7 +7,7 @@ import * as C from './cases.js';
 import {hdist} from './sim.js';
 
 export const MATS = ['food', 'water', 'implant', 'neural'];
-export const MN = {food: '糧', water: '水', implant: '植入物', neural: '神經介質'};
+export const MN = {food: '熱量', water: '淨水', implant: '植入物', neural: '神經介質'};   // 玩家的素材（Alan 2026-10-09：糧、水改寫成熱量、淨水）
 // 職業與出生配發的武器，對上 ASH 的同名職業（chimera/ash）。槍都是「土製」（只有壞詞條）；職業天生的近戰武器（動力拳、斧頭）不是
 export const CLS = {
   soldier:   {n: '士兵', base: {hp: 100, acc: 8, eva: 0, mel: 0}, k: 1, weapon: '土製步槍、土製霰彈槍'},

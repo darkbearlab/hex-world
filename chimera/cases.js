@@ -366,7 +366,7 @@ function tripAmbush(book, w, trip, now) {
     objectives: TYPES.transit.obj.map(([k, text, pts]) => ({k, text, pts})), born: now, done: false};
   book.tickets.push(tk);
   sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE;
-  notify(book, now, sq.player, 'ticket', `${sq.name} 在前往${c.title}的路上遇襲（${tk.enemy.name}，戰力 ${tk.enemy.power}）。${CFG.DEADLINE} 小時內要打完，不然自動結算。行軍遇襲不算案件積分。`, tk.id);
+  notify(book, now, sq.player, 'ticket', `${sq.name} 在前往${c.title}的路上遇襲（${tk.enemy.name}，戰力 ${tk.enemy.power}）。若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。行軍遇襲不算案件積分。`, tk.id);
 }
 
 // 指派：在這個案件裡、沒有票、休整完畢的小隊，誰最早空出來就給誰（打得快、派得多的公司就拿得多）
@@ -392,7 +392,7 @@ function assign(book, c, tk, now) {
   free.sort((a, b) => a.readyAt - b.readyAt || (rng(book) - .5));
   const sq = free[0];
   sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE;
-  notify(book, now, sq.player, 'ticket', `${sq.name} 被抽到：${tk.title}（${tk.enemy.name}，戰力 ${tk.enemy.power}）。${CFG.DEADLINE} 小時內要打完，不然自動結算。`, tk.id);
+  notify(book, now, sq.player, 'ticket', `${sq.name} 被抽到：${tk.title}（${tk.enemy.name}，戰力 ${tk.enemy.power}）。若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。`, tk.id);
   return true;
 }
 

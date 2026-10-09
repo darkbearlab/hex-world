@@ -339,3 +339,7 @@ html{touch-action:manipulation}
 .watchback{display:none}
 body.watch .watchback{display:inline-block;padding:4px 12px;border:1px solid var(--accent);border-radius:6px;color:var(--accent);text-decoration:none}
 body.watch .pager,body.watch #mailBtn,body.watch #sysBtn,body.watch #more,body.watch #gen,body.watch #seed,body.watch [data-found],body.watch .tabs [data-tab="opp"],body.watch #pane-opp{display:none!important}
+
+/* 頂端的資源 */
+.gmats{display:flex;gap:10px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.gmats b{color:var(--text);font-family:var(--mono)}

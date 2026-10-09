@@ -381,6 +381,7 @@ function onGame(m) {
   $('gclock').textContent = clockText(Math.max(GV.h, hourNow() ?? GV.h), m);
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
   $('gcash').textContent = `$${GV.cash}`; $('gcash').classList.toggle('neg', GV.cash < 0);
+  $('gmats').html = MATS.map(m => `<span>${MN[m]} <b>${GV.mats[m]}</b></span>`).join('');   // 玩家的資源都在頂端（Alan 2026-10-09）
   renderPage(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
   renderMail();
   draw();
@@ -400,14 +401,14 @@ function renderCo() {
   if (!coBuilt) {
     P.innerHTML = `<div class="cohead" id="co-head"></div>
       <div class="cocols" id="co-ops">
-        <div class="cocol"><div class="box"><h3 class="sec">服務單 <span class="muted">24 小時內要打完，不然自動結算（火力、積分打八折）</span></h3><div id="co-tk"></div></div></div>
+        <div class="cocol"><div class="box"><h3 class="sec">服務單</h3><div id="co-tk"></div></div></div>
         <div class="cocol"><div class="box"><h3 class="sec">案件與車隊</h3><div id="co-cases"></div></div></div>
       </div>`;
     coBuilt = true;
   }
   const G = GV, h = G.h;
   const active = G.cases.filter(c => !c.settled), alive = G.roster.filter(c => c.alive);
-  $('co-head').html = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div><div class="big${G.cash < 0 ? ' neg' : ''}">$${G.cash}</div></div>
+  $('co-head').html = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div></div>
     <div class="kpi">待命<b>${alive.filter(c => c.status === 'home' && !c.keep).length}</b></div><div class="kpi">出勤<b>${alive.filter(c => c.status === 'away' || c.status === 'returning').length}</b></div>
     <div class="kpi">供在家裡<b>${alive.filter(c => c.keep).length}</b></div><div class="kpi">陣亡<b>${G.roster.length - alive.length}</b></div>
     <div class="kpi">進行中<b>${active.filter(c => !c.own).length} 案・${active.filter(c => c.own).length} 車隊</b></div><div class="kpi">待打的服務單<b>${G.tickets.length}</b></div>
@@ -426,12 +427,10 @@ function renderCo() {
       <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>
       ${c.own && !c.squads.length ? '<div class="mini">沒有護衛，路上出事由雇來的車隊守衛自己打。</div>' : ''}
       ${c.squads.map(sq => { const cl = sq.clones.map(u => G.roster.find(x => x.uid === u)).filter(Boolean), al = cl.filter(x => x.alive).length;
-        const sts = sq.busy ? '打服務單中' : sq.readyAt > (hourNow() ?? h) ? `行軍中，${cd(sq.readyAt)}後到位` : '待命中';
-        return `<div style="margin-top:6px"><b>${esc(sq.name)}</b> <span class="mini">${c.settled ? '' : sts}・${al} 人${sq.pending.length ? `・補員 ${sq.pending.map(p => `${p.n} 人 ${cd(p.eta)}後到`).join('、')}` : ''}${sq.refused ? '・<span style="color:var(--war)">雇主不准再補人</span>' : ''}</span>
+        const sts = sq.busy ? '處理服務單中' : sq.readyAt > (hourNow() ?? h) ? `ETA ${cd(sq.readyAt)}` : '待命中';
+        return `<div style="margin-top:6px"><span class="mini">${c.settled ? '' : sts}${sq.pending.length ? `・補員 ${sq.pending.map(p => `${p.n} 人 ${cd(p.eta)}後到`).join('、')}` : ''}${sq.refused ? '・<span style="color:var(--war)">雇主不准再補人</span>' : ''}</span>
         <div class="chips">${cl.map(x => chip(x, false)).join('')}</div>
-        ${!c.settled ? recallBtn({recall: {type: 'squad', id: sq.id, penalty: c.own ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, kind: c.own ? 'escort' : 'squad', busy: !!sq.busy, fast: sq.fast}) : ''}
-        ${sq.pending.map(p => recallBtn({recall: {type: 'column', id: p.id}, kind: 'column', n: p.n})).join('')}
-        ${!c.own && !c.settled && c.open && al < 4 && !sq.refused ? (pickRe && pickRe.squad === sq.id ? rePicker(4 - al - sq.pending.reduce((a, p) => a + p.n, 0)) : `<div class="row"><button data-act="re" data-id="${sq.id}">補員</button></div>`) : ''}</div>`; }).join('')}</div>`; }).join('') : '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>';
+        ${squadActions(sq, c, al)}</div>`; }).join('')}</div>`; }).join('') : '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>';
 }
 
 // ───── 培養槽（Alan 2026-10-09：像艦娘的建造船塢，一座一列；培養中整列蓋上倒數） ─────
@@ -451,7 +450,7 @@ function renderVat() {
       ${q ? `<div class="vatcover"><b>${q.tpl ? CLS[q.tpl].n + '模板' : '培養中'}</b><span class="vatcd">${cd(q.done)}</span><div class="vatbar"><i data-s="${q.start}" data-d="${q.done}"></i></div><span class="mini">${q.tpl ? '' : MATS.map(m => `${MN[m]} ${q.recipe?.[m] ?? '?'}`).join('・')}</span></div>` : ''}
     </div>`;
   };
-  P.html = `<div class="vatpage"><div class="cohead"><div><div class="mini">每座 ${G.buildH} 小時・素材在「交易」補</div><div class="vatmats">${MATS.map(m => `<span>${MN[m]} <b>${G.mats[m]}</b></span>`).join('')}</div></div></div>
+  P.html = `<div class="vatpage"><div class="cohead"><div class="mini">每座 ${G.buildH} 小時・素材在「交易」補</div></div>
     ${fresh ? `<div class="box fresh"><span class="mini">最新出槽</span> <span class="chip static" data-person="${fresh.uid}"><img src="${img(fresh.portrait)}" alt="">${CLS[fresh.cls].n} ${fresh.id}</span></div>` : ''}
     <div class="vats">${Array.from({length: G.vats}, (_, i) => row(i)).join('')}</div>
     ${G.templates.length ? `<div class="box"><h3 class="sec">模板 <span class="muted">保證拿到這一位，數值固定在約前 20%</span></h3>${G.templates.map(t => `<div class="row"><span class="chip static"><img src="${img(t.portrait)}" alt="">${CLS[t.cls].n}</span><span class="mini">${MATS.map(m => `${MN[m]} ${t.recipe[m]}`).join('・')}</span><button data-act="tpl" data-id="${t.id}"${G.queue.length >= G.vats ? ' disabled' : ''}>用模板培養</button></div>`).join('')}</div>` : ''}</div>`;
@@ -541,11 +540,22 @@ document.addEventListener('pointerdown', e => { if (!$('mail').hidden && !e.targ
 
 // ───── 召回（兩段式確認：第一下變成「確定？」，三秒內再按一下才送出） ─────
 let selPath = null, armed = null, armT = null, mailFights = '';
+// 一隊的召回、補員（同一行；按下後的說明卡片在下面）
+function squadActions(sq, c, al) {
+  if (c.settled) return '';
+  const u = {recall: {type: 'squad', id: sq.id, penalty: c.own ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, kind: c.own ? 'escort' : 'squad', busy: !!sq.busy, fast: sq.fast};
+  const canRe = !c.own && c.open && al < 4 && !sq.refused, picking = pickRe && pickRe.squad === sq.id;
+  const btns = [recallBtn(u, true), ...sq.pending.map(p => recallBtn({recall: {type: 'column', id: p.id}, kind: 'column', n: p.n}, true)), canRe && !picking ? `<button data-act="re" data-id="${sq.id}">補員</button>` : ''].join('');
+  const cards = [recallBtn(u), ...sq.pending.map(p => recallBtn({recall: {type: 'column', id: p.id}, kind: 'column', n: p.n}))].filter(x => x.includes('confirm')).join('');
+  return `<div class="row">${btns}</div>${cards}${canRe && picking ? rePicker(4 - al - sq.pending.reduce((a, p) => a + p.n, 0)) : ''}`;
+}
 // 召回（Alan 2026-10-09：按鈕只寫兩個字，為多語言做準備；違約金等說明放在另外的確認卡片裡）
-function recallBtn(u) {
+// onlyBtn：只要按鈕（放進同一行）；否則只回傳確認卡片（按下之後）或整列（地圖上的人馬）
+function recallBtn(u, onlyBtn = false) {
   if (!u.recall) return '';
   const key = u.recall.type + ':' + u.recall.id;
-  if (armed !== key) return `<div class="row"><button data-recall="${key}">召回</button></div>`;
+  if (onlyBtn) return armed === key ? '' : `<button data-recall="${key}">召回</button>`;
+  if (armed !== key) return u.inRow ? '' : `<div class="row"><button data-recall="${key}">召回</button></div>`;
   const why = u.recall.type === 'column' ? `這 ${u.n || ''} 名補員在路上掉頭，走回總部。` : u.kind === 'escort' ? '護衛離開車隊，走回總部；車隊之後出事由雇來的守衛自己打。'
     : `等於毀約：付違約金 <b>$${u.recall.penalty}</b>，這個案件的積分作廢。${u.busy ? '手上的服務單交給案件的護衛去打。' : ''}`;
   return `<div class="confirm"><div class="mini">${why}${u.fast ? '回程照樣加速，回程時扣加速的錢。' : ''}</div><div class="row"><button class="warn" data-recall="${key}">確定召回</button><button data-recall-x="1">取消</button></div></div>`;
@@ -605,7 +615,7 @@ function renderRep() {
   // 進行中的案件：已收（訂金、期中款）與應收（還沒付的期中款、尾款池）（Alan 2026-10-09：從任務管制的案件卡搬過來）
   const act = GV.cases.filter(c => !c.settled && !c.own);
   if (act.length) html += `<div class="mini" style="margin-top:10px">進行中的案件</div><table class="rep"><tr><th>案件</th><th>已收</th><th>應收</th></tr>` + act.map(c => { const n = c.squads.length;
-    return `<tr><td>${esc(c.title)}</td><td>訂金 $${c.pay.deposit * n}${c.midPaid ? `＋期中 $${c.pay.mid * n}` : ''}</td><td>${c.midPaid ? '' : `期中 $${c.pay.mid * n}＋`}尾款池 $${c.pay.final}<span class="mini">（照積分分）</span></td></tr>`; }).join('') + '</table>';
+    return `<tr><td>${esc(c.title)}</td><td>訂金 $${c.pay.deposit * n}${c.midPaid ? `＋期中 $${c.pay.mid * n}` : ''}</td><td>${c.midPaid ? '' : `期中 $${c.pay.mid * n}＋`}尾款池 $${c.pay.final}<span class="mini">（依積分平分）</span></td></tr>`; }).join('') + '</table>';
   html += `<div class="mini" style="margin-top:10px">結案紀錄</div>` + (R.hist.length ? `<table class="rep"><tr><th>案件</th><th>服務單（勝／自動）</th><th>陣亡</th><th>收入</th></tr>` + R.hist.slice(0, 15).map(c => `<tr><td>${esc(c.title)}${c.delivered !== undefined ? ` <span class="mini">送達 ${Math.round(c.delivered * 100)}%</span>` : ''}</td><td>${c.tickets}（${c.wins}／${c.auto}）</td><td>${c.dead || ''}</td><td>${c.own ? '<span class="muted">—</span>' : money(c.income + c.upkeep)}</td></tr>`).join('') + '</table>' : '<p class="muted">還沒有結案。</p>');
   const al = GV.roster.filter(c => c.alive), byC = {}; for (const c of al) byC[c.cls] = (byC[c.cls] || 0) + 1;
   html += `<div class="mini" style="margin-top:10px">人員：${Object.entries(byC).map(([k, n]) => `${CLS[k].n} ${n}`).join('・') || '沒有'}・金冠 ${al.filter(c => c.crown === 'gold').length}・銀冠 ${al.filter(c => c.crown === 'silver').length}</div>`;
