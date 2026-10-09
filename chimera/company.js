@@ -50,7 +50,7 @@ export function makeClone(G, rng, cls, portrait, u, o = {}) {
 
 // ===== 公司 =====
 export function newCompany(w, base, name = '我的公司', seed = 7) {
-  const G = {flows: [], daily: [], name, base, cash: GCFG.START_CASH, mats: {...GCFG.START_MATS}, roster: [], templates: [], queue: [], seq: 1, rs: seed | 0, h: 0, ledgerAt: 0, inboxAt: 0, log: [], cases: [], returning: []};
+  const G = {flows: [], daily: [], name, base, cash: GCFG.START_CASH, mats: {...GCFG.START_MATS}, roster: [], templates: [], queue: [], store: [], itemSeq: 0, seq: 1, rs: seed | 0, h: 0, ledgerAt: 0, inboxAt: 0, log: [], cases: [], returning: []};
   const r = () => rnd(G);
   // 開局：一隊四人（配方平均），外加一張模板
   for (let i = 0; i < 6; i++) G.roster.push(makeClone(G, r, pickW(r, classOdds({food: 30, water: 30, implant: 30, neural: 30})), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()]));
@@ -168,11 +168,81 @@ function finishBuild(G, q, h) {
   const r = () => rnd(G);
   const c = q.tpl ? makeClone(G, r, q.tpl.cls, q.tpl.portrait, [GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U], {born: h, template: true})
     : makeClone(G, r, pickW(r, classOdds(q.recipe)), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()], {born: h});
-  G.roster.push(c); G.fresh = c.uid;
+  gearOf(G, c); c.weapon = gearLabel(c.gear); G.roster.push(c); G.fresh = c.uid;
   note(G, h, `培養槽出槽：${CLS[c.cls].n} ${c.id}${c.crown === 'gold' ? '（金冠！）' : c.crown === 'silver' ? '（銀冠）' : ''}${c.template ? '（模板）' : ''}，配發${c.weapon}。`);
 }
 
 // ===== 接案、派兵、補員 =====
+// ===== 裝備（Alan 2026-10-09，warband/DESIGN.md「裝備欄與變賣」） =====
+// 每個人：槍 ×3（種類＋一個詞條）、近戰 ×1（天生的狂戰斧、忍刀、動力拳套不佔欄，由職業帶）、護甲 ×1（開戰時的裝甲板）、預備品 ×2（消耗品，一格一種）。
+// 名稱與 ASH 的繁中翻譯一致；帶進戰鬥時照這裡配給 ASH（ash/overlay/src/chimera-squad.js applyGear），打完照身上剩的寫回。
+export const GUNS = {rifle: {n: '突擊步槍', v: 40}, shotgun: {n: '霰彈槍', v: 35}, smg: {n: '衝鋒槍', v: 35}, sniper: {n: '精準步槍', v: 60}, lmg: {n: '輕機槍', v: 70}, launcher: {n: '榴彈發射器', v: 80}, plasma: {n: '電漿步槍', v: 120}, flamer: {n: '火焰發射器', v: 60}};
+export const MELEES = {knife: {n: '求生小刀', v: 10}, sabre: {n: '軍刀', v: 25}, spear: {n: '長矛', v: 25}, claws: {n: '手爪', v: 30}, chainsaw: {n: '鏈鋸', v: 50}};
+export const ARMORS = {light: {n: '輕型護甲', plates: 10, v: 20}, medium: {n: '中型護甲', plates: 20, v: 45}, heavy: {n: '重型護甲', plates: 30, v: 80}};
+export const KITS = {meds: {n: '醫療包', v: 5, max: 3}, grenades: {n: '破片彈', v: 6, max: 3}, smoke: {n: '煙霧彈', v: 4, max: 3}, stun: {n: '震撼彈', v: 5, max: 3}, emp: {n: 'EMP', v: 8, max: 2}};
+export const AFFIX_NAMES = {homemade: '土製', stable: '穩定', piercing: '穿甲', extended: '擴容', powerful: '強擊', longbarrel: '長管', shortbarrel: '短管', tracking: '追獵', flashhider: '消焰', lance: '貫穿', burst: '爆裂', rapid: '速射'};
+const DROP_ONLY = ['lance', 'burst', 'rapid'];
+export const SLOTS = ['gun0', 'gun1', 'gun2', 'melee', 'armor', 'kit0', 'kit1'];
+export const slotKind = s => s.startsWith('gun') ? 'gun' : s.startsWith('kit') ? 'kit' : s;
+const slotGet = (g, s) => s.startsWith('gun') ? g.guns[+s[3]] : s.startsWith('kit') ? g.kits[+s[3]] : g[s];
+const slotSet = (g, s, v) => { if (s.startsWith('gun')) g.guns[+s[3]] = v; else if (s.startsWith('kit')) g.kits[+s[3]] = v; else g[s] = v; };
+// 出槽時的配發（照 ASH 各職業的起始武器，槍都是土製；預備品各 2）
+export const CLASS_GEAR = {soldier: {guns: ['rifle', 'shotgun'], kits: ['meds', 'grenades']}, recon: {guns: ['smg', 'shotgun'], kits: ['meds', 'smoke']}, bulwark: {guns: ['lmg'], kits: ['meds', 'grenades']},
+  berserker: {guns: ['shotgun'], kits: ['meds', 'grenades']}, engineer: {guns: ['smg', 'shotgun'], kits: ['meds', 'grenades']}};
+export const itemName = it => !it ? '' : it.kind === 'gun' ? `${it.affix ? AFFIX_NAMES[it.affix] || it.affix : ''}${GUNS[it.base]?.n || it.base}` : it.kind === 'melee' ? MELEES[it.base]?.n || it.base
+  : it.kind === 'armor' ? ARMORS[it.base]?.n || it.base : `${KITS[it.base]?.n || it.base} ×${it.n}`;
+// 變賣的價錢：土製永遠 $0；有詞條 ×1.3；只會掉落的詞條 ×2
+export function itemValue(it) {
+  if (it.kind === 'gun') return it.affix === 'homemade' ? 0 : Math.round((GUNS[it.base]?.v || 0) * (!it.affix ? 1 : DROP_ONLY.includes(it.affix) ? 2 : 1.3));
+  if (it.kind === 'melee') return MELEES[it.base]?.v || 0;
+  if (it.kind === 'armor') return ARMORS[it.base]?.v || 0;
+  return (KITS[it.base]?.v || 0) * (it.n || 0);
+}
+export const shopPrice = it => Math.round(itemValue({...it, affix: null}) * 1.5);   // 在總部的市場買：沒有詞條，變賣價的 1.5 倍
+function newItem(G, o) { G.itemSeq = (G.itemSeq || 0) + 1; return {id: 'I' + G.itemSeq, ...o}; }
+// 一個人身上的裝備（還沒有的照職業配發；舊存檔的人第一次用到時補上）
+export function gearOf(G, c) {
+  if (!c.gear) { const d = CLASS_GEAR[c.cls] || CLASS_GEAR.soldier;
+    c.gear = {guns: [0, 1, 2].map(i => d.guns[i] ? newItem(G, {kind: 'gun', base: d.guns[i], affix: 'homemade'}) : null), melee: null, armor: null, kits: [0, 1].map(i => d.kits[i] ? newItem(G, {kind: 'kit', base: d.kits[i], n: 2}) : null)}; }
+  return c.gear;
+}
+const gearLabel = g => g.guns.filter(Boolean).map(itemName).concat(g.melee ? [itemName(g.melee)] : []).join('、');
+// 換裝：把倉庫的一件放進某一格（itemId 為空＝卸下），原本那一件回倉庫。只有在總部待命的人可以換
+export function equipItem(G, uid, slot, itemId) {
+  const c = G.roster.find(x => x.uid === uid); if (!c || !c.alive) return '找不到這個人';
+  if (c.status !== 'home') return '出勤中不能換裝';
+  if (!SLOTS.includes(slot)) return '沒有這個欄位';
+  const g = gearOf(G, c); G.store ||= [];
+  let it = null;
+  if (itemId) { it = G.store.find(x => x.id === itemId); if (!it) return '倉庫裡沒有這件'; if (it.kind !== slotKind(slot)) return '放不進這一格'; G.store.splice(G.store.indexOf(it), 1); }
+  const old = slotGet(g, slot); if (old) G.store.push(old);
+  slotSet(g, slot, it); c.weapon = gearLabel(g);
+  return null;
+}
+// 變賣倉庫裡的一件（土製是 $0，等於丟掉）
+export function sellItem(G, itemId) {
+  G.store ||= []; const it = G.store.find(x => x.id === itemId); if (!it) return '倉庫裡沒有這件';
+  const v = itemValue(it); G.store.splice(G.store.indexOf(it), 1); G.cash += v; flow(G, 'sell', v, `變賣${itemName(it)}`);
+  return null;
+}
+// 在總部的市場買（槍沒有詞條、近戰、護甲、預備品一次買滿一格）
+export function buyItem(G, kind, base) {
+  const T = {gun: GUNS, melee: MELEES, armor: ARMORS, kit: KITS}[kind]; if (!T?.[base]) return '沒有這種東西';
+  const it = {kind, base, affix: null, ...(kind === 'kit' ? {n: KITS[base].max} : {})}, price = shopPrice(it);
+  if (G.cash < price) return '錢不夠';
+  G.cash -= price; flow(G, 'shop', -price, `買進${itemName(it)}`); (G.store ||= []).push(newItem(G, it));
+  return null;
+}
+// 戰後寫回：身上的槍（含撿到的）、近戰、剩下的預備品照 ASH 的結果；護甲照舊
+export function gearAfterBattle(G, c, r) {
+  if (!r) return; const g = gearOf(G, c);
+  g.guns = [0, 1, 2].map(i => r.guns[i] ? newItem(G, {kind: 'gun', base: r.guns[i].base, affix: r.guns[i].affix || null}) : null);
+  g.melee = r.melee ? newItem(G, {kind: 'melee', base: r.melee}) : null;
+  const left = {...r.kits}; g.kits = g.kits.map(k => { if (!k) return null; const n = Math.min(left[k.base] || 0, KITS[k.base]?.max || 3); left[k.base] = (left[k.base] || 0) - n; return n > 0 ? {...k, n} : null; });
+  // 身上兩格放不下的（撿到的）進倉庫，一疊最多 max 個
+  G.store ||= []; for (const [b, n0] of Object.entries(left)) { let n = n0; while (KITS[b] && n > 0) { const k = Math.min(n, KITS[b].max); G.store.push(newItem(G, {kind: 'kit', base: b, n: k})); n -= k; } }
+  c.weapon = gearLabel(g);
+}
 const avail = G => G.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
 export function accept(G, book, w, opp, side, uids, now, fast = false, contract = null) {
   const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
@@ -262,6 +332,7 @@ export function recallColumn(G, book, w, amendId, now) {
 
 // 給畫面用的樣子
 export function view(G, book, w) {
+  for (const c of G.roster) if (c.alive && !c.gear) { gearOf(G, c); c.weapon = gearLabel(c.gear); }   // 舊存檔的人補上裝備
   const nm = t => w.names[t] || '無名之地';
   const sqOf = {}; for (const sq of Object.values(book.squads)) for (const c of sq.clones) sqOf[c.uid] = sq;
   const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || G.h - c.settledAt < 72).map(c => ({
@@ -284,7 +355,7 @@ export function view(G, book, w) {
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
   return {units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, ready: !!q.ready})),
-    templates: G.templates, roster: G.roster.map(c => ({...c, squad: sqOf[c.uid]?.name || ''})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null};
+    templates: G.templates, roster: G.roster.map(c => ({...c, squad: sqOf[c.uid]?.name || ''})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, store: (G.store || []).map(it => ({...it, name: itemName(it), value: itemValue(it)}))};
 }
 
 // 地圖上要標的：每一支派出去的人馬現在在哪、往哪走

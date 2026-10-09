@@ -1,5 +1,5 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
-import {CLS, MN, MATS, classOdds, GCFG} from './company.js';
+import {CLS, MN, MATS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice} from './company.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
 // ?watch：觀看世界生成（Alan 2026-10-09，系統選單裡）：用星球的種子在這個瀏覽器從頭推演到開服那一年，只能看，不能開公司、不能再往後推
@@ -466,18 +466,23 @@ setInterval(() => { if (page === 'vat') tickVat(); }, 1000);
 function renderStore() {
   const P = $('pane-store'); if (!P) return;
   if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才有倉庫。</p></div>'; return; }
-  const al = GV.roster.filter(c => c.alive);
-  P.html = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">身上的裝備</h3>
-    <table class="rep"><tr><th>人員</th><th>狀態</th><th>裝備</th></tr>${al.map(c => `<tr><td><span class="chip static" data-person="${c.uid}"><img src="${img(c.portrait)}" alt="">${CLS[c.cls].n} ${c.id}</span></td><td>${STATUS[c.status] || ''}</td><td>${esc(c.weapon || '')}</td></tr>`).join('')}</table></div></div>
-    <div class="cocol"><div class="box"><h3 class="sec">庫存</h3><p class="muted">目前沒有沒在用的裝備。之後戰鬥撿到的、換下來的裝備會放在這裡。</p></div></div></div>`;
+  const al = GV.roster.filter(c => c.alive), store = GV.store || [], KN = {gun: '槍', melee: '近戰', armor: '護甲', kit: '預備品'};
+  const kit = c => { const get = gearOfC(c); return [get('armor'), get('kit0'), get('kit1')].filter(Boolean).map(itemName).join('、'); };
+  P.html = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">身上的裝備 <span class="muted">點人換裝</span></h3>
+    <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${img(c.portrait)}" alt="">${CLS[c.cls].n} ${c.id}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
+    <div class="cocol"><div class="box"><h3 class="sec">庫存 <span class="muted">戰鬥撿到的、換下來的</span></h3>
+    ${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${store.map(it => `<tr><td>${KN[it.kind]}</td><td>${esc(it.name)}</td><td><button data-sell="${it.id}">${it.value ? `賣 $${it.value}` : '丟棄'}</button></td></tr>`).join('')}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
 }
 // ───── 交易：素材庫存、在總部買、派車隊去別座城採購（之後賣人也放這裡） ─────
 function renderTrade() {
   const P = $('pane-trade'); if (!P) return;
   if (!GV) { P.innerHTML = '<div class="box"><p class="muted">開了公司之後才能交易。</p></div>'; return; }
   if (!$('co-mats')) P.innerHTML = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">素材</h3><div id="co-mats"></div></div></div>
-    <div class="cocol"><div class="box"><h3 class="sec">採購路線 <span class="muted">派車隊去別座城買料，來回都可能被劫</span></h3><div id="co-proc"></div></div></div></div>`;
+    <div class="cocol"><div class="box"><h3 class="sec">採購路線 <span class="muted">派車隊去別座城買料，來回都可能被劫</span></h3><div id="co-proc"></div></div></div></div>
+    <div class="box"><h3 class="sec">裝備 <span class="muted">在總部的市場買，買了放進倉庫</span></h3><div id="co-shop"></div></div>`;
   const G = GV;
+  const shopRow = (kind, T) => Object.keys(T).map(b => { const it = {kind, base: b, ...(kind === 'kit' ? {n: KITS[b].max} : {})}; return `<button data-shop="${kind}:${b}">${esc(itemName(it))}　$${shopPrice(it)}</button>`; }).join('');
+  $('co-shop').html = [['槍', 'gun', GUNS], ['近戰', 'melee', MELEES], ['護甲', 'armor', ARMORS], ['預備品', 'kit', KITS]].map(([n, k, T]) => `<div class="shoprow"><b>${n}</b>${shopRow(k, T)}</div>`).join('');
   $('co-mats').html = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">本地單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}）</button></td></tr>`).join('') + '</table>';
   renderProc();
 }
@@ -516,12 +521,23 @@ function renderRoster() {
   B.html = `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
     <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${img(x.portrait)}" alt=""><b>${x.id}</b><span>${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
 }
+// 裝備欄（Alan 2026-10-09）：槍 ×3、近戰、護甲、預備品 ×2。在總部待命時可以換：點「換」從倉庫挑，原本那件回倉庫
+const SLOT_N = {gun0: '槍 1', gun1: '槍 2', gun2: '槍 3', melee: '近戰', armor: '護甲', kit0: '預備品 1', kit1: '預備品 2'};
+let gearPick = null;   // {uid, slot}：正在挑哪一格
+function gearOfC(c) { const g = c.gear || {guns: [], kits: []}; return s => s.startsWith('gun') ? g.guns?.[+s[3]] : s.startsWith('kit') ? g.kits?.[+s[3]] : g[s]; }
+function gearBox(c) {
+  const get = gearOfC(c), can = c.alive && c.status === 'home';
+  const rows = SLOTS.map(s => { const it = get(s), open = gearPick && gearPick.uid === c.uid && gearPick.slot === s;
+    const pick = open ? `<div class="gpick">${(GV.store || []).filter(x => x.kind === slotKind(s)).map(x => `<button data-eq="${x.id}">${esc(x.name)}</button>`).join('') || '<span class="mini muted">倉庫裡沒有能放進這一格的</span>'}${it ? '<button data-eq="">卸下</button>' : ''}<button data-eqx="1">取消</button></div>` : '';
+    return `<tr><th>${SLOT_N[s]}</th><td>${it ? esc(itemName(it)) : '<span class="muted">—</span>'}</td><td>${can ? `<button data-gslot="${s}">換</button>` : ''}</td></tr>${pick ? `<tr><td colspan="3">${pick}</td></tr>` : ''}`; }).join('');
+  return `<table class="rep gear">${rows}</table>${can ? '' : '<p class="mini muted">出勤中，回到總部才能換裝。</p>'}`;
+}
 function personCard(c) {
   const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : '陣亡';
   return `<div class="person"><button class="back" data-person="">← 名冊</button>
     <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${c.id} ${CLS[c.cls].n}${crownTag(c)}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・經驗 ${c.xp || 0}・出勤 ${c.missions || 0} 次</div></div></div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>
-    <div class="mini">裝備：${esc(c.weapon || '')} <a href="#" data-goto="store">倉庫 →</a></div>
+    ${gearBox(c)}
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
     <div class="row">${c.alive && c.status === 'home' ? `<button data-act="keep" data-id="${c.uid}" class="${c.keep ? 'on' : ''}">${c.keep ? '不再供著' : '供在家裡（不會被派出去）'}</button>` : ''}</div>
     <p class="mini muted">強化、合成、換武器、加入最愛、指名為看板⋯之後會放在這裡。</p></div>`;
@@ -624,7 +640,7 @@ function renderProc() {
 }
 
 // ───── 報表 ─────
-const FK = [['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線']];
+const FK = [['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣']];
 function renderRepPage() {
   const P = $('pane-rep');
   if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }
@@ -726,7 +742,12 @@ $('pane-co').addEventListener('pointerdown', e => {
 const coClick = e => {
   if (e.target.closest('#drawbar')) { drawerOpen = !drawerOpen; renderRoster(); return; }
   const go = e.target.closest('[data-goto]'); if (go) { e.preventDefault(); drawerOpen = false; showPage(go.dataset.goto); return; }
-  const ps = e.target.closest('[data-person]'); if (ps) { personSel = ps.dataset.person === '' ? null : +ps.dataset.person; drawerOpen = true; renderRoster(); return; }
+  const gs = e.target.closest('[data-gslot]'); if (gs) { gearPick = gearPick?.slot === gs.dataset.gslot ? null : {uid: personSel, slot: gs.dataset.gslot}; renderRoster(); return; }
+  if (e.target.closest('[data-eqx]')) { gearPick = null; renderRoster(); return; }
+  const eq = e.target.closest('[data-eq]'); if (eq && gearPick) { send({type: 'equip', uid: gearPick.uid, slot: gearPick.slot, item: eq.dataset.eq || null}); gearPick = null; return; }
+  const sl = e.target.closest('[data-sell]'); if (sl) { send({type: 'sell', item: sl.dataset.sell}); return; }
+  const sh = e.target.closest('[data-shop]'); if (sh) { const [kind, base] = sh.dataset.shop.split(':'); send({type: 'shop', kind, base}); return; }
+  const ps = e.target.closest('[data-person]'); if (ps) { gearPick = null; personSel = ps.dataset.person === '' ? null : +ps.dataset.person; drawerOpen = true; renderRoster(); return; }
   const rf2 = e.target.closest('[data-refast]'); if (rf2) { pickRe.fast = rf2.checked; renderCo(); return; }
   const st = e.target.closest('[data-rcd]'); if (st) { const r = vatRecipe(+st.dataset.vat), m = st.dataset.m; r[m] = Math.max(GCFG.MIN, Math.min(GCFG.MAX, (r[m] || 0) + +st.dataset.rcd)); renderVat(); return; }
   if (recallClick(e)) return;

@@ -402,3 +402,11 @@ html.vhs body:has(#ash-root:not([hidden]))>.vhs-layer{display:none}   /* 戰鬥�
 .pager button{white-space:nowrap}
 @media (max-width:820px){.bar .pager{overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap}.bar .pager::-webkit-scrollbar{display:none}.bar .pager button{padding:4px 6px;flex:none}}
 @media (max-width:400px){.bar .pager button{padding:4px 5px;font-size:13px}}
+
+/* 裝備欄、倉庫、商店 */
+table.gear th{width:5.5em;text-align:left;color:var(--muted);font-weight:500}
+table.gear td:last-child{text-align:right;width:3em}
+.gpick{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0}
+.shoprow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
+.shoprow b{width:4em;color:var(--muted);font-weight:500}
+.shoprow button{font-size:12px}

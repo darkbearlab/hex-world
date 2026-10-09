@@ -67,13 +67,34 @@ export class SquadGame extends MissionGame{
  }
  // 複製人的成長帶進戰鬥（ticket 的 c：lv、xp、picks、skills、prep）；槍套上土製
  equip(m,c){
-  for(const slot of m.owned)if(!WEAPONS[m.weaponBases[slot]]?.melee){m.affixes[slot]='homemade';m.ammo[slot]=Math.min(m.ammo[slot],weaponStats(m.weaponBases[slot],'homemade',m).mag);}
+  if(!this.applyGear(m,c))for(const slot of m.owned)if(!WEAPONS[m.weaponBases[slot]]?.melee){m.affixes[slot]='homemade';m.ammo[slot]=Math.min(m.ammo[slot],weaponStats(m.weaponBases[slot],'homemade',m).mag);}
   m.level=Math.max(1,c.lv||1);m.xp=Math.max(0,c.xp||0);m.chimeraPicks=[...(c.picks||[])];
   for(const id of m.chimeraPicks){const o=perkDef(this,PERKS.find(x=>x.id===id));if(!o)continue;PERMANENT[o.effect]?.(m,o);m.perks[o.id]=(m.perks[o.id]||0)+1;}
   m.skills=(c.skills||[]).filter(id=>SKILLS[id]);m.skillState=initialSkillState(m.skills);
   m.prepared={...m.prepared,skill:m.skills.includes(c.prep)?c.prep:m.skills[0]||null};
   if(!m.skills.includes('workshop'))m.productionLines=[];
   this.learnClassSkill(m);
+ }
+ // 奇美拉的裝備（c.gear，chimera/company.js）帶進戰鬥：槍照身上的三格（種類＋詞條，彈匣裝滿）、隨身近戰、護甲（裝甲板）、預備品（醫療包、破片彈⋯）。
+ // 天生的近戰（狂戰斧、忍刀、動力拳套）留著。沒有 c.gear（舊的任務資料）回傳 false，照舊配土製
+ applyGear(m,c){
+  const g=c.gear;if(!g)return false;
+  const at=id=>WEAPONS.findIndex(w=>w.id===id),add=(b,affix)=>{const s=m.weaponBases.length;m.weaponBases.push(b);m.affixes.push(affix);m.ammo.push(WEAPONS[b].melee?0:weaponStats(b,affix,m).mag);m.upgrades.push(0);return s;};
+  const innate=m.owned.filter(s=>{const w=WEAPONS[m.weaponBases[s]];return w?.melee&&(w.locked||w.integrated);});
+  const guns=[];for(const it of g.guns||[]){if(!it)continue;const b=at(it.base);if(b<0||WEAPONS[b].melee)continue;guns.push(add(b,it.affix||null));}
+  m.owned=[...guns,...innate];
+  if(g.melee){const b=at(g.melee.base);if(b>=0&&WEAPONS[b].melee){const s=add(b,null);m.owned.push(s);m.meleeSlot=s;}}
+  m.weapon=m.owned[0]??m.weapon;
+  const kits={meds:0,grenades:0,smoke:0,stun:0,emp:0};for(const it of g.kits||[])if(it&&it.base in kits)kits[it.base]+=it.n||0;Object.assign(m,kits);
+  const P={light:10,medium:20,heavy:30}[g.armor?.base]||0;if(P)m.plates=Math.max(m.plates||0,P);
+  return true;
+ }
+ // 戰後身上剩下的（撿到的槍也算）：寫回奇美拉的裝備（company.js gearAfterBattle）
+ gearOf(m){
+  const w=s=>WEAPONS[m.weaponBases[s]],innate=s=>w(s)?.melee&&(w(s).locked||w(s).integrated);
+  return {guns:m.owned.filter(s=>w(s)&&!w(s).melee).slice(0,3).map(s=>({base:w(s).id,affix:m.affixes[s]||null})),
+   melee:(m.owned.find(s=>w(s)?.melee&&!innate(s))!=null?w(m.owned.find(s=>w(s)?.melee&&!innate(s))).id:null),
+   kits:{meds:m.meds||0,grenades:m.grenades||0,smoke:m.smoke||0,stun:m.stun||0,emp:m.emp||0}};
  }
  // 到了 SKILL_LEVEL 級學會職業技能（升級當下也會檢查，見 settleLevels）
  learnClassSkill(m){
@@ -88,7 +109,7 @@ export class SquadGame extends MissionGame{
  }
  choosePerk(id){const ok=super.choosePerk(id);if(ok)(this.player.chimeraPicks||=[]).push(id);return ok;}
  // 戰後寫回名冊的成長
- progressOf(m){const own=m===this.player,st=this.stash?.get(m)||{};return {lv:m.level,xp:m.xp,picks:[...(m.chimeraPicks||[])],skills:[...m.skills],prep:m.prepared?.skill||null,...Object.fromEntries(COUNTERS.map(k=>[k,own?this[k]:st[k]||0]))};}
+ progressOf(m){const own=m===this.player,st=this.stash?.get(m)||{};return {gear:this.gearOf(m),lv:m.level,xp:m.xp,picks:[...(m.chimeraPicks||[])],skills:[...m.skills],prep:m.prepared?.skill||null,...Object.fromEntries(COUNTERS.map(k=>[k,own?this[k]:st[k]||0]))};}
  // 武器登錄表（weaponBases／affixes／ammo／upgrades，地上的武器用它的編號）全隊共用同一份；
  // 隊員的初始武器各自登錄成新的一把，同職業才不會共用彈匣
  shareArmory(m,lead){
