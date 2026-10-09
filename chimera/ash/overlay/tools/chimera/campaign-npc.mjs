@@ -8,14 +8,20 @@ import {Core} from '../../../../core.js';
 import {SquadGame} from '../../src/chimera-squad.js';
 import {installFullSquad} from './full-squad.mjs';
 const seed = process.argv[2] || '奇美拉-4', outFile = process.argv[3] || 'campaign-npc.json';
+if (process.argv[4] && process.argv[4] !== '-') globalThis.CAMP_WAVE_BY = process.argv[4];   // 'squad'：規模照每隊累計（比較用）
+// 陣營：第五個參數「全押,謹慎,後到」各站哪一邊（att／def），逆風照行情自己選
+const SIDES = (process.argv[5] || 'att,att,att').split(',');
+// 真人節奏（第六個參數 human）：一家公司一次只打一場、一場約 30 分鐘（每小時最多兩張），每天只有 10 小時在線（每天 9～19 時）；
+// 不在線時服務單就放著，放超過 24 小時由雇主逕行結算（自動結算）
+const HUMAN = process.argv[6] === 'human', online = h => !HUMAN || (h % 24 >= 9 && h % 24 < 19), PER_HOUR = HUMAN ? 2 : Infinity;
 let mission = null;
 const c = new Core(m => { if (m.type === 'mission') mission = m.data; }); c.start(seed); while (c.year < 100) c.stepYear();
 const K0 = c.sim.peek(), towns = Object.keys(K0.markets).map(Number).filter(t => K0.owner[t] >= 0);
 // 四家公司：策略、人數、邊、打法
 const NPC = [
-  {name: '全押', n: 16, side: 'att', manual: true, join: () => true, quit: () => false, note: '開打就把 16 人全派上去，打到最後一人'},
-  {name: '謹慎', n: 16, side: 'att', manual: true, send: 8, join: () => true, quit: s => s.dead >= s.sent / 2, note: '只派 8 人，陣亡過半就撤軍'},
-  {name: '後到', n: 16, side: 'att', manual: true, join: v => Math.max(v.mulA, v.mulD) >= 2, quit: () => false, note: '等傭兵行情翻倍才進場，16 人全派'},
+  {name: '全押', n: 16, side: SIDES[0], manual: true, join: () => true, quit: () => false, note: '開打就把 16 人全派上去，打到最後一人'},
+  {name: '謹慎', n: 16, side: SIDES[1], manual: true, send: 8, join: () => true, quit: s => s.dead >= s.sent / 2, note: '只派 8 人，陣亡過半就撤軍'},
+  {name: '後到', n: 16, side: SIDES[2], manual: true, join: v => Math.max(v.mulA, v.mulD) >= 2, quit: () => false, note: '等傭兵行情翻倍才進場，16 人全派'},
   {name: '逆風', n: 16, side: null, manual: true, join: v => Math.max(v.mulA, v.mulD) >= 2, quit: () => false, note: '等哪一邊的行情先到 ×2 就替那一邊打（逆風局），16 人全派'},
 ];
 for (const [i, P] of NPC.entries()) {
@@ -32,6 +38,7 @@ const id = camp.camp, P0 = c.sim.peek(), v0 = c.sim.campaignOf(id), front = camp
 const capOf = f => P0.fac[f]?.cap;
 const report = {seed, start: h, title: camp.title, detail: camp.detail, att: P0.fac[v0.att].n, def: P0.fac[v0.def].n, rounds: [], tickets: [], events: [], npc: NPC.map(p => ({name: p.name, note: p.note, side: p.side}))};
 const priceAt = t => { const m = c.sim.peek().markets[t]; return m ? {ammo: +m.price.ammo.toFixed(2), fuel: +m.price.fuel.toFixed(2), food: +m.price.food.toFixed(2), stockAmmo: Math.round(m.stock.ammo), stockFood: Math.round(m.stock.food)} : null; };
+report.config = {sides: SIDES, human: HUMAN, waveBy: globalThis.CAMP_WAVE_BY ?? 'player'};
 report.price0 = {front: priceAt(front), attCap: priceAt(capOf(v0.att)), defCap: priceAt(capOf(v0.def))};
 const ev = t => report.events.push({h, day: +((h - report.start) / 24).toFixed(2), t});
 let lastRound = -1, done = false;
@@ -50,8 +57,9 @@ for (let n = 0; n < 24 * 14 && !done; n++, h++) {
       if (e && !err) { S.joined = true; S.sent = free.length; ev(`${P.name}進場（${P.side === 'att' ? '攻方' : '守方'}，${free.length} 人；行情 ×${v.mulA}／×${v.mulD}）`); } else if (err) ev(`${P.name}接案失敗：${err}`);
     }
     const cs = c.game.book.cases.find(k => k.kind === 'camp' && k.camp === id && G.cases.includes(k.id)); if (!cs) continue;
-    // 打手上的服務單
-    for (const tk of c.game.book.tickets.filter(t => t.caseId === cs.id && t.player === P.name && !t.done)) {
+    // 打手上的服務單（真人節奏：在線才打、一小時最多兩張、先打最早的）
+    const mine = c.game.book.tickets.filter(t => t.caseId === cs.id && t.player === P.name && !t.done).sort((a, b) => a.issued - b.issued).slice(0, online(h) ? PER_HOUR : 0);
+    for (const tk of mine) {
       let how = 'auto', turns = 0, res = null;
       if (P.manual) {
         mission = null; c.command({type: 'fight', ticket: tk.id}, P.name);
@@ -78,7 +86,8 @@ for (const P of NPC) {
   const G = c.co(P.name), cs = c.game.book.cases.find(k => k.kind === 'camp' && k.camp === id && G.cases.includes(k.id));
   const led = c.game.book.ledger.filter(x => x.player === P.name && (!cs || x.caseId === cs.id)), by = {};
   for (const x of led) by[x.kind] = (by[x.kind] || 0) + x.amount;
-  Object.assign(report.npc.find(x => x.name === P.name), {sent: P.state.sent, dead: P.state.dead, joined: P.state.joined, quit: P.state.quit, wiped: !!P.state.wiped, score: Math.round(cs?.score?.[P.name] || 0), ledger: by, settled: !!cs?.settled, cashDelta: Math.round(G.cash - P.cash0)});
+  Object.assign(report.npc.find(x => x.name === P.name), {sent: P.state.sent, dead: P.state.dead, joined: P.state.joined, quit: P.state.quit, wiped: !!P.state.wiped, score: Math.round(cs?.score?.[P.name] || 0), ledger: by, settled: !!cs?.settled, cashDelta: Math.round(G.cash - P.cash0),
+    tickets: c.game.book.tickets.filter(t => cs && t.caseId === cs.id && t.player === P.name).length, autoTimeout: c.game.book.tickets.filter(t => cs && t.caseId === cs.id && t.player === P.name && t.auto).length});
 }
 report.chronicle = c.sim.exportState().events.filter(e => /大戰役/.test(e.text || e.t || '')).slice(-8).map(e => e.text || e.t);
 writeFileSync(outFile, JSON.stringify(report, null, 1));
