@@ -993,9 +993,14 @@ function createSim(w,rand,pick){
   // 一年一年推演：觀看網頁用 begin() 開局，再每次呼叫 stepYear() 推進一年（runHistory 就是把它跑 YEARS 次）
   let histY=0;
   function begin(){initLegends();histY=0}
-  function stepYear(){const y=++histY;yearStart(y);for(let s=0;s<4;s++){T+=PS;season(y,s)}yearEnd(y);snaps.push(makeSnap());
+  function stepYear(){if(qs){while(!stepSeason());return}const y=++histY;yearStart(y);for(let s=0;s<4;s++){T+=PS;season(y,s)}yearEnd(y);snaps.push(makeSnap());
     if(globalThis.CSTAT){const P=new Float32Array(FMAX),Tl=new Int16Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0){P[owner[i]]+=pop[i];Tl[owner[i]]++}for(const f of fac)if(f.alive){rec(f.id,y,'pop',P[f.id]);rec(f.id,y,'tiles',Tl[f.id]);rec(f.id,y,'clones',f.clones||0);rec(f.id,y,'food',f.ratio.food+1e-6);rec(f.id,y,'water',f.ratio.water+1e-6)}}}
   function runHistory(){begin();for(let y=1;y<=YEARS;y++)stepYear()}
+  // 奇美拉公司模式（Alan 2026-10-09：兩週結算）：沙盒一季一季推，每季（現實兩週）結算一次戰事，四季一年；
+  // 第一季開始時年初、第四季結束時年底。qs：這一年已經結算了幾季（存檔要接上）。回傳 true＝這一年剛結束
+  let qs=0;
+  function stepSeason(){if(qs===0)yearStart(++histY);else if(!live)bindMarkets();const y=histY;   // 每季開始重綁市場（年中讀檔也一樣）
+   T+=PS;season(y,qs);qs++;if(qs<4)return false;qs=0;yearEnd(y);snaps.push(makeSnap());return true}
 
   // ===== 線上模式：時段層與即時層（角色：NPC 與玩家走同一套行動介面）=====
   let actors=[],story=0,lastComputed=0,nextId=1,ownerHist=[];
@@ -1140,9 +1145,9 @@ function createSim(w,rand,pick){
   // ===== 存檔：把整個世界的可變狀態匯出成一個物件，之後原樣讀回 =====
   const MUT={drops,pmcAid,biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,trench,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town,traffic,famineH};   // traffic、famineH：奇美拉的委託板要（機會層的商路看 traffic），原本沒存，讀檔後歸零
   function exportState(){const o={};for(const k in MUT)o[k]=MUT[k];
-    return {...o,histY,fac,events:ev.slice(-20000),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
+    return {...o,histY,qs,fac,events:ev.slice(-20000),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
   // 奇美拉（伺服器存檔）：JSON 存過的型別陣列會變成普通物件，先轉回陣列再 set；推演到第幾年（histY）也要接上
-  function importState(S){for(const k in MUT)if(S[k])MUT[k].set(Array.isArray(S[k])||ArrayBuffer.isView(S[k])?S[k]:Object.values(S[k]));if(S.histY!=null)histY=S.histY;
+  function importState(S){for(const k in MUT)if(S[k])MUT[k].set(Array.isArray(S[k])||ArrayBuffer.isView(S[k])?S[k]:Object.values(S[k]));if(S.histY!=null)histY=S.histY;qs=S.qs||0;
     fac.splice(0,fac.length,...S.fac);ev.splice(0,ev.length,...S.events);graves.splice(0,graves.length,...S.graves);heroes.splice(0,heroes.length,...S.heroes);
     for(const k of Object.keys(routeSeen))delete routeSeen[k];Object.assign(routeSeen,S.routeSeen);
     for(let a=0;a<FMAX;a++){tension[a]=S.tension[a].slice();war[a]=S.war[a].slice()}
@@ -1150,7 +1155,7 @@ function createSim(w,rand,pick){
     markets=S.markets||{};carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;battles=S.battles||[];nextHero=S.nextHero||1;
     if(S.legend){const L=S.legend;for(const k of Object.keys(ARC))delete ARC[k];Object.assign(ARC,L.ARC);weapons.splice(0,weapons.length,...L.weapons);saga.splice(0,saga.length,...L.saga);
       for(const o of [aff,houseAff])for(const k of Object.keys(o))delete o[k];Object.assign(aff,L.aff);Object.assign(houseAff,L.houseAff);leagues.splice(0,leagues.length,...(L.leagues||[]))}
-    netSig='';netYear=-99;if(live)yearStartNetOnly(S);else{refreshCE();if(S.townNet)townNet=S.townNet;if(S.front){bc=S.bc;front=S.front;covet=S.covet}}}   // 移動成本表（CE）不存檔，讀檔要重算，不然所有路都是零成本（尋路亂繞、車程 0 小時）
+    netSig='';netYear=-99;if(live)yearStartNetOnly(S);else{refreshCE();if(qs)bindMarkets();if(S.townNet)townNet=S.townNet;if(S.front){bc=S.bc;front=S.front;covet=S.covet}}}   // 年中讀檔（每季結算，Alan 2026-10-09）：開年綁好的市場要重綁   // 移動成本表（CE）不存檔，讀檔要重算，不然所有路都是零成本（尋路亂繞、車程 0 小時）
   // 讀檔後路網與前線要重建（不存檔，因為可以重算）
   function yearStartNetOnly(S){refreshCE();bindMarkets();if(S.townNet)townNet=S.townNet;else buildTownNet();if(S.front){bc=S.bc;front=S.front;covet=S.covet}else buildFronts()}
   function view(){const econ=fac.map(f=>({n:f.n,c:f.c,born:f.born,merc:Math.round(f.merc),liege:f.alive?f.liege:-1,loyal:+(f.loyal||0).toFixed(2),alive:f.alive,cap:f.alive?f.cap:-1,ratio:f.ratio,price:f.price,store:f.store||0,tiles:0,pop:0}));
@@ -1226,7 +1231,7 @@ function createSim(w,rand,pick){
     say(type,text,tile=-1){return say(histY||curY,type,text,tile)},
     get year(){return histY||curY},
     drops,pmcAid};
-  return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+  return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 

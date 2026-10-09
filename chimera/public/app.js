@@ -361,7 +361,11 @@ function fmtLeft(x) {
 }
 // 到第 at 個遊戲小時還有多久
 const cd = at => { const now = hourNow(); return now == null ? fmtH(at - GV.h) : `<span class="cd" data-at="${at}">${fmtLeft(at - now)}</span>`; };
-function clockText(x, m) { const H = Math.floor(x), day = Math.floor(H / 24) % m.yearDays + 1, mm = Math.floor((x - H) * 60); return `第 ${m.year} 年・第 ${day} 天 ${String(H % 24).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; }
+// 沙盒一季一季結算（Alan 2026-10-09：兩週結算）：顯示現在是哪一年第幾季、這一季的第幾天、還有幾天結算
+function clockText(x, m) {
+  const H = Math.floor(x), mm = Math.floor((x - H) * 60), q = m.season || 0, sh = Math.max(1, Math.round(24 * m.yearDays / 4)), day = Math.floor((H % sh) / 24) + 1, left = Math.ceil((sh - H % sh) / 24);
+  return `第 ${q ? m.year : m.year + 1} 年・第 ${q + 1} 季第 ${day} 天 ${String(H % 24).padStart(2, '0')}:${String(mm).padStart(2, '0')}・${left} 天後結算`;
+}
 const asked = new Set();   // 已經為了哪些到點的倒數問過伺服器
 setInterval(() => {
   const now = hourNow(); if (now == null || !GV) return;

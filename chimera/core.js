@@ -9,6 +9,8 @@ import * as G from './company.js';
 const r1 = v => Math.round(v * 10) / 10;
 // 會改變遊戲狀態、要記進指令紀錄的指令（path、quotes 只是查詢）
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
+// 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
+export const SEASONAL_YEAR_DAYS = 56;
 export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'equip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
@@ -28,6 +30,8 @@ export class Core {
   emitStatic() { this.emit({type: 'static', seed: this.seed, W: S.W, H: S.H, N: S.N, names: this.w.names, land: this.w.land, river: Array.from(this.w.river), biomes: S.BIOMES.map(b => ({n: b.n, c: b.c})), goods: S.GOODS, gn: S.GN, vn: S.VN}); }
   stepYear() { this.sim.stepYear(); this.emit({type: 'year', data: this.snapshot()}); }
   get year() { return this.sim.year; }
+  // 沙盒結算到哪裡（年×4＋這一年已結算的季）：每季結算一次，畫面照這個判斷要不要拉新的地圖
+  get stamp() { const q = this.sim.season || 0; return (this.sim.year - (q ? 1 : 0)) * 4 + q; }
 
   snapshot() {
     const {sim, w} = this, K = sim.peek(), L = sim.legendData(), y = sim.year;
@@ -53,16 +57,16 @@ export class Core {
     const gangs = K.gangs.filter(g => !g.gone).map(g => ({name: g.name, lair: g.lair, native: !!g.native, hive: C.isHive(K, g), str: Math.round(g.str), legacy: K.weapons.some(x => x.gang === g.id)}));
     const weapons = L.weapons.map(x => ({name: x.name, kind: x.kind, at: x.at, holder: x.holder ? x.holderName : '', fac: x.fac >= 0 ? K.fac[x.fac]?.n : '', gang: x.gang ? x.gangName : '', lost: x.lost, sealed: x.sealed, owners: x.owners || 0, wins: x.wins || 0}));
     const ev = w.events.slice(this.lastEv).filter(e => e.y === y || e.y === y - 1 || e.y === 0); this.lastEv = w.events.length;
-    return {y, owner, pop, trench, bandit, biome: Uint8Array.from(K.biome), towns, fac, wars, gangs, weapons,
+    return {y, stamp: this.stamp, owner, pop, trench, bandit, biome: Uint8Array.from(K.biome), towns, fac, wars, gangs, weapons,
       blocs: (K.ARC.blocs || []).filter(B => !B.gone).map(B => ({id: B.id, n: B.n, lead: B.lead})), leagues: (K.leagues || []).map(x => ({id: x.id, n: x.n})),
       arc: {ackY: K.ARC.ackY, fallY: K.ARC.fallY, blocY: K.ARC.blocY, elevator: K.ARC.elevator, phase: K.ARC.phase},
       opps: this.sim.opportunities(),
       events: ev.map(e => ({y: e.y, type: e.type, text: e.text, tile: e.tile}))};
   }
 
-  // ---- 公司模式：沙盒停在當下這一年，改用小時推進；每過 yearDays 天，沙盒推一年 ----
+  // ---- 公司模式：沙盒停在當下這一季，改用小時推進；每過 yearDays/4 天，沙盒推一季（結算一次戰事），四季一年 ----
   // 一顆共用的星球（伺服器化 S1）：一本帳本、很多家公司（以公司名稱區分）、一個時鐘。單人測試模式就是只有一家。
-  // 現實時間一比一時 yearDays 暫定 90（Alan 2026-10-08，可能就是一個賽季）
+  // 現實時間一比一時 yearDays＝56：每兩週結算一季、八週一年（Alan 2026-10-09：兩週結算；原本 90 天一次推一整年）
   // this.game = {book, cos: {公司名: 公司}, h: 現在第幾個遊戲小時, yearDays, speed（只有單人測試的加速時鐘用）}
   co(name) { return this.game?.cos[name] || null; }
   get hour() { return this.game ? this.game.h : 0; }
@@ -70,7 +74,7 @@ export class Core {
   open() {
     if (this.game) return;
     let seed = 7; for (const ch of String(this.seed)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: 90};
+    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: SEASONAL_YEAR_DAYS, seasonal: true};
     this.log = [{h: 0, year: this.sim.year, cmd: {type: 'open'}}];
   }
   // 開公司（任何一座主城）。第一家公司開張時星球改用小時推進。回傳錯誤訊息或 null
@@ -85,7 +89,7 @@ export class Core {
     g.h = this.game.h; this.game.cos[name] = g;
     return null;
   }
-  // 推進到第 h 個遊戲小時（伺服器：依現實時間補算；瀏覽器：加速時鐘）。回傳這段期間沙盒有沒有換年
+  // 推進到第 h 個遊戲小時（伺服器：依現實時間補算；瀏覽器：加速時鐘）。回傳這段期間沙盒有沒有結算（推了一季）
   advanceTo(h) {
     const game = this.game; if (!game) return false;
     let yearDone = false;
@@ -94,7 +98,7 @@ export class Core {
       C.tick(game.book, this.w, t);
       this.postBoard(t);
       for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
-      if (t % (24 * game.yearDays) === 0) { this.sim.stepYear(); yearDone = true; }
+      if (t % Math.max(1, Math.round(24 * game.yearDays / 4)) === 0) { this.sim.stepSeason(); yearDone = true; }
     }
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});
     return yearDone;
@@ -139,7 +143,7 @@ export class Core {
   // 一家公司看到的畫面資料（回傳訊息物件，由呼叫的人送出）
   view(name, err) {
     const game = this.game, g = this.co(name); if (!g) return null;
-    return {type: 'game', err: err || null, year: this.sim.year, speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
+    return {type: 'game', err: err || null, year: this.sim.year, season: this.sim.season, speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
       inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: G.view(g, game.book, this.w)};
   }
   // 指令（name：下指令的公司）：會改狀態的記進 log（遊戲小時＋公司＋指令），回傳錯誤訊息或 null
@@ -233,6 +237,7 @@ export class Core {
   load(seed, d) {
     this.w = S.generate(seed, {history: false}); this.sim = this.w.sim; this.sim.begin(); this.seed = seed;
     this.sim.importState(d.sim); this.lastEv = d.lastEv; this.game = d.game; this.log = d.log || [];
+    if (this.game && !this.game.seasonal) { this.game.yearDays = SEASONAL_YEAR_DAYS; this.game.seasonal = true; }   // 舊存檔：90 天一年改成兩週一季
     this.relink();
   }
   // 存檔是 JSON：同一個複製人（公司名冊裡的那位、帳本裡小隊的成員）讀回來會變成兩份。接回同一個物件，

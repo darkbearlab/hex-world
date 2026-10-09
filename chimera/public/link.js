@@ -16,7 +16,7 @@ function token() {
   return t;
 }
 export class ServerLink {
-  constructor() { this.onmessage = null; this.onerror = null; this.token = token(); this.year = -1; this.company = null; this.timer = null; this.busy = false; }
+  constructor() { this.onmessage = null; this.onerror = null; this.token = token(); this.year = -1; this.stamp = -1; this.company = null; this.timer = null; this.busy = false; }
   emit(m) { this.onmessage?.({data: m}); }
   terminate() { clearInterval(this.timer); clearTimeout(this.tick); this.timer = null; }
   async api(path, body) {
@@ -32,7 +32,8 @@ export class ServerLink {
   hourNow() { const c = this.clock; return c && !c.paused ? (Date.now() + c.skew - c.startedAt) / c.hourMs : null; }
   // 每跨過一個遊戲小時，伺服器的鬧鐘結算完就馬上拉一次，不用等 15 秒的定時
   armTick() { clearTimeout(this.tick); const x = this.hourNow(); if (x == null) return; this.tick = setTimeout(() => { this.poll(); this.armTick(); }, (Math.floor(x) + 1 - x) * this.clock.hourMs + 1500); }
-  async pullYear() { const d = await this.api('year?y=' + this.year); if (!d.same) { this.year = d.data.y; this.emit(d); } }
+  // 每季結算一次（Alan 2026-10-09）：照 stamp（年×4＋季）問伺服器有沒有新的地圖
+  async pullYear() { const d = await this.api('year?y=' + this.stamp); if (!d.same) { this.year = d.data.y; this.stamp = d.data.stamp ?? d.data.y * 4; this.emit(d); } }
   async pullView() { const d = await this.api('view'); if (d.view) this.emit(d.view); }
   // 定時拉一次：沙盒換年、公司的畫面（伺服器的時鐘一小時走一格，不必拉太勤）
   async poll() { if (this.busy) return; this.busy = true; try { await this.pullYear(); if (this.company) await this.pullView(); } catch {} finally { this.busy = false; } }
