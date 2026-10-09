@@ -458,10 +458,10 @@ function renderCo() {
       <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>
       ${c.own && !c.squads.length ? '<div class="mini">沒有護衛，路上出事由雇來的車隊守衛自己打。</div>' : ''}
       ${c.squads.map(sq => { const cl = sq.clones.map(u => G.roster.find(x => x.uid === u)).filter(Boolean), al = cl.filter(x => x.alive).length;
-        const sts = sq.busy ? '服務單處理中' : sq.readyAt > (hourNow() ?? h) ? `ETA ${cd(sq.readyAt)}` : '待命中';
+        const sts = sq.headedHome != null ? (sq.backAt > (hourNow() ?? h) ? `歸途中・約 ${cd(sq.backAt)}後回到總部` : '已回到總部') : sq.busy ? '服務單處理中' : sq.readyAt > (hourNow() ?? h) ? `ETA ${cd(sq.readyAt)}` : '待命中';
         return `<div style="margin-top:6px"><span class="mini">${c.settled ? '' : sts}${sq.pending.length ? `・補員 ${sq.pending.map(p => `${p.n} 人 ${cd(p.eta)}後到`).join('、')}` : ''}${sq.refused ? '・<span style="color:var(--war)">雇主不准再補人</span>' : ''}</span>
         <div class="chips">${cl.map(x => chip(x, false)).join('')}</div>
-        ${squadActions(sq, c, al)}</div>`; }).join('')}</div>`; }).join('') : '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>';
+        ${sq.headedHome != null ? '' : squadActions(sq, c, al)}</div>`; }).join('')}</div>`; }).join('') : '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>';
 }
 
 // ───── 培養槽（Alan 2026-10-09：像艦娘的建造船塢，一座一列；培養中整列蓋上倒數） ─────
@@ -544,7 +544,7 @@ function renderRoster() {
   D.hidden = !GV || !['co', 'vat', 'store', 'trade'].includes(page); if (D.hidden) return;
   D.classList.toggle('open', drawerOpen);
   const G = GV, alive = G.roster.filter(c => c.alive), n = k => G.roster.filter(c => inF(c, k)).length;
-  $('drawbar').html = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${n('away')}${n('kia') ? `・陣亡 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
+  $('drawbar').html = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${G.roster.filter(c => c.alive && c.status === 'away').length}${G.roster.some(c => c.alive && c.status === 'returning') ? `・歸途 ${G.roster.filter(c => c.alive && c.status === 'returning').length}` : ''}${n('kia') ? `・陣亡 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
   if (!drawerOpen) return;
   const B = $('drawbody');
   const c = personSel != null && G.roster.find(x => x.uid === personSel);
