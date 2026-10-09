@@ -45,9 +45,8 @@
     <label class="muted ydays">沙盒每 <input id="gyd" type="number" min="3" max="365" value="30"> 天推一年</label>
     <b id="gcash" class="cash">—</b><span id="gmats" class="gmats"></span>
   </div>
-  <button class="mail sysbtn" id="sysBtn" aria-label="系統">⚙</button>
   <button class="mail" id="mailBtn" hidden aria-label="通知">✉<span class="badge" id="mailN" hidden>0</span></button>
-  <div class="mailpanel" id="mail" hidden><div class="mailhead"><b>通知</b><span class="muted" id="mailSub"></span><button id="mailClose" aria-label="關閉">✕</button></div><div class="mailbody" id="mailBody"></div></div>
+  <div class="mailpanel" id="mail" hidden><div class="mailhead"><b>通知</b><span class="muted" id="mailSub"></span><button id="sysBtn" class="sysbtn" aria-label="系統">⚙ 系統</button><button id="mailClose" aria-label="關閉">✕</button></div><div class="mailbody" id="mailBody"></div></div>
 </header>
 <div class="pages" id="pages"><div class="track" id="track">
 <main class="page" id="page-map">
@@ -117,6 +116,7 @@
     <p id="titleMsg" class="warnmsg" hidden></p>
   </div>
 </section>
+<div class="vhs-layer" aria-hidden="true"></div>
 <div id="sys" class="devlog" hidden><div class="devbox"><div class="devhead"><b>系統</b><button id="sysClose" aria-label="關閉">✕</button></div><div class="sysbox" id="sysBody"></div></div></div>
 <div id="devlog" class="devlog" hidden><div class="devbox"><div class="devhead"><b>開發日誌</b><button id="devlogClose" aria-label="關閉">✕</button></div><div id="devlogBody"></div></div></div>
 <script type="module" src="app.js"></script>

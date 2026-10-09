@@ -28,7 +28,7 @@ let worker = null;
 function start(seed) {
   if (worker) worker.terminate();
   worker = LOCAL ? new Worker('worker.js', {type: 'module'}) : new ServerLink();
-  hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; $('pane-rep').innerHTML = ''; $('pane-trade').innerHTML = ''; mailSeen.clear(); mailFirst = true; $('mailBtn').hidden = true; $('mail').hidden = true; QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
+  hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; $('pane-rep').innerHTML = ''; $('pane-trade').innerHTML = ''; mailSeen.clear(); mailFirst = true; $('mailBtn').hidden = WATCH; $('mail').hidden = true;   // 信封一直在（裡面有系統選單） QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
   $('computing').hidden = false; $('computing').textContent = '生成地形…'; $('more').hidden = true;
   worker.onmessage = e => {
     const m = e.data;
@@ -427,7 +427,7 @@ function renderCo() {
       <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>
       ${c.own && !c.squads.length ? '<div class="mini">沒有護衛，路上出事由雇來的車隊守衛自己打。</div>' : ''}
       ${c.squads.map(sq => { const cl = sq.clones.map(u => G.roster.find(x => x.uid === u)).filter(Boolean), al = cl.filter(x => x.alive).length;
-        const sts = sq.busy ? '處理服務單中' : sq.readyAt > (hourNow() ?? h) ? `ETA ${cd(sq.readyAt)}` : '待命中';
+        const sts = sq.busy ? '服務單處理中' : sq.readyAt > (hourNow() ?? h) ? `ETA ${cd(sq.readyAt)}` : '待命中';
         return `<div style="margin-top:6px"><span class="mini">${c.settled ? '' : sts}${sq.pending.length ? `・補員 ${sq.pending.map(p => `${p.n} 人 ${cd(p.eta)}後到`).join('、')}` : ''}${sq.refused ? '・<span style="color:var(--war)">雇主不准再補人</span>' : ''}</span>
         <div class="chips">${cl.map(x => chip(x, false)).join('')}</div>
         ${squadActions(sq, c, al)}</div>`; }).join('')}</div>`; }).join('') : '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>';
@@ -652,7 +652,9 @@ function renderPage() {
   renderRoster();
 }
 function showPage(p) {
-  page = p; $('track').style.transform = `translateX(${-100 / PAGES.length * PAGES.indexOf(p)}%)`;
+  page = p; const at = PAGES.indexOf(p);
+  // 分頁一層一層疊（Alan 2026-10-09）：右邊的疊在左邊的上面，每層往右縮一點，看得到下面幾層的邊；比現在這頁右邊的先收到畫面外
+  for (const [i, el] of [...$('track').children].entries()) { el.classList.toggle('above', i > at); el.classList.toggle('under', i < at); }
   for (const b of document.querySelectorAll('.pager button')) b.classList.toggle('on', b.dataset.page === p);
   if (p === 'map') { draw(); renderRoster(); } else renderPage();
 }
@@ -773,20 +775,26 @@ function enter() {
 }
 $('enterBtn').onclick = enter;
 // 系統選單（Alan 2026-10-09：左上不再顯示標題；帳號、開發日誌、回標題畫面等收在這裡）
+// 畫面濾鏡（Alan 2026-10-09：沿用 ASH 的 VHS、色差效果）。預設開；同一個設定也給戰鬥用（ASH 讀 ash-vhs）
+let vhsOn = true; try { vhsOn = localStorage.getItem('chimera-vhs') !== 'off'; } catch {}
+function applyVhs() { document.documentElement.classList.toggle('vhs', vhsOn); try { localStorage.setItem('chimera-vhs', vhsOn ? 'on' : 'off'); localStorage.setItem('ash-vhs', vhsOn ? 'on' : 'off'); } catch {} }
+applyVhs();
 function openSys() {
   const email = account(), co = GV?.name;
   $('sysBody').innerHTML = `<p class="mini">${LOCAL ? '單人測試模式' : email ? `已用 ${esc(email)} 登入` : '訪客（這個瀏覽器）'}${co ? `・公司：${esc(co)}` : ''}</p>
     <button data-sys="devlog">開發日誌</button>
+    <button data-sys="vhs">畫面濾鏡（VHS）：${vhsOn ? '開' : '關'}</button>
     ${LOCAL ? '' : '<button data-sys="watch">觀看世界生成</button>'}
     ${LOCAL ? '' : '<button data-sys="title">回標題畫面</button>'}
     ${!LOCAL && email ? '<button data-sys="logout">登出</button>' : ''}`;
   $('sys').hidden = false;
 }
-$('sysBtn').onclick = openSys;
+$('sysBtn').onclick = e => { e.stopPropagation(); $('mail').hidden = true; openSys(); };
 $('sysClose').onclick = () => $('sys').hidden = true;
 $('sys').onclick = e => {
   if (e.target.id === 'sys') { $('sys').hidden = true; return; }
-  const b = e.target.closest('[data-sys]'); if (!b) return; $('sys').hidden = true;
+  const b = e.target.closest('[data-sys]'); if (!b) return; if (b.dataset.sys !== 'vhs') $('sys').hidden = true;
+  if (b.dataset.sys === 'vhs') { vhsOn = !vhsOn; applyVhs(); openSys(); return; }
   if (b.dataset.sys === 'devlog') devlog();
   else if (b.dataset.sys === 'watch') location.href = '/?watch&seed=' + encodeURIComponent(worker?.hello?.seed || seed0);
   else if (b.dataset.sys === 'title') { if (!mission) showTitle(); }

@@ -85,7 +85,7 @@ function generate(seedStr,{history=true}={}){
 
 /* ---------- 歷史模擬 ---------- */
 // 貨物：糧、水、燃料（油棘榨的油）、廢料（拆舊時代的東西）、零件（舊礦坑與廢料加燃料做出來的）、彈藥（零件加燃料）
-const GOODS=['food','water','fuel','scrap','parts','ammo'],GN={food:'糧',water:'水',fuel:'燃料',scrap:'廢料',parts:'零件',ammo:'彈藥'};
+const GOODS=['food','water','fuel','scrap','parts','ammo'],GN={food:'熱量',water:'淨水',fuel:'燃料',scrap:'廢料',parts:'零件',ammo:'彈藥'};
 const WEIGHT={food:1,water:1.4,fuel:1.1,scrap:1.6,parts:.45,ammo:.6};      // 每格運輸損耗的倍率：重貨運不遠
 const BASEP={food:1,water:1.2,fuel:1.5,scrap:2,parts:8,ammo:6};             // 基準價
 const SEASON=['涼季','熱季','收季','寒季'];
@@ -389,7 +389,7 @@ function createSim(w,rand,pick){
       else if(r<.006){const k=heroes.filter(x=>x.alive&&x!==h&&!x.noCmd&&!x.captive&&(x.f===h.f||(fac[x.f]&&hdist(fac[x.f].cap,at)<=6))).sort(()=>rand()-.5)[0];
         if(k){giveW(wp,k,y,`${fac[k.f].n}的${k.name}看上了遺產級「${wp.name}」，在${nm(at)}殺了${h.name}，把它搶走。`);hAffAdd(hs(h),hs(k),-2);heroDies(h,y,`被${k.name}刺殺`)}}
       else if(F.ratio&&F.ratio.food<.8&&r<.05){const buyer=fac.filter(x=>x.alive&&x.id!==F.id&&!war[Math.min(x.id,F.id)][Math.max(x.id,F.id)]).sort((p,q)=>facStock(q.id,'food')-facStock(p.id,'food'))[0];
-        if(buyer&&facStock(buyer.id,'food')>60){facTake(buyer.id,'food',40);facGive(F.id,'food',40);toTreasury(wp,buyer.id,y,`${F.n}鬧饑荒，${h.name}把遺產級「${wp.name}」賣給了${buyer.n}，換回四十箱口糧。`)}}
+        if(buyer&&facStock(buyer.id,'food')>60){facTake(buyer.id,'food',40);facGive(F.id,'food',40);toTreasury(wp,buyer.id,y,`${F.n}鬧饑荒，${h.name}把遺產級「${wp.name}」賣給了${buyer.n}，換回四十箱熱量塊。`)}}
       else if(F.ruler===h.id&&r<.04){const V=fac.find(x=>x.alive&&x.liege===F.id&&x.loyal<.5);const vr=V&&rulerOf(V.id);if(vr){V.loyal=Math.min(1,V.loyal+.3);giveW(wp,vr,y,`為了安撫心懷不滿的附庸，${h.name}把遺產級「${wp.name}」送給了${V.n}的${vr.name}。`)}}}
     // 名聲：事蹟跟著商隊傳開，夠響亮的人會得到綽號，從此被傳唱
     for(const h of heroes){if(!h.alive||h.legend||h.famed||(h.fame||0)<FAMET)continue;h.famed=1;const at=h.lastWin??holderLoc(h);
@@ -417,7 +417,7 @@ function createSim(w,rand,pick){
     // 俘虜：贖回、招降或處決
     for(const h of heroes){if(!h.alive||!h.captive)continue;const by=fac[h.captive.by],own=fac[h.f];
       if(!by||!by.alive||!own||!own.alive){h.captive=null;continue}
-      if(rand()<.45&&facStock(own.id,'food')>40){facTake(own.id,'food',30);facGive(by.id,'food',30);h.captive=null;(notable(h)?sagaSay:(yy,tt,ti)=>say(yy,'hero',tt,ti))(y,`${own.n}付了三十箱口糧，把被俘的${h.name}贖了回來。`,own.cap);continue}
+      if(rand()<.45&&facStock(own.id,'food')>40){facTake(own.id,'food',30);facGive(by.id,'food',30);h.captive=null;(notable(h)?sagaSay:(yy,tt,ti)=>say(yy,'hero',tt,ti))(y,`${own.n}付了三十箱熱量塊，把被俘的${h.name}贖了回來。`,own.cap);continue}
       if(y-h.captive.y>=3){if(rand()<.5){h.f=by.id;h.captive=null;h.fief=-1;hAffAdd(hs(h),own.house,-.6);(notable(h)?sagaSay:(yy,tt,ti)=>say(yy,'hero',tt,ti))(y,`被關了三年的${h.name}投靠了${by.n}。`,by.cap)}
         else{for(const wp of weaponsOf(h))toTreasury(wp,by.id,y,`${by.n}處決了被俘的${h.name}，遺產級「${wp.name}」收進了軍械庫。`);hAffAdd(hs(h),by.house,-1.5);heroDies(h,y,`被${by.n}處決`)}}}}
   // 同一個體系內（宗主與附庸、同一個工廠協定、同一個陣營）不會互相開戰
@@ -578,7 +578,7 @@ function createSim(w,rand,pick){
       if(sel<0)continue;const pts=Math.min(2,facStock(f.id,'food')/40,facStock(f.id,'water')/40);if(pts<.3)continue;
       facTake(f.id,'food',pts*20);facTake(f.id,'water',pts*20);markets[sel].stock.food+=pts*20;markets[sel].stock.water+=pts*20;
       vehGive(f.id,{armor:pts*.7/VCOST.armor,gt:pts*.3/VCOST.gt});
-      const S_=fac[owner[sel]];S_.buyers=S_.buyers||{};if(!S_.buyers[f.id]){S_.buyers[f.id]=y;say(y,'econ',`${S_.n}開始把武裝車賣給${f.n}，收的是糧和水。`,sel)}}}
+      const S_=fac[owner[sel]];S_.buyers=S_.buyers||{};if(!S_.buyers[f.id]){S_.buyers[f.id]=y;say(y,'econ',`${S_.n}開始把武裝車賣給${f.n}，收的是熱量和淨水。`,sel)}}}
     // 彈藥：各市鎮的工坊把零件和燃料做成彈藥；廠鎮做得多
     for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;const amt=Math.max(0,Math.min(m.pop*.006*(m.works?3:1),m.stock.parts*.25,m.stock.fuel*.25));
       m.stock.parts-=amt*.5;m.stock.fuel-=amt*.5;m.stock.ammo+=amt;fac[owner[t]].prod.ammo+=amt}
@@ -610,7 +610,7 @@ function createSim(w,rand,pick){
       for(const g in CLONE_COST)n=Math.min(n,facStock(f.id,g)*.3/CLONE_COST[g]);if(n<1)continue;
       for(const g in CLONE_COST)facTake(f.id,g,n*CLONE_COST[g]);f.clones=(f.clones||0)+n;rec(f.id,y,'made',n);rec(f.id,y,'makeFood',n*CLONE_COST.food);rec(f.id,y,'makeParts',n*CLONE_COST.parts);
       if(!f.clonesY){f.clonesY=y;if((f.taboo||0)>=.3||desp&&(f.taboo||0)>=.15)(f.id===0||desp?sagaSay:(yy,tt,ti)=>say(yy,'war',tt,ti))(y,desp?`${nm(f.cap)}被圍到第 ${war.flat().find(W_=>W_&&W_.def===f.id&&W_.siege)?.siege.prog||1} 季，${f.n}打開了培養槽。第一批走出來的兵，長著的是${rulerT(f)}和課長們的臉。`:`${f.n}終於也開始拿培養槽養兵。沒有人公開說什麼，但那些兵長著的是長官們的臉。`,f.cap);
-        else say(y,'war',`${f.n}開始用培養槽養兵：糧和水進去，拿得動槍的人出來。`,f.cap)}}
+        else say(y,'war',`${f.n}開始用培養槽養兵：熱量和淨水進去，拿得動槍的人出來。`,f.cap)}}
     // 本季戰事：每場戰爭每季一場戰鬥。兵力＝全國徵召（人口、零件、彈藥、糧），分攤到同時打的每場戰爭，再加上收編的兵
     {const fp=new Float32Array(FMAX),nw=new Uint8Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)fp[owner[i]]+=pop[i];
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++)if(war[a][b]&&fac[a].alive&&fac[b].alive){nw[a]++;nw[b]++}
@@ -662,7 +662,7 @@ function createSim(w,rand,pick){
       if(sa>sd){win=A;lose=D;dead=LD*.12;
         if(siege){if(!W.siege||W.siege.t!==n)W.siege={t:n,prog:0};W.siege.prog++;const m=markets[n];if(m)m.stock.food*=.6;
           const need=1+Math.round(wall[n])+(n===fac[D].cap?1:0),starving=m&&m.stock.food<m.pop*.2;
-          if(W.siege.prog>=need||(starving&&W.siege.prog>=1)){took=true;note=starving?`，${nm(n)}斷糧開門`:`，${nm(n)}在圍城 ${W.siege.prog} 季後陷落`;W.siege=null}
+          if(W.siege.prog>=need||(starving&&W.siege.prog>=1)){took=true;note=starving?`，${nm(n)}斷了熱量開門`:`，${nm(n)}在圍城 ${W.siege.prog} 季後陷落`;W.siege=null}
           else note=`，${nm(n)}被圍`}
         else took=true}
       else{win=D;lose=A;dead=LA*.12*(1+.4*tr2);if(siege&&W.siege&&W.siege.t===n)W.siege.prog=Math.max(0,W.siege.prog-1)}
@@ -707,7 +707,7 @@ function createSim(w,rand,pick){
     if(s===3){
       for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;m.ratio={...m.rsum};
         if(m.ratio.food<.8){const h_=(.8-m.ratio.food)*12;famineH[t]+=h_;for(const n of NBR[t])if(land[n])famineH[n]+=h_*.5}
-        if(m.ratio.food<.8&&y>=m.famineCD){say(y,'econ',`${nm(t)}一帶糧食短缺，飢民四散。`,t);m.famineCD=y+8}
+        if(m.ratio.food<.8&&y>=m.famineCD){say(y,'econ',`${nm(t)}一帶熱量短缺，飢民四散。`,t);m.famineCD=y+8}
         if(m.ratio.water<.8&&y>=(m.thirstCD||0)){say(y,'econ',`${nm(t)}的井水不夠喝，有人開始往別處走。`,t);m.thirstCD=y+8}}
       for(const f of fac){if(!f.alive)continue;const ms=[];for(const k in markets)if(owner[+k]===f.id)ms.push(markets[k]);
         const tp=ms.reduce((x,m)=>x+m.pop,0)||1;f.ratio=zero();f.price=zero();f.store=0;
@@ -974,7 +974,7 @@ function createSim(w,rand,pick){
     for(const f of fac){if(!f.alive||f.merc<20||f.ratio.food>.75||rand()>.3)continue;
       let t=-1;for(let k=0;k<20&&t<0;k++){const c=Math.floor(rand()*N);if(land[c]&&owner[c]<0&&NBR[c].some(n=>owner[n]===f.id))t=c}
       if(t<0)continue;f.merc*=.3;bandit[t]=Math.min(100,bandit[t]+40);
-      const g={id:nextGang++,name:heroName(),lair:t,str:0,born:y};gangs.push(g);say(y,'bandit',`${f.n}收編的人領不到糧，跟著${g.name}跑回${nm(t)}的荒野。`,t)}
+      const g={id:nextGang++,name:heroName(),lair:t,str:0,born:y};gangs.push(g);say(y,'bandit',`${f.n}收編的人領不到熱量，跟著${g.name}跑回${nm(t)}的荒野。`,t)}
     // 各自為王：勢大的掠奪者、手上有遺產級的人、趁亂起事的原住民，佔地成為一方勢力
     for(const g of gangs){if(g.gone)continue;const leg=weapons.some(w=>w.gang===g.id);
       const ok=g.native?(ARC.phase>=4&&g.str>=230&&rand()<.06):leg?(g.str>=180&&rand()<.08):(g.str>=330&&rand()<.02);if(!ok)continue;
@@ -1117,7 +1117,7 @@ function createSim(w,rand,pick){
     const order=actors.slice().sort(()=>rand()-.5);
     for(const a of order){const i=a.tile;
       a.ap=Math.min(24,a.ap+3);
-      a.food-=.25;if(a.food<0){a.food=0;a.hp-=6;if(!a.hungry){a.hungry=true;alog(a,'口糧吃完了，開始挨餓。')}}else a.hungry=false;
+      a.food-=.25;if(a.food<0){a.food=0;a.hp-=6;if(!a.hungry){a.hungry=true;alog(a,'熱量吃完了，開始挨餓。')}}else a.hungry=false;
       if(isTown(i))a.hp=Math.min(100,a.hp+3);
       if(night()){
         if(a.camped){if(a.fuel>=.5){a.fuel-=.5;a.hp=Math.min(100,a.hp+6)}else if(temp[i]<.45)a.hp-=3}
