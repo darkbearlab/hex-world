@@ -734,8 +734,9 @@ function createSim(w,rand,pick){
   // - 物資：每一輪從雙方市鎮撥彈藥、燃料、熱量、淨水，撥不夠戰力就打折；撥走之後物價照庫存重算（沙盒自己的定價，不另外加倍）。
   // - 最後的存底：剩不到四分之一時，雙方把後方守軍、剛出槽的複製兵壓上去（一次），培養槽趕工、糧水零件被抽走。
   // - 傭兵行情：照「還需要的兵力／自己剩下的兵力」——剩一半約原價、四分之一約兩倍、八分之一約四倍（公式自然長出來，不按天數切）。
-  // - 玩家的戰功：每一輪照當下的戰功加成（最多 +50%），用掉四分之一。
-  const CAMP_MIN=globalThis.CAMP_MIN??25,CAMP_SUM=globalThis.CAMP_SUM??80,CAMP_P=globalThis.CAMP_P??.75,CAMP_ROUND=6,CAMP_RATE=.13,CAMP_BREAK=.1,CAMP_MAXR=32;
+  // - 玩家的參與（Alan 2026-10-09：影響要維持整個戰役）：傭兵打倒的敵人直接從對方的兵力池扣掉（每人 CAMP_KILL），
+  //   打下的貢獻累積成雇主這場戰役的加成（貢獻×0.5／200，最多 +60%），不消退、一直算到戰役結束。平常的戰功（pmcAid）不在戰役裡用。
+  const CAMP_KILL=globalThis.CAMP_KILL??.1,CAMP_AID_CAP=.6,CAMP_MIN=globalThis.CAMP_MIN??25,CAMP_SUM=globalThis.CAMP_SUM??80,CAMP_P=globalThis.CAMP_P??.75,CAMP_ROUND=6,CAMP_RATE=.13,CAMP_BREAK=.1,CAMP_MAXR=32;
   let campOn=false,campaigns=[],campSeq=1;
   const campFp=()=>{const fp=new Float32Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)fp[owner[i]]+=pop[i];return fp};
   // 陣亡：先死複製兵，再死人口（一次最多一成人口）
@@ -765,7 +766,7 @@ function createSim(w,rand,pick){
     // 物資：每一輪照兵力撥；撥不夠，戰力打折
     const draw=(f,F)=>{let r=1;for(const [g,k] of [['ammo',.006],['fuel',.004],['food',.012],['water',.012]]){const want=F*k;if(want<.01)continue;const got=facTake(f,g,want);r=Math.min(r,.4+.6*got/want)}campReprice(f);return r};
     c.supA=draw(A,c.FA);c.supD=draw(D,c.FD);
-    const pA=Math.min(.5,pmcAid[A]/100),pD=Math.min(.5,pmcAid[D]/100);pmcAid[A]*=.75;pmcAid[D]*=.75;
+    const pA=Math.min(CAMP_AID_CAP,(c.aidA||0)/200),pD=Math.min(CAMP_AID_CAP,(c.aidD||0)/200);
     const powA=c.FA*c.mA*c.supA*(1+pA)*(.8+.4*rand()),powD=c.FD*c.mD*c.supD*(1+pD)*(.8+.4*rand());
     const lossA=Math.min(c.FA,powD*CAMP_RATE*(1+.4*c.tr)),lossD=Math.min(c.FD,powA*CAMP_RATE);
     c.FA-=lossA;c.FD-=lossD;
@@ -809,10 +810,14 @@ function createSim(w,rand,pick){
       sa:Math.round(c.FA0),sd:Math.round(c.FD0),win:win===A?'a':'d',took:took?1:0,siege:1,note:'大戰役',dead:Math.round((lostA+lostD)*.5),hA:'',hD:'',fell});
     out.push({c,kind:'end',win,took});
   }
+  // 傭兵在大戰役裡打完一張服務單（cases.js campSettle）：替 f 那一邊打倒 kills 人、貢獻 contrib
+  function campaignHit(id,f,kills,contrib){const c=campaigns.find(x=>x.id===id);if(!c||c.done)return;
+    if(f===c.att){c.FD=Math.max(0,c.FD-kills*CAMP_KILL);c.aidA=(c.aidA||0)+contrib*.5;c.pmcKillD=(c.pmcKillD||0)+kills}
+    else if(f===c.def){c.FA=Math.max(0,c.FA-kills*CAMP_KILL);c.aidD=(c.aidD||0)+contrib*.5;c.pmcKillA=(c.pmcKillA||0)+kills}}
   // 給畫面：進行中與剛結束的大戰役
   function campaignView(){return campaigns.map(c=>({id:c.id,att:c.att,def:c.def,an:fac[c.att]?.n,dn:fac[c.def]?.n,tile:c.n,name:nm(c.n),round:c.round,days:Math.round(c.round*CAMP_ROUND/24*10)/10,
     fa:+(c.FA/c.FA0).toFixed(3),fd:+(c.FD/c.FD0).toFixed(3),FA:Math.round(c.FA),FD:Math.round(c.FD),mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),supA:c.supA,supD:c.supD,
-    next:c.next,done:c.done,win:c.win,log:c.log}))}
+    next:c.next,done:c.done,win:c.win,log:c.log,aidA:Math.round(c.aidA||0),aidD:Math.round(c.aidD||0),bonusA:+Math.min(CAMP_AID_CAP,(c.aidA||0)/200).toFixed(2),bonusD:+Math.min(CAMP_AID_CAP,(c.aidD||0)/200).toFixed(2),pmcKillA:c.pmcKillA||0,pmcKillD:c.pmcKillD||0}))}
 
   // ===== 被劫的商隊：附近的盜匪因此坐大；沒有盜匪的地方，劫商隊的人可能就此起家 =====
   // 回傳 true 表示已經寫了故事，呼叫端不必再寫一般的遭劫紀錄
@@ -1330,7 +1335,7 @@ function createSim(w,rand,pick){
     say(type,text,tile=-1){return say(histY||curY,type,text,tile)},
     get year(){return histY||curY},
     drops,pmcAid};
-  return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},campaignHour,campaignView,setCampaigns(v){campOn=!!v},
+  return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},campaignHour,campaignView,campaignHit,setCampaigns(v){campOn=!!v},
     campaignOf(id){const c=campaigns.find(x=>x.id===id);return c?{id:c.id,done:!!c.done,win:c.win,att:c.att,def:c.def,tile:c.n,round:c.round,mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),fa:c.FA/c.FA0,fd:c.FD/c.FD0}:null},get year(){return histY},startLive,periodTick,act,exportState,importState,view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 

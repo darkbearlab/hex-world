@@ -70,7 +70,7 @@ export function outdoorMap(tk, floor = 1) {
   } else if (layout === 'ring') {
     // 守點：我方在中間的掩體圈，敵人從四周來
     start.y = mid + 1; end.x = mid; end.y = mid; const c = {x: mid, y: mid};
-    for (let a = 0; a < 28; a++) { const t = a / 28 * Math.PI * 2; cover(Math.round(c.x + Math.cos(t) * 4), Math.round(c.y + Math.sin(t) * 4), 90); }
+    for (let a = 0; a < 28; a++) { if (a % 7 === 0 || a % 7 === 6) continue; const t = a / 28 * Math.PI * 2; cover(Math.round(c.x + Math.cos(t) * 4), Math.round(c.y + Math.sin(t) * 4), 90); }   // 東南西北各留一個缺口：敵人要衝得進來搶據點（Alan 2026-10-09）
     walls(9, () => { const t = R() * Math.PI * 2, r = 7 + R() * 5; return {x: Math.round(c.x + Math.cos(t) * r), y: Math.round(c.y + Math.sin(t) * r)}; });
     for (let i = 1; i < N - 1; i++) spots.push({x: i, y: 2}, {x: i, y: N - 3}, {x: 2, y: i}, {x: N - 3, y: i});
   } else if (layout === 'trench') {

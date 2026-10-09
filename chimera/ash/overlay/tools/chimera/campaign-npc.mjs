@@ -16,7 +16,7 @@ const NPC = [
   {name: '全押', n: 16, side: 'att', manual: true, join: () => true, quit: () => false, note: '開打就把 16 人全派上去，打到最後一人'},
   {name: '謹慎', n: 16, side: 'att', manual: true, send: 8, join: () => true, quit: s => s.dead >= s.sent / 2, note: '只派 8 人，陣亡過半就撤軍'},
   {name: '後到', n: 16, side: 'att', manual: true, join: v => Math.max(v.mulA, v.mulD) >= 2, quit: () => false, note: '等傭兵行情翻倍才進場，16 人全派'},
-  {name: '守方', n: 12, side: 'def', manual: false, join: () => true, quit: () => false, note: '替守方打，12 人，全部自動結算（放置）'},
+  {name: '逆風', n: 16, side: null, manual: true, join: v => Math.max(v.mulA, v.mulD) >= 2, quit: () => false, note: '等哪一邊的行情先到 ×2 就替那一邊打（逆風局），16 人全派'},
 ];
 for (const [i, P] of NPC.entries()) {
   c.found(towns[(i * 3 + 1) % towns.length], P.name); const G = c.co(P.name);
@@ -38,14 +38,15 @@ let lastRound = -1, done = false;
 for (let n = 0; n < 24 * 14 && !done; n++, h++) {
   c.advanceTo(h);
   const v = c.sim.campaignOf(id);
-  if (v && v.round !== lastRound) { lastRound = v.round; const aid = c.sim.exportState().pmcAid; report.rounds.push({h, day: +((h - report.start) / 24).toFixed(2), round: v.round, fa: +v.fa.toFixed(3), fd: +v.fd.toFixed(3), mulA: v.mulA, mulD: v.mulD, aidA: Math.round(aid[v.att]), aidD: Math.round(aid[v.def]), front: priceAt(front), attCap: priceAt(capOf(v.att)), defCap: priceAt(capOf(v.def))}); }
+  if (v && v.round !== lastRound) { lastRound = v.round; const V = c.sim.campaignView().find(x => x.id === id); report.rounds.push({h, day: +((h - report.start) / 24).toFixed(2), round: v.round, fa: +v.fa.toFixed(3), fd: +v.fd.toFixed(3), mulA: v.mulA, mulD: v.mulD, bonusA: V?.bonusA, bonusD: V?.bonusD, pmcKillA: V?.pmcKillA, pmcKillD: V?.pmcKillD, front: priceAt(front), attCap: priceAt(capOf(v.att)), defCap: priceAt(capOf(v.def))}); }
   for (const P of NPC) {
     const G = c.co(P.name), S = P.state;
     // 進場
     if (!S.joined && v && !v.done && P.join(v)) {
       const free = G.roster.filter(x => x.alive && x.status === 'home').slice(0, P.send || P.n).map(x => x.uid);
       const e = c.boardView(P.name).find(x => x.kind === 'camp');
-      const err = e && c.command({type: 'accept', kind: 'camp', tile: e.tile, side: P.side, uids: free}, P.name);
+      const side = P.side || (v.mulD >= v.mulA ? 'def' : 'att'); P.side = side; report.npc.find(x => x.name === P.name).side = side;
+      const err = e && c.command({type: 'accept', kind: 'camp', tile: e.tile, side, uids: free}, P.name);
       if (e && !err) { S.joined = true; S.sent = free.length; ev(`${P.name}進場（${P.side === 'att' ? '攻方' : '守方'}，${free.length} 人；行情 ×${v.mulA}／×${v.mulD}）`); } else if (err) ev(`${P.name}接案失敗：${err}`);
     }
     const cs = c.game.book.cases.find(k => k.kind === 'camp' && k.camp === id && G.cases.includes(k.id)); if (!cs) continue;

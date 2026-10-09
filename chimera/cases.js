@@ -427,14 +427,15 @@ function issue(book, w, c, now) {
 }
 
 // ===== 大戰役的服務單（Alan 2026-10-09）=====
-// 在場、空著、休整完的小隊直接接下一張；每家公司自己一串，一張比一張大（×CAMP_GROW，沒有上限；地圖放不下的之後用增援波次）。
+// 在場、空著、休整完的小隊直接接下一張；每隊自己一串，一張比一張大（×CAMP_GROW，沒有上限；地圖放不下的之後用增援波次）。
 // 攻方打突擊或夜襲戰壕，守方守點。打到人死光或撤軍為止。
 export const CAMP_GROW = 1.2, CAMP_CAP = 60;
 function campTickets(book, w, c, now) {
   const att = w.sim.campaignOf(c.camp)?.att === c.fac, K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
   for (const id of c.squads) {
     const sq = book.squads[id]; if (!sq || sq.busy || sq.readyAt > now || alive(sq).length < 2) continue;
-    const wave = c.wave[sq.player] = (c.wave[sq.player] || 0) + 1, type = att ? (rng(book) < .35 ? 'trench' : 'assault') : 'hold', T = TYPES[type];
+    // 波數每隊各自累計（Alan 2026-10-09）
+    const wave = c.wave[sq.id] = (c.wave[sq.id] || 0) + 1, type = att ? (rng(book) < .35 ? 'trench' : 'assault') : 'hold', T = TYPES[type];
     const enemy = enemyOf(book, w, c, {type, tile: c.tile, foe: c.foe}, {scale: Math.pow(CAMP_GROW, wave - 1), cap: CAMP_CAP, wave});
     const tk = {id: 'T' + book.nextId++, caseId: c.id, type, camp: true, wave, title: `${nm(c.tile)}大戰役第 ${wave} 波：${T.n}`, tile: c.tile,
       biome: BIOMES[K.biome[c.tile]]?.n || '', night: rng(book) < T.night, trench: +(K.trench[c.tile] || 0).toFixed(2), enemy,
@@ -451,7 +452,7 @@ function campSettle(book, w, c, tk, res, sq, now) {
   const contrib = Math.round(kills * mul * 10) / 10, reward = Math.round((2 + kills * 1.2) * mul);
   tk.pts = contrib; tk.kills = kills; tk.mul = mul;
   c.score[sq.player] = (c.score[sq.player] || 0) + contrib;
-  if (contrib > 0) w.sim.pmc.aid(c.fac, contrib * .5);
+  if (kills > 0 || contrib > 0) w.sim.campaignHit(c.camp, c.fac, kills, contrib);   // 打倒的就是對方的兵；貢獻變成雇主這場戰役的加成
   if (reward > 0) pay(book, now, sq.player, reward, 'camp', `${tk.title}：戰役報酬（打倒 ${kills}、行情 ×${mul}）`, c.id);
 }
 

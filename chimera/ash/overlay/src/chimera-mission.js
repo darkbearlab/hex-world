@@ -63,6 +63,22 @@ function rosterEnemy(u,x,y,id,spec,faction){
 }
 // 公路戰的亂數：狀態存在 chimeraOutdoor.rs，車輛移動、乘員上車照它走（重播一樣）
 const convoyRng=o=>()=>((o.rs=Math.imul(o.rs,1664525)+1013904223>>>0)/4294967296);
+// 據點（Alan 2026-10-09：參考 ASH 生存模式的佔點）：突擊陣地、夜襲戰壕是「奪點」——敵人守著據點（一人站在點上、其餘在旁邊護著），
+// 我方的人站上去、旁邊沒有敵人站在點上，每回合推進一格，推完就拿下；全部拿下就贏。守點是「守點」——敵人分兩種，
+// 一種衝著據點來（站上去每回合扣一格，扣完就失守），一種來找你；全部失守就輸。借 ASH 的 game.survival（敵人的佔點行為、繞過別的點、
+// 畫面上的點），但不是生存任務：不排波次、不鎖撤離，回合結束的計分在 MissionGame.chimeraPoints。
+export const POINT_TAKE=3,POINT_KEEP=10;
+function objectivePoints(o,map,enemies){
+ const mode=o.layout==='fort'||o.layout==='trench'?'take':o.layout==='ring'?'keep':null;if(!mode)return;
+ const N=map.grid.length,mid=Math.floor(N/2),busy=new Set([...map.props,...map.items,map.start].map(q=>`${q.x},${q.y}`));
+ const want=o.layout==='fort'?[[mid,7],[mid-2,7],[mid+2,7]]:o.layout==='trench'?[[mid-6,5],[mid,5],[mid+6,5]]:[[mid,mid-1],[mid-2,mid],[mid+2,mid]];
+ const pts=[];
+ for(const [x0,y0] of want){let best=null,bd=99;for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const d=Math.abs(x-x0)+Math.abs(y-y0);if(d<bd&&map.grid[y][x]===1&&!busy.has(`${x},${y}`)&&!pts.some(q=>q.x===x&&q.y===y)){bd=d;best={x,y}}}if(best)pts.push(best);}
+ if(!pts.length)return;
+ o.points=pts;o.mode=mode;
+ // 敵人的角色：奪點時全部守點（照順序分到三個點）；守點時三分之二衝據點、三分之一來找你
+ enemies.forEach((e,i)=>{if(isNoncombatant(e))return;e.survival=mode==='take'||i%3!==2?{role:'point',target:`point-${i%pts.length}`}:{role:'hunter'};});
+}
 const lcg=seed=>{let s=(Number(seed)>>>0)||1;return ()=>((s=Math.imul(s,1664525)+1013904223>>>0)/4294967296);};
 const near=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
 
@@ -74,7 +90,8 @@ export class MissionGame extends Game{
   building=ticket;
   try{super(ticket.seed,[],0,character(lead.cls),portrait,'extraction',{facilityFaction:ticket.faction||'rebel',simulation:{kind:'chimera'}});}finally{building=null;}
   this.ticket=ticket;this.chimera={members:ticket.squad.map(c=>c.id),units:{}};
-  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;this.mapStyle=outdoorBuilt.style;outdoorBuilt=null;const g=this.chimeraOutdoor.goal;this.log(g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='drive'?`公路戰：敵人的車靠上來了。撐過 ${this.chimeraOutdoor.holdTurns} 回合開到目的地，或把敵人清光。掉下車就沒命。`:g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
+  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;this.mapStyle=outdoorBuilt.style;outdoorBuilt=null;const o=this.chimeraOutdoor;if(o.points){if(o.mode==='take')o.goal='take';this.survival={integrity:o.points.length*(o.mode==='take'?POINT_TAKE:POINT_KEEP),points:o.points.map((q,i)=>({id:`point-${i}`,x:q.x,y:q.y,hp:o.mode==='take'?POINT_TAKE:POINT_KEEP,pressed:false})),wave:0,nextWave:1e9,open:false,turns:o.mode==='keep'?o.holdTurns:999,incoming:[]};}
+  const g=this.chimeraOutdoor.goal;this.log(g==='take'?`奪點：拿下敵人守著的 ${o.points.length} 個據點（站上去、點上沒有敵人，每回合推進一格，${POINT_TAKE} 格拿下），或把敵人清光。`:o.mode==='keep'?`守點：守住 ${o.points.length} 個據點撐過 ${o.holdTurns} 回合，或把敵人清光。敵人站上據點每回合扣一格，${POINT_KEEP} 格扣完就失守，全部失守就輸。`:g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='drive'?`公路戰：敵人的車靠上來了。撐過 ${this.chimeraOutdoor.holdTurns} 回合開到目的地，或把敵人清光。掉下車就沒命。`:g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
   this.chimera.units[lead.id]='player';applyStats(this.player,lead,CHARACTERS[this.player.character]);
   this.logs=[];this.log(t('game.arrived'));
  }
@@ -100,6 +117,7 @@ export class MissionGame extends Game{
    map.enemies=want.slice(0,first).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction));
    outdoor.waves=want.slice(first).map((u,i)=>rosterEnemy(u,0,0,`c${first+i+1}`,this.difficultySpec,this.facilityFaction));
    if(outdoor.waves.length){outdoor.rs=(tk.seed^0x7a11)>>>0||1;outdoor.waveTurn=0;}
+   objectivePoints(outdoor,map,[...map.enemies,...outdoor.waves]);
    // 對方來打的（守點、車隊遇襲、原住民、行軍遇襲）：開場就警戒，朝我方的位置摸過來；攻陣地、戰壕、據點的敵人守著自己的位置
    if(outdoor.layout==='ring'||outdoor.layout==='road'||outdoor.layout==='highway')for(const e of map.enemies){e.alert=true;e.lastKnown={x:map.start.x,y:map.start.y};}
    outdoorBuilt={...outdoor,style};return map;
@@ -148,6 +166,16 @@ export class MissionGame extends Game{
   for(let i=edge.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[edge[i],edge[j]]=[edge[j],edge[i]];}
   const p=this.player;for(let i=0;i<n&&i<edge.length;i++){const e=o.waves.shift();Object.assign(e,{x:edge[i].x,y:edge[i].y,alert:true,lastKnown:{x:p.x,y:p.y}});this.enemies.push(e);}
   this.log(`敵方增援湧上來了（還有 ${o.waves.length} 名在後面）。`,true);
+ }
+ // 據點的計分（每回合一次）
+ chimeraPoints(o){
+  const S=this.survival,ours=u=>u.hp>0&&u.x!==undefined,squad=(this.members||[this.player]).filter(ours),foe=pt=>this.enemies.some(e=>e.hp>0&&!e.concealed&&!isNoncombatant(e)&&e.x===pt.x&&e.y===pt.y);
+  for(const pt of S.points){if(pt.hp<=0)continue;
+   if(o.mode==='take'){const on=squad.some(m=>m.x===pt.x&&m.y===pt.y)&&!foe(pt);pt.pressed=on;if(!on)continue;pt.hp--;S.integrity--;if(pt.hp<=0){pt.pressed=false;this.log(`拿下據點 ${String.fromCharCode(65+Number(pt.id.slice(6)))}。`,true);}}
+   else{const was=pt.pressed;pt.pressed=foe(pt);if(!pt.pressed)continue;if(!was)this.log(`敵人站上據點 ${String.fromCharCode(65+Number(pt.id.slice(6)))}！`,true);pt.hp--;S.integrity--;if(pt.hp<=0){pt.pressed=false;this.log(`據點 ${String.fromCharCode(65+Number(pt.id.slice(6)))} 失守。`,true);}}
+  }
+  S.integrity=Math.max(0,S.integrity);
+  if(S.points.every(pt=>pt.hp<=0)){if(o.mode==='take'){this.status='won';this.log('據點全部拿下。');}else{this.status='failed';this.log('據點全部失守，陣地丟了。');}}
  }
  chimeraFalls(){
   if(!this.chimeraOutdoor?.deck)return;
@@ -201,6 +229,7 @@ export class MissionGame extends Game{
   const ok=super.action(type,arg),o0=this.chimeraOutdoor;
   if(o0&&o0.layout==='highway'&&this.status==='playing'&&this.turn!==o0.stepTurn){o0.stepTurn=this.turn;for(const [text,danger] of vehicleStep(this,convoyRng(o0)))this.log(text,danger);this.reveal?.();}
   if(o0?.waves?.length&&this.status==='playing'&&this.turn!==o0.waveTurn){o0.waveTurn=this.turn;this.chimeraWaves(o0);}
+  if(this.survival&&o0?.mode&&this.status==='playing'&&this.turn!==o0.pointTurn){o0.pointTurn=this.turn;this.chimeraPoints(o0);}
   this.chimeraFalls();this.chimeraBossCheck();this.chimeraLegacyDrop();
   const o=this.chimeraOutdoor;
   if(o&&o.goal!=='exit'&&this.status==='playing'){
