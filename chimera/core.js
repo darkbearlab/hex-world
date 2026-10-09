@@ -103,10 +103,11 @@ export class Core {
   // 不管有沒有人接；同一個委託大家共用同一個案件（各自算積分、各分尾款）。公開時刻依地點錯開（0～23 小時）；
   // 結束後冷卻一天，沙盒的問題還在就再公開；問題不在了：還沒公開的拿掉，進行中的標記 gone（不能再接，已經接的照常打完）。
   postBoard(h) {
-    const book = this.game.book, B = book.board ||= {}, seen = new Set();
+    const book = this.game.book, first = !book.board, B = book.board ||= {}, seen = new Set();
     for (const o of this.sim.opportunities()) {
       const key = o.kind + ':' + o.tile, e = B[key]; seen.add(key);
-      if (!e) { let s = 7; for (const ch of key) s = (s * 31 + ch.charCodeAt(0)) >>> 0; const st = h + s % 24; B[key] = {key, opp: o, start: st, end: st + C.CFG.CASE_HOURS, cases: {}}; continue; }
+      // 公開時刻依地點錯開。第一批（星球剛開）往前錯開 0～47 小時，當作開服前就公開了：一開服就有委託可接，而且進度各不相同
+      if (!e) { let s = 7; for (const ch of key) s = (s * 31 + ch.charCodeAt(0)) >>> 0; const st = first ? h - s % 48 : h + s % 24; B[key] = {key, opp: o, start: st, end: st + C.CFG.CASE_HOURS, cases: {}}; continue; }
       e.opp = o; e.gone = false;
       if (h >= e.end + BOARD_COOL) { e.start = h; e.end = h + C.CFG.CASE_HOURS; e.cases = {}; }
     }
@@ -114,6 +115,7 @@ export class Core {
   }
   // 一家公司看得到的委託：已經公開、還能接的；加上自己接了、還沒結束的
   boardView(name) {
+    if (!this.game.book.board) this.postBoard(this.game.h);   // 還沒公開過（星球剛開、還沒過第一個整點）
     const book = this.game.book, h = this.game.h, g = this.co(name), mine = new Set(g?.cases || []);
     return Object.values(book.board || {}).map(e => {
       const ids = Object.values(e.cases), joined = ids.some(id => mine.has(id)), cs = ids.map(id => book.cases.find(c => c.id === id)).filter(Boolean);
