@@ -14,7 +14,7 @@ for (const type of ['ambush', 'native', 'intercept', 'transit', 'assault', 'hold
   const {botFor} = installFullSquad(g); let n = 0, err = '';
   try { while (g.status === 'playing' && n++ < 2500) botFor(g.player).step(); } catch (e) { err = String(e.message || e).slice(0, 80); }
   const left = g.enemies.filter(e => e.hp > 0 && !isNoncombatant(e)).length, goal = g.chimeraOutdoor?.goal;
-  const ok = !err && (g.status !== 'won' || goal === 'exit' || left === 0 || (goal === 'hold' && g.turn >= g.chimeraOutdoor.holdTurns));
+  const ok = !err && (g.status !== 'won' || goal === 'exit' || left === 0 || ((goal === 'hold' || goal === 'drive') && g.turn >= g.chimeraOutdoor.holdTurns));
   if (!ok) bad++;
   rows.push({type, layout: g.chimeraOutdoor?.layout, goal, enemies: g.enemies.length, left, props: g.props.length, status: g.status, turns: g.turn, alive: g.living.length, err, ok});
 }

@@ -6,6 +6,7 @@
 // - 戰壕：特殊地形（像煙霧那樣的一層格子），全身（2）與半身（1）兩種，規則在 chimera-mission.js。
 // 回傳和 ASH 的 generate（world.js）同樣的欄位，Game 照常使用；chimeraOutdoor 帶著畫面與規則要的東西。
 import {SIZE} from './data.js';
+import {highwayMap} from './chimera-highway.js';
 // 地面圖集的格子（ground.png，4×4）
 export const G = {sand: 0, ripple: 1, pebble: 2, sandRoad: 3, clay: 4, clay2: 5, gravel: 6, road: 7, scrub: 8, scrub2: 9, rock: 10, asphalt: 11, trench: 12, mud: 13, rubble: 14, oil: 15};
 // 生態（策略層 sim.js 的 BIOMES）→ 地面的幾種變化、路面、牆的材質
@@ -16,12 +17,14 @@ const BIOME = {
   鹽沼: {g: [G.mud, G.clay], road: G.road, wall: 'adobe'}, 總督府: {g: [G.rubble, G.asphalt], road: G.asphalt, wall: 'brick'},
 };
 // 服務單的類型 → 地圖的布局
-export const LAYOUT = {ambush: 'road', native: 'road', intercept: 'roadblock', transit: 'road', assault: 'fort', hold: 'ring', trench: 'trench', sabotage: 'depot', probe: 'open', clear: 'camp'};
+// 護送、採購車隊遇襲與行軍途中被纏上的（ambush、native、intercept、transit）是公路戰（Alan 2026-10-09；舊的 road／roadblock 布局留著）
+export const LAYOUT = {ambush: 'highway', native: 'highway', intercept: 'highway', transit: 'highway', assault: 'fort', hold: 'ring', trench: 'trench', sabotage: 'depot', probe: 'open', clear: 'camp'};
 const lcg = seed => { let s = (Number(seed) >>> 0) || 1; return () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296); };
 
 export function outdoorMap(tk, floor = 1) {
   const R = lcg((tk.seed || 1) ^ 0x5eed), pick = a => a[Math.floor(R() * a.length)], N = SIZE, mid = Math.floor(N / 2);
-  const layout = LAYOUT[tk.type] || 'open', bio = BIOME[tk.biome] || BIOME[pick(Object.keys(BIOME))];
+  const layout = tk.layout || LAYOUT[tk.type] || 'open', bio = BIOME[tk.biome] || BIOME[pick(Object.keys(BIOME))];
+  if (layout === 'highway') return highwayMap(tk, floor, R, bio, G);
   const grid = Array.from({length: N}, (_, y) => Array.from({length: N}, (_, x) => x === 0 || y === 0 || x === N - 1 || y === N - 1 ? 0 : 1));
   const ground = Array.from({length: N}, () => Array.from({length: N}, () => R() < .7 ? bio.g[0] : pick(bio.g)));
   const trench = Array.from({length: N}, () => Array(N).fill(0));   // 戰壕：0 平地、1 半身、2 全身

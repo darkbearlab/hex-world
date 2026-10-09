@@ -66,7 +66,7 @@ export class MissionGame extends Game{
   building=ticket;
   try{super(ticket.seed,[],0,character(lead.cls),portrait,'extraction',{facilityFaction:ticket.faction||'rebel',simulation:{kind:'chimera'}});}finally{building=null;}
   this.ticket=ticket;this.chimera={members:ticket.squad.map(c=>c.id),units:{}};
-  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;this.mapStyle=outdoorBuilt.style;outdoorBuilt=null;const g=this.chimeraOutdoor.goal;this.log(g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
+  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;this.mapStyle=outdoorBuilt.style;outdoorBuilt=null;const g=this.chimeraOutdoor.goal;this.log(g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='drive'?`公路戰：敵人的車靠上來了。撐過 ${this.chimeraOutdoor.holdTurns} 回合開到目的地，或把敵人清光。掉下車就沒命。`:g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
   this.chimera.units[lead.id]='player';applyStats(this.player,lead,CHARACTERS[this.player.character]);
   this.logs=[];this.log(t('game.arrived'));
  }
@@ -74,12 +74,14 @@ export class MissionGame extends Game{
   const tk=building||this.ticket;
   // 戶外戰鬥（Alan 2026-10-09）：照服務單的類型與那一格的生態產生開闊地；ticket.facility 為真才用 ASH 的設施地圖
   if(!tk.facility){
-   const {map,spots,outdoor,style}=outdoorMap({...tk,seed:this.seed},1),want=ticketRoster(tk),rnd=lcg(tk.seed^0xe1e);
+   const {map,spots,outdoor,style}=outdoorMap({...tk,seed:this.seed},1),rnd=lcg(tk.seed^0xe1e);
+   // 公路戰（接舷）：衝鋒車還沒有地方開（之後做四面八方湧上來的那種），先換成跳上車的乘員；武裝車換成敵方車上的車載機槍
+   const want=ticketRoster(tk).map(u=>outdoor.layout!=='highway'?u:u.type==='chimera_rush'?{type:'raider',name:'衝鋒車乘員'}:u.type==='chimera_armor'?{type:'turret',name:'車載機槍'}:u);
    for(let i=spots.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[spots[i],spots[j]]=[spots[j],spots[i]];}
    const used=new Set(),cells=[];for(const p of spots){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
    map.enemies=want.slice(0,cells.length).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction));
    // 對方來打的（守點、車隊遇襲、原住民、行軍遇襲）：開場就警戒，朝我方的位置摸過來；攻陣地、戰壕、據點的敵人守著自己的位置
-   if(outdoor.layout==='ring'||outdoor.layout==='road')for(const e of map.enemies){e.alert=true;e.lastKnown={x:map.start.x,y:map.start.y};}
+   if(outdoor.layout==='ring'||outdoor.layout==='road'||outdoor.layout==='highway')for(const e of map.enemies){e.alert=true;e.lastKnown={x:map.start.x,y:map.start.y};}
    outdoorBuilt={...outdoor,style};return map;
   }
   const map=generate(this.seed,1,[],this.difficultySpec,this.facilityFaction);
@@ -101,6 +103,18 @@ export class MissionGame extends Game{
  // - 移動：全身↔半身、半身↔平地照常；平地直接跳進全身格或從全身格直接爬出來（差兩級），吃翻越的破綻（至下次自己行動前被射擊命中 +20）與 3 層壓制。
  // - 掩護：人在戰壕裡、射擊的人在戰壕外時，全身格當成牆那種掩護（擋 42、傷害 −45%），半身格當成一般掩體（擋 35）；和原本的掩護取比較好的。
  trenchAt(x,y){return this.chimeraOutdoor?.trench?.[y]?.[x]||0;}
+ // 公路戰（Alan 2026-10-09）：路面不能走；翻過車欄跳到另一台車上吃翻越破綻＋3 層壓制；被推、被炸到路面上就是摔下車（死）
+ deckAt(x,y){return this.chimeraOutdoor?.deck?.[y]?.[x]||0;}
+ passable(x,y,actor){if(this.chimeraOutdoor?.deck&&!this.deckAt(x,y))return false;return super.passable(x,y,actor);}
+ deckStep(u,from){
+  const o=this.chimeraOutdoor;if(!o?.deck||!u||u.hp<=0)return;const a=this.deckAt(from.x,from.y),b=this.deckAt(u.x,u.y);if(!a||!b||a===b)return;
+  u.vaultExposed=true;u.chimeraTrenchExposed=true;applySuppression(u,3);
+  if(u===this.player||this.members?.includes(u))this.log(b===1?'跳回自己的車上：至下次行動前被射擊命中 +20，壓制 +3。':'跳上敵人的車：至下次行動前被射擊命中 +20，壓制 +3。',true);
+ }
+ chimeraFalls(){
+  if(!this.chimeraOutdoor?.deck)return;
+  for(const u of [...(this.members||[this.player]),...this.enemies])if(u.hp>0&&!this.deckAt(u.x,u.y)){u.hp=0;this.log(`${u.squadId||u.courseName||'有人'}摔下車。`,true);}
+ }
  trenchStep(u,from){
   if(!this.chimeraOutdoor?.trench||!u||u.hp<=0)return;
   const a=this.trenchAt(from.x,from.y),b=this.trenchAt(u.x,u.y);if(Math.abs(a-b)<2)return;
@@ -109,14 +123,14 @@ export class MissionGame extends Game{
  }
  executePlayer(type,arg){
   const p=this.player,from={x:p.x,y:p.y};if(p.chimeraTrenchExposed){p.chimeraTrenchExposed=false;p.vaultExposed=false;}   // 破綻到自己下次行動為止
-  const ok=super.executePlayer(type,arg);if(ok&&(p.x!==from.x||p.y!==from.y))this.trenchStep(p,from);return ok;
+  const ok=super.executePlayer(type,arg);if(ok&&(p.x!==from.x||p.y!==from.y)){this.trenchStep(p,from);this.deckStep(p,from);}return ok;
  }
  enemyAct(e){
   if(e.chimeraTrenchExposed){e.vaultExposed=false;e.chimeraTrenchExposed=false;}   // 敵人的破綻到它下次行動為止
   const from={x:e.x,y:e.y},r=super.enemyAct(e);
   // 武裝車兩回合才走一格：上一回合走過，這回合就退回原位（開火照常）
   if(ENEMY_TYPES[e.type]?.chimeraVehicle&&(e.x!==from.x||e.y!==from.y)){if(e.chimeraMovedTurn===this.turn-1){e.x=from.x;e.y=from.y;e.moveDelta=[0,0];}else e.chimeraMovedTurn=this.turn;}
-  if(e.x!==from.x||e.y!==from.y)this.trenchStep(e,from);return r;
+  if(e.x!==from.x||e.y!==from.y){this.trenchStep(e,from);this.deckStep(e,from);}return r;
  }
  // 衝鋒車的爆炸比自爆機器人大
  explode(center,radius,damage,...rest){if(center?.type==='chimera_rush'){radius=Math.max(radius,RUSH_BLAST.radius);damage=Math.max(damage,RUSH_BLAST.damage);}return super.explode(center,radius,damage,...rest);}
@@ -147,12 +161,14 @@ export class MissionGame extends Game{
  // 戶外戰鬥的勝利：清光敵人（goal kill）；行軍遇襲是走到另一頭撤離（goal exit，descend）
  action(type,arg){
   const ok=super.action(type,arg);
-  this.chimeraBossCheck();this.chimeraLegacyDrop();
+  this.chimeraFalls();this.chimeraBossCheck();this.chimeraLegacyDrop();
   const o=this.chimeraOutdoor;
   if(o&&o.goal!=='exit'&&this.status==='playing'){
    if(!this.enemies.some(e=>e.hp>0&&!isNoncombatant(e))){this.status='won';this.log('敵人清光了。');}
    else if(o.goal==='hold'&&this.turn>=o.holdTurns){this.status='won';this.log(`撐過 ${o.holdTurns} 回合，陣地守住了。`);}
    else if(o.goal==='hold'&&ok&&this.turn%10===0)this.log(`守住陣地：還要撐 ${o.holdTurns-this.turn} 回合。`);
+   else if(o.goal==='drive'&&this.turn>=o.holdTurns){this.status='won';this.log('開到目的地，甩掉了追兵。');}
+   else if(o.goal==='drive'&&ok&&this.turn%5===0)this.log(`離目的地還有 ${o.holdTurns-this.turn} 回合。`);
   }
   return ok;
  }
