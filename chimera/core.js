@@ -50,7 +50,7 @@ export class Core {
     });
     const wars = [];
     for (let a = 0; a < K.war.length; a++) for (let b = a + 1; b < K.war.length; b++) { const W = K.war[a][b]; if (W && W.att !== undefined && K.fac[a].alive && K.fac[b].alive) wars.push({att: W.att, def: W.def, goal: W.goal, start: W.start, siege: W.siege ? W.siege.t : -1}); }
-    const gangs = K.gangs.filter(g => !g.gone).map(g => ({name: g.name, lair: g.lair, native: !!g.native, str: Math.round(g.str), legacy: K.weapons.some(x => x.gang === g.id)}));
+    const gangs = K.gangs.filter(g => !g.gone).map(g => ({name: g.name, lair: g.lair, native: !!g.native, hive: C.isHive(K, g), str: Math.round(g.str), legacy: K.weapons.some(x => x.gang === g.id)}));
     const weapons = L.weapons.map(x => ({name: x.name, kind: x.kind, at: x.at, holder: x.holder ? x.holderName : '', fac: x.fac >= 0 ? K.fac[x.fac]?.n : '', gang: x.gang ? x.gangName : '', lost: x.lost, sealed: x.sealed, owners: x.owners || 0, wins: x.wins || 0}));
     const ev = w.events.slice(this.lastEv).filter(e => e.y === y || e.y === y - 1 || e.y === 0); this.lastEv = w.events.length;
     return {y, owner, pop, trench, bandit, biome: Uint8Array.from(K.biome), towns, fac, wars, gangs, weapons,
@@ -185,7 +185,7 @@ export class Core {
       if (!squad.length) return '這一隊沒有活著的人';
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
       if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
-      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: tk.enemy.side === 'faction' ? 'loyalist' : 'rebel', night: tk.night, enemy: tk.enemy, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome}});
+      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome}});
       return null;
     }
     if (m.type === 'submit' || m.type === 'abort') {
@@ -207,7 +207,10 @@ export class Core {
       const ammo = Object.values(m.result.progress || {}).reduce((x, pr) => x + G.ammoCost(pr?.gear?.ammoUsed), 0), cs = b.cases.find(x => x.id === tk.caseId), selfPay = !!(cs?.own || cs?.selfAmmo);
       if (ammo > 0 && selfPay) C.pay(b, h, name, -ammo, 'ammo', `${tk.title}：彈藥費`, tk.caseId);
       if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}${selfPay ? '（自費，已扣）' : '（雇主吸收）'}`, ref: tk.id});
-      C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe)}, h);
+      // 遺產級頭目（Alan 2026-10-09）：戰場回報撤退或戰死；戰死時有人活著帶出遺產級就進倉庫
+      const carrier = m.result.legacy && sq.clones.find(c => c.id === m.result.legacy && c.alive && !dead.includes(c.id));
+      C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier}, h);
+      if (tk.bossOut === 'taken') G.gainLegacy(g, tk.enemy.boss, h);
       if (ups.length) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：升級　${ups.join('；')}`, ref: tk.id});
       G.hour(g, b, w, h); return null;
     }

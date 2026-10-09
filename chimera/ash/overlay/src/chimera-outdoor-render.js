@@ -127,6 +127,26 @@ export function installOutdoor(renderer) {
     const p = project.call(this, actor), o = this.game?.chimeraOutdoor, lv = o?.trench?.[actor?.y]?.[actor?.x];
     return lv ? {...p, y: p.y + TRENCH_DEPTH[lv] * this.tile} : p;
   };
+  // 遺產級（頭目戰死掉在地上的）：金色光柱＋字（Alan 2026-10-09）
+  const item = R.item;
+  R.item = function (a, it, time) {
+    if (it?.type !== 'chimera_legacy') return item.call(this, a, it, time);
+    const t = this.tile, k = .5 + .5 * Math.sin(time / 260);
+    this.glow(a.x, a.y, t * .8, `rgba(255,205,90,${.3 + .25 * k})`);
+    const c = this.ctx; c.save(); c.fillStyle = '#ffd36a'; c.fillRect(Math.round(a.x - t * .22), Math.round(a.y - t * .06), Math.round(t * .44), Math.max(2, Math.round(t * .12))); c.restore();
+    this.text('遺產', a.x, a.y - t * .28, '#ffe39a', 10);
+  };
+  // 武裝車：先在借來的砲塔圖底下畫一塊裝甲車身（之後換成自己的圖）
+  const actorDraw = R.actor;
+  R.actor = function (a, type, time, e, ...rest) {
+    if (type === 'chimera_armor' && e?.hp > 0) {
+      const c = this.ctx, t = this.tile, w = t * .96, h = t * .62, x = Math.round(a.x - w / 2), y = Math.round(a.y - h / 2 + t * .12);
+      c.save(); c.fillStyle = '#3c4234'; c.fillRect(x, y, Math.round(w), Math.round(h)); c.fillStyle = '#5b6450'; c.fillRect(x + 2, y + 2, Math.round(w) - 4, Math.round(h * .35));
+      c.fillStyle = '#1b1d18'; for (const dx of [.18, .82]) { c.fillRect(Math.round(x + w * dx - t * .09), y + Math.round(h) - 2, Math.round(t * .18), Math.max(3, Math.round(t * .1))); }
+      c.fillStyle = '#9fb3c8aa'; c.fillRect(Math.round(x + w * .62), y + 3, Math.round(w * .28), Math.max(2, Math.round(h * .18))); c.restore();
+    }
+    return actorDraw.call(this, a, type, time, e, ...rest);
+  };
   R.exit = function (a, time) {
     const o = this.game?.chimeraOutdoor;
     if (o) { if (o.goal !== 'exit') return; const t = this.tile, k = .5 + .5 * Math.sin(time / 300); this.glow(a.x, a.y, t * .9, `rgba(110,220,140,${.25 + .2 * k})`); this.text('撤離', a.x, a.y + 4, '#9ff0b4', 10); return; }

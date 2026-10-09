@@ -12,6 +12,7 @@ import {Core, COMMANDS, QUERIES, YEARS} from '../core.js';
 import {verifyGoogle} from './auth.js';   // 和 warband 同一份
 export {Skirmish} from './battle.js';
 import {colo} from './battle.js';
+import {enemyRoster, ASH_FACTION, LEGACY_KINDS, LEGACY_BOSS} from '../cases.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) => ArrayBuffer.isView(v) ? Array.from(v) : v), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
@@ -166,14 +167,23 @@ const ARENA_CLS = ['soldier', 'recon', 'bulwark', 'berserker'], ARENA_FACES = ['
 // 戰鬥類型（cases.js 的服務單類型）與生態（sim.js 的 BIOMES）：測試場可以選，戶外地圖照這兩個產生（chimera-outdoor.js）
 const ARENA_TYPES = ['ambush', 'native', 'intercept', 'transit', 'assault', 'hold', 'trench', 'sabotage', 'probe', 'clear'];
 const ARENA_BIOMES = ['鹼灘', '斷崖', '岩山', '礫丘', '寒漠', '油棘林', '旱原', '沙海', '鹽沼', '總督府'];
+// 敵方（Alan 2026-10-09，cases.js 的兵種表）：不選就照類型（原住民襲擊→根者、勢力戰→正規軍、其餘→掠奪者）
+const ARENA_SIDES = {raider: {scav: 4, shotgun: 1, thug: 1}, hive: {infected: 2, infected_rifle: 1, hound: 2, larva: 2, spitter: 1}, native: {warrior: 4, hunter: 1, dog: 2},
+  army: {trooper: 4, trooper_heavy: 1, shotgunner: 1, leader: 1}, works: {drone: 2, bomb_bot: 2, guard_elite: 1, flamer: 1}, warlord: {elite: 2, scav: 3, enforcer: 1}, free: {merc: 4, merc_shotgun: 1, marksman: 1}};
 function arenaMission(b) {
   const r = crypto.getRandomValues(new Uint32Array(3)), n = Math.max(1, Math.min(4, b.size | 0 || 2));
   const type = ARENA_TYPES.includes(b.type) ? b.type : ARENA_TYPES[r[2] % ARENA_TYPES.length], biome = ARENA_BIOMES.includes(b.biome) ? b.biome : ARENA_BIOMES[(r[2] >>> 8) % ARENA_BIOMES.length];
-  // 敵人照類型：原住民、正規軍、掠奪者
-  const units = type === 'native' ? {native: 2 * n, native_hunter: n} : ['intercept', 'assault', 'hold', 'trench', 'sabotage', 'probe'].includes(type) ? {trooper: 2 * n, trooper_heavy: n} : {raider: 2 * n, raider_heavy: n};
+  const side = ARENA_SIDES[b.side] ? b.side : type === 'native' ? 'native' : ['intercept', 'assault', 'hold', 'trench', 'sabotage', 'probe'].includes(type) ? 'army' : 'raider';
+  const units = Object.fromEntries(Object.entries(ARENA_SIDES[side]).map(([k, v]) => [k, Math.max(1, Math.round(v * n / 2))]));
+  const veh = {}; if (b.veh || n >= 3) { if (['raider', 'warlord'].includes(side)) veh.rush = 1; if (['army', 'free', 'works'].includes(side)) veh.armor = 1; }
+  // 頭目：掠奪者、軍閥、根者是拿遺產級的（第幾次被打倒照選的；第三次起有機會戰死），巢匪是巢母，正規軍是標定官
+  const kind = LEGACY_KINDS[r[1] % LEGACY_KINDS.length], defeats = Math.max(0, Math.min(4, b.defeats | 0));
+  const boss = !(b.boss || type === 'clear') ? null : side === 'hive' ? {ash: 'hive_beast', name: '巢母'} : side === 'army' || side === 'free' ? {ash: 'designator', name: '標定官'} : side === 'works' ? {ash: 'burnline', name: '焚線官'}
+    : {weapon: `測試${kind}`, kind, bonus: .2, legacy: -1, chief: '測試頭目', ash: LEGACY_BOSS[kind], defeats, dies: defeats >= 2 && r[0] % 100 < [0, 0, 30, 60, 100][defeats]};
   const night = b.night === true || (b.night == null && ['trench', 'sabotage'].includes(type));
-  return {id: 'arena-' + Date.now().toString(36) + r[1].toString(36).slice(0, 4), title: '戰鬥測試場', seed: 1 + r[0] % 999999, faction: r[1] % 2 ? 'rebel' : 'loyalist', night, type, biome,
-    enemy: {name: '測試敵人', side: 'gang', power: 0, units, veh: {}, boss: b.boss || type === 'clear' ? {weapon: '測試'} : null},
+  const enemy = {name: '測試敵人', side, power: 0, units, veh, boss};
+  return {id: 'arena-' + Date.now().toString(36) + r[1].toString(36).slice(0, 4), title: '戰鬥測試場', seed: 1 + r[0] % 999999, faction: ASH_FACTION[side] || 'rebel', night, type, biome,
+    enemy: {...enemy, roster: enemyRoster(enemy)},
     squad: ARENA_CLS.map((cls, i) => ({id: `T-${1001 + i}`, cls, portrait: ARENA_FACES[i], st: {hp: cls === 'berserker' ? 160 : 100}, lv: 3, xp: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0}))};
 }
 // 給瀏覽器的開戰資料：verify＝任務（含種子）與已收到的輸入，瀏覽器自己跑；authority＝過濾過的畫面

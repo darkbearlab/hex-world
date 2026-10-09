@@ -1,5 +1,6 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
 import {CLS, MN, MATS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES} from './company.js';
+import {unitName} from './cases.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
 // ?watch：觀看世界生成（Alan 2026-10-09，系統選單裡）：用星球的種子在這個瀏覽器從頭推演到開服那一年，只能看，不能開公司、不能再往後推
@@ -284,7 +285,7 @@ function renderTile() {
     if (here.length) html += `<h2 style="margin-top:10px">我的人馬</h2>` + here.map(u => `<div class="card"><b>${esc(u.name)}</b>${u.n ? ` <span class="mini">${u.n} 人</span>` : ''}<div class="mini">${esc(u.status)}${u.where ? '・' + esc(u.where) : ''}</div>${recallBtn(u)}</div>`).join(''); }
   if (GV && t && i !== GV.base) html += `<p><button data-proc="${i}">派車隊來這裡採購</button></p>`;
   if (!GV && s.fac.some(f => f.cap === i)) html += `<p><button class="primary" data-found="${i}">在這裡開公司</button> <span class="muted">總部設在這座主城，從這一年開始經營。</span></p>`;
-  for (const x of g) html += `<p>${x.native ? '原住民' : '掠奪者據點'}：<b>${esc(x.name)}</b>（勢力 ${x.str}${x.legacy ? '，手上有遺產級' : ''}）</p>`;
+  for (const x of g) html += `<p>${x.native ? '原住民' : x.hive ? '巢匪據點' : '掠奪者據點'}：<b>${esc(x.name)}</b>（勢力 ${x.str}${x.legacy ? '，手上有遺產級' : ''}）</p>`;
   if (t) {
     html += `<h2 style="margin-top:10px">市鎮</h2><dl class="kv"><dt>服務人口</dt><dd>${t.pop}</dd>${t.lord ? `<dt>課長</dt><dd>${esc(t.lord)}</dd>` : ''}<dt>培養槽</dt><dd>${t.vat || '沒有'}</dd>${t.works ? '<dt>廠區</dt><dd>有</dd>' : ''}`;
     if (t.veh) html += `<dt>車庫</dt><dd>${Object.entries(t.veh).filter(([, v]) => v >= .5).map(([v, n]) => `${ST.vn[v]} ${Math.round(n)}`).join('・') || '空的'}</dd>`;
@@ -416,10 +417,10 @@ function renderCo() {
     <div class="kpi">進行中<b>${active.filter(c => !c.own).length} 案・${active.filter(c => c.own).length} 車隊</b></div><div class="kpi">待打的服務單<b>${G.tickets.length}</b></div>
     <div class="kpi">帳面業務損失<b>$${G.lossBook}</b></div>`;
   $('co-tk').html = G.tickets.length ? G.tickets.map(t => {
-    const left = t.deadline - h, U = Object.entries(t.enemy.units || {}).map(([k, n]) => `${UNIT[k] || k}×${n}`).join('、'), V = t.enemy.veh ? Object.entries(t.enemy.veh).filter(([, n]) => n > 0).map(([k, n]) => `${ST.vn[k] || k}×${n}`).join('、') : '';
+    const left = t.deadline - h, U = Object.entries(t.enemy.units || {}).map(([k, n]) => `${unitName(k)}×${n}`).join('、'), V = t.enemy.veh ? Object.entries(t.enemy.veh).filter(([, n]) => n > 0).map(([k, n]) => `${unitName(k)}×${n}`).join('、') : '';
     return `<div class="card tk${t.transit ? ' transit' : ''}"><h4><a href="#" data-center="${t.tile}">${esc(t.title)}</a><span class="due${left > 12 ? ' ok' : ''}">剩 ${cd(t.deadline)}</span></h4>
       <div class="mini">${esc(t.caseTitle || '')}・${esc(t.squad || '')}・${esc(t.biome)}${t.night ? '・夜間' : ''}${t.trench >= .3 ? `・戰壕 ${t.trench} 級` : ''}</div>
-      <div>敵人：<b>${esc(t.enemy.name)}</b>（戰力 ${t.enemy.power}）${U ? '・' + U : ''}${V ? '・' + V : ''}${t.enemy.boss ? `・頭目帶著遺產級「${esc(t.enemy.boss.weapon)}」` : ''}</div>
+      <div>敵人：<b>${esc(t.enemy.name)}</b>（戰力 ${t.enemy.power}）${U ? '・' + U : ''}${V ? '・' + V : ''}${t.enemy.boss ? t.enemy.boss.weapon ? `・頭目${esc(t.enemy.boss.chief || '')}帶著遺產級「${esc(t.enemy.boss.weapon)}」${t.enemy.boss.defeats ? `（被打倒過 ${t.enemy.boss.defeats} 次）` : ''}` : `・${esc(t.enemy.boss.name || '頭目')}帶隊` : ''}</div>
       ${t.transit ? '<div class="mini">行軍遇襲，不算案件積分</div>' : `<div class="mini">目標：${t.objectives.map(o => `${esc(o.text)}（${o.pts}）`).join('、')}</div>`}
       ${t.est ? `<div class="mini">小隊戰力 ${t.est.pow}・自動結算勝算約 <span class="odds-est ${t.est.p < .4 ? 'bad' : t.est.p < .75 ? 'mid' : 'good'}">${Math.round(t.est.p * 100)}%</span>・預估陣亡 ${t.est.dead.toFixed(1)} 人</div>` : ''}
       <div class="row"><button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的服務單。</p>';
@@ -722,7 +723,6 @@ $('pages').addEventListener('touchend', e => {
 }, {passive: true});
 
 const sg = v => (v > 0 ? '+' : '') + v;
-const UNIT = {raider: '掠奪者', raider_heavy: '重武裝掠奪者', native: '原住民戰士', native_hunter: '原住民獵手', trooper: '士兵', trooper_heavy: '重裝士兵', clone_trooper: '複製兵'};
 function rePicker(room) {
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
   return `<div class="picker confirm"><div class="mini">契約變更：從總部調人補這一隊，雇主不另付錢。還能補 ${room} 人；走過去要時間，路上可能遇襲。打輸太多或放著不打，雇主會拒絕。</div><div class="chips">${av.map(c => chip(c, pickRe.uids.has(c.uid), 'rp')).join('') || '<span class="muted">總部沒有待命的人</span>'}</div>
@@ -870,7 +870,7 @@ if (!LOCAL && new URL(location).searchParams.has('arena')) $('arenaBox').hidden 
 async function arena() {
   const btn = $('arenaGo'); btn.disabled = true; btn.textContent = '開戰中…';
   try {
-    const r = await fetch('/api/arena', {method: 'POST', headers: {...authHeaders(), 'content-type': 'application/json'}, body: JSON.stringify({size: +$('arenaSize').value, night: $('arenaNight').checked || null, boss: $('arenaBoss').checked, mode: $('arenaMode').value, type: $('arenaType').value, biome: $('arenaBiome').value})});
+    const r = await fetch('/api/arena', {method: 'POST', headers: {...authHeaders(), 'content-type': 'application/json'}, body: JSON.stringify({size: +$('arenaSize').value, night: $('arenaNight').checked || null, boss: $('arenaBoss').checked, mode: $('arenaMode').value, type: $('arenaType').value, biome: $('arenaBiome').value, side: $('arenaSide').value, defeats: +$('arenaDefeats').value, veh: $('arenaVeh').checked})});
     const tk = await r.json(); if (!r.ok) throw new Error(tk.error || '開戰失敗');
     const E = await ash; hideTitle(); mission = {id: tk.id, arena: true}; await launch(E, tk);
   } catch (e) { $('titleMsg').hidden = false; $('titleMsg').textContent = e.message; }

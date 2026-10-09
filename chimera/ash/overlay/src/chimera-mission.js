@@ -10,33 +10,49 @@ import {t} from './i18n.js';
 import {outdoorMap} from './chimera-outdoor.js';
 import {applySuppression} from './suppression.js';
 import {bestCover} from './cover.js';
+import {ENEMY_TYPES} from './data.js';
 
 // 奇美拉的敵人 → ASH 的兵種卡（暫定，見 warband/DESIGN.md「接上 ASH 的做法定案」）
-// 服務單上的敵人 → ASH 的兵種。複製兵用執法者（比士兵耐打、有護甲），不再借掠奪者的外型（Alan 2026-10-09：接上服務單上的敵人）
+// 服務單上的敵人 → ASH 的兵種（Alan 2026-10-09，warband/DESIGN.md「敵人單位重新配置」）。
+// 新的服務單帶著 enemy.roster（chimera/cases.js enemyRoster：每一個敵人的 ASH 兵種、服務單上的名字、頭目資料）；
+// 舊的服務單（只有 units／veh／boss）照下面的舊對照表。
 export const ENEMY_MAP={raider:'raider',raider_heavy:'gunner',native:'raider_infected',native_hunter:'sniper',
  trooper:'rifleman',trooper_heavy:'rifleman_armored',clone_trooper:'enforcer'};
-export const VEHICLE_MAP={rush:'bomber_bot',armor:'turret',gt:'gunner'};
-export const BOSS_TYPE='squad_leader',BOSS_HP=3;   // 頭目：小隊長的三倍血量，帶著服務單上的遺產級武器名
-// 戰場上的名字照服務單（public/app.js 的 UNIT、sim.js 的車輛名）
+export const VEHICLE_MAP={rush:'chimera_rush',armor:'chimera_armor'};
+export const BOSS_TYPE='squad_leader';
 export const UNIT_NAME={raider:'掠奪者',raider_heavy:'重武裝掠奪者',native:'原住民戰士',native_hunter:'原住民獵手',trooper:'士兵',trooper_heavy:'重裝士兵',clone_trooper:'複製兵'};
-export const VEHICLE_NAME={rush:'衝鋒車',armor:'武裝車',gt:'戰鬥卡車'};
+export const VEHICLE_NAME={rush:'衝鋒車',armor:'武裝車'};
+// 車輛（ASH 沒有的兵種，照 ASH 自己加砲塔的做法在這裡加進兵種表；圖先借 ASH 的）：
+// - 衝鋒車：自爆機器人的邏輯（衝過來撞上引爆），耐打得多，爆炸範圍兩格（MissionGame.explode）
+// - 武裝車：加裝甲的房車，車頂機槍連發；兩回合才走一格（MissionGame.enemyAct）；車身先畫一塊裝甲板底（chimera-outdoor-render.js）
+ENEMY_TYPES.chimera_rush={...ENEMY_TYPES.bomber_bot,sprite:{key:'bomber_bot',corpse:'bomber_bot',scale:1.45},name:'衝鋒車',hp:120,armor:4,damage:45,xp:3,color:'#b0793f'};
+ENEMY_TYPES.chimera_armor={...ENEMY_TYPES.turret,fixed:false,behavior:undefined,sprite:{key:'turret',corpse:'turret',scale:1.3},tags:['breaker'],name:'武裝車',hp:220,armor:6,damage:20,rounds:4,range:7,xp:6,color:'#6f7a64',chimeraVehicle:true};
+export const RUSH_BLAST={radius:2,damage:50};
 // 奇美拉的職業 → ASH 的職業（同名）；沒有的退回士兵
 export const character=cls=>CHARACTERS[cls]?cls:'soldier';
 
-// 任務票展開成敵人清單（固定順序，同一張票每次一樣）：{type：ASH 兵種, name：服務單上的名字, boss}
+// 任務票展開成敵人清單（固定順序，同一張票每次一樣）：{type：ASH 兵種, name：服務單上的名字, boss?}
 export function ticketRoster(ticket){
- const out=[],e=ticket.enemy||{};
+ const e=ticket.enemy||{};
+ if(Array.isArray(e.roster))return e.roster.filter(u=>ENEMY_TYPES[u.type]).map(u=>({...u}));
+ const out=[];
  for(const [k,n]of Object.entries(e.units||{}).sort())for(let i=0;i<n;i++)out.push({type:ENEMY_MAP[k]||'raider',name:UNIT_NAME[k]||null});
  for(const [k,n]of Object.entries(e.veh||{}).sort())for(let i=0;i<n;i++)if(VEHICLE_MAP[k])out.push({type:VEHICLE_MAP[k],name:VEHICLE_NAME[k]||null});
- if(e.boss)out.unshift({type:BOSS_TYPE,name:e.boss.weapon?`頭目・${e.boss.weapon}`:'頭目',boss:true});
+ if(e.boss)out.unshift({type:BOSS_TYPE,name:e.boss.weapon?`頭目（${e.boss.weapon}）`:'頭目',boss:{...e.boss,hp:e.boss.hp||3}});
  return out;
 }
 export const ticketUnits=ticket=>ticketRoster(ticket).map(u=>u.type);
-// 照服務單放一個敵人：名字（ASH 的 courseName 會直接顯示在目標卡與紀錄上）、頭目加血
+// 照服務單放一個敵人：名字（ASH 的 courseName 直接顯示在目標卡與紀錄上）、頭目
+// 頭目：拿遺產級的血量多 (1+bonus) 倍、傷害 1.4＋2×bonus 倍（明顯較強的武器），記下會不會戰死（服務單開出來時沙盒骰好）；
+// 沒有遺產級的幫派頭目是小隊長乘上 boss.hp 倍血量；勢力軍官、巢母照 ASH 原本的
 function rosterEnemy(u,x,y,id,spec,faction){
  const e=makeEnemy(u.type,x,y,id,1,spec,faction);
  if(u.name)e.courseName=u.name;
- if(u.boss){e.maxHp=Math.round((e.maxHp||e.hp)*BOSS_HP);e.hp=e.maxHp;}
+ const b=u.boss;
+ if(b){
+  const k=b.legacy?1+(b.bonus||.1):b.hp||1;e.maxHp=Math.round((e.maxHp||e.hp)*k);e.hp=e.maxHp;
+  if(b.legacy){e.damageScale=+(1.4+2*(b.bonus||.1)).toFixed(2);e.chimeraBoss={legacy:b.legacy,weapon:b.weapon,kind:b.kind,bonus:b.bonus,dies:!!b.dies,chief:b.chief};}
+ }
  return e;
 }
 const lcg=seed=>{let s=(Number(seed)>>>0)||1;return ()=>((s=Math.imul(s,1664525)+1013904223>>>0)/4294967296);};
@@ -97,8 +113,30 @@ export class MissionGame extends Game{
  }
  enemyAct(e){
   if(e.chimeraTrenchExposed){e.vaultExposed=false;e.chimeraTrenchExposed=false;}   // 敵人的破綻到它下次行動為止
-  const from={x:e.x,y:e.y},r=super.enemyAct(e);if(e.x!==from.x||e.y!==from.y)this.trenchStep(e,from);return r;
+  const from={x:e.x,y:e.y},r=super.enemyAct(e);
+  // 武裝車兩回合才走一格：上一回合走過，這回合就退回原位（開火照常）
+  if(ENEMY_TYPES[e.type]?.chimeraVehicle&&(e.x!==from.x||e.y!==from.y)){if(e.chimeraMovedTurn===this.turn-1){e.x=from.x;e.y=from.y;e.moveDelta=[0,0];}else e.chimeraMovedTurn=this.turn;}
+  if(e.x!==from.x||e.y!==from.y)this.trenchStep(e,from);return r;
  }
+ // 衝鋒車的爆炸比自爆機器人大
+ explode(center,radius,damage,...rest){if(center?.type==='chimera_rush'){radius=Math.max(radius,RUSH_BLAST.radius);damage=Math.max(damage,RUSH_BLAST.damage);}return super.explode(center,radius,damage,...rest);}
+ // 遺產級頭目被打倒（Alan 2026-10-09）：前幾次負傷撤退（離開戰場，「擊倒頭目」照樣算），之後照服務單骰好的戰死：
+ // 遺產級掉在他倒下的那一格，要有人撿起來、活著帶出戰場（missionResult.legacy）
+ chimeraBossCheck(){
+  for(const e of this.enemies){const b=e.chimeraBoss;if(!b||b.out||e.hp>0)continue;
+   if(!b.dies){b.out='retreat';this.chimeraBossOut='retreat';this.enemies=this.enemies.filter(x=>x!==e);this.log(`${b.chief||'頭目'}負傷，帶著遺產級「${b.weapon}」撤出戰場。`,true);continue;}
+   b.out='dead';this.chimeraBossOut='dead';this.items.push({x:e.x,y:e.y,type:'chimera_legacy',amount:1,floor:this.floor,legacy:{id:b.legacy,name:b.weapon,kind:b.kind,bonus:b.bonus}});
+   this.log(`${b.chief||'頭目'}戰死，遺產級「${b.weapon}」掉在地上。撿起來帶出去才算數。`,true);}
+ }
+ // 撿遺產級：誰踩上去誰拿（一個人只拿一件）；拿著的人倒下就掉在原地
+ pickup(){
+  const p=this.player;
+  this.items=this.items.filter(it=>{if(it.type!=='chimera_legacy'||it.x!==p.x||it.y!==p.y)return true;if(p.chimeraLegacy)return true;p.chimeraLegacy=it.legacy;this.log(`撿起遺產級「${it.legacy.name}」。`,true);return false;});
+  // ASH 的撿東西不認得這種，會當成撿走：先收起來再放回去
+  const keep=this.items.filter(it=>it.type==='chimera_legacy');this.items=this.items.filter(it=>it.type!=='chimera_legacy');
+  try{return super.pickup();}finally{this.items.push(...keep);}
+ }
+ chimeraLegacyDrop(){for(const m of this.members||[this.player])if(m.hp<=0&&m.chimeraLegacy){this.items.push({x:m.x,y:m.y,type:'chimera_legacy',amount:1,floor:this.floor,legacy:m.chimeraLegacy});this.log(`遺產級「${m.chimeraLegacy.name}」掉在地上。`,true);m.chimeraLegacy=null;}}
  protectingCover(target,attacker){
   const base=super.protectingCover(target,attacker),lv=target&&this.trenchAt(target.x,target.y);
   if(!lv||!attacker||this.trenchAt(attacker.x,attacker.y))return base;
@@ -109,6 +147,7 @@ export class MissionGame extends Game{
  // 戶外戰鬥的勝利：清光敵人（goal kill）；行軍遇襲是走到另一頭撤離（goal exit，descend）
  action(type,arg){
   const ok=super.action(type,arg);
+  this.chimeraBossCheck();this.chimeraLegacyDrop();
   const o=this.chimeraOutdoor;
   if(o&&o.goal!=='exit'&&this.status==='playing'){
    if(!this.enemies.some(e=>e.hp>0&&!isNoncombatant(e))){this.status='won';this.log('敵人清光了。');}

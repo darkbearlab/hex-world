@@ -201,10 +201,22 @@ const slotSet = (g, s, v) => { if (s.startsWith('gun')) g.guns[+s[3]] = v; else 
 // 出槽時的配發（照 ASH 各職業的起始武器，槍都是土製；預備品各 2）
 export const CLASS_GEAR = {soldier: {guns: ['rifle', 'shotgun'], kits: ['meds', 'grenades']}, recon: {guns: ['smg', 'shotgun'], kits: ['meds', 'smoke']}, bulwark: {guns: ['lmg'], kits: ['meds', 'grenades']},
   berserker: {guns: ['shotgun'], kits: ['meds', 'grenades']}, engineer: {guns: ['smg', 'shotgun'], kits: ['meds', 'grenades']}};
-export const itemName = it => !it ? '' : it.kind === 'gun' ? `${it.affix ? AFFIX_NAMES[it.affix] || it.affix : ''}${GUNS[it.base]?.n || it.base}` : it.kind === 'melee' ? MELEES[it.base]?.n || it.base
+// 遺產級（Alan 2026-10-09）：從戰死的頭目身上帶回來的，照沙盒裡那件的類別變成一件裝備。槍帶只會掉落的詞條、護甲多一些裝甲板；不能改裝
+export const LEGACY_GEAR = {光束步槍: {kind: 'gun', base: 'plasma', affix: 'lance'}, 磁軌狙擊槍: {kind: 'gun', base: 'sniper', affix: 'lance'}, 脈衝手槍: {kind: 'gun', base: 'smg', affix: 'rapid'},
+  重型霰彈槍: {kind: 'gun', base: 'shotgun', affix: 'burst'}, 電漿切割刀: {kind: 'melee', base: 'chainsaw'}, 單分子刀: {kind: 'melee', base: 'sabre'},
+  動力裝甲: {kind: 'armor', base: 'heavy', affix: 'steady', plates: 15}, 外骨骼護甲: {kind: 'armor', base: 'medium', affix: 'steady', plates: 10},
+  戰術目鏡: {kind: 'armor', base: 'light', affix: 'nightvision', plates: 5}, 護盾產生器: {kind: 'armor', base: 'medium', affix: 'antitox', plates: 20}};
+export function gainLegacy(G, boss, h) {
+  const d = LEGACY_GEAR[boss.kind] || LEGACY_GEAR.光束步槍;
+  const it = newItem(G, {...d, legacy: {id: boss.legacy, name: boss.weapon, kind: boss.kind, bonus: boss.bonus}});
+  (G.store ||= []).push(it); note(G, h, `帶回遺產級「${boss.weapon}」（${boss.kind}），放進倉庫。`);
+  return it;
+}
+export const itemName = it => !it ? '' : it.legacy ? `遺產級「${it.legacy.name}」` : it.kind === 'gun' ? `${it.affix ? AFFIX_NAMES[it.affix] || it.affix : ''}${GUNS[it.base]?.n || it.base}` : it.kind === 'melee' ? MELEES[it.base]?.n || it.base
   : it.kind === 'armor' ? `${it.affix ? ARMOR_AFFIXES[it.affix]?.n || '' : ''}${ARMORS[it.base]?.n || it.base}` : `${KITS[it.base]?.n || it.base} ×${it.n}`;
 // 變賣的價錢：土製永遠 $0；有詞條 ×1.3；只會掉落的詞條 ×2
 export function itemValue(it) {
+  if (it.legacy) return Math.round(600 + 2000 * (it.legacy.bonus || .1));   // 再也造不出來的東西
   if (it.kind === 'gun') return it.affix === 'homemade' ? 0 : Math.round((GUNS[it.base]?.v || 0) * (!it.affix ? 1 : DROP_ONLY.includes(it.affix) ? 2 : 1.3));
   if (it.kind === 'melee') return MELEES[it.base]?.v || 0;
   if (it.kind === 'armor') return Math.round((ARMORS[it.base]?.v || 0) * (it.affix ? 1.5 : 1));
@@ -240,6 +252,7 @@ export function sellItem(G, itemId, w) {
 // 改裝倉庫裡的一把槍：換成另一個詞條（土製也可以改掉），付錢
 export function modItem(G, itemId, affix) {
   G.store ||= []; const it = G.store.find(x => x.id === itemId); if (!it || it.kind !== 'gun') return '倉庫裡沒有這把槍';
+  if (it.legacy) return '遺產級不能改裝';
   const A = MOD_AFFIXES[affix]; if (!A || A.notOn?.includes(it.base)) return '這把槍裝不了這個';
   if (it.affix === affix) return '已經是這個詞條了';
   const cost = modCost(it.base); if (G.cash < cost) return '錢不夠';
@@ -263,8 +276,8 @@ export function buyItem(G, kind, base) {
 // 戰後寫回：身上的槍（含撿到的）、近戰、剩下的預備品照 ASH 的結果；護甲照舊
 export function gearAfterBattle(G, c, r) {
   if (!r) return; const g = gearOf(G, c);
-  g.guns = [0, 1, 2].map(i => r.guns[i] ? newItem(G, {kind: 'gun', base: r.guns[i].base, affix: r.guns[i].affix || null}) : null);
-  g.melee = r.melee ? newItem(G, {kind: 'melee', base: r.melee}) : null;
+  g.guns = [0, 1, 2].map(i => r.guns[i] ? newItem(G, {kind: 'gun', base: r.guns[i].base, affix: r.guns[i].affix || null, ...(r.guns[i].legacy ? {legacy: r.guns[i].legacy} : {})}) : null);
+  g.melee = r.melee ? newItem(G, {kind: 'melee', base: r.melee, ...(r.meleeLegacy ? {legacy: r.meleeLegacy} : {})}) : null;
   const left = {...r.kits}; g.kits = g.kits.map(k => { if (!k) return null; const n = Math.min(left[k.base] || 0, KITS[k.base]?.max || 3); left[k.base] = (left[k.base] || 0) - n; return n > 0 ? {...k, n} : null; });
   // 身上兩格放不下的（撿到的）進倉庫，一疊最多 max 個
   G.store ||= []; for (const [b, n0] of Object.entries(left)) { let n = n0; while (KITS[b] && n > 0) { const k = Math.min(n, KITS[b].max); G.store.push(newItem(G, {kind: 'kit', base: b, n: k})); n -= k; } }

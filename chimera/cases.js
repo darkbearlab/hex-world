@@ -23,6 +23,7 @@ export const CFG = {
   // 加速（Alan 2026-10-09）：付錢包車，路程時間乘上 FAST；每人每節省一小時 FAST_PRICE 元。來回同一套：去程加速，回程也加速、回程時再扣一次
   FAST: .5,
   FAST_PRICE: 1,
+  TICKET_RATE: 2,   // 服務單派送頻率：每小時出事的機率乘上這個（Alan 2026-10-09：加倍，能做的事太少）
 };
 
 // ===== 亂數：狀態存在帳本裡，存檔讀檔後接得上 =====
@@ -299,35 +300,108 @@ function drawType(book, c, w) {
   if (c.kind === 'hunt') return {type: 'clear', tile: c.tile, gang: c.gang};
 }
 
+// ===== 敵人（Alan 2026-10-09，warband/DESIGN.md「敵人單位重新配置」）=====
+// 沙盒的每一方有自己的兵種表；服務單上的名字就是戰場上的名字。ash：借 ASH 的哪個兵種（規則與圖）
+export const UNITS = {
+  // 掠奪者（盜匪幫派）
+  scav: {n: '拾荒槍手', ash: 'raider'}, shotgun: {n: '霰彈手', ash: 'gunner'}, thug: {n: '狂徒', ash: 'brute'}, sniper: {n: '狙擊手', ash: 'sniper'},
+  // 巢匪（掠奪者和蟲群共生的一支）
+  infected: {n: '感染槍手', ash: 'raider_infected'}, infected_rifle: {n: '感染步槍手', ash: 'rifleman_infected'}, hound: {n: '裂隙獵犬', ash: 'crawler'},
+  larva: {n: '幼蟲', ash: 'brood'}, spitter: {n: '毒液噴吐者', ash: 'spitter'}, bug: {n: '巨蟲', ash: 'giant_bug'},
+  // 根者（原住民）
+  warrior: {n: '部落戰士', ash: 'raider'}, hunter: {n: '獵手', ash: 'sniper'}, dog: {n: '獵犬', ash: 'crawler'},
+  // 正規軍（總督府與一般勢力）、自由城市的雇傭兵
+  trooper: {n: '士兵', ash: 'rifleman'}, trooper_heavy: {n: '重裝士兵', ash: 'rifleman_armored'}, shotgunner: {n: '霰彈兵', ash: 'gunner'}, marksman: {n: '狙擊手', ash: 'sniper'},
+  drone: {n: '無人機', ash: 'drone'}, flamer: {n: '噴火兵', ash: 'heavy_flamer'}, leader: {n: '小隊長', ash: 'squad_leader'}, clone_trooper: {n: '複製兵', ash: 'enforcer'},
+  merc: {n: '傭兵', ash: 'rifleman_armored'}, merc_shotgun: {n: '傭兵霰彈手', ash: 'gunner_elite'},
+  // 工廠群（機械為主）
+  bomb_bot: {n: '自爆機器人', ash: 'bomber_bot'}, turret: {n: '砲塔', ash: 'turret'}, guard_elite: {n: '精銳霰彈兵', ash: 'gunner_elite'},
+  // 軍閥
+  elite: {n: '精銳突擊手', ash: 'raider_elite'}, enforcer: {n: '執法者', ash: 'enforcer'},
+  // 舊的服務單
+  raider: {n: '掠奪者', ash: 'raider'}, raider_heavy: {n: '重武裝掠奪者', ash: 'gunner'}, native: {n: '原住民戰士', ash: 'raider_infected'}, native_hunter: {n: '原住民獵手', ash: 'sniper'},
+};
+// 車輛：衝鋒車（自爆衝撞，耐打）、武裝車（加裝甲的房車）。戰鬥卡車只在公路戰出現，一般戰場換成車上下來的乘員
+export const VEH_UNITS = {rush: {n: '衝鋒車', ash: 'chimera_rush'}, armor: {n: '武裝車', ash: 'chimera_armor'}};
+const ROSTER = {
+  raider: [['scav', 6], ['shotgun', 2], ['thug', 1.2], ['sniper', .8]],
+  hive: [['infected', 3], ['infected_rifle', 2], ['hound', 2], ['larva', 2], ['spitter', 1], ['bug', .5]],
+  native: [['warrior', 5], ['hunter', 2.5], ['dog', 2]],
+  army: [['trooper', 6], ['trooper_heavy', 2], ['shotgunner', 1.5], ['marksman', 1], ['drone', 1], ['flamer', .6]],
+  free: [['merc', 5], ['merc_shotgun', 2], ['marksman', 1.5], ['drone', 1]],
+  works: [['drone', 4], ['bomb_bot', 3], ['guard_elite', 2], ['flamer', 1]],
+  warlord: [['elite', 3], ['scav', 4], ['enforcer', 1.5], ['drone', 1.5]],
+};
+// 沙盒的哪一方。幫派：原住民、巢匪（油棘林、鹽沼一帶的掠奪者幫派，以及其他地方約三分之一的幫派，和蟲群共生）、軍閥（手上有遺產級）、其餘掠奪者；勢力：工廠群、自由城市、根者、正規軍
+const HIVE_BIOMES = ['油棘林', '鹽沼'];
+export const isHive = (K, g) => !!g && !g.native && (g.id % 3 === 0 || HIVE_BIOMES.includes(BIOMES[K.biome[g.lair]]?.n));
+function gangSide(K, g) { if (!g) return 'raider'; if (g.native) return 'native'; if (isHive(K, g)) return 'hive'; return K.weapons.some(x => x.gang === g.id) ? 'warlord' : 'raider'; }
+const facSide = F => F.works ? 'works' : F.free ? 'free' : F.native ? 'native' : 'army';
+// 戰場上 ASH 的陣營：叛軍的個性（膽小、會逃）、效忠派（守紀律、小隊）、蟲群
+export const ASH_FACTION = {raider: 'rebel', warlord: 'rebel', native: 'rebel', hive: 'swarm', army: 'loyalist', free: 'loyalist', works: 'loyalist', faction: 'loyalist'};
+// 頭目：拿遺產級的照武器類別挑 ASH 的除名特工；勢力的軍官用 ASH 各陣營的頭目；巢匪是巢母；沒有遺產級的幫派頭目是加強過的小隊長
+export const LEGACY_BOSS = {光束步槍: 'delisted_soldier', 磁軌狙擊槍: 'delisted_recon', 動力裝甲: 'delisted_soldier', 外骨骼護甲: 'delisted_soldier', 電漿切割刀: 'delisted_berserker',
+  脈衝手槍: 'delisted_engineer', 戰術目鏡: 'delisted_recon', 護盾產生器: 'delisted_engineer', 單分子刀: 'delisted_berserker', 重型霰彈槍: 'delisted_soldier'};
+// 遺產級頭目被打倒：前兩次負傷撤退，之後戰死的機率（Alan 2026-10-09）
+export const BOSS_DEATH = [0, 0, .3, .6, 1];
+export const LEGACY_KINDS = Object.keys(LEGACY_BOSS);
+const BOSS_TEXT = {retreat: b => `${b.chief}負傷撤退，遺產級「${b.weapon}」還在他手上`, dead: b => `${b.chief}戰死，遺產級「${b.weapon}」沒人帶出來，落在戰場上`, taken: b => `${b.chief}戰死，帶回遺產級「${b.weapon}」`};
+function legacyBoss(book, g, leg) {
+  const n = g.bossDefeats || 0, dies = rng(book) < BOSS_DEATH[Math.min(n, BOSS_DEATH.length - 1)];
+  return {weapon: leg.name, kind: leg.kind, bonus: leg.bonus || .1, legacy: leg.id, chief: g.chief || g.name, ash: LEGACY_BOSS[leg.kind] || 'delisted_soldier', defeats: n, dies, gang: g.id};
+}
+// 服務單上的敵人 → 戰場的清單（給畫面與戰場；戰場用 type 挑 ASH 兵種）
+export const unitName = k => UNITS[k]?.n || VEH_UNITS[k]?.n || k;
+export function enemyRoster(e) {
+  const out = [];
+  if (e.boss) out.push({type: e.boss.ash || 'squad_leader', name: e.boss.weapon ? `${e.boss.chief || '頭目'}（${e.boss.weapon}）` : e.boss.name || '頭目', boss: e.boss});
+  for (const [k, n] of Object.entries(e.units || {}).sort()) for (let i = 0; i < n; i++) out.push({type: UNITS[k]?.ash || 'raider', name: unitName(k)});
+  for (const [k, n] of Object.entries(e.veh || {}).sort()) for (let i = 0; i < n; i++) if (VEH_UNITS[k]) out.push({type: VEH_UNITS[k].ash, name: VEH_UNITS[k].n, vehicle: k});
+  return out;
+}
+
 // 敵人：從沙盒裡真正在那裡的東西算出來
 function enemyOf(book, w, c, ev) {
   const K = w.sim.peek(), t = ev.tile, L = c.lv;
   if (ev.type === 'ambush' || ev.type === 'native' || ev.type === 'clear') {
     const g = ev.gang ? K.gangs.find(x => x.id === ev.gang) : K.gangs.filter(x => !x.gone && hdist(x.lair, t) <= 3).sort((a, b) => hdist(a.lair, t) - hdist(b.lair, t))[0];
-    const leg = g ? K.weapons.find(x => x.gang === g.id) : null;
+    const leg = g ? K.weapons.find(x => x.gang === g.id) : null, side = gangSide(K, g);
     const power = 6 + K.bandit[t] * .12 + (g ? g.str * .025 : 0) + (ev.type === 'clear' ? 6 : 0) + 2 * L;
-    const side = g && g.native ? 'native' : 'raider';
-    return {side, name: g ? g.name : '流竄的掠奪者', fac: -1, power: Math.round(power), units: unitsOf(book, side, power, null), boss: leg ? {weapon: leg.name, kind: leg.kind} : null};
+    // 頭目：遺產級在誰手上誰就是頭目；清剿據點一定有頭目（巢匪是巢母）
+    const boss = leg ? legacyBoss(book, g, leg) : ev.type === 'clear' ? (side === 'hive' ? {ash: 'hive_beast', name: '巢母'} : {ash: 'squad_leader', name: `頭目${g?.chief || ''}`, hp: 3}) : null;
+    const veh = {}; if ((side === 'raider' || side === 'warlord') && power > 14 && rng(book) < (side === 'warlord' ? .6 : .3)) veh.rush = 1 + (power > 24 && rng(book) < .4 ? 1 : 0);
+    return {side, name: g ? g.name : '流竄的掠奪者', fac: -1, gang: g?.id ?? null, power: Math.round(power + bossPow(boss)), units: unitsOf(book, side, power - (veh.rush || 0) * 6, null, ev.type), veh, boss};
   }
   // 勢力部隊：看對方的複製兵、車庫、壕溝
-  const f = ev.foe, F = K.fac[f];
+  const f = ev.foe, F = K.fac[f], side = facSide(F);
   const towns = Object.keys(K.markets).map(Number).filter(x => K.owner[x] === f).sort((a, b) => hdist(a, t) - hdist(b, t));
   const m = towns.length ? K.markets[towns[0]] : null, veh = {};
   for (const v of ['rush', 'armor', 'gt']) veh[v] = m && m.veh ? Math.min(v === 'rush' ? 3 : 1, Math.floor((m.veh[v] || 0) * (.2 + rng(book) * .3))) : 0;
   if (ev.type === 'trench' || ev.type === 'sabotage') { veh.rush = 0; }
   const tr = K.trench[t] || 0, cl = Math.min(1, (F.clones || 0) / 80);
   const power = (16 + 6 * L + (ev.type === 'hold' ? 6 : 0) + (ev.type === 'trench' ? tr * 8 : 0) + 8 * cl) * (ev.type === 'probe' ? .7 : 1) + veh.rush * 3 + veh.armor * 10 + veh.gt * 4;
-  return {side: 'faction', name: F.n, fac: f, power: Math.round(power), clones: cl, trench: +tr.toFixed(2), veh,
-    units: unitsOf(book, 'faction', power - veh.rush * 3 - veh.armor * 10 - veh.gt * 4, cl)};
+  // 戰鬥卡車只在公路戰：一般戰場換成車上下來的三名乘員
+  const crew = veh.gt * 3; veh.gt = 0;
+  const units = unitsOf(book, side, power - veh.rush * 3 - veh.armor * 10 - crew * 1.3, cl, ev.type);
+  if (crew) { const k = side === 'works' ? 'guard_elite' : side === 'free' ? 'merc' : side === 'native' ? 'warrior' : 'trooper'; units[k] = (units[k] || 0) + crew; }
+  // 軍官：正規軍、工廠群的大仗（突擊、守點、戰壕）案件等級 2 以上時有機會由 ASH 陣營的頭目帶隊
+  const officer = (side === 'army' || side === 'works') && L >= 2 && ['assault', 'hold', 'trench'].includes(ev.type) && rng(book) < .3;
+  const boss = officer ? (side === 'army' ? (L >= 3 ? {ash: 'gunline', name: '火線官'} : {ash: 'designator', name: '標定官'}) : {ash: 'burnline', name: '焚線官'}) : null;
+  return {side, name: F.n, fac: f, power: Math.round(power + bossPow(boss)), clones: cl, trench: +tr.toFixed(2), veh: Object.fromEntries(Object.entries(veh).filter(([, n]) => n > 0)), units, boss};
 }
-function unitsOf(book, side, power, cloneShare) {
+// 頭目算進戰力（自動結算用）：遺產級頭目最強
+const bossPow = b => !b ? 0 : b.legacy ? 3 + 10 * (b.bonus || .1) : b.ash === 'squad_leader' ? 1 : 3;
+function unitsOf(book, side, power, cloneShare, type) {
   const n = Math.max(3, Math.min(14, Math.round(power / 4))), u = {};
   const add = k => u[k] = (u[k] || 0) + 1;
-  for (let i = 0; i < n; i++) {
-    const r = rng(book);
-    if (side === 'raider') add(r < .15 ? 'raider_heavy' : 'raider');
-    else if (side === 'native') add(r < .25 ? 'native_hunter' : 'native');
-    else add(r < (cloneShare || 0) ? 'clone_trooper' : r < .85 ? 'trooper' : 'trooper_heavy');
+  let table = ROSTER[side] || ROSTER.raider;
+  if (side === 'works' && ['hold', 'probe'].includes(type)) table = [...table, ['turret', 1.5]];   // 砲塔只在廠區守點
+  if (side === 'army' && n >= 5) for (let i = 0; i < Math.floor(n / 5); i++) add('leader');   // 正規軍：每五人一個小隊長帶隊
+  const total = table.reduce((x, [, v]) => x + v, 0);
+  for (let i = Object.values(u).reduce((x, y) => x + y, 0); i < n; i++) {
+    if ((side === 'army' || side === 'free') && rng(book) < (cloneShare || 0)) { add('clone_trooper'); continue; }
+    let r = rng(book) * total, k = 0; for (; k < table.length - 1 && r > table[k][1]; k++) r -= table[k][1];
+    add(table[k][0]);
   }
   return u;
 }
@@ -429,13 +503,13 @@ export function objectivesDone(tk, win, dead, wipe) {
 }
 
 // ===== 回報結果（手動打完） =====
-// result：{win, done:[目標 k], dead:[複製人 id], gearLost?:數值}
+// result：{win, done:[目標 k], dead:[複製人 id], gearLost?:數值, boss?:'retreat'|'dead', legacy?:有人帶出遺產級}
 export function submit(book, w, ticketId, result, now) {
   const tk = book.tickets.find(x => x.id === ticketId);
   if (!tk || tk.done || !tk.squad) return false;
   const sq = book.squads[tk.squad];
   for (const id of result.dead || []) { const c = sq.clones.find(x => x.id === id); if (c && c.alive) { c.alive = false; c.hp = 0; } }
-  settleTicket(book, w, tk, {win: !!result.win, done: result.done || [], dead: result.dead || [], auto: false}, now);
+  settleTicket(book, w, tk, {win: !!result.win, done: result.done || [], dead: result.dead || [], auto: false, boss: result.boss || null, legacy: !!result.legacy}, now);
   return true;
 }
 
@@ -452,6 +526,7 @@ function npcResolve(book, w, c, tk, now) {
   const r = fight(book, fake, tk.enemy, 1);
   tk.done = true; tk.npc = true; tk.win = r.win;
   writeBack(book, w, c, tk, r.win, 0, now);
+  bossOutcome(book, w, tk, {win: r.win}, null, now);
 }
 
 function settleTicket(book, w, tk, res, now) {
@@ -467,11 +542,33 @@ function settleTicket(book, w, tk, res, now) {
   const wiped = !alive(sq).length;
   if (wiped && sq.veh) { gearLost += VPOW[sq.veh] * 4; pay(book, now, sq.player, -VPOW[sq.veh] * 4, 'loss', `${tk.title}：${sq.name} 的${sq.veh === 'rush' ? '衝鋒車' : sq.veh === 'gt' ? '戰鬥卡車' : '武裝車'}丟在戰場上`, c.id); sq.veh = null; }
   writeBack(book, w, c, tk, res.win, gearLost, now);
+  tk.bossOut = bossOutcome(book, w, tk, res, sq.player, now);
   sq.busy = null; sq.readyAt = Math.max(sq.readyAt, now + CFG.REST);
   if (tk.transit && !res.win) {   // 被打退：重整隊伍再走，多花 6 小時
     sq.readyAt += 6; if (sq.move) sq.move.t1 += 6; const a = book.amends.find(x => x.col === sq.id && !x.done); if (a) a.eta += 6; }
   for (const cl of alive(sq)) cl.hp = 20;   // 休整：活著的人傷勢恢復
-  notify(book, now, sq.player, 'result', `${tk.title}：${res.win ? '勝' : '敗'}${res.auto ? '（自動結算）' : ''}，積分 ${tk.pts}${res.dead.length ? `，陣亡 ${res.dead.length}` : ''}。`, tk.id);
+  notify(book, now, sq.player, 'result', `${tk.title}：${res.win ? '勝' : '敗'}${res.auto ? '（自動結算）' : ''}，積分 ${tk.pts}${res.dead.length ? `，陣亡 ${res.dead.length}` : ''}${BOSS_TEXT[tk.bossOut] ? `。${BOSS_TEXT[tk.bossOut](tk.enemy.boss)}` : ''}。`, tk.id);
+}
+
+// ===== 遺產級頭目被打倒（Alan 2026-10-09）=====
+// 前兩次負傷撤退（幫派記一次敗績，遺產級還在他手上）；之後照服務單開出來時骰好的 dies 戰死：遺產級掉在戰場上，
+// 有人撿起來活著帶出去（res.legacy）就歸傭兵公司，沒有就照沙盒的規則流落在那一格（之後可能被別人撿走）。
+// res.boss：戰場回報的 'retreat'／'dead'；自動結算、沒人接的照 dies。回傳 'retreat'／'dead'／'taken'／null
+function bossOutcome(book, w, tk, res, player, now) {
+  const b = tk.enemy?.boss; if (!b?.legacy || !res.win) return null;
+  const K = w.sim.peek(), P = w.sim.pmc, g = K.gangs.find(x => x.id === b.gang), wp = K.weapons.find(x => x.id === b.legacy);
+  if (!g || !wp || wp.gang !== g.id) return null;
+  const nm = w.names[tk.tile] || '荒野', y = w.sim.year, out = res.boss || (b.dies ? 'dead' : 'retreat');
+  if (out === 'retreat') { g.bossDefeats = (g.bossDefeats || 0) + 1; P.say('bandit', `${b.chief}在${nm}被傭兵擊倒，負傷撤退；遺產級「${wp.name}」還在他手上。`, tk.tile); return 'retreat'; }
+  g.bossDefeats = 0;
+  if (res.legacy && player) {
+    Object.assign(wp, {holder: 0, fac: -1, gang: 0, lost: false, loc: -1, pmc: player}); wp.owners = (wp.owners || 0) + 1;
+    wp.hist?.push({y, t: `${b.chief}在${nm}戰死，${player}的傭兵從他身上取走遺產級「${wp.name}」。`});
+    P.say('bandit', `${b.chief}在${nm}戰死，${player}的傭兵取走了他的遺產級「${wp.name}」。`, tk.tile); return 'taken';
+  }
+  Object.assign(wp, {holder: 0, fac: -1, gang: 0, lost: true, loc: tk.tile, lostY: y, lake: false, sealed: false});
+  wp.hist?.push({y, t: `${b.chief}在${nm}戰死，遺產級「${wp.name}」落在戰場上。`});
+  P.say('bandit', `${b.chief}在${nm}戰死，遺產級「${wp.name}」落在戰場上沒人帶走。`, tk.tile); return 'dead';
 }
 
 // ===== 寫回沙盒 =====
@@ -526,7 +623,7 @@ function hour(book, w, now) {
     if (!c.midPaid && now >= (c.start + c.end) / 2) { c.midPaid = true; for (const id of c.squads) { const s = book.squads[id]; if (alive(s).length) pay(book, now, s.player, c.pay.mid, 'mid', `${c.title}：期中款（${s.name}）`, c.id); } }
     // 4. 抽事件：結束前一段時間不再出票；案件已經不成立也不出
     if (c.open && (now >= c.end - (c.freeze ?? CFG.FREEZE) || c.closedEarly || !stillValid(c, w))) { c.open = false; c.closedAt = now; }
-    if (c.open && rng(book) < hazard(c, w)) { const tk = issue(book, w, c, now); if (tk) assign(book, c, tk, now); }
+    if (c.open && rng(book) < Math.min(.9, hazard(c, w) * CFG.TICKET_RATE)) { const tk = issue(book, w, c, now); if (tk) assign(book, c, tk, now); }
     // 5. 結算：結束（或提早收尾）後再留一段緩衝
     const FZ = c.freeze ?? CFG.FREEZE, endAt = Math.min(c.end, (c.closedAt ?? c.end) + FZ) + (c.own ? 0 : CFG.BUFFER);
     if (now >= endAt && !book.tickets.some(tk => tk.caseId === c.id && !tk.done)) settleCase(book, w, c, now);

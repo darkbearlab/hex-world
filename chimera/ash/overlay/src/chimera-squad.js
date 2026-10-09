@@ -84,12 +84,12 @@ export class SquadGame extends MissionGame{
   const g=c.gear;if(!g)return false;
   const at=id=>WEAPONS.findIndex(w=>w.id===id),add=(b,affix)=>{const s=m.weaponBases.length;m.weaponBases.push(b);m.affixes.push(affix);m.ammo.push(WEAPONS[b].melee?0:weaponStats(b,affix,m).mag);m.upgrades.push(0);return s;};
   const innate=m.owned.filter(s=>{const w=WEAPONS[m.weaponBases[s]];return w?.melee&&(w.locked||w.integrated);});
-  const guns=[];for(const it of g.guns||[]){if(!it)continue;const b=at(it.base);if(b<0||WEAPONS[b].melee)continue;guns.push(add(b,it.affix||null));}
+  const guns=[];for(const it of g.guns||[]){if(!it)continue;const b=at(it.base);if(b<0||WEAPONS[b].melee)continue;const s=add(b,it.affix||null);if(it.legacy)(this.chimeraLegacySlots||=new Map()).set(s,it.legacy);guns.push(s);}
   m.owned=[...guns,...innate];
-  if(g.melee){const b=at(g.melee.base);if(b>=0&&WEAPONS[b].melee){const s=add(b,null);m.owned.push(s);m.meleeSlot=s;}}
+  if(g.melee){const b=at(g.melee.base);if(b>=0&&WEAPONS[b].melee){const s=add(b,null);m.owned.push(s);m.meleeSlot=s;if(g.melee.legacy)(this.chimeraLegacySlots||=new Map()).set(s,g.melee.legacy);}}
   m.weapon=m.owned[0]??m.weapon;
   const kits={meds:0,grenades:0,smoke:0,stun:0,emp:0};for(const it of g.kits||[])if(it&&it.base in kits)kits[it.base]+=it.n||0;Object.assign(m,kits);
-  const P={light:10,medium:20,heavy:30}[g.armor?.base]||0;if(P)m.plates=Math.max(m.plates||0,P);
+  const P=({light:10,medium:20,heavy:30}[g.armor?.base]||0)+(g.armor?.plates||0);if(P)m.plates=Math.max(m.plates||0,P);   // 遺產級護甲多幾片
   // 護甲的詞條＝特性（來源 chimera-armor），和 ASH 的穿戴品同一套
   removeTraitSource(m,'chimera-armor');for(const id of ARMOR_TRAITS[g.armor?.affix]||[])grantTrait(m,id,'chimera-armor');
   m.chimeraAmmo0=this.ammoTotals(m);   // 開戰時的彈藥，戰後算補滿要多少（彈藥費）
@@ -101,7 +101,8 @@ export class SquadGame extends MissionGame{
  // 戰後身上剩下的（撿到的槍也算）：寫回奇美拉的裝備（company.js gearAfterBattle）
  gearOf(m){
   const w=s=>WEAPONS[m.weaponBases[s]],innate=s=>w(s)?.melee&&(w(s).locked||w(s).integrated);
-  return {guns:m.owned.filter(s=>w(s)&&!w(s).melee).slice(0,3).map(s=>({base:w(s).id,affix:m.affixes[s]||null})),
+  const L=this.chimeraLegacySlots||new Map(),ms=m.owned.find(s=>w(s)?.melee&&!innate(s));
+  return {guns:m.owned.filter(s=>w(s)&&!w(s).melee).slice(0,3).map(s=>({base:w(s).id,affix:m.affixes[s]||null,...(L.get(s)?{legacy:L.get(s)}:{})})),meleeLegacy:ms!=null&&L.get(ms)||null,
    melee:(m.owned.find(s=>w(s)?.melee&&!innate(s))!=null?w(m.owned.find(s=>w(s)?.melee&&!innate(s))).id:null),
    kits:{meds:m.meds||0,grenades:m.grenades||0,smoke:m.smoke||0,stun:m.stun||0,emp:m.emp||0},
    ammoUsed:m.chimeraAmmo0?Object.fromEntries(Object.entries(this.ammoTotals(m)).map(([k,v])=>[k,Math.max(0,(m.chimeraAmmo0[k]||0)-v)])):{}};   // 補滿要多少（Alan 2026-10-09：算補滿的費用；撿到的補回來就不用錢）
@@ -209,6 +210,8 @@ export class SquadGame extends MissionGame{
   const dead=Object.entries(this.chimera.units).filter(([,m])=>m.hp<=0).map(([id])=>id);
   const foes=this.enemies.filter(e=>!isNoncombatant(e)),kills=foes.filter(e=>e.hp<=0).length,total=foes.length;
   const progress=Object.fromEntries(Object.entries(this.chimera.units).map(([id,m])=>[id,this.progressOf(m)]));
-  return {win:this.status==='won',dead,kills,total,turns:this.turn,progress};
+  // 遺產級頭目：撤退或戰死；戰死時遺產級在誰（活著的隊員）身上
+  const carrier=this.status==='won'?Object.entries(this.chimera.units).find(([,m])=>m.hp>0&&m.chimeraLegacy):null;
+  return {win:this.status==='won',dead,kills,total,turns:this.turn,progress,boss:this.chimeraBossOut||null,legacy:carrier?carrier[0]:null};
  }
 }
