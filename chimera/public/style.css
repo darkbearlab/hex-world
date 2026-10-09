@@ -373,3 +373,10 @@ html.vhs body:has(#ash-root:not([hidden]))>.vhs-layer{display:none}   /* 戰鬥�
 
 /* 疊上去的分頁背景半透明（Alan 2026-10-09：透明度 30～40%），看得到底下幾層；卡片本身還是不透明，字照樣清楚 */
 .page:not(#page-map){background:rgba(20,18,15,.64)}
+/* 手機：信封放到分頁那一排的最右邊（Alan 2026-10-09：收窄後信封被擠到下一行） */
+@media (max-width:820px){
+  .bar>.mail{position:absolute;top:8px;right:10px;margin:0;padding:5px 8px}
+  .bar .pager{max-width:calc(100% - 52px)}
+  .bar .pager button{padding:4px 8px}
+}
+@media (max-width:400px){.bar .pager button{padding:4px 6px;font-size:13px}}
