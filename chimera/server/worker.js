@@ -34,6 +34,9 @@ export class Planet extends DurableObject {
   constructor(ctx, env) { super(ctx, env); this.ready = null; this.out = []; this.ysnap = null; this.core = new Core(m => { if (m.type === 'year') this.ysnap = m.data; this.out.push(m); }); }
   hourMs() { return Math.max(1000, +(this.env.HOUR_MS || 3600000)); }
   nowHour() { return Math.floor(this.exact()); }
+  // 世界時間對齊現實時間（Alan 2026-10-09）：一比一時，開服時刻定在台灣時間（UTC+8）當天的午夜，
+  // 遊戲的「幾點」就是台灣的現實時間，每個遊戲整點也落在現實的整點；建好世界後的第一次補算就推進到現在
+  aligned(t) { if (this.hourMs() !== 3600000) return t; const day = 864e5, tz = 8 * 3600e3; return Math.floor((t + tz) / day) * day - tz; }
   exact() { return (Date.now() - this.meta.startedAt) / this.hourMs(); }   // 現在是第幾個遊戲小時（帶小數）
 
   /* ───── 讀檔、建世界、存檔 ───── */
@@ -45,13 +48,15 @@ export class Planet extends DurableObject {
         const parts = []; for (let i = 0; i < meta.chunks; i++) parts.push(await st.get('save:' + i));
         const all = new Uint8Array(parts.reduce((s, p) => s + p.length, 0)); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
         this.meta = meta; this.core.load(meta.seed, JSON.parse(await gunzip(all)));
+        // 舊的星球補對齊：開服時刻往前移到當天的午夜，接下來的補算會把差的小時一次推完
+        if (!meta.aligned && this.hourMs() === 3600000) { meta.startedAt = this.aligned(meta.startedAt); meta.aligned = true; }
       } else {
         // 新世界：用 WORLD_SEED 產生星球、推演歷史，開服時間就是現在
         await st.deleteAll();
         const seed = this.env.WORLD_SEED || '奇美拉-1';
         this.core.start(seed); while (this.core.year < YEARS) this.core.sim.stepYear();
         this.core.open();
-        this.meta = {version, seed, startedAt: Date.now(), chunks: 0};
+        this.meta = {version, seed, startedAt: this.aligned(Date.now()), chunks: 0, aligned: true};
         await this.persist();
       }
       this.roster = await st.get('roster') || {};
