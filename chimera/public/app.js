@@ -23,7 +23,7 @@ let allEvents = [];
 let sel = -1, hover = -1, hiFac = -1, mouse = {x: 0, y: 0};
 const layers = {fac: true, pop: false, bandit: false, trench: false, opp: true};
 let oppKind = 'all';
-const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}};
+const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}};
 let logFilter = 'legend';
 let worker = null;
 

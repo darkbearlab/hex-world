@@ -312,7 +312,7 @@ export function accept(G, book, w, opp, side, uids, now, fast = false, contract 
   note(G, now, again ? `「${c.title}」加派 ${n} 隊${fast ? '（加速）' : ''}。` : `接下「${c.title}」，${fast ? '加速' : ''}派出 ${n} 隊。`);
   return null;
 }
-const kindOf = o => ({short: 'route', route: 'route', exp: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp'})[o.kind];
+const kindOf = o => ({short: 'route', route: 'route', exp: 'route', logging: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp'})[o.kind];
 export function reinforce(G, book, w, squadId, uids, now, fast = false) {
   const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
   if (!pick.length) return '沒有選人';

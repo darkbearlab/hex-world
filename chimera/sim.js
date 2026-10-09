@@ -533,6 +533,7 @@ function createSim(w,rand,pick){
       for(let i=0;i<N;i++){const m=mkt[i];if(owner[i]<0||m<0)continue;for(const n of NBR[i])if(wild[n]>=0)for(const x of NBR[n])if(land[x]&&owner[x]<0&&wild[x]<0&&wild2[x]<0&&timberK[x]>0){wild2[x]=m;catchUp(x,T)}}
       for(let n=0;n<N;n++){const m=wild2[n];if(m<0||!markets[m])continue;const cut=Math.min(Math.max(0,timber[n]-.3*timberK[n])*WILDCUT,timberK[n]*.02);if(cut<=0)continue;
         timber[n]-=cut;markets[m].stock.fuel+=cut*.8;if(owner[m]>=0)fac[owner[m]].prod.fuel+=cut*.8}}
+    fuelRuns(y,s);
     let robbedTold=0;
     for(let i=0;i<N;i++){if(owner[i]<0)continue;const f=fac[owner[i]],p=pop[i];
       const hunt=Math.min(game[i]*.08,p*.08*(s===3?.5:1));game[i]-=hunt;
@@ -819,6 +820,29 @@ function createSim(w,rand,pick){
   function campaignView(){return campaigns.map(c=>({id:c.id,att:c.att,def:c.def,an:fac[c.att]?.n,dn:fac[c.def]?.n,tile:c.n,name:nm(c.n),round:c.round,days:Math.round(c.round*CAMP_ROUND/24*10)/10,
     fa:+(c.FA/c.FA0).toFixed(3),fd:+(c.FD/c.FD0).toFixed(3),FA:Math.round(c.FA),FD:Math.round(c.FD),mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),supA:c.supA,supD:c.supD,
     next:c.next,done:c.done,win:c.win,log:c.log,aidA:Math.round(c.aidA||0),aidD:Math.round(c.aidD||0),bonusA:+Math.min(CAMP_AID_CAP,(c.aidA||0)/200).toFixed(2),bonusD:+Math.min(CAMP_AID_CAP,(c.aidD||0)/200).toFixed(2),pmcKillA:c.pmcKillA||0,pmcKillD:c.pmcKillD||0}))}
+
+  // ===== 伐木隊與油棘林（Alan 2026-10-10：燃料長期只滿足四成——林子還很多，只是離城太遠砍不到）=====
+  // 燃料不夠的市鎮每季派伐木隊去 2～4 格外的林子（油棘林 5 格內也去：油棘的木頭含油，同樣的林木能做三倍的燃料）。
+  // 只砍超過三成林木的部分（林子會再長）；不進交戰中敵人的地盤；越遠路上損耗越多（每格 5%）；路上掠奪者多，整隊可能被劫走一半。
+  // 每座市鎮這一季去了哪裡記在 m.logging（給委託板開「伐木車隊」的護送委託）。
+  const OILX=3,LOGR=4,OILR=5;
+  function fuelRuns(y,s){
+    const used=new Set();
+    const ts=Object.keys(markets).map(Number).filter(t=>owner[t]>=0).sort((a,b)=>markets[b].pop-markets[a].pop);
+    for(const t of ts){const m=markets[t];m.logging=null;
+      let want=Math.max(0,(m.need?.fuel||m.pop*FIREWOOD)*2-m.stock.fuel);if(want<.5)continue;
+      const cand=[];for(let n=0;n<N;n++){if(!land[n]||used.has(n)||timberK[n]<=0)continue;const d=hdist(t,n),oil=biome[n]===6;if(d<2||d>(oil?OILR:LOGR))continue;if(owner[n]>=0&&atWar(owner[n],owner[t]))continue;cand.push({n,d,oil})}
+      cand.sort((a,b)=>(a.oil===b.oil?0:a.oil?-1:1)||a.d-b.d||a.n-b.n);
+      let got=0,risk=0,best=null;
+      for(const c of cand){if(want<=0)break;catchUp(c.n,T);const avail=Math.max(0,timber[c.n]-.3*timberK[c.n])*.04;if(avail<.2)continue;
+        const k=(c.oil?OILX:1)*(1-.05*c.d),take=Math.min(avail,want/k);timber[c.n]-=take;used.add(c.n);got+=take*k;want-=take*k;risk+=bandit[c.n];if(!best||take*k>best.amt)best={tile:c.n,amt:take*k,oil:c.oil,d:c.d}}
+      if(got<=0)continue;
+      if(rand()<1-Math.exp(-risk/900)){got*=.5;if(best)bandit[best.tile]=Math.min(100,bandit[best.tile]+1)}
+      m.stock.fuel+=got;fac[owner[t]].prod.fuel+=got;m.logging={...best,amt:+got.toFixed(1)};
+      if(best?.oil&&!m.oilTold){m.oilTold=y;say(y,'econ',`${nm(t)}的人到${nm(best.tile)}的油棘林搭起榨油場，燒得起的燃料多了。`,t)}}
+  }
+  // 委託板的伐木車隊送到了：從林子扣掉林木（油棘林一份林木做三份燃料）
+  function cutForest(tile,fuel){if(tile<0||tile>=N)return;catchUp(tile,T);timber[tile]=Math.max(0,timber[tile]-fuel/(biome[tile]===6?OILX:1))}
 
   // ===== 被劫的商隊：附近的盜匪因此坐大；沒有盜匪的地方，劫商隊的人可能就此起家 =====
   // 回傳 true 表示已經寫了故事，呼叫端不必再寫一般的遭劫紀錄
@@ -1301,7 +1325,15 @@ function createSim(w,rand,pick){
         for(const g in W_){const r=m.ratio[g];if(r>=.8)continue;const sc=(1-r)*(g==='ammo'&&atw?1.2:W_[g]);if(!best||sc>best.sc)best={g,r,sc}}
         if(best)c.push({t,o,m,...best,rank:best.sc*Math.sqrt(m.pop+1)})}
       c.sort((p,q)=>q.rank-p.rank);
-      for(const x of c.slice(0,12))out.push({kind:'short',tile:x.t,lv:x.sc>.75?3:x.sc>.4?2:1,risk:0,fac:x.o,g:x.g,title:`${nm(x.t)}缺${GN[x.g]}`,detail:`${fn(x.o)}・需求只滿足 ${Math.round(x.r*100)}%・服務人口 ${Math.round(x.m.pop)}`})}
+      // 要有一座城真的有多的貨才開「運過來」的單（Alan 2026-10-10：原本找不到有貨的城也開，送到的貨等於憑空變出來）；
+      // 缺燃料又沒有人有多的：改開伐木車隊（從林子砍柴運回來，送到多少就從林子扣多少）
+      for(const x of c.slice(0,12)){const amt=x.m.need?.[x.g]||5,lv=x.sc>.75?3:x.sc>.4?2:1;
+        let src=-1,bd=99;for(const k2 in markets){const u=+k2,mu=markets[k2];if(u===x.t||owner[u]<0||atWar(owner[u],x.o)||(mu.ratio?.[x.g]??1)<1||mu.stock[x.g]<amt)continue;const d=hdist(u,x.t);if(d<bd){bd=d;src=u}}
+        if(src>=0){out.push({kind:'short',tile:x.t,lv,risk:0,fac:x.o,g:x.g,src,title:`${nm(x.t)}缺${GN[x.g]}`,detail:`${fn(x.o)}・需求只滿足 ${Math.round(x.r*100)}%・服務人口 ${Math.round(x.m.pop)}・從${nm(src)}運`});continue}
+        if(x.g!=='fuel')continue;
+        let forest=-1;{let bs=-1;for(let n=0;n<N;n++){if(!land[n]||timberK[n]<=0)continue;const d=hdist(x.t,n),oil=biome[n]===6;if(d<2||d>(oil?OILR:LOGR)||owner[n]>=0&&atWar(owner[n],x.o))continue;const sc=Math.max(0,timber[n]-.3*timberK[n])*(oil?OILX:1)/d;if(sc>bs){bs=sc;forest=n}}}
+        if(forest<0||Math.max(0,timber[forest]-.3*timberK[forest])*(biome[forest]===6?OILX:1)<amt)continue;const oil=biome[forest]===6;
+        out.push({kind:'logging',tile:forest,to:x.t,lv,risk:riskOf(forest),fac:x.o,g:'fuel',title:`${nm(x.t)}的${oil?'運油':'伐木'}車隊`,detail:`${fn(x.o)}・燃料只滿足 ${Math.round(x.r*100)}%・從${nm(forest)}的${oil?'油棘林榨油':'林子砍柴'}運回 ${hdist(forest,x.t)} 格`})}}
     // 0. 大戰役（Alan 2026-10-09）：進行中的大戰役，雙方都在找傭兵——可以派很多隊，服務單一張接一張、越來越大
     for(const c of campaigns){if(c.done)continue;const v={fa:c.FA/c.FA0,fd:c.FD/c.FD0};
       out.push({kind:'camp',tile:c.n,lv:3,risk:3,camp:c.id,fac:c.att,att:c.att,def:c.def,title:`${nm(c.n)}大戰役`,detail:`${fn(c.att)}攻打${fn(c.def)}・第 ${Math.floor(c.round*CAMP_ROUND/24)+1} 天・兵力 ${Math.round(v.fa*100)}%：${Math.round(v.fd*100)}%・傭兵行情 ×${campMul(v.fa)}／×${campMul(v.fd)}`})}
@@ -1329,6 +1361,7 @@ function createSim(w,rand,pick){
     tree(a){const D=dijkstra(a);return {dist:D.dist,path:b=>isFinite(D.dist[b])?pathTo(D,b):[]}},
     aid(f,v){if(f>=0&&f<pmcAid.length)pmcAid[f]=Math.min(200,pmcAid[f]+v)},
     drop(t,v){if(t>=0)drops[t]+=v},
+    cutForest,
     calm(a,b,v){if(a<0||b<0||a===b)return;const x=Math.min(a,b),y=Math.max(a,b);tension[x][y]=Math.max(0,tension[x][y]-v)},
     tension(a,b){if(a<0||b<0||a===b)return 0;return tension[Math.min(a,b)][Math.max(a,b)]},
     atWar,

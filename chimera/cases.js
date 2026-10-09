@@ -77,10 +77,19 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
   const lv = opp.lv, hours = o.hours || CFG.CASE_HOURS;
   if (opp.kind === 'short') {
     const g = opp.g, to = opp.tile, f = K.owner[to];
-    const src = nearTowns(to, t => t !== to && (K.markets[t].ratio?.[g] ?? 1) >= 1 && K.markets[t].stock[g] > 5)[0] ?? nearTowns(to, t => t !== to)[0];
-    if (src === undefined) return null;
-    const amt = Math.round(Math.max(10, K.markets[to].pop * .3));
-    return openCase(book, w, {kind: 'route', title: `把${GN[g]}從${nm(src)}運到${nm(to)}`, tile: to, from: src, to, fac: f, lv, hours, cargo: {g, amt}}, now);
+    const src = opp.src ?? nearTowns(to, t => t !== to && (K.markets[t].ratio?.[g] ?? 1) >= 1 && K.markets[t].stock[g] > 5)[0];
+    if (src === undefined) return null;   // 沒有一座城有多的貨，就不開（不再從沒貨的城「運」）
+    // 一車貨＝目的地兩季的需求，但不超過來源城存貨的一半（結案時從來源城扣）
+    const ms = K.markets[src], amt = Math.round(Math.min((K.markets[to].need?.[g] || 5) * 2, ms.stock[g] * .5));
+    if (amt < 1) return null;
+    return openCase(book, w, {kind: 'route', title: `把${GN[g]}從${nm(src)}運到${nm(to)}`, tile: to, from: src, to, fac: f, lv, hours, cargo: {g, amt, src}}, now);
+  }
+  // 伐木車隊（Alan 2026-10-10）：從林子（或油棘林）把燃料運回缺燃料的城；送到的燃料從那片林子扣（settleCase）
+  if (opp.kind === 'logging') {
+    // 一車燃料＝目的地兩季的需求，但不超過那片林子能砍的一半（只砍超過三成林木的部分；油棘林一份林木做三份燃料）
+    const to = opp.to, oil = (K.biome[opp.tile] === 6), spare = Math.max(0, K.timber[opp.tile] - .3 * K.timberK[opp.tile]) * (oil ? 3 : 1);
+    const amt = Math.round(Math.min((K.markets[to]?.need?.fuel || 5) * 2, spare * .5)); if (amt < 1) return null;
+    return openCase(book, w, {kind: 'route', title: `護送${nm(opp.tile)}往${nm(to)}的${oil ? '油料' : '木柴'}車隊`, tile: opp.tile, from: opp.tile, to, fac: K.owner[to], lv, hours, cargo: {g: 'fuel', amt, forest: opp.tile}}, now);
   }
   if (opp.kind === 'route') {
     const [a, b] = nearTowns(opp.tile); if (b === undefined) return null;
@@ -681,6 +690,8 @@ function settleCase(book, w, c, now) {
   if (c.kind === 'route') {
     const delivered = 1 - c.lostConvoys.length / c.convoys; c.delivered = delivered; mult = delivered;
     if (c.cargo && !c.own && K.markets[c.to]) K.markets[c.to].stock[c.cargo.g] += c.cargo.amt * delivered;   // 送到的貨真的進了市場
+    if (c.cargo?.forest !== undefined) w.sim.pmc.cutForest(c.cargo.forest, c.cargo.amt * delivered);   // 伐木車隊：林子少了這麼多
+    if (c.cargo?.src !== undefined && K.markets[c.cargo.src]) K.markets[c.cargo.src].stock[c.cargo.g] = Math.max(0, K.markets[c.cargo.src].stock[c.cargo.g] - c.cargo.amt * delivered);   // 缺貨委託：來源城少了這麼多
   }
   // 大戰役：戰役結束時照貢獻再分一筆（每點貢獻 1k；雇主輸了只付一半）
   if (c.kind === 'camp') { const v = w.sim.campaignOf(c.camp); c.pay.final = Math.round(Object.values(c.score).reduce((x, y) => x + y, 0) * (v && v.done && v.win !== c.fac ? .5 : 1)); }
