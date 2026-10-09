@@ -5,6 +5,7 @@
 import * as S from './sim.js';
 import * as C from './cases.js';
 import * as G from './company.js';
+import {ensureNpcs, npcHour} from './npc.js';
 
 const r1 = v => Math.round(v * 10) / 10;
 // 會改變遊戲狀態、要記進指令紀錄的指令（path、quotes 只是查詢）
@@ -69,6 +70,8 @@ export class Core {
   // 現實時間一比一時 yearDays＝56：每兩週結算一季、八週一年（Alan 2026-10-09：兩週結算；原本 90 天一次推一整年）
   // this.game = {book, cos: {公司名: 公司}, h: 現在第幾個遊戲小時, yearDays, speed（只有單人測試的加速時鐘用）}
   co(name) { return this.game?.cos[name] || null; }
+  // NPC 傭兵公司：伺服器開（NPC 環境變數不是 0 時），開出還沒有的 NPC 公司
+  enableNpcs() { this.npcOn = true; ensureNpcs(this); if (this.game) this.game.book.npcs = Object.values(this.game.cos).filter(g => g.npc).map(g => g.name); }
   get hour() { return this.game ? this.game.h : 0; }
   // 星球開始用小時推進（伺服器開服時；單人測試模式在開第一家公司時）
   open() {
@@ -140,6 +143,7 @@ export class Core {
       this.postBoard(t);
       for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
       for (const e of this.sim.campaignHour(t)) this.campaignNews(e, t);
+      if (this.npcOn) npcHour(this, t);   // NPC 傭兵公司（npc.js；伺服器才開）
       if (t % Math.max(1, Math.round(24 * game.yearDays / 4)) === 0) { this.sim.stepSeason(); yearDone = true; }
     }
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});

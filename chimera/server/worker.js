@@ -62,6 +62,7 @@ export class Planet extends DurableObject {
       }
       this.roster = await st.get('roster') || {};
       this.out = [];
+      if (this.env.NPC !== '0') this.core.enableNpcs();   // NPC 傭兵公司（Alan 2026-10-09：讓世界動起來）
       if (!(await st.getAlarm()) && this.env.PAUSED !== '1') await this.arm();
     } catch (e) { this.ready = null; throw e; } })();
   }

@@ -332,7 +332,8 @@ export function hour(G, book, w, h) {
   for (const c of G.roster) if (!c.alive && c.status !== 'kia') { c.status = 'kia'; c.diedH = h; note(G, h, `${CLS[c.cls].n} ${c.id} 陣亡${c.crown === 'gold' ? '（金冠）' : ''}。`); }
   // 結案：活著的人走回總部
   for (const id of G.cases) {
-    const c = book.cases.find(x => x.id === id); if (!c || !c.settled || c.backHome) continue; c.backHome = true;
+    // 歸建要每家公司各記一次（案件是大家共用的；原本整個案件記一個旗子，先處理的公司把旗子立起來，其他公司的人就永遠回不來——NPC 上線後抓到）
+    const c = book.cases.find(x => x.id === id); if (!c || !c.settled || c.backHome === true || c.backHome?.[G.name]) continue; (c.backHome ||= {})[G.name] = true;
     if (c.own) {
       const got = Math.round(c.qty * (c.delivered ?? 1)); G.mats[c.mat] += got;
       for (const sid of c.squads) for (const x of book.squads[sid].clones) if (x.alive && x.status === 'away') x.status = 'home';
@@ -348,7 +349,8 @@ export function hour(G, book, w, h) {
   if (h % 24 === 0) { G.daily.push({h, cash: Math.round(G.cash), alive: G.roster.filter(c => c.alive).length, kia: G.roster.filter(c => !c.alive).length}); if (G.daily.length > 400) G.daily.shift(); }
   for (const r of G.returning.slice()) if (h >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive) c.status = 'home'; }
   // 補員縱隊全滅、或到的時候案件已結算：人留在現場（駐紮），MVP 先直接讓他們走回來
-  for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
+  // 也包括「還在已結案的舊小隊名單裡」的人（共用案件的歸建問題留下的，見上面）：只算還在案子裡的小隊、還在路上的補員縱隊
+  for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c) && (sq.caseId || sq.column))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
 }
 
 // ===== 召回：派出去的小隊（合約算毀約）、還在路上的補員 =====

@@ -13,6 +13,7 @@ export const CFG = {
   PENDING: 6,       // 沒有小隊空著時，事件最多等幾小時；再等不到就由案件自帶的護衛自己打（沒有積分）
   REST: 1,          // 小隊打完一張票後，休整幾小時才能接下一張
   AUTO_POW: .8,     // 自動結算：火力打折
+  NPC_POW: 1,       // NPC 傭兵公司（npc.js）的服務單用自動結算，不打折（真人親自打還是強得多）
   AUTO_PTS: .8,     // 自動結算：積分打折
   CLONE_VALUE: 30,  // 一名複製人的成本（死了就是業務損失）
   UPKEEP: 4,        // 每小隊每天的維持費（糧水、零件）
@@ -556,7 +557,7 @@ export function submit(book, w, ticketId, result, now) {
 export function resolveNow(book, w, ticketId, now) { const tk = book.tickets.find(x => x.id === ticketId); if (!tk || tk.done || !tk.squad) return false; autoResolve(book, w, tk, now); return true; }
 function autoResolve(book, w, tk, now) {
   const sq = book.squads[tk.squad];
-  const r = fight(book, sq, tk.enemy, CFG.AUTO_POW);
+  const r = fight(book, sq, tk.enemy, book.npcs?.includes(sq.player) ? CFG.NPC_POW : CFG.AUTO_POW);
   settleTicket(book, w, tk, {win: r.win, done: objectivesDone(tk, r.win, r.dead, !alive(sq).length), dead: r.dead, auto: true}, now);
 }
 

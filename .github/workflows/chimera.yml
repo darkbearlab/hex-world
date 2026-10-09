@@ -23,7 +23,7 @@ jobs:
       - name: 安裝套件
         run: npm ci
       - name: 把模擬核心、案件管線、玩家公司放進網頁
-        run: cp chimera/sim.js chimera/cases.js chimera/company.js chimera/core.js chimera/public/
+        run: cp chimera/sim.js chimera/cases.js chimera/company.js chimera/core.js chimera/npc.js chimera/public/
       - name: 插入 ASH PROTOCOL（固定版本＋補丁＋overlay，建置到 public/ash/）
         run: node chimera/ash/build.mjs
       - name: 部署
