@@ -112,5 +112,5 @@ export function outdoorMap(tk, floor = 1) {
   return {map: {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items, props, hazards: [], marks: [], barriers,
     cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'chimera-outdoor-v2'}, lighting: light, slots: [], lamps: [], lightModel: 2},
     spots: enemySpots, style: `chimera-${bio.wall}-${lowArt}`,
-    outdoor: {layout, goal: tk.type === 'transit' ? 'exit' : layout === 'ring' ? 'hold' : 'kill', holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
+    outdoor: {layout, biome: tk.biome || '', goal: tk.type === 'transit' ? 'exit' : layout === 'ring' ? 'hold' : 'kill', holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
 }

@@ -58,8 +58,8 @@ def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 
 if __name__ == '__main__':
     os.makedirs(OUT, exist_ok=True)
-    ground(); props(); ground('walls', .9)   # 牆材（牆面、牆頂、矮牆、邊緣）：和地面一樣的處理，亮度 ×0.9
-    man = {'source': {k: sha(os.path.join(HERE, f'source-{k}.png')) for k in ('ground', 'props', 'walls')},
-           'out': {k: sha(os.path.join(OUT, f'{k}.png')) for k in ('ground', 'props', 'walls')}, 'cell': CELL, 'grid': [4, 4]}
+    ground(); props(); ground('walls', .9); ground('trench', .8)   # 牆材（牆面、牆頂、矮牆、邊緣）、戰壕斷面與溝底：和地面一樣的處理
+    man = {'source': {k: sha(os.path.join(HERE, f'source-{k}.png')) for k in ('ground', 'props', 'walls', 'trench')},
+           'out': {k: sha(os.path.join(OUT, f'{k}.png')) for k in ('ground', 'props', 'walls', 'trench')}, 'cell': CELL, 'grid': [4, 4]}
     json.dump(man, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
     print(json.dumps(man, indent=1))
