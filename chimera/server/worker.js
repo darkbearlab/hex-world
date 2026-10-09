@@ -135,6 +135,13 @@ export class Planet extends DurableObject {
     }
     if (!pid) return bad('沒有身分代碼', 401);
     if (path === 'view') return name ? json({view: this.core.view(name), hour: this.core.hour}) : json({view: null});
+    // 後台（Alan 2026-10-09：上帝視角）：只有管理員的 Google 帳號（ADMIN_EMAILS，預設 darkbearlab@gmail.com）看得到；本機開發（DEV=1）誰都可以
+    if (path === 'admin/world') {
+      const acct = pid[0] === 'g' ? await this.ctx.storage.get('acct:' + pid) : null, admins = String(this.env.ADMIN_EMAILS || 'darkbearlab@gmail.com').split(',').map(x => x.trim().toLowerCase());
+      if (this.env.DEV !== '1' && !(acct && admins.includes(String(acct.email).toLowerCase()))) return bad('沒有權限', 403);
+      const accounts = {}; for (const [p, n] of Object.entries(this.roster)) accounts[n] = p[0] === 'g' ? 'Google' : '訪客';
+      return json({...this.core.adminView(accounts), server: {started: this.meta.startedAt, hourMs: this.hourMs(), world: this.env.WORLD_VERSION || '1', colo: this.colo || ''}});
+    }
     if (req.method !== 'POST') return bad('不認得的請求', 404);
     let body; try { body = await req.json(); } catch { return bad('請求格式不對'); }
     if (path === 'found') {

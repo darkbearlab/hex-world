@@ -90,6 +90,39 @@ export class Core {
     g.h = this.game.h; this.game.cos[name] = g;
     return null;
   }
+  // ---- 後台：上帝視角（Alan 2026-10-09）。整顆星球的現況，只給管理員看（server/worker.js admin/world） ----
+  adminView(accounts = {}) {
+    const game = this.game, K = this.sim.peek(), w = this.w, nm = t => w.names[t] || (t >= 0 ? `#${t}` : '—'), fn = f => K.fac[f]?.n || '—';
+    const S = this.sim.exportState(), facPop = {}, facTiles = {};
+    for (let i = 0; i < K.owner.length; i++) if (K.owner[i] >= 0) { facPop[K.owner[i]] = (facPop[K.owner[i]] || 0) + K.pop[i]; facTiles[K.owner[i]] = (facTiles[K.owner[i]] || 0) + 1; }
+    const mk = Object.entries(K.markets).map(([t, m]) => ({t: +t, m})), r1 = x => Math.round(x * 10) / 10;
+    const facs = K.fac.filter(f => f.alive).map(f => {
+      const ms = mk.filter(x => K.owner[x.t] === f.id), sum = g => r1(ms.reduce((a, x) => a + (x.m.stock[g] || 0), 0)), veh = {};
+      for (const x of ms) for (const [v, n] of Object.entries(x.m.veh || {})) veh[v] = r1((veh[v] || 0) + n);
+      return {id: f.id, n: f.n, c: f.c, cap: nm(f.cap), pop: Math.round(facPop[f.id] || 0), tiles: facTiles[f.id] || 0, towns: ms.length, clones: Math.round(f.clones || 0), vats: f.vats || 0, merc: Math.round(f.merc || 0),
+        aggr: r1(f.aggr || 0), taboo: r1(f.taboo || 0), aid: Math.round(S.pmcAid?.[f.id] || 0), exhaust: r1(f.exhaust || 0), shock: r1(f.shock || 0), kind: f.works ? '工廠群' : f.free ? '自由城市' : f.native ? '根者' : '正規軍',
+        stock: {food: sum('food'), water: sum('water'), ammo: sum('ammo'), fuel: sum('fuel'), parts: sum('parts')}, price: f.price ? Object.fromEntries(Object.entries(f.price).map(([k, v]) => [k, Math.round(v * 100) / 100])) : null, veh};
+    }).sort((a, b) => b.pop - a.pop);
+    const wars = []; for (const row of S.war) for (const W of row) if (W && W.att !== undefined) wars.push({att: fn(W.att), def: fn(W.def), goal: nm(W.goal), siege: W.siege ? `${nm(W.siege.t)}（第 ${W.siege.prog} 季）` : '', since: W.start, end: W.end, score: W.score, camp: W.camp || 0});
+    const gangs = K.gangs.filter(g => !g.gone).map(g => ({name: g.name, lair: nm(g.lair), str: Math.round(g.str), kind: g.native ? '根者' : C.isHive(K, g) ? '巢匪' : K.weapons.some(x => x.gang === g.id) ? '軍閥' : '掠奪者', chief: g.chief || '', bossDefeats: g.bossDefeats || 0, bandit: Math.round(K.bandit[g.lair] || 0)})).sort((a, b) => b.str - a.str);
+    const weapons = K.weapons.map(x => ({name: x.name, kind: x.kind, bonus: x.bonus, who: x.pmc ? `傭兵公司 ${x.pmc}` : x.holder ? `英雄 ${x.holderName || x.holder}` : x.gang ? `幫派 ${K.gangs.find(g => g.id === x.gang)?.name || x.gang}` : x.fac >= 0 ? `${fn(x.fac)}的軍械庫` : x.lost ? `遺落在${nm(x.loc)}${x.sealed ? '（封在舊倉庫）' : ''}` : '—'}));
+    const out = {now: {hour: this.hour, year: this.year, season: this.sim.season, stamp: this.stamp, yearDays: game?.yearDays, seasonHours: game ? Math.round(24 * game.yearDays / 4) : 0},
+      factions: facs, wars, campaigns: this.sim.campaignView(), gangs, weapons, events: S.events.slice(-300).map(e => ({y: e.y, type: e.type, text: e.text, tile: nm(e.tile)}))};
+    if (!game) return out;
+    const b = game.book, h = game.h;
+    out.board = Object.values(b.board || {}).map(e => ({kind: e.opp.kind, title: e.opp.title, detail: e.opp.detail, tile: nm(e.opp.tile), lv: e.opp.lv, start: e.start, end: e.end, gone: !!e.gone, cases: Object.keys(e.cases).length})).filter(e => h < e.end + 24);
+    out.cases = b.cases.filter(c => !c.settled || h - (c.settledAt || 0) < 72).map(c => ({id: c.id, kind: c.kind, title: c.title, lv: c.lv, tile: nm(c.tile), start: c.start, end: c.end, open: c.open, settled: c.settled,
+      squads: c.squads.map(id => b.squads[id]).filter(Boolean).map(s => ({name: s.name, player: s.player, alive: s.clones.filter(x => x.alive).length, busy: !!s.busy})),
+      score: Object.fromEntries(Object.entries(c.score).map(([k, v]) => [k, r1(v)])), tickets: b.tickets.filter(t => t.caseId === c.id).length, open_tickets: b.tickets.filter(t => t.caseId === c.id && !t.done).length, payout: c.payout || null}));
+    out.companies = Object.values(game.cos).map(G => {
+      const R = G.roster, st = {}; for (const c of R) { const k = c.alive ? c.status : 'kia'; st[k] = (st[k] || 0) + 1; }
+      const led = b.ledger.filter(x => x.player === G.name), by = {}; for (const x of led) by[x.kind] = (by[x.kind] || 0) + x.amount;
+      return {name: G.name, npc: !!G.npc, account: accounts[G.name] || '', base: nm(G.base), cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), roster: R.length, status: st, maxLv: Math.max(0, ...R.filter(c => c.alive).map(c => c.lv || 1)),
+        cases: G.cases.length, building: G.queue.filter(q => !q.ready).length, store: (G.store || []).length, ledger: by, log: G.log.slice(-12).map(x => ({h: x.h, text: x.text}))};
+    }).sort((a, b) => b.cash - a.cash);
+    out.tickets = b.tickets.filter(t => !t.done).map(t => ({id: t.id, title: t.title, player: t.player || '（等人接）', enemies: Object.values(t.enemy.units || {}).reduce((a, x) => a + x, 0), power: t.enemy.power, deadline: t.deadline, wave: t.wave || null}));
+    return out;
+  }
   // 大戰役的消息發給每一家公司（開打、行情翻倍、壓上存底、結束）
   campaignNews(e, t) {
     const c = e.c, K = this.sim.peek(), fn = f => K.fac[f]?.n || '?', nm = this.w.names[c.n] || '某地', side = e.side === 'a' ? c.att : c.def;
