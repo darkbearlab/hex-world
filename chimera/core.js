@@ -8,6 +8,7 @@ import * as G from './company.js';
 
 const r1 = v => Math.round(v * 10) / 10;
 // 會改變遊戲狀態、要記進指令紀錄的指令（path、quotes 只是查詢）
+const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
@@ -91,11 +92,34 @@ export class Core {
     while (game.h < h) {
       const t = ++game.h;
       C.tick(game.book, this.w, t);
+      this.postBoard(t);
       for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
       if (t % (24 * game.yearDays) === 0) { this.sim.stepYear(); yearDone = true; }
     }
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});
     return yearDone;
+  }
+  // 委託板（Alan 2026-10-09）：機會跟著伺服器時間跑。沙盒裡的每個機會（種類＋地點）在板上公開一次，案期三天從公開起算，
+  // 不管有沒有人接；同一個委託大家共用同一個案件（各自算積分、各分尾款）。公開時刻依地點錯開（0～23 小時）；
+  // 結束後冷卻一天，沙盒的問題還在就再公開；問題不在了：還沒公開的拿掉，進行中的標記 gone（不能再接，已經接的照常打完）。
+  postBoard(h) {
+    const book = this.game.book, B = book.board ||= {}, seen = new Set();
+    for (const o of this.sim.opportunities()) {
+      const key = o.kind + ':' + o.tile, e = B[key]; seen.add(key);
+      if (!e) { let s = 7; for (const ch of key) s = (s * 31 + ch.charCodeAt(0)) >>> 0; const st = h + s % 24; B[key] = {key, opp: o, start: st, end: st + C.CFG.CASE_HOURS, cases: {}}; continue; }
+      e.opp = o; e.gone = false;
+      if (h >= e.end + BOARD_COOL) { e.start = h; e.end = h + C.CFG.CASE_HOURS; e.cases = {}; }
+    }
+    for (const [key, e] of Object.entries(B)) if (!seen.has(key)) { if (h < e.start || h >= e.end + BOARD_COOL) delete B[key]; else e.gone = true; }
+  }
+  // 一家公司看得到的委託：已經公開、還能接的；加上自己接了、還沒結束的
+  boardView(name) {
+    const book = this.game.book, h = this.game.h, g = this.co(name), mine = new Set(g?.cases || []);
+    return Object.values(book.board || {}).map(e => {
+      const ids = Object.values(e.cases), joined = ids.some(id => mine.has(id)), cs = ids.map(id => book.cases.find(c => c.id === id)).filter(Boolean);
+      const n = new Set(cs.flatMap(c => c.squads.map(s => book.squads[s]?.player).filter(Boolean))).size;
+      return {...e.opp, key: e.key, start: e.start, end: e.end, closeAt: e.end - C.CFG.FREEZE, gone: !!e.gone, joined, n};
+    }).filter(e => h >= e.start && ((h < e.closeAt && !e.gone) || (e.joined && h < e.end)));
   }
   // 準時出槽：時間（帶小數的遊戲小時）到了的培養槽出槽。回傳出槽了幾個
   finishDue(t) { let n = 0; if (this.game) for (const g of Object.values(this.game.cos)) n += G.finishDue(g, t); return n; }
@@ -113,7 +137,7 @@ export class Core {
   // 一家公司看到的畫面資料（回傳訊息物件，由呼叫的人送出）
   view(name, err) {
     const game = this.game, g = this.co(name); if (!g) return null;
-    return {type: 'game', err: err || null, year: this.sim.year, speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null,
+    return {type: 'game', err: err || null, year: this.sim.year, speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
       inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: G.view(g, game.book, this.w)};
   }
   // 指令（name：下指令的公司）：會改狀態的記進 log（遊戲小時＋公司＋指令），回傳錯誤訊息或 null
@@ -131,7 +155,13 @@ export class Core {
     // 通知看過了（Alan 2026-10-09：重新登入後看過的通知又變紅）：記到看過的最後一個小時，和那個小時裡看過的幾則（同一小時之後才來的仍算新的）
     if (m.type === 'read') { const h = +m.h || 0, sigs = (Array.isArray(m.sigs) ? m.sigs : []).slice(0, 40).map(String); if (!g.mailRead || h > g.mailRead.h) g.mailRead = {h, sigs}; else if (h === g.mailRead.h) g.mailRead.sigs = [...new Set([...g.mailRead.sigs, ...sigs])].slice(-80); return null; }
     if (m.type === 'keep') { const c = g.roster.find(x => x.uid === m.uid); if (c) c.keep = !c.keep; return null; }
-    if (m.type === 'accept') { const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile); if (!o) return '這個機會已經不在了'; return G.accept(g, b, w, o, m.side, m.uids, h, !!m.fast); }
+    if (m.type === 'accept') {
+      const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile), e = b.board?.[m.kind + ':' + m.tile];
+      if (!o || !e || e.gone) return '這個委託已經不在了';
+      if (h < e.start) return '這個委託還沒公開';
+      if (h >= e.end - C.CFG.FREEZE) return '這個委託已經截止';
+      return G.accept(g, b, w, o, m.side, m.uids, h, !!m.fast, e);
+    }
     if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, h, !!m.fast);
     if (m.type === 'recall') return G.recall(g, b, w, m.squad, h);
     if (m.type === 'recallCol') return G.recallColumn(g, b, w, m.amend, h);

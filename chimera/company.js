@@ -165,12 +165,16 @@ function finishBuild(G, q, h) {
 
 // ===== 接案、派兵、補員 =====
 const avail = G => G.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
-export function accept(G, book, w, opp, side, uids, now, fast = false) {
+export function accept(G, book, w, opp, side, uids, now, fast = false, contract = null) {
   const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
   if (pick.length < 2) return '至少派兩個人';
   if (G.cases.some(k => { const c = book.cases.find(x => x.id === k); return c && !c.settled && c.tile === opp.tile && c.kind === kindOf(opp); })) return '這個點已經接了';
   C.registerCompany(book, G.name, G.base);
-  const c = C.caseFromOpp(book, w, opp, now, {side}); if (!c) return '這個案子開不起來';
+  // 委託板上的委託：同一邊已經有人開了案件就加入；沒有就開一個，案期照委託的公開時刻算（晚接的人能打的時間就少）
+  const sideKey = side || '';
+  let c = contract ? book.cases.find(x => x.id === contract.cases[sideKey] && !x.settled) : null, created = false;
+  if (c && G.cases.includes(c.id)) return '這個委託已經接了';
+  if (!c) { c = C.caseFromOpp(book, w, opp, contract ? contract.start : now, {side, hours: contract ? contract.end - contract.start : undefined}); if (!c) return '這個案子開不起來'; created = true; if (contract) contract.cases[sideKey] = c.id; }
   const groups = []; for (let i = 0; i < pick.length; i += 4) groups.push(pick.slice(i, i + 4));
   if (groups.length > 1 && groups[groups.length - 1].length < 2) groups[groups.length - 2].push(...groups.pop());
   let n = 0;
@@ -179,7 +183,10 @@ export function accept(G, book, w, opp, side, uids, now, fast = false) {
     if (C.enlist(book, c.id, sq.id, now, w)) { n++; for (const x of g) { x.status = 'away'; x.missions++; } }
     else delete book.squads[sq.id];
   }
-  if (!n) { c.settled = true; c.open = false; return '趕不上：到現場的時候已經不出票了'; }
+  if (!n) {
+    if (created) { book.cases.splice(book.cases.indexOf(c), 1); if (contract) delete contract.cases[sideKey]; }
+    return '趕不上：到現場的時候已經不出票了';
+  }
   G.cases.push(c.id);
   note(G, now, `接下「${c.title}」，${fast ? '加速' : ''}派出 ${n} 隊。`);
   return null;

@@ -40,7 +40,9 @@ export class ServerLink {
     try {
       if (m.type === 'start') {
         const hello = await this.api('hello'); this.hello = hello; this.company = hello.company || null; this.setClock(hello); this.armTick();
-        this.emit(await this.api('static')); await this.pullYear(); this.emit({type: 'idle', year: this.year});
+        this.emit(await this.api('static')); await this.pullYear();
+        try { const ch = await this.api('chronicle'); this.emit({type: 'chronicle', events: ch.events}); } catch {}
+        this.emit({type: 'idle', year: this.year});
         if (hello.company) { this.company = hello.company; await this.pullView(); }
         this.timer = setInterval(() => this.poll(), 15000);
         return;

@@ -38,6 +38,7 @@ function start(seed) {
       if (!GV && page === 'co' && hist.length % 10 === 0) renderCo();
     } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = false; if (!LOCAL && !worker.company) { hideTitle(); showPage('co'); } }
     else if (m.type === 'relogin') { showTitle(m.text); }
+    else if (m.type === 'chronicle') { allEvents = m.events; if (curTab() === 'log') renderLog(); }
     else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); hideTitle(); }
     else if (m.type === 'mission') openMission(m.data);
     else if (m.type === 'error') { hideMissionLoading(); toast(m.text); }
@@ -144,7 +145,7 @@ function drawNow() {
     else { ctx.strokeStyle = g.legacy ? '#ffd27a' : '#c4593c'; ctx.lineWidth = Math.max(1.2, 1.8 / k); ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke(); }
   }
   // 機會：圓牌上一個字，外圈越粗越亮程度越高
-  if (layers.opp && s.opps) for (const o of s.opps) {
+  if (layers.opp) for (const o of curOpps(s)) {
     if (oppKind !== 'all' && o.kind !== oppKind) continue;
     const K = OK[o.kind], x = cx(o.tile) + S0 * .35, y = cy(o.tile) + S0 * .3, r = S0 * (.38 + o.lv * .08);
     if (o.lv === 3) { ctx.fillStyle = K.c + '55'; ctx.beginPath(); ctx.arc(x, y, r * 1.55, 0, 7); ctx.fill(); }
@@ -218,14 +219,22 @@ function moveTip(mx, my) { const tip = $('tip'), r = canvas.getBoundingClientRec
 
 /* ───────── 側欄 ───────── */
 const esc = t => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
-function tab(name) { for (const b of document.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === name); for (const p of document.querySelectorAll('.pane')) p.hidden = p.id !== 'pane-' + name; renderPanel(); }
-for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => tab(b.dataset.tab);
+// 地圖的面板（Alan 2026-10-09）：像名冊一樣收在底部，點分頁往上展開；再點同一個分頁或 ▲▼ 收起
+let panelOpen = false;
+function setPanel(open) { panelOpen = open; document.querySelector('.panel').classList.toggle('open', open); $('pcaret').textContent = open ? '▼' : '▲'; }
+function tab(name, toggle = false) {
+  if (toggle && panelOpen && curTab() === name) { setPanel(false); return; }
+  for (const b of document.querySelectorAll('.tabs button[data-tab]')) b.classList.toggle('on', b.dataset.tab === name); for (const p of document.querySelectorAll('.pane')) p.hidden = p.id !== 'pane-' + name;
+  setPanel(true); renderPanel();
+}
+for (const b of document.querySelectorAll('.tabs button[data-tab]')) b.onclick = () => tab(b.dataset.tab, true);
+$('pcaret').onclick = () => setPanel(!panelOpen);
 for (const b of document.querySelectorAll('#filters button')) b.onclick = () => { logFilter = b.dataset.f; for (const x of document.querySelectorAll('#filters button')) x.classList.toggle('on', x === b); renderLog(); };
 $('legend').hidden = innerWidth < 820;
 document.querySelector('.layers [data-legend]').onclick = e => { $('legend').hidden = !$('legend').hidden; e.currentTarget.classList.toggle('on', !$('legend').hidden); };
 document.querySelector('.layers [data-legend]').classList.toggle('on', innerWidth >= 820);
 for (const b of document.querySelectorAll('.layers button[data-layer]')) b.onclick = () => { const L = b.dataset.layer; layers[L] = !layers[L]; if (L === 'fac' && layers.fac) layers.pop = false; if (L === 'pop' && layers.pop) layers.fac = false; for (const x of document.querySelectorAll('.layers button[data-layer]')) x.classList.toggle('on', layers[x.dataset.layer]); draw(); };
-const curTab = () => document.querySelector('.tabs button.on').dataset.tab;
+const curTab = () => document.querySelector('.tabs button[data-tab].on').dataset.tab;
 
 const CAT = {legend: t => t === 'legend', war: t => t === 'war', econ: t => ['econ', 'build', 'found', 'ruin', 'disaster'].includes(t), bandit: t => t === 'bandit', all: t => t !== 'trade'};
 function renderLog() {
@@ -265,7 +274,7 @@ function renderTile() {
   if (s.bandit[i] > 15) html += `<dt>掠奪者</dt><dd>${Math.round(s.bandit[i] / 2.55)}%</dd>`;
   if (i === s.arc.elevator) html += `<dt>地標</dt><dd>軌道電梯</dd>`;
   html += '</dl>';
-  for (const o of (s.opps || []).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}<br><span class="muted">${esc(o.detail)}</span></p>`; }
+  for (const o of curOpps(s).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}<br><span class="muted">${esc(o.detail)}</span></p>`; }
   if (GV) { const here = (GV.units || []).filter(u => u.pos && (u.pos.f < .5 ? u.pos.a : u.pos.b) === i);
     if (here.length) html += `<h2 style="margin-top:10px">我的人馬</h2>` + here.map(u => `<div class="card"><b>${esc(u.name)}</b>${u.n ? ` <span class="mini">${u.n} 人</span>` : ''}<div class="mini">${esc(u.status)}${u.where ? '・' + esc(u.where) : ''}</div>${recallBtn(u)}</div>`).join(''); }
   if (GV && t && i !== GV.base) html += `<p><button data-proc="${i}">派車隊來這裡採購</button></p>`;
@@ -295,20 +304,22 @@ function speedRow(tile, n, on) {
   const info = p ? `${fmtH(p.hours)} → ${fmtH(p.fastHours)}・去程 $${p.fastPer * Math.max(1, n)}，回程時再扣一次${n ? '' : '（每人）'}` : '路程時間減半，每人每省一小時 $1，回程時再扣一次';
   return `<label class="speed${on ? ' on' : ''}"><input type="checkbox" data-fast="1"${on ? ' checked' : ''}> 加速 <span class="mini">${info}</span></label>`;
 }
+// 開了公司之後，機會就是伺服器上的委託板（跟著伺服器時間：公開三天，截止前一天不能再接；Alan 2026-10-09）；沒開公司時是沙盒的機會
+const curOpps = (s = hist[cur]) => GM?.board || s?.opps || [];
 function renderOpp() {
-  const s = hist[cur], O = (s.opps || []).slice().sort((a, b) => b.lv - a.lv || a.kind.localeCompare(b.kind));
+  const s = hist[cur], O = curOpps(s).slice().sort((a, b) => (b.joined ? 1 : 0) - (a.joined ? 1 : 0) || b.lv - a.lv || a.kind.localeCompare(b.kind));
   const cnt = k => O.filter(o => (k === 'all' || o.kind === k) && o.lv >= 2).length;
   const wide = document.body.classList.contains('panelwide');
-  let html = `<div class="opphead"><p class="muted" style="margin:0">如果玩家此刻進場，沙盒會給出的事。外圈越粗越亮，程度越高（●●● 最高）。</p><button data-wide="1" class="widebtn" title="${wide ? '縮小面板' : '放大面板'}">${wide ? '⤡ 縮小' : '⤢ 放大'}</button></div><div class="filters">` +
+  let html = `<div class="opphead"><p class="muted" style="margin:0">${GM?.board ? '星球上公開的委託：每個公開三天，截止前一天不能再接；大家接同一個委託就在同一個案件裡搶積分。' : '如果玩家此刻進場，沙盒會給出的事。'}外圈越粗越亮，程度越高（●●● 最高）。</p><button data-wide="1" class="widebtn" title="${wide ? '縮小面板' : '放大面板'}">${wide ? '⤡ 縮小' : '⤢ 放大'}</button></div><div class="filters">` +
     [['all', '全部'], ...Object.entries(OK).map(([k, v]) => [k, v.n])].map(([k, n]) => `<button data-ok="${k}" class="${oppKind === k ? 'on' : ''}">${n} <span class="muted">${cnt(k)}</span></button>`).join('') + '</div>';
   const list = O.filter(o => oppKind === 'all' || o.kind === oppKind);
-  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${accPicker(o)}</li>`; }).join('') + '</ol>';
+  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${o.closeAt != null ? `<span class="due">${o.joined ? `已接・${cd(o.end)}後結束` : `${cd(o.closeAt)}後截止`}${o.n ? `・${o.n} 家公司在打` : ''}</span>` : ''}${o.joined ? '' : accPicker(o)}</li>`; }).join('') + '</ol>';
   $('pane-opp').html = html || '';
 }
 $('pane-opp').onclick = e => {
   const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-fast]');
   if (a) {
-    if (a.dataset.acc) { pickOpp = {key: a.dataset.acc, side: '', uids: new Set(), fast: false}; const o = (hist[cur].opps || []).find(x => x.kind + ':' + x.tile === a.dataset.acc); if (o) { pickOpp.side = o.kind === 'front' ? 'att' : o.kind === 'tense' ? 'a' : ''; if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile}); } }
+    if (a.dataset.acc) { pickOpp = {key: a.dataset.acc, side: '', uids: new Set(), fast: false}; const o = curOpps().find(x => x.kind + ':' + x.tile === a.dataset.acc); if (o) { pickOpp.side = o.kind === 'front' ? 'att' : o.kind === 'tense' ? 'a' : ''; if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile}); } }
     else if (a.dataset.fast) pickOpp.fast = a.checked;
     else if (a.dataset.side) pickOpp.side = a.dataset.side;
     else if (a.dataset.pk) { const u = +a.dataset.pk; pickOpp.uids.has(u) ? pickOpp.uids.delete(u) : pickOpp.uids.add(u); }
@@ -318,11 +329,7 @@ $('pane-opp').onclick = e => {
   }
   if (e.target.closest('[data-wide]')) { document.body.classList.toggle('panelwide'); renderOpp(); requestAnimationFrame(() => { fit?.(); draw(); }); return; }   // Alan 2026-10-09：機會的面板可以放大
   const b = e.target.closest('button[data-ok]'); if (b) { oppKind = b.dataset.ok; renderOpp(); draw(); return; } const li = e.target.closest('li[data-tile]'); if (li) select(+li.dataset.tile, true, true); };
-function renderGear() {
-  const s = hist[cur];
-  $('pane-gear').innerHTML = `<p class="muted" style="margin:0 0 10px">企業時代留下、再也造不出來的裝備。</p><ul class="gear" style="padding-left:18px">` + s.weapons.map(x => `<li><b>「${esc(x.name)}」</b>${esc(x.kind)}<br><span class="muted">${x.holder ? `在 ${esc(x.holder)} 手上` : x.fac ? `收在${esc(x.fac)}的軍械庫` : x.gang ? `在 ${esc(x.gang)} 手上` : x.lost ? `${x.sealed ? '封在' : '失落在'}${esc(ST.names[x.at] || '某處')}${x.sealed ? '的舊倉庫' : ''}` : ''}・易手 ${x.owners} 次・打贏 ${x.wins} 場</span></li>`).join('') + '</ul>';
-}
-function renderPanel() { if (!hist.length) return; const t = curTab(); if (t === 'opp') renderOpp(); else if (t === 'log') renderLog(); else if (t === 'fac') renderFac(); else if (t === 'tile') renderTile(); else renderGear(); }
+function renderPanel() { if (!hist.length) return; const t = curTab(); if (t === 'opp') renderOpp(); else if (t === 'log') renderLog(); else if (t === 'fac') renderFac(); else if (t === 'tile') renderTile(); }
 function select(i, center, keep) { sel = i; if (GV && worker) { if (!selPath || selPath.to !== i) selPath = null; send({type: 'path', to: i}); } if (center) centerOn(i); if (!keep) tab('tile'); draw(); }
 
 function renderHeader() {
@@ -372,7 +379,7 @@ function onGame(m) {
   $('gclock').textContent = clockText(Math.max(GV.h, hourNow() ?? GV.h), m);
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
   $('gcash').textContent = `$${GV.cash}`; $('gcash').classList.toggle('neg', GV.cash < 0);
-  renderPage(); if (page === 'map' && curTab() === 'tile' && sel >= 0) renderTile();
+  renderPage(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
   renderMail();
   draw();
 }

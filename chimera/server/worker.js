@@ -30,7 +30,8 @@ async function gzip(str) { return new Uint8Array(await new Response(new Blob([ne
 async function gunzip(u8) { return new TextDecoder().decode(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()); }
 
 export class Planet extends DurableObject {
-  constructor(ctx, env) { super(ctx, env); this.ready = null; this.out = []; this.core = new Core(m => this.out.push(m)); }
+  // 沙盒換年時核心發出的年度資料留一份（ysnap），大家拿同一份：snapshot() 只附「上次之後的新事件」，不能每個請求各算一次
+  constructor(ctx, env) { super(ctx, env); this.ready = null; this.out = []; this.ysnap = null; this.core = new Core(m => { if (m.type === 'year') this.ysnap = m.data; this.out.push(m); }); }
   hourMs() { return Math.max(1000, +(this.env.HOUR_MS || 3600000)); }
   nowHour() { return Math.floor(this.exact()); }
   exact() { return (Date.now() - this.meta.startedAt) / this.hourMs(); }   // 現在是第幾個遊戲小時（帶小數）
@@ -116,7 +117,9 @@ export class Planet extends DurableObject {
     const name = pid ? this.roster[pid] : null;
     if (path === 'hello') return json({pid: !!pid, company: name, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), colo: await colo(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
     if (path === 'static') { if (!this.staticMsg) { const c = new Core(m => { if (m.type === 'static') this.staticMsg = m; }); c.w = this.core.w; c.emitStatic(); } return json(this.staticMsg); }
-    if (path === 'year') { const y = +url.searchParams.get('y'); return y === this.core.year ? json({same: true, year: y}) : json({type: 'year', data: this.core.snapshot()}); }
+    if (path === 'year') { const y = +url.searchParams.get('y'); if (y === this.core.year) return json({same: true, year: y}); if (this.ysnap?.y !== this.core.year) this.ysnap = this.core.snapshot(); return json({type: 'year', data: this.ysnap}); }
+    // 編年史：開服前的歷史加上開服後的事（Alan 2026-10-09：看不到開局前的事）
+    if (path === 'chronicle') { const E = this.core.w.events; if (this.chron?.n !== E.length) this.chron = {n: E.length, body: JSON.stringify({events: E.map(e => ({y: e.y, type: e.type, text: e.text, tile: e.tile}))})}; return new Response(this.chron.body, {headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}}); }
     // 伺服器上的戰鬥打完，交戰果（只有 Skirmish 會叫，外面的請求在入口就擋掉了）
     if (path === 'internal/settle') {
       const b = await req.json(), nm = this.roster[b.owner]; if (!nm) return bad('沒有這家公司');

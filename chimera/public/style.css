@@ -30,7 +30,7 @@ body{display:flex;flex-direction:column}
 .pages{flex:1;min-height:0;overflow:hidden;position:relative}
 .track{display:flex;width:500%;height:100%;transition:transform .28s ease}
 .page{width:20%;height:100%;min-height:0;flex:none}
-#page-map{display:flex}
+#page-map{display:flex;position:relative}
 .copage{overflow:auto;-webkit-overflow-scrolling:touch;padding-bottom:64px!important}
 .pager{display:flex;gap:2px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px}
 .pager button{border:0;background:transparent;padding:4px 12px}
@@ -38,14 +38,14 @@ body{display:flex;flex-direction:column}
 .mapwrap{position:relative;flex:1;min-width:0;background:#0d0c0a;overflow:hidden;touch-action:none}
 #map{width:100%;height:100%;display:block;cursor:grab}
 #map.drag{cursor:grabbing}
-.layers{position:absolute;left:10px;bottom:10px;display:flex;gap:4px;flex-wrap:wrap;max-width:calc(100% - 60px)}
+.layers{position:absolute;left:10px;bottom:59px;display:flex;gap:4px;flex-wrap:wrap;max-width:calc(100% - 60px)}
 .layers button,.zoom button{background:rgba(28,25,21,.88);font-size:12px;padding:3px 8px}
 .zoom{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:4px}
 .zoom button{width:30px;padding:3px 0}
-.maplegend{position:absolute;left:10px;bottom:48px;background:rgba(20,18,15,.88);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 12px;max-width:calc(100% - 20px)}
+.maplegend{position:absolute;left:10px;bottom:97px;background:rgba(20,18,15,.88);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 12px;max-width:calc(100% - 20px)}
 .maplegend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:-1px;border-radius:2px}
 .tip{position:absolute;pointer-events:none;background:rgba(20,18,15,.95);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px;max-width:240px;z-index:3}
-.panel{width:380px;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel);min-height:0}
+.panel{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -6px 18px #0008;min-height:0;max-height:49px;transition:max-height .25s ease,width .25s ease;overflow:hidden}
 .tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--line)}
 .tabs button{flex:1;font-size:13px}
 .pane{flex:1;overflow:auto;padding:10px 12px;min-height:0}
@@ -82,8 +82,6 @@ table.stock td:first-child,table.stock th:first-child{text-align:left}
 h2{font-size:16px;margin:0 0 4px}
 @media (max-width:820px){
   #page-map{flex-direction:column}
-  .mapwrap{flex:none;height:56vh}
-  .panel{width:auto;border-left:0;border-top:1px solid var(--line);flex:1}
   .bar{padding:8px 10px;gap:6px 10px}
   .brand span{display:none}
   .timeline{min-width:100%}
@@ -251,8 +249,6 @@ body.server #seed,body.server #gen,body.server #more,body.server #playBtn,body.s
 /* 機會面板放大（Alan 2026-10-09） */
 .opphead{display:flex;gap:8px;align-items:flex-start;justify-content:space-between;margin-bottom:8px}
 .widebtn{flex:none;font-size:12px}
-body.panelwide .panel{width:min(900px,70vw)}
-@media (max-width:820px){body.panelwide .mapwrap{height:22vh}}
 /* 加速 */
 label.speed{display:flex;gap:6px;align-items:baseline;margin-top:8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;cursor:pointer;flex-wrap:wrap}
 label.speed.on{border-color:var(--accent);background:#3b312433}
@@ -320,3 +316,11 @@ html{touch-action:manipulation}
   .stepper input{flex:1;min-width:0;width:auto}
   .stepper button{padding:6px 12px}
 }
+
+/* 地圖面板：收在底部，展開往上（Alan 2026-10-09）。桌面放在右下角，手機整條 */
+.panel.open{max-height:56%}
+body.panelwide .panel.open{max-height:calc(100% - 8px)}
+.panel .tabs{flex:none}
+.pcaret{flex:none!important;width:40px;color:var(--muted)}
+@media (min-width:821px){.panel{left:auto;width:min(560px,46vw);border-left:1px solid var(--line);border-top-left-radius:10px}body.panelwide .panel{width:min(980px,80vw)}}
+.opp .due{display:block;font-size:12px;color:var(--accent);margin-top:2px}
