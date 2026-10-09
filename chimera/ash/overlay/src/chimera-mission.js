@@ -30,7 +30,8 @@ export const VEHICLE_NAME={rush:'衝鋒車',armor:'武裝車'};
 ENEMY_TYPES.chimera_rush={...ENEMY_TYPES.bomber_bot,sprite:{key:'bomber_bot',corpse:'bomber_bot',size:1.7},name:'衝鋒車',hp:120,armor:4,damage:45,xp:3,color:'#b0793f'};
 ENEMY_TYPES.chimera_armor={...ENEMY_TYPES.turret,fixed:false,behavior:undefined,sprite:{key:'turret',corpse:'turret',scale:1.3},tags:['breaker'],name:'武裝車',hp:220,armor:6,damage:20,rounds:4,range:7,xp:6,color:'#6f7a64',chimeraVehicle:true};
 export const RUSH_BLAST={radius:2,damage:50};
-export const HIGHWAY_SHAKE=30;   // 公路戰的命中懲罰
+export const HIGHWAY_SHAKE=30;
+export const ON_MAP=18,WAVE_MAX=4,WAVE_BELOW=12;   // 增援：場上活著的少於 WAVE_BELOW 就補，每回合最多 WAVE_MAX 個   // 公路戰的命中懲罰
 // 奇美拉的職業 → ASH 的職業（同名）；沒有的退回士兵
 export const character=cls=>CHARACTERS[cls]?cls:'soldier';
 
@@ -92,7 +93,11 @@ export class MissionGame extends Game{
    }
    for(let i=spots.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[spots[i],spots[j]]=[spots[j],spots[i]];}
    const used=new Set(),cells=[];for(const p of spots){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
-   map.enemies=want.slice(0,cells.length).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction));
+   // 增援波次（Alan 2026-10-09，大戰役：服務單規模沒有上限）：場上最多 ON_MAP 個，其餘排隊，從敵方那一側的地圖邊緣一波波湧進來（chimeraWaves）
+   const first=Math.min(cells.length,ON_MAP);
+   map.enemies=want.slice(0,first).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction));
+   outdoor.waves=want.slice(first).map((u,i)=>rosterEnemy(u,0,0,`c${first+i+1}`,this.difficultySpec,this.facilityFaction));
+   if(outdoor.waves.length){outdoor.rs=(tk.seed^0x7a11)>>>0||1;outdoor.waveTurn=0;}
    // 對方來打的（守點、車隊遇襲、原住民、行軍遇襲）：開場就警戒，朝我方的位置摸過來；攻陣地、戰壕、據點的敵人守著自己的位置
    if(outdoor.layout==='ring'||outdoor.layout==='road'||outdoor.layout==='highway')for(const e of map.enemies){e.alert=true;e.lastKnown={x:map.start.x,y:map.start.y};}
    outdoorBuilt={...outdoor,style};return map;
@@ -132,6 +137,16 @@ export class MissionGame extends Game{
   return base+HIGHWAY_SHAKE;
  }
  meleeAccuracy(...args){this.chimeraMelee=true;try{return super.meleeAccuracy(...args);}finally{this.chimeraMelee=false;}}
+ // 增援波次：場上活著的敵人少於 WAVE_BELOW 時，從敵方那一側（守點是四周，其他是北邊）的邊緣補進來，一回合最多 WAVE_MAX 個
+ chimeraWaves(o){
+  const live=this.enemies.filter(e=>e.hp>0&&!isNoncombatant(e)).length;if(live>=WAVE_BELOW)return;
+  const R=convoyRng(o),N=this.grid.length,busy=new Set([...this.enemies.filter(e=>e.hp>0),...(this.members||[this.player]).filter(m=>m.hp>0),...this.props].map(u=>`${u.x},${u.y}`));
+  const edge=[];for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const ring=o.layout==='ring'?(x<=2||y<=2||x>=N-3||y>=N-3):y<=2;if(ring&&this.grid[y][x]===1&&!busy.has(`${x},${y}`)&&!this.trenchAt(x,y))edge.push({x,y});}
+  let n=Math.min(WAVE_MAX,WAVE_BELOW-live,o.waves.length);if(!n||!edge.length)return;
+  for(let i=edge.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[edge[i],edge[j]]=[edge[j],edge[i]];}
+  const p=this.player;for(let i=0;i<n&&i<edge.length;i++){const e=o.waves.shift();Object.assign(e,{x:edge[i].x,y:edge[i].y,alert:true,lastKnown:{x:p.x,y:p.y}});this.enemies.push(e);}
+  this.log(`敵方增援湧上來了（還有 ${o.waves.length} 名在後面）。`,true);
+ }
  chimeraFalls(){
   if(!this.chimeraOutdoor?.deck)return;
   for(const u of [...(this.members||[this.player]),...this.enemies])if(u.hp>0&&!this.deckAt(u.x,u.y)){u.hp=0;this.log(`${u.squadId||u.courseName||'有人'}摔下車。`,true);}
@@ -183,10 +198,11 @@ export class MissionGame extends Game{
  action(type,arg){
   const ok=super.action(type,arg),o0=this.chimeraOutdoor;
   if(o0&&o0.layout==='highway'&&this.status==='playing'&&this.turn!==o0.stepTurn){o0.stepTurn=this.turn;for(const [text,danger] of vehicleStep(this,convoyRng(o0)))this.log(text,danger);this.reveal?.();}
+  if(o0?.waves?.length&&this.status==='playing'&&this.turn!==o0.waveTurn){o0.waveTurn=this.turn;this.chimeraWaves(o0);}
   this.chimeraFalls();this.chimeraBossCheck();this.chimeraLegacyDrop();
   const o=this.chimeraOutdoor;
   if(o&&o.goal!=='exit'&&this.status==='playing'){
-   if(!this.enemies.some(e=>e.hp>0&&!isNoncombatant(e))&&(o.goal!=='drive'||convoyDone(o))){this.status='won';this.log(o.goal==='drive'?'追上來的車都打退了。':'敵人清光了。');}
+   if(!this.enemies.some(e=>e.hp>0&&!isNoncombatant(e))&&!o.waves?.length&&(o.goal!=='drive'||convoyDone(o))){this.status='won';this.log(o.goal==='drive'?'追上來的車都打退了。':'敵人清光了。');}
    else if(o.goal==='hold'&&this.turn>=o.holdTurns){this.status='won';this.log(`撐過 ${o.holdTurns} 回合，陣地守住了。`);}
    else if(o.goal==='hold'&&ok&&this.turn%10===0)this.log(`守住陣地：還要撐 ${o.holdTurns-this.turn} 回合。`);
    else if(o.goal==='drive'&&this.turn>=o.holdTurns){this.status='won';this.log('開到目的地，甩掉了追兵。');}

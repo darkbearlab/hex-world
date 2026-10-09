@@ -1,7 +1,7 @@
 // 方案 A 的前提驗證：同一個任務、同一串輸入，重播出來的戰鬥必須和原本一模一樣（每一步的指紋都對得上）。
 // 原本那場由一個獨立的機器人當玩家（不放進隊員的機器人表，免得改到隊員機器人的種子），輸入全部記下來；
 // 再開一場全新的，照紀錄重播；中途也模擬伺服器重開（從頭重播到一半再接著播）。
-// node tools/chimera/replay-check.mjs [--seeds 6] [--boss] [--type ambush]（--type：服務單類型，例如 ambush 是公路戰）
+// node tools/chimera/replay-check.mjs [--seeds 6] [--boss] [--type ambush] [--big]（--type：服務單類型，例如 ambush 是公路戰；--big：36 名敵人，測增援波次）
 import '../clear-bot/lang-default.mjs';
 import {SquadGame} from '../../src/chimera-squad.js';
 import {installFullSquad} from './full-squad.mjs';
@@ -10,7 +10,7 @@ import {applyEntry,record,fingerprint} from '../../src/chimera-log.js';
 const args=process.argv.slice(2),opt=(k,d)=>{const i=args.indexOf(`--${k}`);return i<0?d:args[i+1];},flag=k=>args.includes(`--${k}`);
 const seeds=Number(opt('seeds',6)),from=Number(opt('seed-from',1));
 const squad=[['A','soldier'],['B','recon'],['C','bulwark'],['D','berserker']].map(([id,cls],i)=>({id,cls,portrait:['ember','onyx','silver','cedar'][i],st:{hp:cls==='berserker'?160:100},lv:3,xp:0,picks:[],skills:[],prep:null}));
-const fresh=s=>{const g=new SquadGame({seed:s,faction:s%2?'rebel':'loyalist',...(opt('type','')?{type:opt('type',''),biome:'旱原'}:{}),enemy:{units:{raider:4,raider_heavy:2,trooper:2},veh:{},boss:flag('boss')?{weapon:'x'}:null},squad});installFullSquad(g);return g;};
+const fresh=s=>{const g=new SquadGame({seed:s,faction:s%2?'rebel':'loyalist',...(opt('type','')?{type:opt('type',''),biome:'旱原'}:{}),enemy:{units:flag('big')?{raider:20,raider_heavy:8,trooper:8}:{raider:4,raider_heavy:2,trooper:2},veh:{},boss:flag('boss')?{weapon:'x'}:null},squad});installFullSquad(g);return g;};
 let bad=0;const rows=[];
 for(let s=from;s<from+seeds;s++){
  const g=fresh(s),log=[],prints=[];
