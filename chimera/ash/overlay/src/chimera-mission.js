@@ -8,6 +8,8 @@ import {CHARACTERS} from './characters.js';
 import {pickPortrait,validPortrait} from './portraits.js';
 import {t} from './i18n.js';
 import {outdoorMap} from './chimera-outdoor.js';
+import {applySuppression} from './suppression.js';
+import {bestCover} from './cover.js';
 
 // 奇美拉的敵人 → ASH 的兵種卡（暫定，見 warband/DESIGN.md「接上 ASH 的做法定案」）
 export const ENEMY_MAP={raider:'raider',raider_heavy:'gunner',native:'raider_infected',native_hunter:'sniper',
@@ -36,7 +38,7 @@ export class MissionGame extends Game{
   building=ticket;
   try{super(ticket.seed,[],0,character(lead.cls),portrait,'extraction',{facilityFaction:ticket.faction||'rebel',simulation:{kind:'chimera'}});}finally{building=null;}
   this.ticket=ticket;this.chimera={members:ticket.squad.map(c=>c.id),units:{}};
-  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;outdoorBuilt=null;const g=this.chimeraOutdoor.goal;this.log(g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
+  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;this.mapStyle=outdoorBuilt.style;outdoorBuilt=null;const g=this.chimeraOutdoor.goal;this.log(g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
   this.chimera.units[lead.id]='player';applyStats(this.player,lead,CHARACTERS[this.player.character]);
   this.logs=[];this.log(t('game.arrived'));
  }
@@ -44,13 +46,13 @@ export class MissionGame extends Game{
   const tk=building||this.ticket;
   // 戶外戰鬥（Alan 2026-10-09）：照服務單的類型與那一格的生態產生開闊地；ticket.facility 為真才用 ASH 的設施地圖
   if(!tk.facility){
-   const {map,spots,outdoor}=outdoorMap({...tk,seed:this.seed},1),want=ticketUnits(tk),rnd=lcg(tk.seed^0xe1e);
+   const {map,spots,outdoor,style}=outdoorMap({...tk,seed:this.seed},1),want=ticketUnits(tk),rnd=lcg(tk.seed^0xe1e);
    for(let i=spots.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[spots[i],spots[j]]=[spots[j],spots[i]];}
    const used=new Set(),cells=[];for(const p of spots){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
    map.enemies=want.slice(0,cells.length).map((type,i)=>makeEnemy(type,cells[i].x,cells[i].y,`c${i+1}`,1,this.difficultySpec,this.facilityFaction));
    // 對方來打的（守點、車隊遇襲、原住民、行軍遇襲）：開場就警戒，朝我方的位置摸過來；攻陣地、戰壕、據點的敵人守著自己的位置
    if(outdoor.layout==='ring'||outdoor.layout==='road')for(const e of map.enemies){e.alert=true;e.lastKnown={x:map.start.x,y:map.start.y};}
-   outdoorBuilt=outdoor;return map;
+   outdoorBuilt={...outdoor,style};return map;
   }
   const map=generate(this.seed,1,[],this.difficultySpec,this.facilityFaction);
   const want=ticketUnits(tk);if(!want.length)return map;
@@ -67,6 +69,31 @@ export class MissionGame extends Game{
   return map;
  }
  awardProtocol(){}
+ // 戰壕（Alan 2026-10-09，像煙霧那樣的特殊地形）：全身格（2）與半身格（1）。
+ // - 移動：全身↔半身、半身↔平地照常；平地直接跳進全身格或從全身格直接爬出來（差兩級），吃翻越的破綻（至下次自己行動前被射擊命中 +20）與 3 層壓制。
+ // - 掩護：人在戰壕裡、射擊的人在戰壕外時，全身格當成牆那種掩護（擋 42、傷害 −45%），半身格當成一般掩體（擋 35）；和原本的掩護取比較好的。
+ trenchAt(x,y){return this.chimeraOutdoor?.trench?.[y]?.[x]||0;}
+ trenchStep(u,from){
+  if(!this.chimeraOutdoor?.trench||!u||u.hp<=0)return;
+  const a=this.trenchAt(from.x,from.y),b=this.trenchAt(u.x,u.y);if(Math.abs(a-b)<2)return;
+  u.vaultExposed=true;u.chimeraTrenchExposed=true;applySuppression(u,3);
+  if(u===this.player||this.members?.includes(u))this.log(b>a?'直接跳進壕溝：至下次行動前被射擊命中 +20，壓制 +3。':'從壕溝直接爬出來：至下次行動前被射擊命中 +20，壓制 +3。',true);
+ }
+ executePlayer(type,arg){
+  const p=this.player,from={x:p.x,y:p.y};if(p.chimeraTrenchExposed){p.chimeraTrenchExposed=false;p.vaultExposed=false;}   // 破綻到自己下次行動為止
+  const ok=super.executePlayer(type,arg);if(ok&&(p.x!==from.x||p.y!==from.y))this.trenchStep(p,from);return ok;
+ }
+ enemyAct(e){
+  if(e.chimeraTrenchExposed){e.vaultExposed=false;e.chimeraTrenchExposed=false;}   // 敵人的破綻到它下次行動為止
+  const from={x:e.x,y:e.y},r=super.enemyAct(e);if(e.x!==from.x||e.y!==from.y)this.trenchStep(e,from);return r;
+ }
+ protectingCover(target,attacker){
+  const base=super.protectingCover(target,attacker),lv=target&&this.trenchAt(target.x,target.y);
+  if(!lv||!attacker||this.trenchAt(attacker.x,attacker.y))return base;
+  const sx=Math.sign(attacker.x-target.x),sy=Math.sign(attacker.y-target.y);if(!sx&&!sy)return base;
+  const ditch={type:lv===2?'wall':'cover',x:target.x+sx,y:target.y+sy,hp:Infinity,maxHp:Infinity,trench:true};
+  return bestCover([base,ditch].filter(Boolean),target,attacker)||base;
+ }
  // 戶外戰鬥的勝利：清光敵人（goal kill）；行軍遇襲是走到另一頭撤離（goal exit，descend）
  action(type,arg){
   const ok=super.action(type,arg);
