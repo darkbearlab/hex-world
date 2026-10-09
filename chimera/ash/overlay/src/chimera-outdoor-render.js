@@ -10,9 +10,9 @@ import {TERRAIN_ATLAS} from './materials.js';
 import {SIZE} from './data.js';
 import {isDark,isBlack,seesInDark} from './lighting.js';
 
-const URL = {ground: '/ash-outdoor/ground.png', walls: '/ash-outdoor/walls.png', trench: '/ash-outdoor/trench.png', truck: '/ash-outdoor/truck.png'};
+const URL = {ground: '/ash-outdoor/ground.png', walls: '/ash-outdoor/walls.png', trench: '/ash-outdoor/trench.png', truck: '/ash-outdoor/truck.png', cab: '/ash-outdoor/cab.png'};
 const img = src => { const i = new Image(); i.src = src; return i; };
-const ATLAS = {ground: img(URL.ground), walls: img(URL.walls), trench: img(URL.trench), truck: img(URL.truck)};
+const ATLAS = {ground: img(URL.ground), walls: img(URL.walls), trench: img(URL.trench), truck: img(URL.truck), cab: img(URL.cab)};
 const ready = i => i.complete && i.naturalWidth > 0;
 // walls.png 的格子：牆面 0～3（磚、土坯、石、廢鐵）、牆頂 4～7、木柵面 8／頂 9、鐵皮面 10／頂 11、邊緣塵霧 12、沙包面 13／頂 14、瓦礫 15
 const WALL = {brick: 0, adobe: 1, stone: 2, scrap: 3}, LOW = {palisade: 8, fence: 10}, HAZE = 12;
@@ -64,11 +64,19 @@ function highwayFloor(r, o, p, a, t) {
   if (!id) return road(r, o, p, a, t);
   blit(r.ctx, ATLAS.truck, id === 1 ? ((p.x * 7 + p.y * 3) % 5 ? 0 : 1) : o.enemyDeck ?? 3, a.x, a.y, t);
 }
-// 車頭（牆格）：從上面看的車頂，我方橄欖綠、敵方鏽鐵
+// 車頭（牆格，2×3 格）：照 ASH 的牆，車頂往上抬半格（WALL_HEIGHT），最下面一排露出車側（Alan 2026-10-09：車頭側面也做一組）。
+// cab.png：車頂 (0,0) 我方橄欖綠、(64,0) 敵方鏽鐵，各 64×96；車側 y 96 起每條 64×16（橄欖綠 ×2、鏽鐵 ×2）
+const CAB_LIFT = .5;
 function cab(r, o, x, y, a, t) {
   const T = o.trucks.find(q => y > q.y0 && y < q.y0 + 4 && (x === q.x0 - 1 || x === q.x0 - 2));
-  blit(r.ctx, ATLAS.truck, T?.id === 1 ? 4 : 6, a.x, a.y, t);
-  darkWall(r, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t});
+  road(r, o, {x, y}, a, t);   // 車頭底下（斜角、尖刺之間透出來的）是路面
+  if (!T || !ready(ATLAS.cab)) { blit(r.ctx, ATLAS.truck, T?.id === 1 ? 4 : 6, a.x, a.y, t); return; }
+  const c = r.ctx, cx = x - (T.x0 - 2), cy = y - (T.y0 + 1), l = Math.round(a.x - t / 2), top = Math.round(a.y - t / 2), h = Math.round(t * CAB_LIFT), ox = T.id === 1 ? 0 : 64, band = T.id === 1 ? 0 : 2;
+  c.save(); c.imageSmoothingEnabled = false;
+  c.drawImage(ATLAS.cab, ox + cx * 32, cy * 32, 32, 32, l, top - h, t, t);
+  if (cy === 2) c.drawImage(ATLAS.cab, cx * 32, 96 + 16 * band, 32, 16, l, top - h + t, t, h);
+  c.restore();
+  darkWall(r, x, y, {left: l, top: top - h, width: t, height: t + (cy === 2 ? h : 0)});
 }
 
 export function installOutdoor(renderer) {

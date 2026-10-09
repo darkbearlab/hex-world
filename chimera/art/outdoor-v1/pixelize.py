@@ -54,12 +54,38 @@ def props():
     out.save(os.path.join(OUT, 'props.png'), optimize=True)
     return src
 
+# 車頭（公路戰，2026-10-09）：source-cab-roof.png 的兩個車頂（從上面看，各 2×3 格）、source-cab-side.png 的四條車側（各 2 格寬、半格高）。
+# 背景的近黑色去掉（車頭斜角、尖刺之間透出下面的路面）。輸出 cab.png（128×160）：車頂 (0,0) 橄欖綠、(64,0) 鏽鐵，各 64×96；
+# 車側 x 0、y 96／112／128／144，各 64×16（橄欖綠 ×2、鏽鐵 ×2）
+def cab():
+    roof = Image.open(os.path.join(HERE, 'source-cab-roof.png')).convert('RGB')
+    side = Image.open(os.path.join(HERE, 'source-cab-side.png')).convert('RGB')
+    out = Image.new('RGBA', (128, 160), (0, 0, 0, 0))
+    def put(img, box, size, at):
+        # 背景：從裁切框四邊往內灌，只去掉和邊緣連在一起的近黑色（輪廓線是暗的，不能一律去掉）
+        t = img.crop(box); w, h = t.size; d = t.load(); bg = Image.new('L', (w, h), 0); m = bg.load()
+        stack = [(x, y) for x in range(w) for y in (0, h - 1)] + [(x, y) for y in range(h) for x in (0, w - 1)]
+        while stack:
+            x, y = stack.pop()
+            if x < 0 or y < 0 or x >= w or y >= h or m[x, y] or max(d[x, y]) >= 26: continue
+            m[x, y] = 255; stack += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
+        small = t.resize(size, Image.BOX).convert('RGBA'); cover = bg.resize(size, Image.BOX); sd, cd = small.load(), cover.load()
+        for y in range(size[1]):
+            for x in range(size[0]):
+                r, g, b, a = sd[x, y]; sd[x, y] = (0, 0, 0, 0) if cd[x, y] > 128 else (r, g, b, 255)
+        out.paste(small, at)
+    put(roof, (14, 22, 509, 670), (64, 96), (0, 0)); put(roof, (515, 22, 1018, 670), (64, 96), (64, 0))
+    for i, (y0, y1) in enumerate([(11, 270), (281, 531), (542, 775), (786, 1016)]): put(side, (0, y0, 1024, y1), (64, 16), (0, 96 + 16 * i))
+    rgb = out.convert('RGB'); alpha = out.getchannel('A')
+    q = Image.eval(rgb.quantize(colors=31, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE).convert('RGB'), rgb555)
+    Image.merge('RGBA', (*q.split(), alpha)).save(os.path.join(OUT, 'cab.png'), optimize=True)
+
 def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 
 if __name__ == '__main__':
     os.makedirs(OUT, exist_ok=True)
-    ground(); props(); ground('walls', .9); ground('trench', .8); ground('truck', .85)   # 牆材（牆面、牆頂、矮牆、邊緣）、戰壕斷面與溝底：和地面一樣的處理
-    man = {'source': {k: sha(os.path.join(HERE, f'source-{k}.png')) for k in ('ground', 'props', 'walls', 'trench', 'truck')},
-           'out': {k: sha(os.path.join(OUT, f'{k}.png')) for k in ('ground', 'props', 'walls', 'trench', 'truck')}, 'cell': CELL, 'grid': [4, 4]}
+    ground(); props(); ground('walls', .9); ground('trench', .8); ground('truck', .85); cab()   # 牆材（牆面、牆頂、矮牆、邊緣）、戰壕斷面與溝底：和地面一樣的處理
+    man = {'source': {k: sha(os.path.join(HERE, f'source-{k}.png')) for k in ('ground', 'props', 'walls', 'trench', 'truck', 'cab-roof', 'cab-side')},
+           'out': {k: sha(os.path.join(OUT, f'{k}.png')) for k in ('ground', 'props', 'walls', 'trench', 'truck', 'cab')}, 'cell': CELL, 'grid': [4, 4]}
     json.dump(man, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
     print(json.dumps(man, indent=1))

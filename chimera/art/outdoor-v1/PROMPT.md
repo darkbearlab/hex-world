@@ -18,3 +18,8 @@ Use case: stylized-concept. Asset type: a single production sprite atlas for an 
 - `source-truck.png`：16 格不透明。第 1 排車斗（橄欖綠花紋鋼板、磨損的花紋鋼板、木板貨台、鏽蝕拼補的掠奪者車斗）；第 2 排車頭（橄欖綠車頂、車側、鏽鐵車頂、車側）；第 3 排車欄（橄欖綠車欄正面、上緣、鏽鐵車欄正面、上緣）；第 4 排公路（龜裂柏油、黃色虛線、輪胎、路邊積沙）。
 
 Create a production sprite texture atlas for an original dark military sci-fi tactical game set on an abandoned desert planet, authentic chunky SNES 16-bit pixel art designed at 32x32 pixels per tile, enlarged exactly 8x with strict nearest neighbor. EXACT 4 columns by 4 rows, 16 equally sized square tiles ... for a battle fought on the beds of moving cargo trucks on a desert highway ... Row 1 truck BED FLOORS seen from above ... Row 2 truck CABS ... Row 3 truck side RAILS ... Row 4 HIGHWAY surface from above ...（完整提示詞見 hex-world 這次提交的說明）
+
+## cab（公路戰的車頭，2026-10-09）
+- `source-cab-roof.png`：左半一整個橄欖綠軍卡車頭頂、右半一整個鏽鐵改裝車頭頂（從上面看，車頭朝左）；第 4 排的車側沒用到（比例不對）。
+- `source-cab-side.png`：四條 1024×256 的車頭側面（橄欖綠 ×2、鏽鐵 ×2），比例剛好是 2 格寬、半格高。
+- 處理：pixelize.py 的 cab()，背景只去掉和邊緣連在一起的近黑色，輸出 cab.png（128×160）。提示詞見 hex-world 這次提交的說明。
