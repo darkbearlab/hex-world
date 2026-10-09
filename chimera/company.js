@@ -380,7 +380,8 @@ export function view(G, book, w) {
   for (const c of G.roster) if (c.alive && !c.gear) { gearOf(G, c); c.weapon = gearLabel(c.gear); }   // 舊存檔的人補上裝備
   const nm = t => w.names[t] || '無名之地';
   const sqOf = {}; for (const sq of Object.values(book.squads)) for (const c of sq.clones) sqOf[c.uid] = sq;
-  const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || G.h - c.settledAt < 72).map(c => ({
+  // 結案的案件留三天給玩家看結果；採購車隊回到總部就拿掉（Alan 2026-10-10：車隊都回家了還留在任務管制）
+  const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || (!c.own && G.h - c.settledAt < 72)).map(c => ({
     id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
     payout: c.payout?.[G.name], midPaid: c.midPaid, quit: !!c.quit?.[G.name], delivered: c.delivered, convoys: c.convoys, lost: c.lostConvoys.length, pay: c.pay, tickets: c.tickets,
     squads: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).map(sq => ({id: sq.id, name: sq.name, readyAt: sq.readyAt, busy: sq.busy, refused: !!sq.refused, fast: !!sq.fast,
