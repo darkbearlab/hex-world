@@ -5,6 +5,8 @@ import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken
 const LOCAL = new URL(location).searchParams.has('local');
 document.body.classList.toggle('server', !LOCAL);
 const $ = id => document.getElementById(id);
+// 不能手勢縮放（Alan 2026-10-09）：iPhone 的 Safari 不理 user-scalable=no，要擋手勢事件；地圖自己的雙指縮放不受影響（用的是 touch 事件）
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault(), {passive: false});
 const canvas = $('map'), ctx = canvas.getContext('2d');
 const SQ3 = Math.sqrt(3);
 
@@ -301,7 +303,7 @@ function renderOpp() {
     [['all', '全部'], ...Object.entries(OK).map(([k, v]) => [k, v.n])].map(([k, n]) => `<button data-ok="${k}" class="${oppKind === k ? 'on' : ''}">${n} <span class="muted">${cnt(k)}</span></button>`).join('') + '</div>';
   const list = O.filter(o => oppKind === 'all' || o.kind === oppKind);
   html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${accPicker(o)}</li>`; }).join('') + '</ol>';
-  $('pane-opp').innerHTML = html || '';
+  $('pane-opp').html = html || '';
 }
 $('pane-opp').onclick = e => {
   const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-fast]');
@@ -348,11 +350,18 @@ function fmtLeft(x) {
 // 到第 at 個遊戲小時還有多久
 const cd = at => { const now = hourNow(); return now == null ? fmtH(at - GV.h) : `<span class="cd" data-at="${at}">${fmtLeft(at - now)}</span>`; };
 function clockText(x, m) { const H = Math.floor(x), day = Math.floor(H / 24) % m.yearDays + 1, mm = Math.floor((x - H) * 60); return `第 ${m.year} 年・第 ${day} 天 ${String(H % 24).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; }
+const asked = new Set();   // 已經為了哪些到點的倒數問過伺服器
 setInterval(() => {
   const now = hourNow(); if (now == null || !GV) return;
   $('gclock').textContent = clockText(Math.max(GV.h, now), GM);
-  for (const el of document.querySelectorAll('.cd[data-at]')) el.textContent = fmtLeft(+el.dataset.at - now);
+  for (const el of document.querySelectorAll('.cd[data-at]')) {
+    const at = +el.dataset.at; el.textContent = fmtLeft(at - now);
+    // 倒數到了：問伺服器一次（伺服器用自己的時鐘確認，例如培養槽準時出槽；Alan 2026-10-09）
+    if (at <= now && !asked.has(at)) { asked.add(at); setTimeout(() => worker?.poll?.(), 600); }
+  }
 }, 1000);
+// el.html = ...：內容（倒數的數字不算）和上次一樣就不重畫。整塊 innerHTML 重設會讓頭像重新載入、閃一下（Alan 2026-10-09 回報）
+Object.defineProperty(HTMLElement.prototype, 'html', {configurable: true, set(v) { const k = String(v).replace(/(<span class="cd"[^>]*>)[^<]*/g, '$1'); if (this._k === k && this.childNodes.length) return; this._k = k; this.innerHTML = v; }});
 const STATUS = {home: '待命', away: '出勤', returning: '歸途', kia: '陣亡'};
 function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3200); }
 function found(base) { send({type: 'found', base}); }
@@ -389,12 +398,12 @@ function renderCo() {
   }
   const G = GV, h = G.h;
   const active = G.cases.filter(c => !c.settled), alive = G.roster.filter(c => c.alive);
-  $('co-head').innerHTML = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div><div class="big${G.cash < 0 ? ' neg' : ''}">$${G.cash}</div></div>
+  $('co-head').html = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div><div class="big${G.cash < 0 ? ' neg' : ''}">$${G.cash}</div></div>
     <div class="kpi">待命<b>${alive.filter(c => c.status === 'home' && !c.keep).length}</b></div><div class="kpi">出勤<b>${alive.filter(c => c.status === 'away' || c.status === 'returning').length}</b></div>
     <div class="kpi">供在家裡<b>${alive.filter(c => c.keep).length}</b></div><div class="kpi">陣亡<b>${G.roster.length - alive.length}</b></div>
     <div class="kpi">進行中<b>${active.filter(c => !c.own).length} 案・${active.filter(c => c.own).length} 車隊</b></div><div class="kpi">待打的票<b>${G.tickets.length}</b></div>
     <div class="kpi">帳面業務損失<b>$${G.lossBook}</b></div>`;
-  $('co-tk').innerHTML = G.tickets.length ? G.tickets.map(t => {
+  $('co-tk').html = G.tickets.length ? G.tickets.map(t => {
     const left = t.deadline - h, U = Object.entries(t.enemy.units || {}).map(([k, n]) => `${UNIT[k] || k}×${n}`).join('、'), V = t.enemy.veh ? Object.entries(t.enemy.veh).filter(([, n]) => n > 0).map(([k, n]) => `${ST.vn[k] || k}×${n}`).join('、') : '';
     return `<div class="card tk${t.transit ? ' transit' : ''}"><h4><a href="#" data-center="${t.tile}">${esc(t.title)}</a><span class="due${left > 12 ? ' ok' : ''}">剩 ${cd(t.deadline)}</span></h4>
       <div class="mini">${esc(t.caseTitle || '')}・${esc(t.squad || '')}・${esc(t.biome)}${t.night ? '・夜間' : ''}${t.trench >= .3 ? `・戰壕 ${t.trench} 級` : ''}</div>
@@ -402,7 +411,7 @@ function renderCo() {
       ${t.transit ? '<div class="mini">行軍遇襲，不算案件積分</div>' : `<div class="mini">目標：${t.objectives.map(o => `${esc(o.text)}（${o.pts}）`).join('、')}</div>`}
       ${t.est ? `<div class="mini">小隊戰力 ${t.est.pow}・自動結算勝算約 <span class="odds-est ${t.est.p < .4 ? 'bad' : t.est.p < .75 ? 'mid' : 'good'}">${Math.round(t.est.p * 100)}%</span>・預估陣亡 ${t.est.dead.toFixed(1)} 人</div>` : ''}
       <div class="row"><button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的任務票。</p>';
-  $('co-cases').innerHTML = G.cases.length ? G.cases.map(c => {
+  $('co-cases').html = G.cases.length ? G.cases.map(c => {
     const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? `出票中・${cd(c.end - 24)}後停止出票` : `收尾中・${cd(c.end + 24)}後結算`;
     return `<div class="card"><h4><a href="#" data-center="${c.tile}">${esc(c.title)}</a><span class="mini">${c.own ? '採購' : '●'.repeat(c.lv) + '○'.repeat(3 - c.lv)}</span></h4>
       <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}・全案已出 ${c.tickets} 張票`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}${c.own ? '' : `・訂金 $${c.pay.deposit}/隊、期中 $${c.pay.mid}/隊、尾款池 $${c.pay.final}`}</div>
@@ -421,19 +430,19 @@ const recipes = [];   // 每一座各自的配方（畫面上的輸入，還沒�
 const vatRecipe = i => recipes[i] ??= {...recipe};
 function renderVat() {
   const P = $('pane-vat'); if (!P) return;
-  if (!GV) { P.innerHTML = '<div class="box"><p class="muted">開了公司之後才有培養槽。</p></div>'; return; }
+  if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才有培養槽。</p></div>'; return; }
   if (P.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') { tickVat(); return; }   // 正在打數字，先不重畫
   const G = GV, busy = new Map(G.queue.map(q => [q.slot, q])), fresh = G.fresh != null && G.roster.find(c => c.uid === G.fresh);
   const row = i => {
     const q = busy.get(i), r = vatRecipe(i), odds = Object.entries(classOdds(r)).sort((a, b) => b[1] - a[1]).slice(0, 3);
     const short = MATS.filter(m => G.mats[m] < r[m]);
     return `<div class="vat${q ? ' busy' : ''}" data-vat="${i}"><div class="vatno">第 ${i + 1} 座</div>
-      <table class="vatform"><tr>${MATS.map(m => `<th>${MN[m]}</th>`).join('')}</tr><tr>${MATS.map(m => `<td><div class="stepper"><button data-rcd="-10" data-m="${m}" data-vat="${i}" aria-label="少 10">−</button><input type="number" min="${GCFG.MIN}" max="${GCFG.MAX}" step="10" value="${r[m]}" data-rc="${m}" data-vat="${i}"${short.includes(m) ? ' class="short"' : ''}><button data-rcd="10" data-m="${m}" data-vat="${i}" aria-label="多 10">＋</button></div></td>`).join('')}</tr></table>
+      <table class="vatform"><tr>${MATS.map(m => `<th>${MN[m]}</th>`).join('')}</tr><tr>${MATS.map(m => `<td data-n="${MN[m]}"><div class="stepper"><button data-rcd="-10" data-m="${m}" data-vat="${i}" aria-label="少 10">−</button><input type="number" min="${GCFG.MIN}" max="${GCFG.MAX}" step="10" value="${r[m]}" data-rc="${m}" data-vat="${i}"${short.includes(m) ? ' class="short"' : ''}><button data-rcd="10" data-m="${m}" data-vat="${i}" aria-label="多 10">＋</button></div></td>`).join('')}</tr></table>
       <div class="vatgo"><div class="odds">${odds.map(([k, v]) => `<span>${CLS[k].n} ${Math.round(v * 100)}%</span>`).join('')}</div><button class="primary" data-act="build" data-vat="${i}"${short.length ? ' disabled title="素材不夠"' : ''}>開始培養</button></div>
       ${q ? `<div class="vatcover"><b>${q.tpl ? CLS[q.tpl].n + '模板' : '培養中'}</b><span class="vatcd">${cd(q.done)}</span><div class="vatbar"><i data-s="${q.start}" data-d="${q.done}"></i></div><span class="mini">${q.tpl ? '' : MATS.map(m => `${MN[m]} ${q.recipe?.[m] ?? '?'}`).join('・')}</span></div>` : ''}
     </div>`;
   };
-  P.innerHTML = `<div class="cohead"><div><div class="mini">每座 ${G.buildH} 小時・素材在「交易」補</div><div class="vatmats">${MATS.map(m => `<span>${MN[m]} <b>${G.mats[m]}</b></span>`).join('')}</div></div></div>
+  P.html = `<div class="cohead"><div><div class="mini">每座 ${G.buildH} 小時・素材在「交易」補</div><div class="vatmats">${MATS.map(m => `<span>${MN[m]} <b>${G.mats[m]}</b></span>`).join('')}</div></div></div>
     ${fresh ? `<div class="box fresh"><span class="mini">最新出槽</span> <span class="chip static" data-person="${fresh.uid}"><img src="${img(fresh.portrait)}" alt="">${CLS[fresh.cls].n} ${fresh.id}${crownTag(fresh)}</span></div>` : ''}
     <div class="vats">${Array.from({length: G.vats}, (_, i) => row(i)).join('')}</div>
     ${G.templates.length ? `<div class="box"><h3 class="sec">模板 <span class="muted">保證拿到這一位，數值固定在約前 20%</span></h3>${G.templates.map(t => `<div class="row"><span class="chip static"><img src="${img(t.portrait)}" alt="">${CLS[t.cls].n}</span><span class="mini">${MATS.map(m => `${MN[m]} ${t.recipe[m]}`).join('・')}</span><button data-act="tpl" data-id="${t.id}"${G.queue.length >= G.vats ? ' disabled' : ''}>用模板培養</button></div>`).join('')}</div>` : ''}`;
@@ -450,7 +459,7 @@ function renderTrade() {
   if (!$('co-mats')) P.innerHTML = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">素材 <span class="muted">在總部直接買</span></h3><div id="co-mats"></div></div></div>
     <div class="cocol"><div class="box"><h3 class="sec">採購路線 <span class="muted">派車隊去別座城買料，來回都可能被劫</span></h3><div id="co-proc"></div></div></div></div>`;
   const G = GV;
-  $('co-mats').innerHTML = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">總部單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}）</button></td></tr>`).join('') + '</table>';
+  $('co-mats').html = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">總部單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}）</button></td></tr>`).join('') + '</table>';
   renderProc();
 }
 
@@ -463,13 +472,13 @@ function renderRoster() {
   D.hidden = !GV || !['co', 'vat', 'trade'].includes(page); if (D.hidden) return;
   D.classList.toggle('open', drawerOpen);
   const G = GV, alive = G.roster.filter(c => c.alive), n = k => G.roster.filter(c => inF(c, k)).length;
-  $('drawbar').innerHTML = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${n('away')}${n('kia') ? `・陣亡 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
+  $('drawbar').html = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${n('away')}${n('kia') ? `・陣亡 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
   if (!drawerOpen) return;
   const B = $('drawbody');
   const c = personSel != null && G.roster.find(x => x.uid === personSel);
-  if (c) { B.innerHTML = personCard(c); return; }
+  if (c) { B.html = personCard(c); return; }
   const R = G.roster.filter(x => inF(x)).sort((a, b) => b.pct - a.pct);
-  B.innerHTML = `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
+  B.html = `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
     <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${img(x.portrait)}" alt=""><b>${x.id}</b><span>${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
 }
 function personCard(c) {
@@ -561,7 +570,7 @@ function renderProc() {
       <span>護衛</span><span class="chips" style="margin:0">${av.map(c => chip(c, procSel.uids.has(c.uid), 'pu')).join('') || '<span class="muted">沒有待命的人</span>'}</span></div>
       <div class="row"><button class="primary" data-act="proc-go">出發（${procSel.uids.size >= 2 ? `護衛 ${procSel.uids.size} 人` : '不帶護衛'}）</button><button data-act="proc-x">取消</button><span class="mini">至少兩人才成隊；不帶護衛時，出事由雇來的守衛自己打。</span></div>`;
   }
-  el.innerHTML = html;
+  el.html = html;
 }
 
 // ───── 報表 ─────

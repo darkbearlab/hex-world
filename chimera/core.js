@@ -97,6 +97,10 @@ export class Core {
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});
     return yearDone;
   }
+  // 準時出槽：時間（帶小數的遊戲小時）到了的培養槽出槽。回傳出槽了幾個
+  finishDue(t) { let n = 0; if (this.game) for (const g of Object.values(this.game.cos)) n += G.finishDue(g, t); return n; }
+  // 下一個培養槽完成的時刻（排鬧鐘用）
+  nextDue() { let t = Infinity; if (this.game) for (const g of Object.values(this.game.cos)) for (const q of g.queue) t = Math.min(t, q.done); return t; }
   // 通知信指向哪裡：任務票（還沒打的可以直接親自打）、案件、補員縱隊所在的地圖位置
   mailRef(x, name) {
     const b = this.game.book; if (!x.ref) return {};
@@ -123,7 +127,7 @@ export class Core {
     if (m.type === 'speed') { game.speed = m.v; return null; }
     if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
-    if (m.type === 'build') return G.build(g, m.recipe, m.tpl, m.slot);
+    if (m.type === 'build') return G.build(g, m.recipe, m.tpl, m.slot, this.exactNow ?? h);   // exactNow：伺服器的精確時刻（單人測試模式沒有，就用整點）
     // 通知看過了（Alan 2026-10-09：重新登入後看過的通知又變紅）：記到看過的最後一個小時，和那個小時裡看過的幾則（同一小時之後才來的仍算新的）
     if (m.type === 'read') { const h = +m.h || 0, sigs = (Array.isArray(m.sigs) ? m.sigs : []).slice(0, 40).map(String); if (!g.mailRead || h > g.mailRead.h) g.mailRead = {h, sigs}; else if (h === g.mailRead.h) g.mailRead.sigs = [...new Set([...g.mailRead.sigs, ...sigs])].slice(-80); return null; }
     if (m.type === 'keep') { const c = g.roster.find(x => x.uid === m.uid); if (c) c.keep = !c.keep; return null; }

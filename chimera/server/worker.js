@@ -32,7 +32,8 @@ async function gunzip(u8) { return new TextDecoder().decode(await new Response(n
 export class Planet extends DurableObject {
   constructor(ctx, env) { super(ctx, env); this.ready = null; this.out = []; this.core = new Core(m => this.out.push(m)); }
   hourMs() { return Math.max(1000, +(this.env.HOUR_MS || 3600000)); }
-  nowHour() { return Math.floor((Date.now() - this.meta.startedAt) / this.hourMs()); }
+  nowHour() { return Math.floor(this.exact()); }
+  exact() { return (Date.now() - this.meta.startedAt) / this.hourMs(); }   // 現在是第幾個遊戲小時（帶小數）
 
   /* ───── 讀檔、建世界、存檔 ───── */
   async init() {
@@ -66,9 +67,15 @@ export class Planet extends DurableObject {
   }
 
   /* ───── 時鐘 ───── */
-  async arm() { const ms = this.hourMs(), next = this.meta.startedAt + (this.nowHour() + 1) * ms; await this.ctx.storage.setAlarm(next + 50); }
+  // 鬧鐘：下一個整點，或更早完成的培養槽
+  async arm() { const ms = this.hourMs(), due = this.core.nextDue(), next = this.meta.startedAt + Math.min(this.nowHour() + 1, due > this.exact() ? due : Infinity) * ms; await this.ctx.storage.setAlarm(Math.ceil(next) + 50); }
   // 補算到現在（每個請求、每次鬧鐘都先做）
-  catchUp() { if (this.env.PAUSED === '1' || this.meta.paused) return false; const before = this.core.hour; this.core.advanceTo(this.nowHour()); return this.core.hour !== before; }
+  catchUp() {
+    if (this.env.PAUSED === '1' || this.meta.paused) return false;
+    const before = this.core.hour; this.core.advanceTo(this.nowHour());
+    const t = this.exact(); this.core.exactNow = t;
+    return this.core.finishDue(t) > 0 || this.core.hour !== before;
+  }
   async alarm() {
     await this.init();
     if (this.catchUp()) await this.persist();
@@ -139,6 +146,7 @@ export class Planet extends DurableObject {
         m.data = battleTicket(m.data, d);
       }
       if (ALLOWED.includes(body.type)) await this.persist();
+      if (body.type === 'build' && this.env.PAUSED !== '1') await this.arm();   // 鬧鐘改排到這個培養完成的時刻
       return json({view: this.core.view(name, err), msgs});
     }
     return bad('不認得的請求', 404);

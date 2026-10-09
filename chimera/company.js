@@ -135,7 +135,7 @@ const fmtH = x => x < 48 ? `${Math.round(x)} 小時` : `${Math.floor(x / 24)} �
 
 // ===== 培養槽 =====
 // slot：用哪一座培養槽（畫面一座一列，Alan 2026-10-09 像艦娘的建造船塢）；沒指定就用第一座空的
-export function build(G, recipe, tplId, slot) {
+export function build(G, recipe, tplId, slot, now = G.h) {
   if (G.queue.length >= GCFG.VATS) return '培養槽都在用';
   const used = new Set(G.queue.map((q, i) => q.slot ?? i));
   if (slot == null || !(slot >= 0 && slot < GCFG.VATS)) slot = [...Array(GCFG.VATS).keys()].find(i => !used.has(i));
@@ -145,8 +145,15 @@ export function build(G, recipe, tplId, slot) {
   for (const m of MATS) { if (!(r[m] >= GCFG.MIN && r[m] <= GCFG.MAX)) return `${MN[m]}要投 ${GCFG.MIN}～${GCFG.MAX}`; if (G.mats[m] < r[m]) return `${MN[m]}不夠`; }
   for (const m of MATS) G.mats[m] -= r[m];
   if (tpl) G.templates = G.templates.filter(t => t !== tpl);
-  G.queue.push({recipe: {...r}, tpl, start: G.h, done: G.h + GCFG.BUILD_H, slot});
+  G.queue.push({recipe: {...r}, tpl, start: now, done: now + GCFG.BUILD_H, slot});
   return null;
+}
+// 準時出槽（Alan 2026-10-09）：開始時記下精確的時刻（帶小數的遊戲小時），伺服器用自己的時鐘確認時間到了就出槽，不等整點。
+// t：現在的精確時刻。回傳出槽了幾個
+export function finishDue(G, t) {
+  let n = 0;
+  for (const q of G.queue.slice()) if (t >= q.done) { G.queue.splice(G.queue.indexOf(q), 1); finishBuild(G, q, G.h); n++; }
+  return n;
 }
 function finishBuild(G, q, h) {
   const r = () => rnd(G);
