@@ -19,7 +19,7 @@ import {ENEMY_TYPES} from './data.js';
 // 新的服務單帶著 enemy.roster（chimera/cases.js enemyRoster：每一個敵人的 ASH 兵種、服務單上的名字、頭目資料）；
 // 舊的服務單（只有 units／veh／boss）照下面的舊對照表。
 export const ENEMY_MAP={raider:'raider',raider_heavy:'gunner',native:'raider_infected',native_hunter:'sniper',
- trooper:'rifleman',trooper_heavy:'rifleman_armored',clone_trooper:'enforcer'};
+ trooper:'rifleman',trooper_heavy:'rifleman_armored',clone_trooper:'chimera_clone'};
 export const VEHICLE_MAP={rush:'chimera_rush',armor:'chimera_armor'};
 export const BOSS_TYPE='squad_leader';
 export const UNIT_NAME={raider:'掠奪者',raider_heavy:'重武裝掠奪者',native:'原住民戰士',native_hunter:'原住民獵手',trooper:'士兵',trooper_heavy:'重裝士兵',clone_trooper:'複製兵'};
@@ -29,6 +29,8 @@ export const VEHICLE_NAME={rush:'衝鋒車',armor:'武裝車'};
 // - 武裝車：加裝甲的房車，車頂機槍連發；兩回合才走一格（MissionGame.enemyAct）；車身先畫一塊裝甲板底（chimera-outdoor-render.js）
 ENEMY_TYPES.chimera_rush={...ENEMY_TYPES.bomber_bot,sprite:{key:'bomber_bot',corpse:'bomber_bot',size:1.7},name:'衝鋒車',hp:120,armor:4,damage:45,xp:3,color:'#b0793f'};
 ENEMY_TYPES.chimera_armor={...ENEMY_TYPES.turret,fixed:false,behavior:undefined,sprite:{key:'turret',corpse:'turret',scale:1.3},tags:['breaker'],name:'武裝車',hp:220,armor:6,damage:20,rounds:4,range:7,xp:6,color:'#6f7a64',chimeraVehicle:true};
+// 複製兵：比士兵耐打的步槍兵（照重裝士兵的規則）。原本借 ASH 的執法者，但執法者是叛軍處決逃兵的軍官，會一直躲在掩體後面拖戰局（2026-10-09 NPC 實測發現）
+ENEMY_TYPES.chimera_clone={...ENEMY_TYPES.rifleman_armored,name:'複製兵',hp:34,xp:2,color:'#8a9a8a'};
 export const RUSH_BLAST={radius:2,damage:50};
 export const HIGHWAY_SHAKE=30;
 export const ON_MAP=18,WAVE_MAX=4,WAVE_BELOW=12;   // 增援：場上活著的少於 WAVE_BELOW 就補，每回合最多 WAVE_MAX 個   // 公路戰的命中懲罰

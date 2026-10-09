@@ -320,7 +320,7 @@ export const UNITS = {
   warrior: {n: '部落戰士', ash: 'raider'}, hunter: {n: '獵手', ash: 'sniper'}, dog: {n: '獵犬', ash: 'crawler'},
   // 正規軍（總督府與一般勢力）、自由城市的雇傭兵
   trooper: {n: '士兵', ash: 'rifleman'}, trooper_heavy: {n: '重裝士兵', ash: 'rifleman_armored'}, shotgunner: {n: '霰彈兵', ash: 'gunner'}, marksman: {n: '狙擊手', ash: 'sniper'},
-  drone: {n: '無人機', ash: 'drone'}, flamer: {n: '噴火兵', ash: 'heavy_flamer'}, leader: {n: '小隊長', ash: 'squad_leader'}, clone_trooper: {n: '複製兵', ash: 'enforcer'},
+  drone: {n: '無人機', ash: 'drone'}, flamer: {n: '噴火兵', ash: 'heavy_flamer'}, leader: {n: '小隊長', ash: 'squad_leader'}, clone_trooper: {n: '複製兵', ash: 'chimera_clone'},
   merc: {n: '傭兵', ash: 'rifleman_armored'}, merc_shotgun: {n: '傭兵霰彈手', ash: 'gunner_elite'},
   // 工廠群（機械為主）
   bomb_bot: {n: '自爆機器人', ash: 'bomber_bot'}, turret: {n: '砲塔', ash: 'turret'}, guard_elite: {n: '精銳霰彈兵', ash: 'gunner_elite'},
@@ -578,6 +578,7 @@ function settleTicket(book, w, tk, res, now) {
   let gearLost = 0;
   for (const id of res.dead) { pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 陣亡`, c.id); gearLost += sq.gear; }
   const wiped = !alive(sq).length;
+  if (wiped && sq.wipedAt == null) sq.wipedAt = now;   // 全滅之後不再算維持費
   if (wiped && sq.veh) { gearLost += VPOW[sq.veh] * 4; pay(book, now, sq.player, -VPOW[sq.veh] * 4, 'loss', `${tk.title}：${sq.name} 的${sq.veh === 'rush' ? '衝鋒車' : sq.veh === 'gt' ? '戰鬥卡車' : '武裝車'}丟在戰場上`, c.id); sq.veh = null; }
   if (c.kind !== 'camp') writeBack(book, w, c, tk, res.win, gearLost, now); else if (gearLost > 0) w.sim.pmc.drop(c.tile, gearLost);
   tk.bossOut = bossOutcome(book, w, tk, res, sq.player, now);
@@ -683,7 +684,7 @@ function settleCase(book, w, c, now) {
   c.payout = {};
   if (tot > 0 && pool > 0) for (const p in c.score) { if (!c.score[p] || c.quit?.[p]) continue; const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 $${Math.round(v)}k。`, c.id); }
   // 維持費（從這一隊加入時算：委託共用案件，晚加入的不多付）、小隊歸建
-  for (const id of c.squads) { const s = book.squads[id]; const days = Math.max(0, Math.min(now, c.end) - Math.max(c.start, s.joinedAt ?? c.start)) / 24; pay(book, now, s.player, -CFG.UPKEEP * days, 'upkeep', `${c.title}：維持費（${s.name}）`, c.id); s.caseId = null; s.busy = null; }
+  for (const id of c.squads) { const s = book.squads[id]; const days = Math.max(0, Math.min(now, c.end, s.wipedAt ?? Infinity) - Math.max(c.start, s.joinedAt ?? c.start)) / 24; pay(book, now, s.player, -CFG.UPKEEP * days, 'upkeep', `${c.title}：維持費（${s.name}）`, c.id); s.caseId = null; s.busy = null; }
   // 編年史：只記值得記的
   const top = Object.entries(c.score).sort((a, b) => b[1] - a[1])[0];
   if (top && tot >= 10 * c.lv && !c.own) {
