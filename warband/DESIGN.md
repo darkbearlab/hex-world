@@ -801,3 +801,4 @@ Alan：能不能做多輛大小車靠近又離開，且大量增加敵人的情�
   - 命中：MissionGame.defensiveEvasion 在公路戰加 30（HIGHWAY_SHAKE），射擊才算（近戰不算）；下錨中的人（skillActive anchor）與車載機槍不受影響。敵我都一樣。
   - 測試：highway-check（多車進出、站位、跨車、摔下車、被帶走、命中懲罰、機器人打完）、scale-check（還在後面車上的人也算進規模）。
 - Alan（2026-10-09）：先這樣，都接進遊戲內。確認：正式站已是最新版（公路戰多車進出、命中懲罰、新兵種表、服務單頻率加倍、卡車與車頭圖）。新增 ash/overlay/tools/chimera/game-flow.mjs：核心開真的服務單 → 親自打送出的任務資料 → ASH 開戰 → 機器人打完 → 戰果交回核心結算。三個種子共 22 場（車隊遇襲，掠奪者與巢匪）全部是公路戰、打完、結算正確。
+- Alan（2026-10-09）：戰略地圖的各種顏色飽和度壓低，做出發色不好的印象；所有金錢單位後面加 k（以千為單位）。**已實作**：#map 加 CSS filter（saturate .42、sepia .14、contrast .94、brightness .96；VHS 模式 saturate .36），圖例與勢力列表的色塊同樣處理。金額：畫面與通知裡所有 `$數字` 改成 `$數字k`（app.js、cases.js、company.js、core.js），報表收支表、現金走勢的刻度也加 k；數值本身不變（1 單位＝1k）。
