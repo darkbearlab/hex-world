@@ -80,29 +80,46 @@ export function installOutdoor(renderer) {
   // 溝緣擋住溝裡的人（Alan 2026-10-09：敵人下沉了但沒有被蓋住）：人往下畫之後下半身會伸出自己那一格，
   // 畫人的時候裁到南邊溝緣的位置為止，伸出去的部分就像被溝緣擋住
   const sunk = (r, e) => { const lv = e && r.game?.chimeraOutdoor?.trench?.[e.y]?.[e.x]; return lv ? TRENCH_DEPTH[lv] : 0; };
-  const clipped = (r, e, draw) => {
-    const o = r.game.chimeraOutdoor, c = r.ctx, d = sunk(r, e);
+  // 裁到南邊溝緣，再整個往下移 d 格來畫：ASH 用傳進去的位置判斷明暗（unproject）、對倒地動畫，所以傳原本那一格的位置，下沉只靠平移
+  const sunken = (r, e, d, draw) => {
+    const o = r.game.chimeraOutdoor, c = r.ctx, y = r.project(e.x, e.y).y;
     // 南邊那一格一樣深就不用擋（溝裡連著的格子），比較淺就擋到它的溝底那麼深為止
-    const b = r.project(e.x, e.y).y + r.tile * (.5 + Math.min(d, TRENCH_DEPTH[o.trench[e.y + 1]?.[e.x] || 0]));
-    c.save(); c.beginPath(); c.rect(-1e4, -1e4, 2e4, b + 1e4); c.clip();
-    try { return draw(); } finally { c.restore(); }
+    const b = y + r.tile * (.5 + Math.min(d, TRENCH_DEPTH[o.trench[e.y + 1]?.[e.x] || 0]));
+    c.save(); c.beginPath(); c.rect(-1e4, -1e4, 2e4, b + 1e4); c.clip(); c.translate(0, Math.round(d * r.tile));
+    r.chimeraSunk = (r.chimeraSunk || 0) + 1;
+    try { return draw(); } finally { r.chimeraSunk--; c.restore(); }
   };
+  const up = (r, a, d) => ({...a, y: a.y - Math.round(d * r.tile)});
   const actor = R.actor;
   R.actor = function (a, type, time, e, ...rest) {
-    if (!sunk(this, e)) return actor.call(this, a, type, time, e, ...rest);
-    return clipped(this, e, () => actor.call(this, a, type, time, e, ...rest));
+    const d = sunk(this, e);
+    if (!d || this.chimeraSunk) return actor.call(this, a, type, time, e, ...rest);
+    return sunken(this, e, d, () => actor.call(this, up(this, a, d), type, time, e, ...rest));   // a 是 projectActor 下沉過的
   };
-  // 屍體也一樣（Alan 2026-10-09）：敵人的屍體 ASH 用 project 畫（沒經過 projectActor），這裡補上下沉；
-  // 隊員的屍體已經用 projectActor 往下移過，從位置找回是哪一個人。轉角度時 ASH 會在 (0,0) 再呼叫一次自己，那次不用管
+  // 屍體也一樣（Alan 2026-10-09）：敵人的屍體 ASH 用 project 畫（沒經過 projectActor）；隊員的屍體已經用 projectActor 往下移過，
+  // 從位置找回是哪一個人。轉角度時 ASH 會在 (0,0) 再呼叫一次自己，那次已經在平移裡面，不用管
   const corpse = R.corpse;
-  R.corpse = function (a, type, character, dead, angle, layer, ...rest) {
+  R.corpse = function (a, type, character, dead, ...rest) {
     const g = this.game;
-    if (!g?.chimeraOutdoor?.trench || (layer && !a.x && !a.y)) return corpse.call(this, a, type, character, dead, angle, layer, ...rest);
-    let e = dead, p = a;
-    if (e) { const d = sunk(this, e); if (!d) return corpse.call(this, a, type, character, dead, angle, layer, ...rest); p = {...a, y: a.y + d * this.tile}; }
-    else { e = (g.members || [g.player]).find(m => m?.hp <= 0 && sunk(this, m) && (q => Math.abs(q.x - a.x) < 1 && Math.abs(q.y - a.y) < 1)(this.projectActor(m)));
-      if (!e) return corpse.call(this, a, type, character, dead, angle, layer, ...rest); }
-    return clipped(this, e, () => corpse.call(this, p, type, character, dead, angle, layer, ...rest));
+    if (!g?.chimeraOutdoor?.trench || this.chimeraSunk) return corpse.call(this, a, type, character, dead, ...rest);
+    if (dead) { const d = sunk(this, dead); return d ? sunken(this, dead, d, () => corpse.call(this, a, type, character, dead, ...rest)) : corpse.call(this, a, type, character, dead, ...rest); }
+    const m = (g.members || [g.player]).find(m => m?.hp <= 0 && sunk(this, m) && (q => Math.abs(q.x - a.x) < 1 && Math.abs(q.y - a.y) < 1)(this.projectActor(m)));
+    if (!m) return corpse.call(this, a, type, character, dead, ...rest);
+    const d = sunk(this, m);
+    return sunken(this, m, d, () => corpse.call(this, up(this, a, d), type, character, dead, ...rest));
+  };
+  // 隊長陣亡的倒地動畫（kia-art 的 drawKiaBody，不經過 actor／corpse，直接畫 classSprite）：陣亡那一刻在溝裡就一樣裁切
+  const classSprite = R.classSprite;
+  R.classSprite = function (a, ...rest) {
+    const p = this.game?.player, d = !this.chimeraSunk && this.kia && p?.hp <= 0 && sunk(this, p);
+    if (!d) return classSprite.call(this, a, ...rest);
+    // 倒地時會在平移旋轉裡用 (0,0) 畫：換回畫面座標（Renderer.draw 的基本變換是 dpr 縮放加畫面晃動 shift）
+    const c = this.ctx, m = c.getTransform(), k = this.dpr || 1, sx = k * (this.shift?.x || 0), sy = k * (this.shift?.y || 0);
+    const q = {x: (m.a * a.x + m.c * a.y + m.e - sx) / k, y: (m.b * a.x + m.d * a.y + m.f - sy) / k};
+    const o = this.projectActor(p); if (Math.abs(q.x - o.x) > this.tile || Math.abs(q.y - o.y) > this.tile) return classSprite.call(this, a, ...rest);
+    const y = this.project(p.x, p.y).y, b = y + this.tile * (.5 + Math.min(d, TRENCH_DEPTH[this.game.chimeraOutdoor.trench[p.y + 1]?.[p.x] || 0]));
+    c.save(); c.setTransform(k, 0, 0, k, sx, sy); c.beginPath(); c.rect(-1e4, -1e4, 2e4, b + 1e4); c.setTransform(m); c.clip();
+    try { return classSprite.call(this, a, ...rest); } finally { c.restore(); }
   };
   // 站在戰壕裡的人跟著溝底往下畫
   const project = R.projectActor;
