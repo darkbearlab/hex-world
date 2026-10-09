@@ -380,3 +380,5 @@ html.vhs body:has(#ash-root:not([hidden]))>.vhs-layer{display:none}   /* 戰鬥�
   .bar .pager button{padding:4px 8px}
 }
 @media (max-width:400px){.bar .pager button{padding:4px 6px;font-size:13px}}
+.vatcover.ready{flex-direction:row;align-items:center;gap:16px;background:linear-gradient(90deg,#1d3a2cf2,#1c1915f2)}
+.vatcover.ready b{color:var(--ok)}

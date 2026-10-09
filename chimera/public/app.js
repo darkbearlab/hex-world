@@ -449,11 +449,11 @@ function renderVat() {
     return `<div class="vat${q ? ' busy' : ''}" data-vat="${i}"><div class="vatno">第 ${i + 1} 座</div>
       <table class="vatform"><tr>${MATS.map(m => `<th>${MN[m]}</th>`).join('')}</tr><tr>${MATS.map(m => `<td data-n="${MN[m]}"><div class="stepper"><button data-rcd="-10" data-m="${m}" data-vat="${i}" aria-label="少 10">−</button><input type="number" min="${GCFG.MIN}" max="${GCFG.MAX}" step="10" value="${r[m]}" data-rc="${m}" data-vat="${i}"${short.includes(m) ? ' class="short"' : ''}><button data-rcd="10" data-m="${m}" data-vat="${i}" aria-label="多 10">＋</button></div></td>`).join('')}</tr></table>
       <div class="vatgo"><button class="primary" data-act="build" data-vat="${i}"${short.length ? ' disabled title="素材不夠"' : ''}>開始培養</button></div>
-      ${q ? `<div class="vatcover"><b>${q.tpl ? CLS[q.tpl].n + '模板' : '培養中'}</b><span class="vatcd">${cd(q.done)}</span><div class="vatbar"><i data-s="${q.start}" data-d="${q.done}"></i></div><span class="mini">${q.tpl ? '' : MATS.map(m => `${MN[m]} ${q.recipe?.[m] ?? '?'}`).join('・')}</span></div>` : ''}
+      ${q ? (q.ready ? `<div class="vatcover ready"><b>培養完成</b><button class="primary" data-act="claim" data-vat="${i}">簽收</button></div>`
+        : `<div class="vatcover"><b>${q.tpl ? CLS[q.tpl].n + '模板' : '培養中'}</b><span class="vatcd">${cd(q.done)}</span><div class="vatbar"><i data-s="${q.start}" data-d="${q.done}"></i></div><span class="mini">${q.tpl ? '' : MATS.map(m => `${MN[m]} ${q.recipe?.[m] ?? '?'}`).join('・')}</span></div>`) : ''}
     </div>`;
   };
   P.html = `<div class="vatpage"><div class="cohead"><div class="mini">每座 ${G.buildH} 小時・素材在「交易」補</div></div>
-    ${fresh ? `<div class="box fresh"><span class="mini">最新出槽</span> <span class="chip static" data-person="${fresh.uid}"><img src="${img(fresh.portrait)}" alt="">${CLS[fresh.cls].n} ${fresh.id}</span></div>` : ''}
     <div class="vats">${Array.from({length: G.vats}, (_, i) => row(i)).join('')}</div>
     ${G.templates.length ? `<div class="box"><h3 class="sec">模板 <span class="muted">保證拿到這一位，數值固定在約前 20%</span></h3>${G.templates.map(t => `<div class="row"><span class="chip static"><img src="${img(t.portrait)}" alt="">${CLS[t.cls].n}</span><span class="mini">${MATS.map(m => `${MN[m]} ${t.recipe[m]}`).join('・')}</span><button data-act="tpl" data-id="${t.id}"${G.queue.length >= G.vats ? ' disabled' : ''}>用模板培養</button></div>`).join('')}</div>` : ''}</div>`;
   tickVat();
@@ -508,7 +508,7 @@ const SKN = {early_warning: '預警', signal_break: '訊號斷層', anchor: '下
 const MK = {ticket: '服務單', result: '戰果', pay: '結案', move: '調動', refused: '雇主', kia: '陣亡', vat: '培養槽', log: '公司'};
 function mailItems() {
   if (!GV || !GM) return [];
-  const a = [...GM.inbox.map(x => ({h: x.t, kind: x.kind, text: x.text, tile: x.tile, fight: x.fight})), ...GV.log.map(x => ({h: x.h, kind: /陣亡/.test(x.text) ? 'kia' : /出槽/.test(x.text) ? 'vat' : /結案|回到總部/.test(x.text) ? 'pay' : 'log', text: x.text}))];
+  const a = [...GM.inbox.map(x => ({h: x.t, kind: x.kind, text: x.text, tile: x.tile, fight: x.fight})), ...GV.log.map(x => ({h: x.h, kind: /陣亡/.test(x.text) ? 'kia' : /出槽|培養完成/.test(x.text) ? 'vat' : /結案|回到總部/.test(x.text) ? 'pay' : 'log', text: x.text}))];
   a.sort((p, q) => q.h - p.h); return a.slice(0, 60).map(x => ({...x, sig: x.h + '|' + x.text}));
 }
 function renderMail() {
@@ -717,6 +717,7 @@ const coClick = e => {
   if (A === 'buy') send({type: 'buy', mat: b.dataset.mat, qty: +b.dataset.q});
   else if (A === 'build') { const i = b.dataset.vat != null ? +b.dataset.vat : null, r = i != null ? vatRecipe(i) : recipe; Object.assign(recipe, r); send({type: 'build', recipe: {...r}, slot: i}); }
   else if (A === 'tpl') send({type: 'build', tpl: id});
+  else if (A === 'claim') send({type: 'claim', slot: +b.dataset.vat});
   else if (A === 'keep') send({type: 'keep', uid: +id});
   else if (A === 'resolve' || A === 'fight') return;   // 上面 pointerdown 已經送出
   else if (A === 're') { pickRe = {squad: id, uids: new Set()}; renderCo(); }

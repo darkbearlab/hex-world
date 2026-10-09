@@ -154,8 +154,15 @@ export function finishDue(G, t) {
   let n = 0;
   // 走回總部的人：到了就待命
   for (const r of G.returning.slice()) if (t >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive) c.status = 'home'; n++; }
-  for (const q of G.queue.slice()) if (t >= q.done) { G.queue.splice(G.queue.indexOf(q), 1); finishBuild(G, q, G.h); n++; }
+  for (const q of G.queue) if (!q.ready && t >= q.done) { readyBuild(G, q, G.h); n++; }
   return n;
+}
+// 培養完成：留在槽裡等簽收（Alan 2026-10-09：要去簽收才會入列）
+function readyBuild(G, q, h) { q.ready = true; note(G, h, `第 ${(q.slot ?? 0) + 1} 座培養槽培養完成，到培養槽簽收。`); }
+// 簽收：這一座培養好的人進名冊，培養槽空出來
+export function claim(G, slot) {
+  const q = G.queue.find((x, i) => (x.slot ?? i) === slot && x.ready); if (!q) return '這座培養槽沒有可以簽收的人';
+  G.queue.splice(G.queue.indexOf(q), 1); finishBuild(G, q, G.h); return null;
 }
 function finishBuild(G, q, h) {
   const r = () => rnd(G);
@@ -206,7 +213,7 @@ export function reinforce(G, book, w, squadId, uids, now, fast = false) {
 // ===== 每小時 =====
 export function hour(G, book, w, h) {
   G.h = h;
-  for (const q of G.queue.slice()) if (h >= q.done) { G.queue.splice(G.queue.indexOf(q), 1); finishBuild(G, q, h); }
+  for (const q of G.queue) if (!q.ready && h >= q.done) readyBuild(G, q, h);
   // 帳：真正進出的錢（陣亡是帳面上的業務損失，不再扣一次現金：人和素材早就付過了）
   for (; G.ledgerAt < book.ledger.length; G.ledgerAt++) { const x = book.ledger[G.ledgerAt]; if (x.player !== G.name) continue; if (x.kind !== 'loss') { G.cash += x.amount; if (x.amount) flow(G, x.kind, x.amount, x.text); } else { G.lossBook = (G.lossBook || 0) - x.amount; flow(G, 'loss', x.amount, x.text); } }
   // 陣亡
@@ -276,7 +283,7 @@ export function view(G, book, w) {
   }).reverse();
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
-  return {units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null})),
+  return {units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, ready: !!q.ready})),
     templates: G.templates, roster: G.roster.map(c => ({...c, squad: sqOf[c.uid]?.name || ''})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null};
 }
 
