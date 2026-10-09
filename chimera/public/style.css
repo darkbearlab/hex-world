@@ -346,8 +346,8 @@ body.watch .pager,body.watch #mailBtn,body.watch #sysBtn,body.watch #more,body.w
 
 /* 分頁一層一層疊：每層往右縮 --stack，上面的蓋住下面的；比現在這頁右邊的推到畫面外 */
 :root{--stack:14px}
-@media (max-width:820px){:root{--stack:7px}}
-#page-map{--layer:0;box-shadow:none;border-left:0}#page-co{--layer:1}#page-vat{--layer:2}#page-trade{--layer:3}#page-rep{--layer:4}
+@media (max-width:820px){:root{--stack:0px}}   /* 手機上疊層左邊不留空（Alan 2026-10-09） */
+#page-map{--layer:0;box-shadow:none;border-left:0}#page-co{--layer:1}#page-vat{--layer:2}#page-store{--layer:3}#page-trade{--layer:4}#page-rep{--layer:5}
 .page.above{transform:translateX(calc(100% + 30px));visibility:hidden;transition:transform .3s ease,visibility 0s .3s}
 .page.under{filter:brightness(.55)}
 .page.under>*{pointer-events:none}
@@ -382,3 +382,23 @@ html.vhs body:has(#ash-root:not([hidden]))>.vhs-layer{display:none}   /* 戰鬥�
 @media (max-width:400px){.bar .pager button{padding:4px 6px;font-size:13px}}
 .vatcover.ready{flex-direction:row;align-items:center;gap:16px;background:linear-gradient(90deg,#1d3a2cf2,#1c1915f2)}
 .vatcover.ready b{color:var(--ok)}
+
+#pane-store{max-width:1500px;margin:0 auto;padding:12px 16px 40px}
+/* 簽收的新人卡片 */
+.reveal{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px;animation:rfade .25s ease}
+.rcard{position:relative;overflow:hidden;width:min(320px,100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 16px 14px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;animation:rpop .45s cubic-bezier(.2,1.4,.4,1)}
+.rcard img{width:160px;height:160px;image-rendering:pixelated;border-radius:8px;background:#0d0c0a}
+.rcard .rname{font-size:18px;font-weight:700}
+.rcard.gold{border-color:#ffd27a;box-shadow:0 0 28px #ffd27a66}
+.rcard.silver{border-color:#cfd8e0;box-shadow:0 0 22px #cfd8e055}
+.rcard.tpl{border-color:var(--cyan)}
+.rrank{position:absolute;top:10px;right:12px;font-weight:700;font-size:13px;color:#1b140a;background:#ffd27a;border-radius:6px;padding:1px 8px}
+.rcard.silver .rrank{background:#cfd8e0}.rcard.tpl .rrank{background:var(--cyan)}
+.rflash{position:absolute;inset:0;background:radial-gradient(circle at 50% 35%,#fff9,#fff0 60%);animation:rflash .7s ease forwards;pointer-events:none}
+@keyframes rfade{from{opacity:0}to{opacity:1}}
+@keyframes rpop{from{transform:scale(.6) rotate(-3deg);opacity:0}to{transform:none;opacity:1}}
+@keyframes rflash{from{opacity:1}to{opacity:0}}
+/* 六個分頁在手機上不換行；太窄時分頁那一排可以左右滑 */
+.pager button{white-space:nowrap}
+@media (max-width:820px){.bar .pager{overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap}.bar .pager::-webkit-scrollbar{display:none}.bar .pager button{padding:4px 6px;flex:none}}
+@media (max-width:400px){.bar .pager button{padding:4px 5px;font-size:13px}}

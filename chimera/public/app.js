@@ -384,7 +384,7 @@ function onGame(m) {
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
   $('gcash').textContent = `$${GV.cash}`; $('gcash').classList.toggle('neg', GV.cash < 0);
   $('gmats').html = MATS.map(m => `<span>${MN[m]} <b>${GV.mats[m]}</b></span>`).join('');   // 玩家的資源都在頂端（Alan 2026-10-09）
-  renderPage(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
+  maybeReveal(); renderPage(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
   renderMail();
   draw();
 }
@@ -462,6 +462,15 @@ function renderVat() {
 function tickVat() { const now = hourNow() ?? GV?.h; if (now == null) return; for (const el of document.querySelectorAll('.vatbar i[data-s]')) { const s = +el.dataset.s, d = +el.dataset.d; el.style.width = Math.max(0, Math.min(100, (now - s) / Math.max(1e-6, d - s) * 100)) + '%'; } }
 setInterval(() => { if (page === 'vat') tickVat(); }, 1000);
 
+// ───── 倉庫（Alan 2026-10-09）：所有人身上的裝備與沒在用的庫存。內容先留空，之後人員詳細資料的換裝會帶到這裡 ─────
+function renderStore() {
+  const P = $('pane-store'); if (!P) return;
+  if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才有倉庫。</p></div>'; return; }
+  const al = GV.roster.filter(c => c.alive);
+  P.html = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">身上的裝備</h3>
+    <table class="rep"><tr><th>人員</th><th>狀態</th><th>裝備</th></tr>${al.map(c => `<tr><td><span class="chip static" data-person="${c.uid}"><img src="${img(c.portrait)}" alt="">${CLS[c.cls].n} ${c.id}</span></td><td>${STATUS[c.status] || ''}</td><td>${esc(c.weapon || '')}</td></tr>`).join('')}</table></div></div>
+    <div class="cocol"><div class="box"><h3 class="sec">庫存</h3><p class="muted">目前沒有沒在用的裝備。之後戰鬥撿到的、換下來的裝備會放在這裡。</p></div></div></div>`;
+}
 // ───── 交易：素材庫存、在總部買、派車隊去別座城採購（之後賣人也放這裡） ─────
 function renderTrade() {
   const P = $('pane-trade'); if (!P) return;
@@ -477,9 +486,25 @@ function renderTrade() {
 let drawerOpen = false, personSel = null;
 const RF = {home: '待命', away: '出勤', keep: '供在家裡', kia: '陣亡', all: '全部'};
 const inF = (c, f = rosterF) => f === 'all' || (f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : c.status === f);
+// 簽收時跳出新人的卡片（Alan 2026-10-09：對標艦隊收藏）：簽收送出後，等伺服器回來、最新的人換了就秀出來
+let revealAfter;
+function maybeReveal() {
+  if (revealAfter === undefined || !GV || GV.fresh == null || GV.fresh === revealAfter) return;
+  revealAfter = undefined; const c = GV.roster.find(x => x.uid === GV.fresh); if (!c) return;
+  const rank = c.crown === 'gold' ? 'gold' : c.crown === 'silver' ? 'silver' : c.template ? 'tpl' : '';
+  const box = Object.assign(document.createElement('div'), {className: 'reveal', innerHTML: `<div class="rcard ${rank}">
+    <div class="rflash"></div>
+    ${rank ? `<div class="rrank">${rank === 'gold' ? '金冠' : rank === 'silver' ? '銀冠' : '模板'}</div>` : ''}
+    <img src="${img(c.portrait)}" alt="">
+    <div class="rname">${CLS[c.cls].n} ${c.id}</div>
+    <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td></tr></table>
+    <div class="mini">素質前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%・${esc(c.weapon || '')}</div>
+    <div class="mini muted">點一下關閉</div></div>`});
+  box.onclick = () => box.remove(); document.body.appendChild(box);
+}
 function renderRoster() {
   const D = $('drawer'); if (!D) return;
-  D.hidden = !GV || !['co', 'vat', 'trade'].includes(page); if (D.hidden) return;
+  D.hidden = !GV || !['co', 'vat', 'store', 'trade'].includes(page); if (D.hidden) return;
   D.classList.toggle('open', drawerOpen);
   const G = GV, alive = G.roster.filter(c => c.alive), n = k => G.roster.filter(c => inF(c, k)).length;
   $('drawbar').html = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${n('away')}${n('kia') ? `・陣亡 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
@@ -496,7 +521,7 @@ function personCard(c) {
   return `<div class="person"><button class="back" data-person="">← 名冊</button>
     <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${c.id} ${CLS[c.cls].n}${crownTag(c)}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・經驗 ${c.xp || 0}・出勤 ${c.missions || 0} 次</div></div></div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>
-    <div class="mini">配發：${esc(c.weapon || '')}</div>
+    <div class="mini">裝備：${esc(c.weapon || '')} <a href="#" data-goto="store">倉庫 →</a></div>
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
     <div class="row">${c.alive && c.status === 'home' ? `<button data-act="keep" data-id="${c.uid}" class="${c.keep ? 'on' : ''}">${c.keep ? '不再供著' : '供在家裡（不會被派出去）'}</button>` : ''}</div>
     <p class="mini muted">強化、合成、換武器、加入最愛、指名為看板⋯之後會放在這裡。</p></div>`;
@@ -648,9 +673,9 @@ $('pane-co').addEventListener('pointerleave', () => { const b = $('co-spark'); i
 // ───── 兩頁切換：上方按鈕，或左右滑 ─────
 let page = 'map';
 // 分頁（Alan 2026-10-09）：戰略地圖｜任務管制（原「公司」）｜培養槽｜交易｜報表
-const PAGES = ['map', 'co', 'vat', 'trade', 'rep'];
+const PAGES = ['map', 'co', 'vat', 'store', 'trade', 'rep'];
 function renderPage() {
-  if (page === 'co') renderCo(); else if (page === 'vat') renderVat(); else if (page === 'trade') renderTrade(); else if (page === 'rep') renderRepPage();
+  if (page === 'co') renderCo(); else if (page === 'vat') renderVat(); else if (page === 'store') renderStore(); else if (page === 'trade') renderTrade(); else if (page === 'rep') renderRepPage();
   renderRoster();
 }
 function showPage(p) {
@@ -686,7 +711,7 @@ function rePicker(room) {
     <div class="row"><button class="primary" data-act="re-go">送出契約變更（${pickRe.uids.size} 人${pickRe.fast ? '・加速' : ''}）</button><button data-act="re-x">取消</button></div></div>`;
 }
 function renderOdds() { if (!$('co-odds')) return; const o = classOdds(recipe); $('co-odds').innerHTML = Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${CLS[k].n} ${Math.round(v * 100)}%</span>`).join(''); }
-const coPanes = ['pane-co', 'pane-vat', 'pane-trade', 'drawer'].map($);
+const coPanes = ['pane-co', 'pane-vat', 'pane-store', 'pane-trade', 'drawer'].map($);
 for (const el of coPanes) el.addEventListener('change', e => { const f = e.target.dataset.pf; if (!f || !procSel) return; procSel[f] = f === 'qty' ? Math.max(10, +e.target.value || 0) : e.target.value; renderProc(); });
 for (const el of coPanes) el.addEventListener('input', e => { const m = e.target.dataset.rc; if (!m) return; const r = e.target.dataset.vat != null ? vatRecipe(+e.target.dataset.vat) : recipe; r[m] = Math.max(0, +e.target.value || 0); renderOdds(); });
 // 配方輸入框打完（離開焦點）才重畫培養槽，機率跟著更新
@@ -700,6 +725,7 @@ $('pane-co').addEventListener('pointerdown', e => {
 });
 const coClick = e => {
   if (e.target.closest('#drawbar')) { drawerOpen = !drawerOpen; renderRoster(); return; }
+  const go = e.target.closest('[data-goto]'); if (go) { e.preventDefault(); drawerOpen = false; showPage(go.dataset.goto); return; }
   const ps = e.target.closest('[data-person]'); if (ps) { personSel = ps.dataset.person === '' ? null : +ps.dataset.person; drawerOpen = true; renderRoster(); return; }
   const rf2 = e.target.closest('[data-refast]'); if (rf2) { pickRe.fast = rf2.checked; renderCo(); return; }
   const st = e.target.closest('[data-rcd]'); if (st) { const r = vatRecipe(+st.dataset.vat), m = st.dataset.m; r[m] = Math.max(GCFG.MIN, Math.min(GCFG.MAX, (r[m] || 0) + +st.dataset.rcd)); renderVat(); return; }
@@ -717,7 +743,7 @@ const coClick = e => {
   if (A === 'buy') send({type: 'buy', mat: b.dataset.mat, qty: +b.dataset.q});
   else if (A === 'build') { const i = b.dataset.vat != null ? +b.dataset.vat : null, r = i != null ? vatRecipe(i) : recipe; Object.assign(recipe, r); send({type: 'build', recipe: {...r}, slot: i}); }
   else if (A === 'tpl') send({type: 'build', tpl: id});
-  else if (A === 'claim') send({type: 'claim', slot: +b.dataset.vat});
+  else if (A === 'claim') { revealAfter = GV.fresh ?? null; send({type: 'claim', slot: +b.dataset.vat}); }
   else if (A === 'keep') send({type: 'keep', uid: +id});
   else if (A === 'resolve' || A === 'fight') return;   // 上面 pointerdown 已經送出
   else if (A === 're') { pickRe = {squad: id, uids: new Set()}; renderCo(); }
