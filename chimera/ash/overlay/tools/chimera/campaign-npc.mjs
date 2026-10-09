@@ -13,7 +13,8 @@ if (process.argv[4] && process.argv[4] !== '-') globalThis.CAMP_WAVE_BY = proces
 const SIDES = (process.argv[5] || 'att,att,att').split(',');
 // 真人節奏（第六個參數 human）：一家公司一次只打一場、一場約 30 分鐘（每小時最多兩張），每天只有 10 小時在線（每天 9～19 時）；
 // 不在線時服務單就放著，放超過 24 小時由雇主逕行結算（自動結算）
-const HUMAN = process.argv[6] === 'human', online = h => !HUMAN || (h % 24 >= 9 && h % 24 < 19), PER_HOUR = HUMAN ? 2 : Infinity;
+// 一場花多少分鐘：10 分鐘＋每個敵人 0.7 分鐘（60 人約 50 分鐘）；每個在線的小時有 60 分鐘可用，沒用完的不累積、打到一半的算進下一小時
+const HUMAN = process.argv[6] === 'human', online = h => !HUMAN || (h % 24 >= 9 && h % 24 < 19), minutesOf = tk => 10 + .7 * (Object.values(tk.enemy.units).reduce((a, b) => a + b, 0) + Object.values(tk.enemy.veh || {}).reduce((a, b) => a + b, 0));
 let mission = null;
 const c = new Core(m => { if (m.type === 'mission') mission = m.data; }); c.start(seed); while (c.year < 100) c.stepYear();
 const K0 = c.sim.peek(), towns = Object.keys(K0.markets).map(Number).filter(t => K0.owner[t] >= 0);
@@ -57,9 +58,11 @@ for (let n = 0; n < 24 * 14 && !done; n++, h++) {
       if (e && !err) { S.joined = true; S.sent = free.length; ev(`${P.name}進場（${P.side === 'att' ? '攻方' : '守方'}，${free.length} 人；行情 ×${v.mulA}／×${v.mulD}）`); } else if (err) ev(`${P.name}接案失敗：${err}`);
     }
     const cs = c.game.book.cases.find(k => k.kind === 'camp' && k.camp === id && G.cases.includes(k.id)); if (!cs) continue;
-    // 打手上的服務單（真人節奏：在線才打、一小時最多兩張、先打最早的）
-    const mine = c.game.book.tickets.filter(t => t.caseId === cs.id && t.player === P.name && !t.done).sort((a, b) => a.issued - b.issued).slice(0, online(h) ? PER_HOUR : 0);
+    // 打手上的服務單（真人節奏：在線才打、一次一場、照規模花時間、先打最早的）
+    if (HUMAN) P.budget = online(h) ? Math.min(60, (P.budget || 0)) + 60 : 0;
+    const mine = c.game.book.tickets.filter(t => t.caseId === cs.id && t.player === P.name && !t.done).sort((a, b) => a.issued - b.issued);
     for (const tk of mine) {
+      if (HUMAN) { if (P.budget <= 0) break; P.budget -= minutesOf(tk); }
       let how = 'auto', turns = 0, res = null;
       if (P.manual) {
         mission = null; c.command({type: 'fight', ticket: tk.id}, P.name);

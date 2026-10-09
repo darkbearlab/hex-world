@@ -736,7 +736,8 @@ function createSim(w,rand,pick){
   // - 傭兵行情：照「還需要的兵力／自己剩下的兵力」——剩一半約原價、四分之一約兩倍、八分之一約四倍（公式自然長出來，不按天數切）。
   // - 玩家的參與（Alan 2026-10-09：影響要維持整個戰役）：傭兵打倒的敵人直接從對方的兵力池扣掉（每人 CAMP_KILL），
   //   打下的貢獻累積成雇主這場戰役的加成（貢獻×0.5／200，最多 +60%），不消退、一直算到戰役結束。平常的戰功（pmcAid）不在戰役裡用。
-  const CAMP_KILL=globalThis.CAMP_KILL??.1,CAMP_AID_CAP=.6,CAMP_MIN=globalThis.CAMP_MIN??25,CAMP_SUM=globalThis.CAMP_SUM??80,CAMP_P=globalThis.CAMP_P??.75,CAMP_ROUND=6,CAMP_RATE=.13,CAMP_BREAK=.1,CAMP_MAXR=32;
+  const CAMP_KILL=globalThis.CAMP_KILL??1/30,   // 每打倒 30 人扣對方 1 點兵力（NPC 實測：每 10 人扣 1 點時玩家完全主導戰局）
+  CAMP_AID_CAP=.6,CAMP_MIN=globalThis.CAMP_MIN??25,CAMP_SUM=globalThis.CAMP_SUM??80,CAMP_P=globalThis.CAMP_P??.75,CAMP_ROUND=6,CAMP_RATE=.13,CAMP_BREAK=.1,CAMP_MAXR=32;
   let campOn=false,campaigns=[],campSeq=1;
   const campFp=()=>{const fp=new Float32Array(FMAX);for(let i=0;i<N;i++)if(owner[i]>=0)fp[owner[i]]+=pop[i];return fp};
   // 陣亡：先死複製兵，再死人口（一次最多一成人口）

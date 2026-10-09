@@ -118,6 +118,8 @@ export class MissionGame extends Game{
    outdoor.waves=want.slice(first).map((u,i)=>rosterEnemy(u,0,0,`c${first+i+1}`,this.difficultySpec,this.facilityFaction));
    if(outdoor.waves.length){outdoor.rs=(tk.seed^0x7a11)>>>0||1;outdoor.waveTurn=0;}
    objectivePoints(outdoor,map,[...map.enemies,...outdoor.waves]);
+   // 守點：敵人越多撐越久（30 回合，超過 12 人的部分每人多 1 回合；NPC 實測：大單的守點撐 30 回合太輕鬆）
+   if(outdoor.layout==='ring')outdoor.holdTurns=30+Math.max(0,want.length-12);
    // 對方來打的（守點、車隊遇襲、原住民、行軍遇襲）：開場就警戒，朝我方的位置摸過來；攻陣地、戰壕、據點的敵人守著自己的位置
    if(outdoor.layout==='ring'||outdoor.layout==='road'||outdoor.layout==='highway')for(const e of map.enemies){e.alert=true;e.lastKnown={x:map.start.x,y:map.start.y};}
    outdoorBuilt={...outdoor,style};return map;
