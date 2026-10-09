@@ -8,6 +8,8 @@ import {CHARACTERS} from './characters.js';
 import {pickPortrait,validPortrait} from './portraits.js';
 import {t} from './i18n.js';
 import {outdoorMap} from './chimera-outdoor.js';
+import {planConvoy,vehicleStep,convoyDone} from './chimera-highway.js';
+import {skillActive} from './skills.js';
 import {applySuppression} from './suppression.js';
 import {bestCover} from './cover.js';
 import {ENEMY_TYPES} from './data.js';
@@ -28,6 +30,7 @@ export const VEHICLE_NAME={rush:'衝鋒車',armor:'武裝車'};
 ENEMY_TYPES.chimera_rush={...ENEMY_TYPES.bomber_bot,sprite:{key:'bomber_bot',corpse:'bomber_bot',size:1.7},name:'衝鋒車',hp:120,armor:4,damage:45,xp:3,color:'#b0793f'};
 ENEMY_TYPES.chimera_armor={...ENEMY_TYPES.turret,fixed:false,behavior:undefined,sprite:{key:'turret',corpse:'turret',scale:1.3},tags:['breaker'],name:'武裝車',hp:220,armor:6,damage:20,rounds:4,range:7,xp:6,color:'#6f7a64',chimeraVehicle:true};
 export const RUSH_BLAST={radius:2,damage:50};
+export const HIGHWAY_SHAKE=30;   // 公路戰的命中懲罰
 // 奇美拉的職業 → ASH 的職業（同名）；沒有的退回士兵
 export const character=cls=>CHARACTERS[cls]?cls:'soldier';
 
@@ -55,6 +58,8 @@ function rosterEnemy(u,x,y,id,spec,faction){
  }
  return e;
 }
+// 公路戰的亂數：狀態存在 chimeraOutdoor.rs，車輛移動、乘員上車照它走（重播一樣）
+const convoyRng=o=>()=>((o.rs=Math.imul(o.rs,1664525)+1013904223>>>0)/4294967296);
 const lcg=seed=>{let s=(Number(seed)>>>0)||1;return ()=>((s=Math.imul(s,1664525)+1013904223>>>0)/4294967296);};
 const near=(a,b)=>Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y));
 
@@ -77,6 +82,14 @@ export class MissionGame extends Game{
    const {map,spots,outdoor,style}=outdoorMap({...tk,seed:this.seed},1),rnd=lcg(tk.seed^0xe1e);
    // 公路戰（接舷）：衝鋒車還沒有地方開（之後做四面八方湧上來的那種），先換成跳上車的乘員；武裝車換成敵方車上的車載機槍
    const want=ticketRoster(tk).map(u=>outdoor.layout!=='highway'?u:u.type==='chimera_rush'?{type:'raider',name:'衝鋒車乘員'}:u.type==='chimera_armor'?{type:'turret',name:'車載機槍'}:u);
+   // 公路戰：敵人全部先做好，照時刻表分給一台台車（chimera-highway.js）；開場只有第一台卡車上的人在場上
+   if(outdoor.layout==='highway'){
+    outdoor.rs=(tk.seed^0x4a11)>>>0||1;const R=convoyRng(outdoor);
+    planConvoy(outdoor,want.map((u,i)=>rosterEnemy(u,0,0,`c${i+1}`,this.difficultySpec,this.facilityFaction)),R);
+    const pre={chimeraOutdoor:outdoor,floor:1,turn:0,player:{x:map.start.x,y:map.start.y},members:[],enemies:[],props:map.props,items:map.items,grid:map.grid};
+    vehicleStep(pre,R);map.enemies=pre.enemies;map.props=pre.props;map.barriers=pre.barriers;outdoor.stepTurn=0;
+    outdoorBuilt={...outdoor,style};return map;
+   }
    for(let i=spots.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[spots[i],spots[j]]=[spots[j],spots[i]];}
    const used=new Set(),cells=[];for(const p of spots){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
    map.enemies=want.slice(0,cells.length).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction));
@@ -111,6 +124,14 @@ export class MissionGame extends Game{
   u.vaultExposed=true;u.chimeraTrenchExposed=true;applySuppression(u,3);
   if(u===this.player||this.members?.includes(u))this.log(b===1?'跳回自己的車上：至下次行動前被射擊命中 +20，壓制 +3。':'跳上敵人的車：至下次行動前被射擊命中 +20，壓制 +3。',true);
  }
+ // 公路戰：車在晃，命中大幅下降（Alan 2026-10-09）；下錨的重裝兵不受影響，固定在車上的機槍也不受影響。只算射擊，近戰不算
+ defensiveEvasion(a,b){
+  const base=super.defensiveEvasion(a,b);
+  if(this.chimeraOutdoor?.layout!=='highway'||this.chimeraMelee||!a)return base;
+  if(skillActive(a,'anchor')||a.type==='turret')return base;
+  return base+HIGHWAY_SHAKE;
+ }
+ meleeAccuracy(...args){this.chimeraMelee=true;try{return super.meleeAccuracy(...args);}finally{this.chimeraMelee=false;}}
  chimeraFalls(){
   if(!this.chimeraOutdoor?.deck)return;
   for(const u of [...(this.members||[this.player]),...this.enemies])if(u.hp>0&&!this.deckAt(u.x,u.y)){u.hp=0;this.log(`${u.squadId||u.courseName||'有人'}摔下車。`,true);}
@@ -160,11 +181,12 @@ export class MissionGame extends Game{
  }
  // 戶外戰鬥的勝利：清光敵人（goal kill）；行軍遇襲是走到另一頭撤離（goal exit，descend）
  action(type,arg){
-  const ok=super.action(type,arg);
+  const ok=super.action(type,arg),o0=this.chimeraOutdoor;
+  if(o0&&o0.layout==='highway'&&this.status==='playing'&&this.turn!==o0.stepTurn){o0.stepTurn=this.turn;for(const [text,danger] of vehicleStep(this,convoyRng(o0)))this.log(text,danger);this.reveal?.();}
   this.chimeraFalls();this.chimeraBossCheck();this.chimeraLegacyDrop();
   const o=this.chimeraOutdoor;
   if(o&&o.goal!=='exit'&&this.status==='playing'){
-   if(!this.enemies.some(e=>e.hp>0&&!isNoncombatant(e))){this.status='won';this.log('敵人清光了。');}
+   if(!this.enemies.some(e=>e.hp>0&&!isNoncombatant(e))&&(o.goal!=='drive'||convoyDone(o))){this.status='won';this.log(o.goal==='drive'?'追上來的車都打退了。':'敵人清光了。');}
    else if(o.goal==='hold'&&this.turn>=o.holdTurns){this.status='won';this.log(`撐過 ${o.holdTurns} 回合，陣地守住了。`);}
    else if(o.goal==='hold'&&ok&&this.turn%10===0)this.log(`守住陣地：還要撐 ${o.holdTurns-this.turn} 回合。`);
    else if(o.goal==='drive'&&this.turn>=o.holdTurns){this.status='won';this.log('開到目的地，甩掉了追兵。');}

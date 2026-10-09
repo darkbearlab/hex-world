@@ -84,11 +84,12 @@ function smoke(r, o, time) {
   const c = r.ctx, t = r.tile, s = time / 1000, puff = (x, y, rad, color) => { const p = r.project(x, y); c.fillStyle = color; c.beginPath(); c.arc(p.x, p.y, rad, 0, Math.PI * 2); c.fill(); };
   c.save();
   for (const T of o.trucks) {
-    for (const [k, y0] of [[0, T.y0 - .15], [1, T.y0 + T.w - .7]]) for (let i = 0; i < 12; i++) {
+    const small = T.kind && T.kind !== 'truck';
+    for (const [k, y0] of small ? [[0, T.y0 + T.w / 2 - .5]] : [[0, T.y0 - .15], [1, T.y0 + T.w - .7]]) for (let i = 0; i < (small ? 7 : 12); i++) {
       const ph = (s * 1.8 + i / 12 + T.id * .37 + k * .5) % 1;
       puff(T.x1 + .3 + ph * 7, y0 + Math.sin(i * 7.3 + T.id + k) * .3 - ph * .25, (.25 + ph * 1.2) * t, `rgba(206,182,132,${(.32 * (1 - ph)).toFixed(3)})`);
     }
-    for (let i = 0; i < 8; i++) {
+    if (T.kind === 'truck') for (let i = 0; i < 8; i++) {   // 排氣：只有卡車的車頭有
       const ph = (s * 1.3 + i / 8 + T.id * .21) % 1;
       puff(T.x0 - 1.2 + ph * 3.8, (T.c0 ?? T.y0) - .55 - ph * .7, (.12 + ph * .55) * t, `rgba(58,56,54,${(.42 * (1 - ph)).toFixed(3)})`);
     }
