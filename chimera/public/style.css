@@ -318,9 +318,19 @@ html{touch-action:manipulation}
 }
 
 /* 地圖面板：收在底部，展開往上（Alan 2026-10-09）。桌面放在右下角，手機整條 */
-.panel.open{max-height:56%}
-body.panelwide .panel.open{max-height:calc(100% - 8px)}
+.panel.open{max-height:100%;height:100%}
 .panel .tabs{flex:none}
 .pcaret{flex:none!important;width:40px;color:var(--muted)}
-@media (min-width:821px){.panel{left:auto;width:min(560px,46vw);border-left:1px solid var(--line);border-top-left-radius:10px}body.panelwide .panel{width:min(980px,80vw)}}
+@media (min-width:821px){.panel{left:auto;width:min(560px,46vw);border-left:1px solid var(--line);border-top-left-radius:10px}}
 .opp .due{display:block;font-size:12px;color:var(--accent);margin-top:2px}
+
+/* 培養槽置中，寬度約畫面的三分之一到五分之三（Alan 2026-10-09） */
+.vatpage{width:min(100%,max(560px,40vw));max-width:60vw;margin:0 auto}
+@media (max-width:820px){.vatpage{max-width:none;width:100%}}
+/* 召回、補員的說明卡片 */
+.confirm{margin-top:6px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
+/* 系統選單 */
+.sysbtn{font-size:16px;line-height:1}
+.sysbox{display:flex;flex-direction:column;gap:10px;padding:12px 14px 16px}
+.sysbox button{text-align:left;padding:10px 12px}
+.sysbox .mini{margin:0}

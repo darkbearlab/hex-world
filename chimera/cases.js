@@ -1,13 +1,13 @@
 // 奇美拉：案件與事件管線（沙盒端）
 // 玩家公司把小隊（四名複製人＋裝備＋可選的載具）投進一個案件：補給線、遠征、主戰場、壓陣、清剿。
-// 案件進行中，沙盒依當地真實狀況抽事件；抽到的事件發給「最早空出來」的小隊，變成一張限時 24 小時的任務票。
+// 案件進行中，沙盒依當地真實狀況抽事件；抽到的事件發給「最早空出來」的小隊，變成一張限時 24 小時的服務單。
 // 玩家可以親自打（ASH 單層任務，結果用 submit 回報），逾期就自動結算：只算火力，打折。
 // 每張票的結果立刻寫回沙盒（掠奪者壓力、戰壕、下一場仗的戰力、遺落的裝備），案件結束後依積分分尾款。
 // 時間單位一律是「小時」；整本帳（book）是純資料，可以直接存進 Durable Object。
 import {BIOMES, GN, BASEP, NBR, hdist, VEH} from './sim.js';
 
 export const CFG = {
-  DEADLINE: 24,     // 任務票期限
+  DEADLINE: 24,     // 服務單期限
   FREEZE: 24,       // 案件結束前多久不再出票
   BUFFER: 24,       // 案件結束後的緩衝，之後才結算尾款
   PENDING: 6,       // 沒有小隊空著時，事件最多等幾小時；再等不到就由案件自帶的護衛自己打（沒有積分）
@@ -107,9 +107,12 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
 // 駐紮地是事先用遠征模式送到位的人手（已經付過錢），離戰場近，派過去快。
 export function registerCompany(book, player, base) { book.companies[player] = book.companies[player] || {player, base, posts: {}}; return book.companies[player]; }
 export function station(book, player, tile, n) { const C = book.companies[player]; C.posts[tile] = (C.posts[tile] || 0) + n; }
-export function travelHours(w, from, to, fast = false) { if (from < 0 || from === to) return 0; const d = w.sim.pmc.dist(from, to); return isFinite(d) ? Math.ceil(d * CFG.TRAVEL * (fast ? CFG.FAST : 1)) : Infinity; }
+// 行軍要幾小時（帶小數，不進位；Alan 2026-10-09：加速要真的減半，出發、抵達都照精確時刻，伺服器到時間用自己的時鐘確認）
+export function travelHours(w, from, to, fast = false) { if (from < 0 || from === to) return 0; const d = w.sim.pmc.dist(from, to); return isFinite(d) ? d * CFG.TRAVEL * (fast ? CFG.FAST : 1) : Infinity; }
+// 「約 X 小時 Y 分」
+export const fmtDur = h => { const m = Math.max(0, Math.round(h * 60)); return m >= 60 ? `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ''}` : `${m} 分鐘`; };
 // 加速的費用：n 個人、從 from 到 to，比一般走法省下的小時數 × 單價
-export function speedCost(w, from, to, n) { const a = travelHours(w, from, to), b = travelHours(w, from, to, true); return isFinite(a) && isFinite(b) ? Math.max(0, a - b) * n * CFG.FAST_PRICE : 0; }
+export function speedCost(w, from, to, n) { const a = travelHours(w, from, to), b = travelHours(w, from, to, true); return isFinite(a) && isFinite(b) ? Math.round(Math.max(0, a - b) * n * CFG.FAST_PRICE) : 0; }
 // 這一趟用加速：扣錢、記帳（kind 'speed'）
 export function paySpeed(book, w, player, from, to, n, now, what, caseId) { const cost = speedCost(w, from, to, n); if (cost > 0) pay(book, now, player, -cost, 'speed', `${what}：加速（${n} 人，$${cost}）`, caseId); return cost; }
 
@@ -118,14 +121,14 @@ export function enlist(book, caseId, squadId, now, w) {
   const c = book.cases.find(x => x.id === caseId), sq = book.squads[squadId];
   if (!c || !sq || !c.open || sq.caseId) return false;
   const eta = now + (w ? travelHours(w, sq.at, c.tile, sq.fast) : 0);
-  if (eta >= c.end - (c.freeze ?? CFG.FREEZE)) return false;   // 趕不上：到的時候已經不出票了
+  if (eta >= c.end - (c.freeze ?? CFG.FREEZE)) return false;   // 趕不上：到的時候已經不再派服務單了
   const from = sq.at;
   if (sq.fast && w) paySpeed(book, w, sq.player, from, c.tile, alive(sq).length, now, `${c.title}（${sq.name}）去程`, c.id);
   sq.caseId = c.id; sq.readyAt = eta; sq.joinedAt = now; c.squads.push(sq.id); sq.at = c.tile;
   if (w && eta > now) sq.move = {path: w.sim.pmc.route(from, c.tile), t0: now, t1: eta};
   if (w) planTrip(book, w, c, sq.id, from, now, eta);
   pay(book, now, sq.player, c.pay.deposit, 'deposit', `${c.title}：訂金（${sq.name}）`, c.id);
-  if (eta > now) notify(book, now, sq.player, 'move', `${sq.name} ${sq.fast ? '加速' : ''}出發前往${c.title}，約 ${eta - now} 小時後到位。`, c.id);
+  if (eta > now) notify(book, now, sq.player, 'move', `${sq.name} ${sq.fast ? '加速' : ''}出發前往${c.title}，約 ${fmtDur(eta - now)}後到位。`, c.id);
   return true;
 }
 
@@ -142,7 +145,7 @@ export function amend(book, w, squadId, n, from, now, o = {}) {
   if (sq.refused) return {ok: false, why: '雇主拒絕', refused: true};
   if (mine.length >= 3 && (lost / mine.length > .5 || autos / mine.length > .5)) {
     sq.refused = true;
-    notify(book, now, sq.player, 'refused', `${c.title}：雇主拒絕契約變更（${lost > mine.length / 2 ? `${mine.length} 場輸了 ${lost} 場` : `${mine.length} 張票有 ${autos} 張放著沒打`}）。`, c.id);
+    notify(book, now, sq.player, 'refused', `${c.title}：雇主拒絕契約變更（${lost > mine.length / 2 ? `${mine.length} 場輸了 ${lost} 場` : `${mine.length} 張服務單有 ${autos} 張放著沒打`}）。`, c.id);
     return {ok: false, why: '雇主拒絕', refused: true};
   }
   const pending = book.amends.filter(a => a.squad === sq.id && !a.done).reduce((x, a) => x + a.n, 0);
@@ -162,7 +165,7 @@ export function amend(book, w, squadId, n, from, now, o = {}) {
   const a = {id: 'A' + book.nextId++, squad: sq.id, col: col.id, caseId: c.id, n, from, at: now, eta, done: false};
   book.amends.push(a);
   planTrip(book, w, c, col.id, from, now, eta);
-  notify(book, now, sq.player, 'move', `契約變更：${n} 人從${fromPost ? '駐紮地' : '總部'}出發補${sq.name}，約 ${eta - now} 小時後到。`, a.id);
+  notify(book, now, sq.player, 'move', `契約變更：${n} 人從${fromPost ? '駐紮地' : '總部'}出發補${sq.name}，約 ${fmtDur(eta - now)}後到。`, a.id);
   return {ok: true, eta, amend: a};
 }
 function arrive(book, a, now) {
@@ -194,7 +197,7 @@ export function whereIs(sq, c, now) {
   const t = c ? c.tile : sq.at; return {a: t, b: t, f: 0};
 }
 // 把小隊從案件裡撤出來。正式合約算毀約：付違約金（這一隊拿過的訂金、期中款，再加 10×程度），
-// 公司在這個案件裡已經沒有別的小隊的話，積分作廢、不分尾款。手上的任務票交給案件的護衛自己打。
+// 公司在這個案件裡已經沒有別的小隊的話，積分作廢、不分尾款。手上的服務單交給案件的護衛自己打。
 export function withdraw(book, w, squadId, now) {
   const sq = book.squads[squadId], c = sq && book.cases.find(x => x.id === sq.caseId);
   if (!sq || !c || c.settled) return {ok: false, why: '沒有進行中的案件'};
@@ -256,7 +259,7 @@ function stillValid(c, w) {
   return K.fac[c.fac]?.alive && K.fac[c.foe]?.alive;
 }
 
-// ===== 事件 → 任務票 =====
+// ===== 事件 → 服務單 =====
 const TYPES = {
   ambush:    {n: '車隊遇襲', night: .3, obj: [['protect', '護住車隊', 3], ['repel', '擊退掠奪者', 2], ['nolose', '全員生還', 1]]},
   native:    {n: '原住民襲擊', night: .5, obj: [['protect', '護住車隊', 3], ['repel', '擊退襲擊者', 2], ['nolose', '全員生還', 1]]},
@@ -367,6 +370,22 @@ function tripAmbush(book, w, trip, now) {
 }
 
 // 指派：在這個案件裡、沒有票、休整完畢的小隊，誰最早空出來就給誰（打得快、派得多的公司就拿得多）
+// 精確時刻的結算（每次有請求、鬧鐘響時，用伺服器的時鐘）：補員到了、路上遇襲、空出來的小隊接等著的服務單。回傳有沒有變化
+export function exactTick(book, w, t) {
+  let n = 0;
+  for (const a of book.amends) if (!a.done && t >= a.eta) { arrive(book, a, t); n++; }
+  for (const tr of book.trips) if (!tr.done && t >= tr.at) { tripAmbush(book, w, tr, t); n++; }
+  for (const c of book.cases) { if (c.settled) continue; for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && !tk.squad && assign(book, c, tk, t)) n++; }
+  return n;
+}
+// 下一個要結算的精確時刻（排鬧鐘用）
+export function nextDue(book, t) {
+  let x = Infinity;
+  for (const a of book.amends) if (!a.done && a.eta > t) x = Math.min(x, a.eta);
+  for (const tr of book.trips) if (!tr.done && tr.at > t) x = Math.min(x, tr.at);
+  for (const sq of Object.values(book.squads)) if (sq.caseId && sq.readyAt > t) x = Math.min(x, sq.readyAt);
+  return x;
+}
 function assign(book, c, tk, now) {
   const free = c.squads.map(id => book.squads[id]).filter(s => !s.busy && s.readyAt <= now && alive(s).length >= 2);
   if (!free.length) return false;

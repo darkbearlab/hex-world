@@ -122,10 +122,10 @@ export class Core {
     }).filter(e => h >= e.start && ((h < e.closeAt && !e.gone) || (e.joined && h < e.end)));
   }
   // 準時出槽：時間（帶小數的遊戲小時）到了的培養槽出槽。回傳出槽了幾個
-  finishDue(t) { let n = 0; if (this.game) for (const g of Object.values(this.game.cos)) n += G.finishDue(g, t); return n; }
+  finishDue(t) { if (!this.game) return 0; let n = C.exactTick(this.game.book, this.w, t); for (const g of Object.values(this.game.cos)) n += G.finishDue(g, t); return n; }
   // 下一個培養槽完成的時刻（排鬧鐘用）
-  nextDue() { let t = Infinity; if (this.game) for (const g of Object.values(this.game.cos)) for (const q of g.queue) t = Math.min(t, q.done); return t; }
-  // 通知信指向哪裡：任務票（還沒打的可以直接親自打）、案件、補員縱隊所在的地圖位置
+  nextDue() { if (!this.game) return Infinity; const now = this.exactNow ?? this.game.h; let t = C.nextDue(this.game.book, now); for (const g of Object.values(this.game.cos)) { for (const q of g.queue) t = Math.min(t, q.done); for (const r of g.returning) if (r.at > now) t = Math.min(t, r.at); } return t; }
+  // 通知信指向哪裡：服務單（還沒打的可以直接親自打）、案件、補員縱隊所在的地圖位置
   mailRef(x, name) {
     const b = this.game.book; if (!x.ref) return {};
     const tk = b.tickets.find(t => t.id === x.ref);
@@ -160,19 +160,19 @@ export class Core {
       if (!o || !e || e.gone) return '這個委託已經不在了';
       if (h < e.start) return '這個委託還沒公開';
       if (h >= e.end - C.CFG.FREEZE) return '這個委託已經截止';
-      return G.accept(g, b, w, o, m.side, m.uids, h, !!m.fast, e);
+      return G.accept(g, b, w, o, m.side, m.uids, this.exactNow ?? h, !!m.fast, e);
     }
-    if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, h, !!m.fast);
-    if (m.type === 'recall') return G.recall(g, b, w, m.squad, h);
-    if (m.type === 'recallCol') return G.recallColumn(g, b, w, m.amend, h);
+    if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, this.exactNow ?? h, !!m.fast);
+    if (m.type === 'recall') return G.recall(g, b, w, m.squad, this.exactNow ?? h);
+    if (m.type === 'recallCol') return G.recallColumn(g, b, w, m.amend, this.exactNow ?? h);
     if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to), ok = path.length > 0; this.emit({type: 'path', to: m.to, path, hours: ok ? C.travelHours(w, g.base, m.to) : -1, fastHours: ok ? C.travelHours(w, g.base, m.to, true) : -1, fastPer: ok ? C.speedCost(w, g.base, m.to, 1) : 0}); return null; }
     if (m.type === 'procure') return G.procure(g, b, w, m.town, m.mat, m.qty, m.uids || [], h);
     if (m.type === 'quotes') { this.emit({type: 'quotes', data: G.quotes(g, w)}); return null; }
-    if (m.type === 'resolve') { const tk = b.tickets.find(x => x.id === m.ticket); if (!tk || tk.player !== name) return '這張票不是你的'; C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
-    // 親自打（ASH 任務戰鬥）：把任務票和小隊交給畫面去開戰。單人測試模式打的時候時間停住（pauseOnFight）；伺服器上大家共用時鐘，不停
+    if (m.type === 'resolve') { const tk = b.tickets.find(x => x.id === m.ticket); if (!tk || tk.player !== name) return '這張服務單不是你的'; C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
+    // 親自打（ASH 任務戰鬥）：把服務單和小隊交給畫面去開戰。單人測試模式打的時候時間停住（pauseOnFight）；伺服器上大家共用時鐘，不停
     if (m.type === 'fight') {
       const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
-      if (!sq) return '這張票已經不在了';
+      if (!sq) return '這張服務單已經不在了';
       const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
         lv: c.lv || 1, xp: c.xp || 0, picks: c.picks || [], skills: c.skills || [], prep: c.prep || null, perkPicks: c.perkPicks || 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: c.legacyPerkPicks || 0}));
       if (!squad.length) return '這一隊沒有活著的人';
@@ -185,7 +185,7 @@ export class Core {
       if (game.fighting != null) { game.speed = game.fighting; game.fighting = null; }
       if (m.type === 'abort') return null;
       const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
-      if (!sq) return '這張票已經結算了';
+      if (!sq) return '這張服務單已經結算了';
       const win = !!m.result.win, dead = (m.result.dead || []).filter(id => sq.clones.some(c => c.id === id && c.alive));
       const wipe = !sq.clones.some(c => c.alive && !dead.includes(c.id));
       // 成長寫回名冊（等級、經驗、升級三選一、技能、預備欄），升級的人另外發一則通知

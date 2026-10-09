@@ -38,7 +38,7 @@ cpu_ms = 30000
 
 [vars]
 # 改這個數字並推送，星球就從頭重新產生（所有公司一起重來）
-WORLD_VERSION = "2"
+WORLD_VERSION = "3"
 # 星球放在哪一洲的機房（Durable Object 第一次建立時決定，之後不會搬；要搬就得改 WORLD_VERSION 重新產生）。
 # 2026-10-09 從美國（沒給提示，建在亞特蘭大）搬到亞洲
 PLANET_HINT = "apac"

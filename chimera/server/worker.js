@@ -149,7 +149,7 @@ export class Planet extends DurableObject {
         m.data = battleTicket(m.data, d);
       }
       if (ALLOWED.includes(body.type)) await this.persist();
-      if (body.type === 'build' && this.env.PAUSED !== '1') await this.arm();   // 鬧鐘改排到這個培養完成的時刻
+      if (ALLOWED.includes(body.type) && this.env.PAUSED !== '1') await this.arm();   // 鬧鐘改排到最早要結算的時刻（培養完成、抵達、回到總部）
       return json({view: this.core.view(name, err), msgs});
     }
     return bad('不認得的請求', 404);

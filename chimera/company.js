@@ -2,7 +2,7 @@
 // 總部設在開局選的主城；四種素材（糧、水、植入物、神經介質）在培養槽造複製人；
 // 沒有模板時看投入比例決定容易出哪個職業，每個人的數值是純抽的浮動（評級：銀冠前 10%、金冠前 1%）；
 // 模板保證拿到某一位、數值固定（約前 20%），是事件和活動的獎勵。
-// 接機會層的案、編成小隊派出去；任務票只能自動結算（戰鬥層還沒接上）。
+// 接機會層的案、編成小隊派出去；服務單只能自動結算（戰鬥層還沒接上）。
 import * as C from './cases.js';
 import {hdist} from './sim.js';
 
@@ -152,6 +152,8 @@ export function build(G, recipe, tplId, slot, now = G.h) {
 // t：現在的精確時刻。回傳出槽了幾個
 export function finishDue(G, t) {
   let n = 0;
+  // 走回總部的人：到了就待命
+  for (const r of G.returning.slice()) if (t >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive) c.status = 'home'; n++; }
   for (const q of G.queue.slice()) if (t >= q.done) { G.queue.splice(G.queue.indexOf(q), 1); finishBuild(G, q, G.h); n++; }
   return n;
 }
@@ -185,7 +187,7 @@ export function accept(G, book, w, opp, side, uids, now, fast = false, contract 
   }
   if (!n) {
     if (created) { book.cases.splice(book.cases.indexOf(c), 1); if (contract) delete contract.cases[sideKey]; }
-    return '趕不上：到現場的時候已經不出票了';
+    return '趕不上：到現場的時候已經不再派服務單了';
   }
   G.cases.push(c.id);
   note(G, now, `接下「${c.title}」，${fast ? '加速' : ''}派出 ${n} 隊。`);
@@ -241,13 +243,13 @@ export function recall(G, book, w, squadId, now) {
   const r = C.withdraw(book, w, squadId, now); if (!r.ok) return r.why;
   const hrs = sendHome(G, w, sq.clones, r.here, now, sq.fast, book, sq.name);
   for (const col of r.cols) sendHome(G, w, col.clones, col.here, now, col.fast, book, `${sq.name} 的補員`);
-  note(G, now, `召回${sq.name}${r.penalty ? `，付違約金 $${r.penalty}` : ''}，約 ${hrs} 小時後回到總部。`);
+  note(G, now, `召回${sq.name}${r.penalty ? `，付違約金 $${r.penalty}` : ''}，約 ${C.fmtDur(hrs)}後回到總部。`);
   return null;
 }
 export function recallColumn(G, book, w, amendId, now) {
   const r = C.cancelAmend(book, amendId, now); if (!r) return '補員正在路上交戰，打完才能撤回';
   const hrs = sendHome(G, w, r.clones, r.here, now, r.fast, book, '補員');
-  note(G, now, `撤回補員，${r.clones.length} 人約 ${hrs} 小時後回到總部。`);
+  note(G, now, `撤回補員，${r.clones.length} 人約 ${C.fmtDur(hrs)}後回到總部。`);
   return null;
 }
 
@@ -258,7 +260,7 @@ export function view(G, book, w) {
   const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || G.h - c.settledAt < 72).map(c => ({
     id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
     payout: c.payout?.[G.name], midPaid: c.midPaid, quit: !!c.quit?.[G.name], delivered: c.delivered, convoys: c.convoys, lost: c.lostConvoys.length, pay: c.pay, tickets: c.tickets,
-    squads: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).map(sq => ({id: sq.id, name: sq.name, readyAt: sq.readyAt, busy: sq.busy, refused: !!sq.refused,
+    squads: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).map(sq => ({id: sq.id, name: sq.name, readyAt: sq.readyAt, busy: sq.busy, refused: !!sq.refused, fast: !!sq.fast,
       clones: sq.clones.map(x => x.uid), pending: book.amends.filter(a => a.squad === sq.id && !a.done).map(a => ({id: a.id, n: a.n, eta: a.eta}))}))}));
   const units = unitsView(G, book, G.h);
   const tickets = book.tickets.filter(t => t.player === G.name && !t.done).map(t => ({id: t.id, title: t.title, type: t.type, transit: !!t.transit, deadline: t.deadline, issued: t.issued, tile: t.tile,
@@ -288,13 +290,13 @@ function unitsView(G, book, h) {
     if (sq.column) {
       const a = book.amends.find(x => x.col === sq.id && !x.done); if (!a) continue;
       const c = book.cases.find(x => x.id === a.caseId);
-      out.push({key: sq.id, kind: 'column', name: sq.name, n, pos: C.whereIs(sq, null, h), path: rest(sq.move, h), status: `補員行軍中，約 ${Math.max(0, a.eta - h)} 小時後到`, where: c?.title || '', recall: {type: 'column', id: a.id}, busy: !!sq.busy});
+      out.push({key: sq.id, kind: 'column', name: sq.name, n, pos: C.whereIs(sq, null, h), path: rest(sq.move, h), status: `補員行軍中，約 ${C.fmtDur(a.eta - h)}後到`, where: c?.title || '', recall: {type: 'column', id: a.id}, busy: !!sq.busy});
       continue;
     }
     const c = sq.caseId && book.cases.find(x => x.id === sq.caseId); if (!c || c.settled) continue;
     const moving = sq.move && h < sq.move.t1;
     out.push({key: sq.id, kind: c.own ? 'escort' : 'squad', name: sq.name, n, pos: C.whereIs(sq, c, h), path: moving ? rest(sq.move, h) : [], where: c.title, own: !!c.own,
-      status: sq.busy ? '正在打任務票' : moving ? `行軍中，約 ${sq.move.t1 - h} 小時後到位` : c.own ? '護送車隊中' : '在現場待命',
+      status: sq.busy ? '正在打服務單' : moving ? `行軍中，約 ${C.fmtDur(sq.move.t1 - h)}後到位` : c.own ? '護送車隊中' : '在現場待命',
       recall: {type: 'squad', id: sq.id, penalty: c.own ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, busy: !!sq.busy});
   }
   for (const id of G.cases) { const c = book.cases.find(x => x.id === id); if (!c || !c.own || c.settled) continue;
@@ -302,6 +304,6 @@ function unitsView(G, book, h) {
     out.push({key: c.id, kind: 'convoy', name: c.title, n: 0, pos: C.whereIs({}, c, h), path: f < .5 ? [...c.path].reverse() : c.path, status: f < .5 ? '採購車隊去程' : '採購車隊回程', where: c.title}); }
   const grp = {};
   for (const r of G.returning) { if (!r.move) continue; const k = r.move.t0 + ':' + r.move.path[0]; (grp[k] = grp[k] || {move: r.move, n: 0}).n++; }
-  for (const k in grp) { const g = grp[k]; out.push({key: 'R' + k, kind: 'returning', name: '歸途', n: g.n, pos: C.posOn(g.move.path, (h - g.move.t0) / Math.max(1, g.move.t1 - g.move.t0)), path: rest(g.move, h), status: `回總部途中，約 ${Math.max(0, g.move.t1 - h)} 小時後到`, where: ''}); }
+  for (const k in grp) { const g = grp[k]; out.push({key: 'R' + k, kind: 'returning', name: '歸途', n: g.n, pos: C.posOn(g.move.path, (h - g.move.t0) / Math.max(1, g.move.t1 - g.move.t0)), path: rest(g.move, h), status: `回總部途中，約 ${C.fmtDur(g.move.t1 - h)}後到`, where: ''}); }
   return out;
 }

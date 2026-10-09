@@ -12,7 +12,6 @@
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><b>Project: Chimera</b><span>被遺棄的星球</span></div>
   <nav class="pager" aria-label="切換畫面"><button data-page="map" class="on">戰略地圖</button><button data-page="co">任務管制</button><button data-page="vat">培養槽</button><button data-page="trade">交易</button><button data-page="rep">報表</button></nav>
   <div class="seed">
     <input id="seed" value="奇美拉-1" aria-label="種子" spellcheck="false">
@@ -45,6 +44,7 @@
     <label class="muted ydays">沙盒每 <input id="gyd" type="number" min="3" max="365" value="30"> 天推一年</label>
     <b id="gcash" class="cash">—</b>
   </div>
+  <button class="mail sysbtn" id="sysBtn" aria-label="系統">⚙</button>
   <button class="mail" id="mailBtn" hidden aria-label="通知">✉<span class="badge" id="mailN" hidden>0</span></button>
   <div class="mailpanel" id="mail" hidden><div class="mailhead"><b>通知</b><span class="muted" id="mailSub"></span><button id="mailClose" aria-label="關閉">✕</button></div><div class="mailbody" id="mailBody"></div></div>
 </header>
@@ -116,6 +116,7 @@
     <p id="titleMsg" class="warnmsg" hidden></p>
   </div>
 </section>
+<div id="sys" class="devlog" hidden><div class="devbox"><div class="devhead"><b>系統</b><button id="sysClose" aria-label="關閉">✕</button></div><div class="sysbox" id="sysBody"></div></div></div>
 <div id="devlog" class="devlog" hidden><div class="devbox"><div class="devhead"><b>開發日誌</b><button id="devlogClose" aria-label="關閉">✕</button></div><div id="devlogBody"></div></div></div>
 <script type="module" src="app.js"></script>
 </body>
