@@ -13,3 +13,8 @@ Use case: stylized-concept. Asset type: a single production sprite atlas for an 
 
 ## props
 ... Isolated OUTDOOR battlefield props ... The ENTIRE background of every cell is ONE flat pure magenta color #FF00FF ... Never use magenta or pink inside the sprites ... (rows as listed above)
+
+## truck（公路戰，2026-10-09）
+- `source-truck.png`：16 格不透明。第 1 排車斗（橄欖綠花紋鋼板、磨損的花紋鋼板、木板貨台、鏽蝕拼補的掠奪者車斗）；第 2 排車頭（橄欖綠車頂、車側、鏽鐵車頂、車側）；第 3 排車欄（橄欖綠車欄正面、上緣、鏽鐵車欄正面、上緣）；第 4 排公路（龜裂柏油、黃色虛線、輪胎、路邊積沙）。
+
+Create a production sprite texture atlas for an original dark military sci-fi tactical game set on an abandoned desert planet, authentic chunky SNES 16-bit pixel art designed at 32x32 pixels per tile, enlarged exactly 8x with strict nearest neighbor. EXACT 4 columns by 4 rows, 16 equally sized square tiles ... for a battle fought on the beds of moving cargo trucks on a desert highway ... Row 1 truck BED FLOORS seen from above ... Row 2 truck CABS ... Row 3 truck side RAILS ... Row 4 HIGHWAY surface from above ...（完整提示詞見 hex-world 這次提交的說明）

@@ -12,7 +12,8 @@ import {SIZE} from './data.js';
 export function highwayMap(tk, floor, R, bio, G) {
   const N = SIZE, pick = a => a[Math.floor(R() * a.length)];
   const grid = Array.from({length: N}, (_, y) => Array.from({length: N}, (_, x) => x === 0 || y === 0 || x === N - 1 || y === N - 1 ? 0 : 1));
-  const ground = Array.from({length: N}, () => Array.from({length: N}, () => R() < .8 ? bio.road : pick(bio.g)));
+  // 路面（truck.png 第 4 排）：13 龜裂柏油、14 黃色虛線（第 3、23 排）、16 路邊積沙（最外兩排）；ground 記的是 truck.png 的格子
+  const ground = Array.from({length: N}, (_, y) => Array.from({length: N}, () => y <= 2 || y >= N - 3 ? 15 : y === 3 || y === N - 4 ? 13 : 12));
   const trench = Array.from({length: N}, () => Array(N).fill(0)), deck = Array.from({length: N}, () => Array(N).fill(0));
   const props = [], items = [], barriers = [], edges = new Set(), taken = new Set(), key = (x, y) => `${x},${y}`;
   const low = (x, y, axis) => { const b = axis === 'y' ? {axis, x, y: y + .5} : {axis, x: x + .5, y}, k = `${b.axis}:${b.x},${b.y}`; if (edges.has(k)) return; edges.add(k);
@@ -55,7 +56,8 @@ export function highwayMap(tk, floor, R, bio, G) {
   const light = grid.map(row => row.map(() => tk.night ? 0 : 1));
   return {map: {grid, rooms: [room], start, end: {x: 7, y: 13}, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items, props, hazards: [], marks: [], barriers,
     cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'chimera-highway-v1'}, lighting: light, slots: [], lamps: [], lightModel: 2},
-    spots, style: 'chimera-scrap-fence',
+    spots, style: 'chimera-truck',
     // drive：撐過 holdTurns 回合（開到目的地）或清光
-    outdoor: {layout: 'highway', biome: tk.biome || '', goal: 'drive', holdTurns: 20, ground, trench, deck, trucks, night: !!tk.night}};
+    outdoor: {layout: 'highway', biome: tk.biome || '', goal: 'drive', holdTurns: 20, ground, trench, deck, trucks, night: !!tk.night,
+      enemyDeck: tk.enemy?.side === 'native' ? 2 : 3}};   // 敵方車斗：根者是木板貨台，其餘是鏽鐵拼補（truck.png 的格子）
 }

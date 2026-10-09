@@ -2,7 +2,7 @@
 # 來源：gpt-image-2（--quality low）生成的 1024×1024、4×4 圖集，提示詞在 PROMPT.md。
 # 處理：依四等分切格 → BOX 縮成 32×32 → 地面整組共用 32 色、物件整組共用 31 色＋透明 → RGB555 取整 → 128×128 圖集。
 # 地面亮度 ×0.78，讓人物站在上面看得清楚（同 ASH 的地板）。物件：洋紅 #FF00FF 背景去掉，alpha 二值化，最外一圈清透明。
-# 重建：python chimera/art/outdoor-v1/pixelize.py → chimera/public/ash-outdoor/{ground,props,walls}.png 與 manifest.json
+# 重建：python chimera/art/outdoor-v1/pixelize.py → chimera/public/ash-outdoor/{ground,props,walls,trench,truck}.png 與 manifest.json
 import hashlib, json, os
 from PIL import Image
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -58,8 +58,8 @@ def sha(p): return hashlib.sha256(open(p, 'rb').read()).hexdigest()
 
 if __name__ == '__main__':
     os.makedirs(OUT, exist_ok=True)
-    ground(); props(); ground('walls', .9); ground('trench', .8)   # 牆材（牆面、牆頂、矮牆、邊緣）、戰壕斷面與溝底：和地面一樣的處理
-    man = {'source': {k: sha(os.path.join(HERE, f'source-{k}.png')) for k in ('ground', 'props', 'walls', 'trench')},
-           'out': {k: sha(os.path.join(OUT, f'{k}.png')) for k in ('ground', 'props', 'walls', 'trench')}, 'cell': CELL, 'grid': [4, 4]}
+    ground(); props(); ground('walls', .9); ground('trench', .8); ground('truck', .85)   # 牆材（牆面、牆頂、矮牆、邊緣）、戰壕斷面與溝底：和地面一樣的處理
+    man = {'source': {k: sha(os.path.join(HERE, f'source-{k}.png')) for k in ('ground', 'props', 'walls', 'trench', 'truck')},
+           'out': {k: sha(os.path.join(OUT, f'{k}.png')) for k in ('ground', 'props', 'walls', 'trench', 'truck')}, 'cell': CELL, 'grid': [4, 4]}
     json.dump(man, open(os.path.join(OUT, 'manifest.json'), 'w'), indent=1)
     print(json.dumps(man, indent=1))

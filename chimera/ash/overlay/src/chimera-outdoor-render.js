@@ -10,15 +10,20 @@ import {TERRAIN_ATLAS} from './materials.js';
 import {SIZE} from './data.js';
 import {isDark,isBlack,seesInDark} from './lighting.js';
 
-const URL = {ground: '/ash-outdoor/ground.png', walls: '/ash-outdoor/walls.png', trench: '/ash-outdoor/trench.png'};
+const URL = {ground: '/ash-outdoor/ground.png', walls: '/ash-outdoor/walls.png', trench: '/ash-outdoor/trench.png', truck: '/ash-outdoor/truck.png'};
 const img = src => { const i = new Image(); i.src = src; return i; };
-const ATLAS = {ground: img(URL.ground), walls: img(URL.walls), trench: img(URL.trench)};
+const ATLAS = {ground: img(URL.ground), walls: img(URL.walls), trench: img(URL.trench), truck: img(URL.truck)};
 const ready = i => i.complete && i.naturalWidth > 0;
 // walls.png 的格子：牆面 0～3（磚、土坯、石、廢鐵）、牆頂 4～7、木柵面 8／頂 9、鐵皮面 10／頂 11、邊緣塵霧 12、沙包面 13／頂 14、瓦礫 15
 const WALL = {brick: 0, adobe: 1, stone: 2, scrap: 3}, LOW = {palisade: 8, fence: 10}, HAZE = 12;
 const W = index => ({url: URL.walls, index}), T = index => ({url: TERRAIN_ATLAS, index});
+// truck.png（公路戰）：車斗 0 花紋鋼板／1 磨損鋼板／2 木板貨台／3 鏽鐵車斗、車頭 4 車頂／5 車側／6 鏽鐵車頂／7 鏽鐵車側、
+// 車欄 8 正面／9 上緣／10 鏽鐵正面／11 鏽鐵上緣、路面 12 柏油／13 黃虛線／14 輪胎／15 路邊積沙
+const TR = index => ({url: URL.truck, index});
 function registerStyles() {
   const facility = MAP_STYLES.facility;
+  MAP_STYLES['chimera-truck'] = {themes: facility.themes, selection: facility.selection,
+    materials: {floor: TR(0), face: TR(5), cap: TR(4), partitionFace: TR(5), partitionCap: TR(4), lowFace: TR(8), lowCap: TR(9), cover: T(10), barrel: T(11), terminal: T(12), case: T(13), grate: T(1)}};
   for (const [wall, wi] of Object.entries(WALL)) for (const [low, li] of Object.entries(LOW)) MAP_STYLES[`chimera-${wall}-${low}`] = {themes: facility.themes, selection: facility.selection,
     materials: {floor: W(15), face: W(wi), cap: W(wi + 4), partitionFace: W(wi), partitionCap: W(wi + 4), lowFace: W(li), lowCap: W(li + 1), cover: T(10), barrel: T(11), terminal: T(12), case: T(13), grate: T(1)}};
 }
@@ -41,26 +46,29 @@ function darkWall(r, x, y, rect) {
   c.save(); c.globalAlpha = 1; c.fillStyle = color; c.fillRect(rect.left, rect.top, rect.width, rect.height); c.restore();
 }
 
-// 公路戰（Alan 2026-10-09）：車斗（我方踏板、敵方鐵皮）、路面往右捲（由右往左開）、車斗下緣的輪子
+// 公路戰（Alan 2026-10-09）：車斗（我方花紋鋼板、敵方鏽鐵或木板）、路面往右捲（由右往左開）、車斗下緣的車底陰影與輪子；圖在 truck.png
 const ROAD_SPEED = 5;   // 每秒捲幾格
 function road(r, o, p, a, t) {
-  const c = r.ctx, l = Math.round(a.x - t / 2), tp = Math.round(a.y - t / 2), n = o.ground[p.y]?.[p.x] ?? 7;
+  const c = r.ctx, l = Math.round(a.x - t / 2), tp = Math.round(a.y - t / 2), n = o.ground[p.y]?.[p.x] ?? 12;
   const off = Math.round(((r.time || performance.now()) / 1000 * ROAD_SPEED % 1) * t);
   c.save(); c.beginPath(); c.rect(l, tp, t, t); c.clip(); c.imageSmoothingEnabled = false;
-  for (const dx of [off - t, off]) c.drawImage(ATLAS.ground, (n % 4) * 32, Math.floor(n / 4) * 32, 32, 32, l + dx, tp, t, t);
-  // 車道線：第 3、23 排畫虛線
-  if (p.y === 3 || p.y === SIZE - 4) { c.fillStyle = 'rgba(230,214,160,.55)'; for (const dx of [off - t, off]) c.fillRect(l + dx + Math.round(t * .1), tp + Math.round(t * .45), Math.round(t * .45), Math.max(2, Math.round(t * .08))); }
+  for (const dx of [off - t, off]) c.drawImage(ATLAS.truck, (n % 4) * 32, Math.floor(n / 4) * 32, 32, 32, l + dx, tp, t, t);
   // 車斗正下方的那一格：車底的陰影與輪子（不跟著捲）
   const up = o.deck[p.y - 1]?.[p.x];
-  if (up) { c.fillStyle = 'rgba(0,0,0,.45)'; c.fillRect(l, tp, t, Math.round(t * .35)); const T = o.trucks.find(q => q.id === up);
-    if (T && [T.x0 + 1, T.x0 + 2, T.x1 - 3, T.x1 - 2].includes(p.x)) { c.fillStyle = '#111'; c.fillRect(l + Math.round(t * .08), tp, Math.round(t * .84), Math.round(t * .3)); c.fillStyle = '#3a3a3a'; c.fillRect(l + Math.round(t * .08) + ((off >> 2) % 6), tp + 2, 3, Math.round(t * .3) - 4); } }
+  if (up) { c.fillStyle = 'rgba(0,0,0,.5)'; c.fillRect(l, tp, t, Math.round(t * .4)); const T = o.trucks.find(q => q.id === up);
+    if (T && [T.x0 + 1, T.x0 + 2, T.x1 - 3, T.x1 - 2].includes(p.x)) c.drawImage(ATLAS.truck, 2 * 32 + 9, 3 * 32 + ((off >> 1) % 8), 14, 12, l + Math.round(t * .12), tp, Math.round(t * .76), Math.round(t * .42)); }
   c.restore();
 }
 function highwayFloor(r, o, p, a, t) {
   const id = o.deck[p.y][p.x];
   if (!id) return road(r, o, p, a, t);
-  blit(r.ctx, ATLAS.trench, id === 1 ? 12 : 6, a.x, a.y, t);   // trench.png：12 踏板（我方）、6 鐵皮（敵方）
-  if (id !== 1) { const c = r.ctx; c.save(); c.fillStyle = 'rgba(40,20,10,.25)'; c.fillRect(Math.round(a.x - t / 2), Math.round(a.y - t / 2), t, t); c.restore(); }
+  blit(r.ctx, ATLAS.truck, id === 1 ? ((p.x * 7 + p.y * 3) % 5 ? 0 : 1) : o.enemyDeck ?? 3, a.x, a.y, t);
+}
+// 車頭（牆格）：從上面看的車頂，我方橄欖綠、敵方鏽鐵
+function cab(r, o, x, y, a, t) {
+  const T = o.trucks.find(q => y > q.y0 && y < q.y0 + 4 && (x === q.x0 - 1 || x === q.x0 - 2));
+  blit(r.ctx, ATLAS.truck, T?.id === 1 ? 4 : 6, a.x, a.y, t);
+  darkWall(r, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t});
 }
 
 export function installOutdoor(renderer) {
@@ -69,7 +77,7 @@ export function installOutdoor(renderer) {
   const R = Renderer.prototype, terrain = R.terrain, wall = R.wall, exit = R.exit;
   R.terrain = function (role, a, point, size = Math.round(this.tile), rotation = 0) {
     const o = this.game?.chimeraOutdoor;
-    if (o?.deck && role === 'floor' && point && ready(ATLAS.ground) && ready(ATLAS.trench)) { highwayFloor(this, o, point, a, size); this.terrainReady = true; return true; }
+    if (o?.deck && role === 'floor' && point && ready(ATLAS.truck)) { highwayFloor(this, o, point, a, size); this.terrainReady = true; return true; }
     if (o && role === 'floor' && point && ready(ATLAS.ground)) {
       const lv = o.trench?.[point.y]?.[point.x] || 0;
       if (!lv || !ready(ATLAS.trench)) blit(this.ctx, ATLAS.ground, o.ground[point.y]?.[point.x] ?? 0, a.x, a.y, size);
@@ -95,7 +103,8 @@ export function installOutdoor(renderer) {
   R.wall = function (a, x, y) {
     if (!this.game?.chimeraOutdoor) return wall.call(this, a, x, y);
     const t = Math.round(this.tile);
-    if (this.game.chimeraOutdoor.deck && edge(x, y) && ready(ATLAS.ground)) { road(this, this.game.chimeraOutdoor, {x, y}, a, t); darkWall(this, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t}); return null; }
+    if (this.game.chimeraOutdoor.deck && !edge(x, y) && ready(ATLAS.truck)) { cab(this, this.game.chimeraOutdoor, x, y, a, t); return null; }
+    if (this.game.chimeraOutdoor.deck && edge(x, y) && ready(ATLAS.truck)) { road(this, this.game.chimeraOutdoor, {x, y}, a, t); darkWall(this, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t}); return null; }
     if (edge(x, y) && ready(ATLAS.walls)) { blit(this.ctx, ATLAS.walls, HAZE, a.x, a.y, t); darkWall(this, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t}); return null; }
     const q = wall.call(this, a, x, y);
     if (q) darkWall(this, x, y, {left: q.left, top: q.capTop, width: q.width, height: q.bottom - q.capTop});
