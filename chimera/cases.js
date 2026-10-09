@@ -699,7 +699,7 @@ function settleCase(book, w, c, now) {
   c.payout = {};
   if (tot > 0 && pool > 0) for (const p in c.score) { if (!c.score[p] || c.quit?.[p]) continue; const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 $${Math.round(v)}k。`, c.id); }
   // 維持費（從這一隊加入時算：委託共用案件，晚加入的不多付）、小隊歸建
-  for (const id of c.squads) { const s = book.squads[id]; const days = Math.max(0, Math.min(now, c.end, s.wipedAt ?? Infinity) - Math.max(c.start, s.joinedAt ?? c.start)) / 24; pay(book, now, s.player, -CFG.UPKEEP * days, 'upkeep', `${c.title}：維持費（${s.name}）`, c.id); s.caseId = null; s.busy = null; }
+  for (const id of c.squads) { const s = book.squads[id]; const days = Math.max(0, Math.min(now, c.end, s.wipedAt ?? Infinity, s.headedHome ?? Infinity) - Math.max(c.start, s.joinedAt ?? c.start)) / 24; pay(book, now, s.player, -CFG.UPKEEP * days, 'upkeep', `${c.title}：維持費（${s.name}）`, c.id); s.caseId = null; s.busy = null; }
   // 編年史：只記值得記的
   const top = Object.entries(c.score).sort((a, b) => b[1] - a[1])[0];
   if (top && tot >= 10 * c.lv && !c.own) {
