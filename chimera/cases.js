@@ -445,7 +445,7 @@ const campLate = (w, c) => Math.floor((w.sim.campaignOf(c.camp)?.round || 0) / 2
 function campTickets(book, w, c, now) {
   const att = w.sim.campaignOf(c.camp)?.att === c.fac, K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
   for (const id of c.squads) {
-    const sq = book.squads[id]; if (!sq || sq.busy || sq.readyAt > now || alive(sq).length < 2) continue;
+    const sq = book.squads[id]; if (!sq || sq.busy || sq.headedHome || sq.readyAt > now || alive(sq).length < 2) continue;
     // 波數照整家公司累計（Alan 2026-10-09：比較過每隊各自累計，那樣拆小隊就能一直刷前幾波的小單）；CAMP_WAVE_BY='squad' 改成每隊（比較用）
     const wk = (globalThis.CAMP_WAVE_BY ?? 'player') === 'squad' ? sq.id : sq.player, wave = c.wave[wk] = (c.wave[wk] ?? campLate(w, c)) + 1, type = att ? (rng(book) < .35 ? 'trench' : 'assault') : 'hold', T = TYPES[type];
     const enemy = enemyOf(book, w, c, {type, tile: c.tile, foe: c.foe}, {scale: Math.pow(CAMP_GROW, wave - 1), cap: CAMP_CAP, wave});
@@ -511,7 +511,7 @@ export function nextDue(book, t) {
   return x;
 }
 function assign(book, c, tk, now) {
-  const free = c.squads.map(id => book.squads[id]).filter(s => !s.busy && s.readyAt <= now && alive(s).length >= 2);
+  const free = c.squads.map(id => book.squads[id]).filter(s => !s.busy && !s.headedHome && s.readyAt <= now && alive(s).length >= 2);   // 合約到期已啟程返回的不再派
   if (!free.length) return false;
   free.sort((a, b) => a.readyAt - b.readyAt || (rng(book) - .5));
   const sq = free[0];

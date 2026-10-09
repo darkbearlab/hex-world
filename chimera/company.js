@@ -330,7 +330,18 @@ export function hour(G, book, w, h) {
   for (; G.ledgerAt < book.ledger.length; G.ledgerAt++) { const x = book.ledger[G.ledgerAt]; if (x.player !== G.name) continue; if (x.kind !== 'loss') { G.cash += x.amount; if (x.amount) flow(G, x.kind, x.amount, x.text); } else { G.lossBook = (G.lossBook || 0) - x.amount; flow(G, 'loss', x.amount, x.text); } }
   // 陣亡
   for (const c of G.roster) if (!c.alive && c.status !== 'kia') { c.status = 'kia'; c.diedH = h; note(G, h, `${CLS[c.cls].n} ${c.id} 陣亡${c.crown === 'gold' ? '（金冠）' : ''}。`); }
-  // 結案：活著的人走回總部
+  // 合約到期（Alan 2026-10-10）：案期一過（或提早收尾後的最後一天過了），自己的服務單都打完的小隊就啟程返回，不必等案件結算（結算還要再等一天緩衝、等別家的單打完）
+  for (const id of G.cases) {
+    const c = book.cases.find(x => x.id === id); if (!c || c.settled || c.own) continue;
+    const endAt = Math.min(c.end, (c.closedAt ?? c.end) + (c.freeze ?? C.CFG.FREEZE)); if (h < endAt) continue;
+    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.headedHome || book.tickets.some(t => t.squad === sid && !t.done)) continue;
+      const away = sq.clones.filter(x => x.alive && x.status === 'away'); sq.headedHome = h; if (!away.length) continue;
+      const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
+      if (sq.fast) C.paySpeed(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id);
+      for (const x of away) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); }
+      note(G, h, `「${c.title}」合約到期，${sq.name} ${away.length} 人啟程返回（約 ${Math.round(t1 - h)} 小時），尾款等結案再分。`); }
+  }
+  // 結案：活著的人走回總部（合約到期時已經啟程的就不再重複）
   for (const id of G.cases) {
     // 歸建要每家公司各記一次（案件是大家共用的；原本整個案件記一個旗子，先處理的公司把旗子立起來，其他公司的人就永遠回不來——NPC 上線後抓到）
     const c = book.cases.find(x => x.id === id); if (!c || !c.settled || c.backHome === true || c.backHome?.[G.name]) continue; (c.backHome ||= {})[G.name] = true;
