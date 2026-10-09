@@ -117,7 +117,7 @@ export function procure(G, book, w, t, mat, qty, uids, now) {
   const o = q.offer[mat]; qty = Math.floor(qty / 10) * 10;
   if (qty <= 0) return '數量要大於 0';
   if (qty > o.max) return `${q.name}只賣得出 ${o.max}`;
-  const cost = Math.round(o.price * qty) + q.fee; if (cost > G.cash) return `錢不夠（要 $${cost}）`;
+  const cost = Math.round(o.price * qty) + q.fee; if (cost > G.cash) return `錢不夠（要 $${cost}k）`;
   const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
   const K = w.sim.peek(), m = K.markets[t];
   if (mat === 'food' || mat === 'water') m.stock[mat] -= qty * .05; else if (mat === 'implant' && !m.works && !(m.vat > 0)) m.stock.parts -= qty / 200;
@@ -125,7 +125,7 @@ export function procure(G, book, w, t, mat, qty, uids, now) {
   const c = C.openCase(book, w, {kind: 'route', own: G.name, guard: 16, title: `採購：${MN[mat]} ${qty}（${q.name}）`, tile: t, from: t, to: G.base, fac: K.owner[G.base], lv: 1, hours: q.trip,
     cargo: {g: mat, amt: qty, val: o.price}}, now);
   c.mat = mat; c.qty = qty;
-  G.cash -= cost; flow(G, 'trip', -cost, `採購路線：${q.name}的${MN[mat]} ${qty}（貨款 $${Math.round(o.price * qty)}、車隊 $${q.fee}）`);
+  G.cash -= cost; flow(G, 'trip', -cost, `採購路線：${q.name}的${MN[mat]} ${qty}（貨款 $${Math.round(o.price * qty)}k、車隊 $${q.fee}k）`);
   const groups = []; for (let i = 0; i < pick.length; i += 4) groups.push(pick.slice(i, i + 4));
   for (const g of groups) { if (g.length < 2) continue; const sq = C.makeSquad(book, G.name, {clones: g, gear: 3, at: G.base, name: `${G.name}・護衛${G.seq++}隊`}); if (C.enlist(book, c.id, sq.id, now)) for (const x of g) { x.status = 'away'; x.missions++; } }
   G.cases.push(c.id);
@@ -339,7 +339,7 @@ export function hour(G, book, w, h) {
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       if (sq.fast) C.paySpeed(book, w, G.name, c.tile, G.base, sq.clones.filter(x => x.alive && x.status === 'away').length, h, `${c.title}（${sq.name}）回程`, c.id); for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
-    note(G, h, `「${c.title}」結案${c.delivered !== undefined ? `，送達 ${Math.round(c.delivered * 100)}%` : ''}，分到尾款 ${got}。`);
+    note(G, h, `「${c.title}」結案${c.delivered !== undefined ? `，送達 ${Math.round(c.delivered * 100)}%` : ''}，分到尾款 $${got}k。`);
     if (got > 0 && rnd(G) < GCFG.TEMPLATE_P) { const t = mkTemplate(G, () => rnd(G)); G.templates.push(t); note(G, h, `雇主另外送了一張模板：${CLS[t.cls].n}。`); }
     if (got > 0 && rnd(G) < GCFG.ARMOR_P) rewardArmor(G, h);
   }
@@ -361,7 +361,7 @@ export function recall(G, book, w, squadId, now) {
   const r = C.withdraw(book, w, squadId, now); if (!r.ok) return r.why;
   const hrs = sendHome(G, w, sq.clones, r.here, now, sq.fast, book, sq.name);
   for (const col of r.cols) sendHome(G, w, col.clones, col.here, now, col.fast, book, `${sq.name} 的補員`);
-  note(G, now, `召回${sq.name}${r.penalty ? `，付違約金 $${r.penalty}` : ''}，約 ${C.fmtDur(hrs)}後回到總部。`);
+  note(G, now, `召回${sq.name}${r.penalty ? `，付違約金 $${r.penalty}k` : ''}，約 ${C.fmtDur(hrs)}後回到總部。`);
   return null;
 }
 export function recallColumn(G, book, w, amendId, now) {

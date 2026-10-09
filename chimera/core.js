@@ -206,7 +206,7 @@ export class Core {
       // 彈藥費（Alan 2026-10-09）：接案的由雇主吸收；自費的（自己的車隊）結算時扣
       const ammo = Object.values(m.result.progress || {}).reduce((x, pr) => x + G.ammoCost(pr?.gear?.ammoUsed), 0), cs = b.cases.find(x => x.id === tk.caseId), selfPay = !!(cs?.own || cs?.selfAmmo);
       if (ammo > 0 && selfPay) C.pay(b, h, name, -ammo, 'ammo', `${tk.title}：彈藥費`, tk.caseId);
-      if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}${selfPay ? '（自費，已扣）' : '（雇主吸收）'}`, ref: tk.id});
+      if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}k${selfPay ? '（自費，已扣）' : '（雇主吸收）'}`, ref: tk.id});
       // 遺產級頭目（Alan 2026-10-09）：戰場回報撤退或戰死；戰死時有人活著帶出遺產級就進倉庫
       const carrier = m.result.legacy && sq.clones.find(c => c.id === m.result.legacy && c.alive && !dead.includes(c.id));
       C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier}, h);

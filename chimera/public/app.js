@@ -307,7 +307,7 @@ function accPicker(o) {
 // 加速（Alan 2026-10-09）：路程時間減半，每人每省一小時 $1；來回同一套，回程時再扣一次。費用要等路線查好（selPath）才算得出來
 function speedRow(tile, n, on) {
   const p = selPath && selPath.to === tile && selPath.hours > 0 ? selPath : null;
-  const info = p ? `${fmtH(p.hours)} → ${fmtH(p.fastHours)}・去程 $${p.fastPer * Math.max(1, n)}，回程時再扣一次${n ? '' : '（每人）'}` : '路程時間減半，每人每省一小時 $1，回程時再扣一次';
+  const info = p ? `${fmtH(p.hours)} → ${fmtH(p.fastHours)}・去程 $${p.fastPer * Math.max(1, n)}k，回程時再扣一次${n ? '' : '（每人）'}` : '路程時間減半，每人每省一小時 $1k，回程時再扣一次';
   return `<label class="speed${on ? ' on' : ''}"><input type="checkbox" data-fast="1"${on ? ' checked' : ''}> 加速 <span class="mini">${info}</span></label>`;
 }
 // 開了公司之後，機會就是伺服器上的委託板（跟著伺服器時間：公開三天，截止前一天不能再接；Alan 2026-10-09）；沒開公司時是沙盒的機會
@@ -383,7 +383,7 @@ function onGame(m) {
   if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('mailBtn').hidden = false; $('gyd').value = m.yearDays; showPage('co'); renderAll(); send({type: 'quotes'}); }
   $('gclock').textContent = clockText(Math.max(GV.h, hourNow() ?? GV.h), m);
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
-  $('gcash').textContent = `$${GV.cash}`; $('gcash').classList.toggle('neg', GV.cash < 0);
+  $('gcash').textContent = `$${GV.cash}k`; $('gcash').classList.toggle('neg', GV.cash < 0);
   $('gmats').html = MATS.map(m => `<span>${MN[m]} <b>${GV.mats[m]}</b></span>`).join('');   // 玩家的資源都在頂端（Alan 2026-10-09）
   maybeReveal(); renderPage(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
   renderMail();
@@ -415,7 +415,7 @@ function renderCo() {
     <div class="kpi">待命<b>${alive.filter(c => c.status === 'home' && !c.keep).length}</b></div><div class="kpi">出勤<b>${alive.filter(c => c.status === 'away' || c.status === 'returning').length}</b></div>
     <div class="kpi">供在家裡<b>${alive.filter(c => c.keep).length}</b></div><div class="kpi">陣亡<b>${G.roster.length - alive.length}</b></div>
     <div class="kpi">進行中<b>${active.filter(c => !c.own).length} 案・${active.filter(c => c.own).length} 車隊</b></div><div class="kpi">待打的服務單<b>${G.tickets.length}</b></div>
-    <div class="kpi">帳面業務損失<b>$${G.lossBook}</b></div>`;
+    <div class="kpi">帳面業務損失<b>$${G.lossBook}k</b></div>`;
   $('co-tk').html = G.tickets.length ? G.tickets.map(t => {
     const left = t.deadline - h, U = Object.entries(t.enemy.units || {}).map(([k, n]) => `${unitName(k)}×${n}`).join('、'), V = t.enemy.veh ? Object.entries(t.enemy.veh).filter(([, n]) => n > 0).map(([k, n]) => `${unitName(k)}×${n}`).join('、') : '';
     return `<div class="card tk${t.transit ? ' transit' : ''}"><h4><a href="#" data-center="${t.tile}">${esc(t.title)}</a><span class="due${left > 12 ? ' ok' : ''}">剩 ${cd(t.deadline)}</span></h4>
@@ -425,7 +425,7 @@ function renderCo() {
       ${t.est ? `<div class="mini">小隊戰力 ${t.est.pow}・自動結算勝算約 <span class="odds-est ${t.est.p < .4 ? 'bad' : t.est.p < .75 ? 'mid' : 'good'}">${Math.round(t.est.p * 100)}%</span>・預估陣亡 ${t.est.dead.toFixed(1)} 人</div>` : ''}
       <div class="row"><button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的服務單。</p>';
   $('co-cases').html = G.cases.length ? G.cases.map(c => {
-    const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? `${cd(c.end - 24)}後合約到期` : `收尾中・${cd(c.end + 24)}後結算`;
+    const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}k` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? `${cd(c.end - 24)}後合約到期` : `收尾中・${cd(c.end + 24)}後結算`;
     return `<div class="card"><h4><a href="#" data-center="${c.tile}">${esc(c.title)}</a><span class="mini">${c.own ? '採購' : '●'.repeat(c.lv) + '○'.repeat(3 - c.lv)}</span></h4>
       <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>
       ${c.own && !c.squads.length ? '<div class="mini">沒有護衛，路上出事由雇來的車隊守衛自己打。</div>' : ''}
@@ -475,7 +475,7 @@ function renderStore() {
   P.html = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">身上的裝備 <span class="muted">點人換裝</span></h3>
     <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${img(c.portrait)}" alt="">${CLS[c.cls].n} ${c.id}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
     <div class="cocol"><div class="box"><h3 class="sec">庫存 <span class="muted">戰鬥撿到的、換下來的・本地行情 ×${(GV.sellFactor ?? 1).toFixed(2)}</span></h3>
-    ${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${store.map(it => `<tr><td>${KN[it.kind]}</td><td>${esc(it.name)}${it.kind === 'armor' && it.affix ? `<div class="mini muted">${esc(ARMOR_TEXT[it.affix] || '')}</div>` : ''}</td><td class="acts">${it.kind === 'gun' ? `<button data-modpick="${it.id}">改裝</button>` : ''}<button data-sell="${it.id}">${it.value ? `賣 $${it.value}` : '丟棄'}</button></td></tr>${modPick === it.id ? `<tr><td colspan="3"><div class="gpick">${Object.keys(MOD_AFFIXES).filter(a => !MOD_AFFIXES[a].notOn?.includes(it.base) && a !== it.affix).map(a => `<button data-mod="${it.id}:${a}">${AFFIX_NAMES[a]}</button>`).join('')}<span class="mini">每次 $${modCost(it.base)}</span><button data-modx="1">取消</button></div></td></tr>` : ''}`).join('')}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
+    ${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${store.map(it => `<tr><td>${KN[it.kind]}</td><td>${esc(it.name)}${it.kind === 'armor' && it.affix ? `<div class="mini muted">${esc(ARMOR_TEXT[it.affix] || '')}</div>` : ''}</td><td class="acts">${it.kind === 'gun' ? `<button data-modpick="${it.id}">改裝</button>` : ''}<button data-sell="${it.id}">${it.value ? `賣 $${it.value}k` : '丟棄'}</button></td></tr>${modPick === it.id ? `<tr><td colspan="3"><div class="gpick">${Object.keys(MOD_AFFIXES).filter(a => !MOD_AFFIXES[a].notOn?.includes(it.base) && a !== it.affix).map(a => `<button data-mod="${it.id}:${a}">${AFFIX_NAMES[a]}</button>`).join('')}<span class="mini">每次 $${modCost(it.base)}k</span><button data-modx="1">取消</button></div></td></tr>` : ''}`).join('')}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
 }
 // ───── 交易：素材庫存、在總部買、派車隊去別座城採購（之後賣人也放這裡） ─────
 function renderTrade() {
@@ -485,9 +485,9 @@ function renderTrade() {
     <div class="cocol"><div class="box"><h3 class="sec">採購路線 <span class="muted">派車隊去別座城買料，來回都可能被劫</span></h3><div id="co-proc"></div></div></div></div>
     <div class="box"><h3 class="sec">裝備 <span class="muted">在總部的市場買，買了放進倉庫</span></h3><div id="co-shop"></div></div>`;
   const G = GV;
-  const shopRow = (kind, T) => Object.keys(T).map(b => { const it = {kind, base: b, ...(kind === 'kit' ? {n: KITS[b].max} : {})}; return `<button data-shop="${kind}:${b}">${esc(itemName(it))}　$${shopPrice(it)}</button>`; }).join('');
+  const shopRow = (kind, T) => Object.keys(T).map(b => { const it = {kind, base: b, ...(kind === 'kit' ? {n: KITS[b].max} : {})}; return `<button data-shop="${kind}:${b}">${esc(itemName(it))}　$${shopPrice(it)}k</button>`; }).join('');
   $('co-shop').html = [['槍', 'gun', GUNS], ['近戰', 'melee', MELEES], ['護甲', 'armor', ARMORS], ['預備品', 'kit', KITS]].map(([n, k, T]) => `<div class="shoprow"><b>${n}</b>${shopRow(k, T)}</div>`).join('');
-  $('co-mats').html = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">本地單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}）</button></td></tr>`).join('') + '</table>';
+  $('co-mats').html = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">本地單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}k</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}k）</button></td></tr>`).join('') + '</table>';
   renderProc();
 }
 
@@ -604,7 +604,7 @@ function recallBtn(u, onlyBtn = false) {
   if (onlyBtn) return armed === key ? '' : `<button data-recall="${key}">召回</button>`;
   if (armed !== key) return u.inRow ? '' : `<div class="row"><button data-recall="${key}">召回</button></div>`;
   const why = u.recall.type === 'column' ? `這 ${u.n || ''} 名補員在路上掉頭，走回總部。` : u.kind === 'escort' ? '護衛離開車隊，走回總部；車隊之後出事由雇來的守衛自己打。'
-    : `等於毀約：付違約金 <b>$${u.recall.penalty}</b>，這個案件的積分作廢。${u.busy ? '手上的服務單交給案件的護衛去打。' : ''}`;
+    : `等於毀約：付違約金 <b>$${u.recall.penalty}k</b>，這個案件的積分作廢。${u.busy ? '手上的服務單交給案件的護衛去打。' : ''}`;
   return `<div class="confirm"><div class="mini">${why}${u.fast ? '回程照樣加速，回程時扣加速的錢。' : ''}</div><div class="row"><button class="warn" data-recall="${key}">確定召回</button><button data-recall-x="1">取消</button></div></div>`;
 }
 function recallClick(e) {
@@ -623,7 +623,7 @@ function renderProc() {
   const el = $('co-proc'); if (!el) return;
   if (el.contains(document.activeElement) && /INPUT|SELECT/.test(document.activeElement.tagName)) return;   // 正在輸入，先不重畫
   if (!QT) { el.innerHTML = '<p class="muted">查詢各城報價中…</p>'; return; }
-  const cell = (q, m) => { const o = q.offer?.[m]; return !o || o.max <= 0 ? '<span class="muted">—</span>' : `$${o.price}`; };
+  const cell = (q, m) => { const o = q.offer?.[m]; return !o || o.max <= 0 ? '<span class="muted">—</span>' : `$${o.price}k`; };
   let html = `<table class="rep"><tr><th>城</th><th>來回</th><th>風險</th>${MATS.map(m => `<th>${MN[m]}</th>`).join('')}</tr>` +
     QT.slice(0, 14).map(q => `<tr data-qt="${q.t}" class="${procSel && procSel.t === q.t ? 'sel' : ''}"><td>${esc(q.name)}${q.war ? ' <span class="neg">交戰</span>' : ''}${q.works ? ' <span class="mini">廠區</span>' : ''}</td><td>${fmtH(q.trip)}</td><td class="${q.risk > .5 ? 'neg' : ''}">${Math.round(q.risk * 100)}%</td>${MATS.map(m => `<td>${cell(q, m)}</td>`).join('')}</tr>`).join('') + '</table>';
   html += `<div class="row"><button data-act="qt-refresh">重新查詢報價</button><span class="mini">價格是那座城的市價；風險是整趟路上出事的機率。可以點地圖上的城鎮「派車隊來這裡採購」。</span></div>`;
@@ -634,9 +634,9 @@ function renderProc() {
     const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
     html += q.war ? `<p class="neg">${esc(q.fac)}跟我們這邊在打仗，不賣。</p>` : !mats.length ? '<p class="muted">這座城現在沒有可以賣的料。</p>' : `<div class="procform">
       <span>去</span><span><b>${esc(q.name)}</b> <span class="muted">${esc(q.fac)}・單程 ${fmtH(q.hours)}・來回加裝貨 ${fmtH(q.trip)}</span></span>
-      <span>買</span><select data-pf="mat">${mats.map(m => `<option value="${m}"${m === procSel.mat ? ' selected' : ''}>${MN[m]}（$${q.offer[m].price}，最多 ${q.offer[m].max}）</option>`).join('')}</select>
+      <span>買</span><select data-pf="mat">${mats.map(m => `<option value="${m}"${m === procSel.mat ? ' selected' : ''}>${MN[m]}（$${q.offer[m].price}k，最多 ${q.offer[m].max}）</option>`).join('')}</select>
       <span>數量</span><input type="number" min="10" step="100" value="${procSel.qty}" data-pf="qty">
-      <span>花費</span><span>貨款 $${o ? Math.round(o.price * procSel.qty) : 0} ＋ 雇車隊 $${q.fee} ＝ <b>$${cost}</b>${cost > GV.cash ? ' <span class="neg">錢不夠</span>' : ''}</span>
+      <span>花費</span><span>貨款 $${o ? Math.round(o.price * procSel.qty) : 0}k ＋ 雇車隊 $${q.fee}k ＝ <b>$${cost}k</b>${cost > GV.cash ? ' <span class="neg">錢不夠</span>' : ''}</span>
       <span>護衛</span><span class="chips" style="margin:0">${av.map(c => chip(c, procSel.uids.has(c.uid), 'pu')).join('') || '<span class="muted">沒有待命的人</span>'}</span></div>
       <div class="row"><button class="primary" data-act="proc-go">出發（${procSel.uids.size >= 2 ? `護衛 ${procSel.uids.size} 人` : '不帶護衛'}）</button><button data-act="proc-x">取消</button><span class="mini">至少兩人才成隊；不帶護衛時，出事由雇來的守衛自己打。</span></div>`;
   }
@@ -649,12 +649,12 @@ function renderRepPage() {
   const P = $('pane-rep');
   if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }
   if (!$('co-rep')) P.innerHTML = `<div class="cohead"><div><div class="mini">${esc(GV.name)}・總部 ${esc(GV.baseName)}</div><div class="big" id="rep-cash"></div></div></div><div class="box"><h3 class="sec">報表</h3><div id="co-rep"></div></div>`;
-  $('rep-cash').textContent = `$${GV.cash}`; $('rep-cash').classList.toggle('neg', GV.cash < 0);
+  $('rep-cash').textContent = `$${GV.cash}k`; $('rep-cash').classList.toggle('neg', GV.cash < 0);
   renderRep();
 }
 function renderRep() {
   const el = $('co-rep'); if (!el) return;
-  const R = GV.report, money = v => `<span class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${Math.round(v || 0)}</span>`;
+  const R = GV.report, money = v => `<span class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${Math.round(v || 0)}k</span>`;
   const tot = o => FK.reduce((x, [k]) => x + (o[k] || 0), 0);
   let html = `<div class="mini">現金走勢（每天一點）</div><div class="spark" id="co-spark">${sparkSvg(R.daily, Math.max(280, (el.clientWidth || 320) - 4), 180)}</div>`;
   html += `<table class="rep" style="margin-top:8px"><tr><th>收支</th><th>近 30 天</th><th>累計</th></tr>` + FK.map(([k, n]) => `<tr><td>${n}</td><td>${money(R.d30[k])}</td><td>${money(R.all[k])}</td></tr>`).join('') +
@@ -662,7 +662,7 @@ function renderRep() {
   // 進行中的案件：已收（訂金、期中款）與應收（還沒付的期中款、尾款池）（Alan 2026-10-09：從任務管制的案件卡搬過來）
   const act = GV.cases.filter(c => !c.settled && !c.own);
   if (act.length) html += `<div class="mini" style="margin-top:10px">進行中的案件</div><table class="rep"><tr><th>案件</th><th>已收</th><th>應收</th></tr>` + act.map(c => { const n = c.squads.length;
-    return `<tr><td>${esc(c.title)}</td><td>訂金 $${c.pay.deposit * n}${c.midPaid ? `＋期中 $${c.pay.mid * n}` : ''}</td><td>${c.midPaid ? '' : `期中 $${c.pay.mid * n}＋`}尾款池 $${c.pay.final}<span class="mini">（依積分平分）</span></td></tr>`; }).join('') + '</table>';
+    return `<tr><td>${esc(c.title)}</td><td>訂金 $${c.pay.deposit * n}k${c.midPaid ? `＋期中 $${c.pay.mid * n}k` : ''}</td><td>${c.midPaid ? '' : `期中 $${c.pay.mid * n}k＋`}尾款池 $${c.pay.final}k<span class="mini">（依積分平分）</span></td></tr>`; }).join('') + '</table>';
   html += `<div class="mini" style="margin-top:10px">結案紀錄</div>` + (R.hist.length ? `<table class="rep"><tr><th>案件</th><th>服務單（勝／自動）</th><th>陣亡</th><th>收入</th></tr>` + R.hist.slice(0, 15).map(c => `<tr><td>${esc(c.title)}${c.delivered !== undefined ? ` <span class="mini">送達 ${Math.round(c.delivered * 100)}%</span>` : ''}</td><td>${c.tickets}（${c.wins}／${c.auto}）</td><td>${c.dead || ''}</td><td>${c.own ? '<span class="muted">—</span>' : money(c.income + c.upkeep)}</td></tr>`).join('') + '</table>' : '<p class="muted">還沒有結案。</p>');
   const al = GV.roster.filter(c => c.alive), byC = {}; for (const c of al) byC[c.cls] = (byC[c.cls] || 0) + 1;
   html += `<div class="mini" style="margin-top:10px">人員：${Object.entries(byC).map(([k, n]) => `${CLS[k].n} ${n}`).join('・') || '沒有'}・金冠 ${al.filter(c => c.crown === 'gold').length}・銀冠 ${al.filter(c => c.crown === 'silver').length}</div>`;
@@ -675,8 +675,8 @@ function sparkSvg(D, W = 320, H = 120) {
   const pts = D.map((d, i) => `${X(i).toFixed(1)},${Y(d.cash).toFixed(1)}`).join(' ');
   return `<svg viewBox="0 0 ${W} ${H}" style="height:${H}px" role="img" aria-label="現金走勢" data-w="${W}">
     <line x1="${pl}" x2="${W - pr}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--line)" stroke-width="1"/>
-    <text x="${pl - 4}" y="${Y(hi) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(hi)}</text>
-    <text x="${pl - 4}" y="${Y(lo) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(lo)}</text>
+    <text x="${pl - 4}" y="${Y(hi) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(hi)}k</text>
+    <text x="${pl - 4}" y="${Y(lo) + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${Math.round(lo)}k</text>
     <text x="${pl}" y="${H - 4}" font-size="10" fill="var(--muted)">第 ${Math.round(D[0].h / 24)} 天</text><text x="${W - pr}" y="${H - 4}" text-anchor="end" font-size="10" fill="var(--muted)">第 ${Math.round(D[D.length - 1].h / 24)} 天</text>
     <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
     <line class="xh" x1="0" x2="0" y1="${pt}" y2="${H - pb}" stroke="var(--muted)" stroke-width="1" visibility="hidden" vector-effect="non-scaling-stroke"/></svg><div class="tt" hidden></div>`;
@@ -686,7 +686,7 @@ $('pane-co').addEventListener('pointermove', e => {
   const D = GV.report.daily, r = svg.getBoundingClientRect(), W = +svg.dataset.w, iw = W - 46, fx = (e.clientX - r.left) / r.width * W, i = Math.max(0, Math.min(D.length - 1, Math.round((fx - 40) / iw * (D.length - 1))));
   const x = 40 + iw * i / (D.length - 1), tt = box.querySelector('.tt'), xh = svg.querySelector('.xh');
   xh.setAttribute('x1', x); xh.setAttribute('x2', x); xh.setAttribute('visibility', 'visible');
-  tt.hidden = false; tt.textContent = `第 ${Math.round(D[i].h / 24)} 天　$${D[i].cash}　活著 ${D[i].alive}`; tt.style.left = Math.min(r.width - tt.offsetWidth, Math.max(0, x / W * r.width - tt.offsetWidth / 2)) + 'px'; tt.style.top = '0px';
+  tt.hidden = false; tt.textContent = `第 ${Math.round(D[i].h / 24)} 天　$${D[i].cash}k　活著 ${D[i].alive}`; tt.style.left = Math.min(r.width - tt.offsetWidth, Math.max(0, x / W * r.width - tt.offsetWidth / 2)) + 'px'; tt.style.top = '0px';
 });
 $('pane-co').addEventListener('pointerleave', () => { const b = $('co-spark'); if (b) { const tt = b.querySelector('.tt'); if (tt) tt.hidden = true; b.querySelector('.xh')?.setAttribute('visibility', 'hidden'); } }, true);
 
@@ -706,6 +706,8 @@ function showPage(p) {
   if (p === 'map') { draw(); renderRoster(); } else renderPage();
 }
 for (const b of document.querySelectorAll('.pager button')) b.onclick = () => showPage(b.dataset.page);
+// 一開始就把地圖以外的分頁收到右邊（單人測試模式不會經過 showPage，其他分頁會蓋在地圖上）
+for (const [i, el] of [...$('track').children].entries()) el.classList.toggle('above', i > PAGES.indexOf(page));
 let swipe = null;
 $('pages').addEventListener('touchstart', e => {
   if (e.touches.length !== 1) { swipe = null; return; }
@@ -726,7 +728,7 @@ const sg = v => (v > 0 ? '+' : '') + v;
 function rePicker(room) {
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
   return `<div class="picker confirm"><div class="mini">契約變更：從總部調人補這一隊，雇主不另付錢。還能補 ${room} 人；走過去要時間，路上可能遇襲。打輸太多或放著不打，雇主會拒絕。</div><div class="chips">${av.map(c => chip(c, pickRe.uids.has(c.uid), 'rp')).join('') || '<span class="muted">總部沒有待命的人</span>'}</div>
-    <label class="speed${pickRe.fast ? ' on' : ''}"><input type="checkbox" data-refast="1"${pickRe.fast ? ' checked' : ''}> 加速 <span class="mini">路程時間減半，每人每省一小時 $1</span></label>
+    <label class="speed${pickRe.fast ? ' on' : ''}"><input type="checkbox" data-refast="1"${pickRe.fast ? ' checked' : ''}> 加速 <span class="mini">路程時間減半，每人每省一小時 $1k</span></label>
     <div class="row"><button class="primary" data-act="re-go">送出契約變更（${pickRe.uids.size} 人${pickRe.fast ? '・加速' : ''}）</button><button data-act="re-x">取消</button></div></div>`;
 }
 function renderOdds() { if (!$('co-odds')) return; const o = classOdds(recipe); $('co-odds').innerHTML = Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${CLS[k].n} ${Math.round(v * 100)}%</span>`).join(''); }

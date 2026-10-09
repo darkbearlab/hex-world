@@ -115,7 +115,7 @@ export const fmtDur = h => { const m = Math.max(0, Math.round(h * 60)); return m
 // 加速的費用：n 個人、從 from 到 to，比一般走法省下的小時數 × 單價
 export function speedCost(w, from, to, n) { const a = travelHours(w, from, to), b = travelHours(w, from, to, true); return isFinite(a) && isFinite(b) ? Math.round(Math.max(0, a - b) * n * CFG.FAST_PRICE) : 0; }
 // 這一趟用加速：扣錢、記帳（kind 'speed'）
-export function paySpeed(book, w, player, from, to, n, now, what, caseId) { const cost = speedCost(w, from, to, n); if (cost > 0) pay(book, now, player, -cost, 'speed', `${what}：加速（${n} 人，$${cost}）`, caseId); return cost; }
+export function paySpeed(book, w, player, from, to, n, now, what, caseId) { const cost = speedCost(w, from, to, n); if (cost > 0) pay(book, now, player, -cost, 'speed', `${what}：加速（${n} 人，$${cost}k）`, caseId); return cost; }
 
 // ===== 報名：每隊付訂金；小隊從所在地沿路走到案件現場，到了才能接票 =====
 export function enlist(book, caseId, squadId, now, w) {
@@ -215,7 +215,7 @@ export function withdraw(book, w, squadId, now) {
   // 還在路上的補員一起掉頭
   const cols = [];
   for (const a of book.amends) if (a.squad === sq.id && !a.done) { const r = cancelAmend(book, a.id, now); if (r) cols.push(r); }
-  notify(book, now, sq.player, 'move', `${sq.name} 被召回${c.own ? '' : `（毀約，違約金 $${penalty}）`}，從${w.names[here] || '野外'}動身回總部。`, c.id);
+  notify(book, now, sq.player, 'move', `${sq.name} 被召回${c.own ? '' : `（毀約，違約金 $${penalty}k）`}，從${w.names[here] || '野外'}動身回總部。`, c.id);
   return {ok: true, penalty, here, cols};
 }
 export function cancelAmend(book, amendId, now) {
@@ -640,7 +640,7 @@ function settleCase(book, w, c, now) {
   }
   const pool = c.pay.final * mult, tot = Object.values(c.score).reduce((x, y) => x + y, 0);
   c.payout = {};
-  if (tot > 0 && pool > 0) for (const p in c.score) { if (!c.score[p] || c.quit?.[p]) continue; const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 ${Math.round(v)}。`, c.id); }
+  if (tot > 0 && pool > 0) for (const p in c.score) { if (!c.score[p] || c.quit?.[p]) continue; const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 $${Math.round(v)}k。`, c.id); }
   // 維持費（從這一隊加入時算：委託共用案件，晚加入的不多付）、小隊歸建
   for (const id of c.squads) { const s = book.squads[id]; const days = Math.max(0, Math.min(now, c.end) - Math.max(c.start, s.joinedAt ?? c.start)) / 24; pay(book, now, s.player, -CFG.UPKEEP * days, 'upkeep', `${c.title}：維持費（${s.name}）`, c.id); s.caseId = null; s.busy = null; }
   // 編年史：只記值得記的

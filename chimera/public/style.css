@@ -36,7 +36,8 @@ body{display:flex;flex-direction:column}
 .pager button{border:0;background:transparent;padding:4px 12px}
 .pager button.on{background:#3b3124;color:var(--accent)}
 .mapwrap{position:relative;flex:1;min-width:0;background:#0d0c0a;overflow:hidden;touch-action:none}
-#map{width:100%;height:100%;display:block;cursor:grab}
+/* 戰略地圖發色不好（Alan 2026-10-09）：整張地圖壓低飽和度、偏黃褐、對比稍低，像褪色的舊螢幕 */
+#map{width:100%;height:100%;display:block;cursor:grab;filter:saturate(.42) sepia(.14) contrast(.94) brightness(.96)}
 #map.drag{cursor:grabbing}
 .layers{position:absolute;left:10px;bottom:59px;display:flex;gap:4px;flex-wrap:wrap;max-width:calc(100% - 60px)}
 .layers button,.zoom button{background:rgba(28,25,21,.88);font-size:12px;padding:3px 8px}
@@ -44,6 +45,8 @@ body{display:flex;flex-direction:column}
 .zoom button{width:30px;padding:3px 0}
 .maplegend{position:absolute;left:10px;bottom:97px;background:rgba(20,18,15,.88);border:1px solid var(--line);border-radius:6px;padding:6px 9px;font-size:11px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 12px;max-width:calc(100% - 20px)}
 .maplegend i{display:inline-block;width:10px;height:10px;margin-right:4px;vertical-align:-1px;border-radius:2px}
+/* 圖例、勢力列表的色塊跟地圖一樣褪色 */
+.maplegend i,.frow .sw{filter:saturate(.42) sepia(.14) contrast(.94) brightness(.96)}
 .tip{position:absolute;pointer-events:none;background:rgba(20,18,15,.95);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font-size:12px;max-width:240px;z-index:3}
 .panel{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;background:var(--panel);border-top:1px solid var(--line);box-shadow:0 -6px 18px #0008;min-height:0;max-height:49px;transition:max-height .25s ease,width .25s ease;overflow:hidden}
 .tabs{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--line)}
@@ -365,7 +368,7 @@ html.vhs .vhs-layer::after{content:'';position:absolute;left:0;right:0;top:0;hei
 @keyframes chimera-vhs-grain{0%{transform:translate(0,0)}20%{transform:translate(-27px,19px)}40%{transform:translate(21px,-33px)}60%{transform:translate(-41px,-11px)}80%{transform:translate(13px,31px)}}
 @keyframes chimera-vhs-roll{from{transform:translateY(-20vh)}to{transform:translateY(120vh)}}
 html.vhs body{text-shadow:.6px 0 #ff5a5a40,-.6px 0 #5ac8ff40}
-html.vhs #map{filter:saturate(.85) contrast(1.06)}
+html.vhs #map{filter:saturate(.36) sepia(.14) contrast(1)}
 @media (prefers-reduced-motion:reduce){html.vhs .vhs-layer::before{animation:none}html.vhs .vhs-layer::after{display:none}}
 html.vhs body:has(#ash-root:not([hidden]))>.vhs-layer{display:none}   /* 戰鬥畫面有自己的一層 */
 /* iPhone 的網址列會伸縮：用動態的視窗高度，底部才不會被蓋到或超出 */
