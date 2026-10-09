@@ -77,6 +77,17 @@ export function installOutdoor(renderer) {
     if (q) darkWall(this, x, y, {left: q.left, top: q.capTop, width: q.width, height: q.bottom - q.capTop});
     return q;
   };
+  // 溝緣擋住溝裡的人（Alan 2026-10-09：敵人下沉了但沒有被蓋住）：人往下畫之後下半身會伸出自己那一格，
+  // 畫人的時候裁到南邊溝緣的位置為止，伸出去的部分就像被溝緣擋住
+  const actor = R.actor;
+  R.actor = function (a, type, time, e, ...rest) {
+    const o = this.game?.chimeraOutdoor, lv = e && o?.trench?.[e.y]?.[e.x];
+    if (!lv) return actor.call(this, a, type, time, e, ...rest);
+    // 南邊那一格一樣深就不用擋（溝裡連著的格子），比較淺就擋到它的溝底那麼深為止
+    const c = this.ctx, b = this.project(e.x, e.y).y + this.tile * (.5 + Math.min(TRENCH_DEPTH[lv], TRENCH_DEPTH[o.trench[e.y + 1]?.[e.x] || 0]));
+    c.save(); c.beginPath(); c.rect(-1e4, -1e4, 2e4, b + 1e4); c.clip();
+    try { return actor.call(this, a, type, time, e, ...rest); } finally { c.restore(); }
+  };
   // 站在戰壕裡的人跟著溝底往下畫
   const project = R.projectActor;
   R.projectActor = function (actor) {
