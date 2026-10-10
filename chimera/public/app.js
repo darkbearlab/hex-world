@@ -559,7 +559,15 @@ function maybeReveal() {
     <div class="mini muted">點一下關閉</div></div>`});
   box.onclick = () => box.remove(); document.body.appendChild(box);
 }
+// 人員詳細資料：獨立的一張卡片，疊在畫面上（Alan 2026-10-10：比較好控制版面）；✕、點外面、Esc 關掉
+function renderPerson() {
+  const P = $('pcard'); if (!P) return;
+  const c = GV && personSel != null && ['co', 'vat', 'store', 'trade'].includes(page) && GV.roster.find(x => x.uid === personSel);
+  P.hidden = !c; if (c) $('pcbox').html = personCard(c);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && personSel != null && !$('pcard').hidden) { personSel = null; gearPick = null; renderRoster(); } });
 function renderRoster() {
+  renderPerson();
   const D = $('drawer'); if (!D) return;
   D.hidden = !GV || !['co', 'vat', 'store', 'trade'].includes(page); if (D.hidden) return;
   D.classList.toggle('open', drawerOpen);
@@ -567,8 +575,6 @@ function renderRoster() {
   $('drawbar').html = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${G.roster.filter(c => c.alive && c.status === 'away').length}${G.roster.some(c => c.alive && c.status === 'returning') ? `・歸途 ${G.roster.filter(c => c.alive && c.status === 'returning').length}` : ''}${n('kia') ? `・陣亡 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
   if (!drawerOpen) return;
   const B = $('drawbody');
-  const c = personSel != null && G.roster.find(x => x.uid === personSel);
-  if (c) { B.html = personCard(c); return; }
   const R = G.roster.filter(x => inF(x)).sort((a, b) => b.pct - a.pct);
   B.html = `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
     <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${img(x.portrait)}" alt=""><b>${who(x)}</b><span>${x.id}・${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
@@ -609,7 +615,7 @@ function personCard(c) {
   const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : c.status === 'recovered' ? (c.reviving ? '遺體在培養槽裡，重新培養中' : '遺體已收回，可以重新培養（等級、技能從頭來）')
     : c.status === 'lost' ? `遺體沒能從${esc(c.downPlace)}帶回來・約 ${cd((c.downAt ?? 0) + 168)}後確認戰死（有人在那一帶打贏就可能撿回來）` : '陣亡';
   const rv = REVIVE_RECIPE[c.cls], canRv = c.status === 'recovered' && !c.reviving;
-  return `<div class="person"><button class="back" data-person="">← 名冊</button>
+  return `<div class="person"><button class="pcx" data-person="" aria-label="關閉">✕</button>
     <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${who(c)} ${c.id}${crownTag(c)}</div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・記憶片段 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>
     ${gearBox(c)}
@@ -809,7 +815,7 @@ function rePicker(room) {
     <div class="row"><button class="primary" data-act="re-go">送出契約變更（${pickRe.uids.size} 人${pickRe.fast ? '・加速' : ''}）</button><button data-act="re-x">取消</button></div></div>`;
 }
 function renderOdds() { if (!$('co-odds')) return; const o = classOdds(recipe); $('co-odds').innerHTML = Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${CLS[k].n} ${Math.round(v * 100)}%</span>`).join(''); }
-const coPanes = ['pane-co', 'pane-vat', 'pane-store', 'pane-trade', 'drawer'].map($);
+const coPanes = ['pane-co', 'pane-vat', 'pane-store', 'pane-trade', 'drawer', 'pcard'].map($);
 for (const el of coPanes) el.addEventListener('change', e => { const f = e.target.dataset.pf; if (!f || !procSel) return; procSel[f] = f === 'qty' ? Math.max(10, +e.target.value || 0) : e.target.value; renderProc(); });
 for (const el of coPanes) el.addEventListener('input', e => { const m = e.target.dataset.rc; if (!m) return; const r = e.target.dataset.vat != null ? vatRecipe(+e.target.dataset.vat) : recipe; r[m] = Math.max(0, +e.target.value || 0); renderOdds(); });
 // 配方輸入框打完（離開焦點）才重畫培養槽，機率跟著更新
@@ -832,7 +838,8 @@ const coClick = e => {
   if (e.target.closest('[data-modx]')) { modPick = null; renderStore(); return; }
   const md = e.target.closest('[data-mod]'); if (md) { const [item, affix] = md.dataset.mod.split(':'); send({type: 'mod', item, affix}); modPick = null; return; }
   const sh = e.target.closest('[data-shop]'); if (sh) { const [kind, base] = sh.dataset.shop.split(':'); send({type: 'shop', kind, base}); return; }
-  const ps = e.target.closest('[data-person]'); if (ps) { gearPick = null; personSel = ps.dataset.person === '' ? null : +ps.dataset.person; drawerOpen = true; renderRoster(); return; }
+  if (e.target.id === 'pcard') { personSel = null; gearPick = null; renderRoster(); return; }   // 點卡片外面
+  const ps = e.target.closest('[data-person]'); if (ps) { gearPick = null; personSel = ps.dataset.person === '' ? null : +ps.dataset.person; renderRoster(); return; }
   const rf2 = e.target.closest('[data-refast]'); if (rf2) { pickRe.fast = rf2.checked; renderCo(); return; }
   const st = e.target.closest('[data-rcd]'); if (st) { const r = vatRecipe(+st.dataset.vat), m = st.dataset.m; r[m] = Math.max(GCFG.MIN, Math.min(GCFG.MAX, (r[m] || 0) + +st.dataset.rcd)); renderVat(); return; }
   if (recallClick(e)) return;

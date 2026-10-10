@@ -293,9 +293,13 @@ label.speed.on{border-color:var(--accent);background:#3b312433}
 .face.kia{opacity:.45}
 .face.fresh{border-color:var(--accent)!important}
 .face .kept{position:absolute;right:4px;top:4px;font-style:normal;font-size:10px;color:var(--accent)}
-.person .back{margin-bottom:8px}
+.pcard{position:fixed;inset:0;z-index:40;background:#000a;display:flex;align-items:center;justify-content:center;padding:16px}
+.pcard[hidden]{display:none}
+.pcbox{position:relative;width:min(600px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 40px #000c;padding:18px 18px 14px}
+.pcx{position:absolute;right:10px;top:10px;padding:2px 9px!important}
 .phead{display:flex;gap:12px;align-items:center;margin-bottom:8px}
-.phead img{width:96px;height:96px;image-rendering:pixelated;border-radius:6px;background:#0d0c0a}
+.phead{padding-right:36px}
+.phead img{width:128px;height:128px;image-rendering:pixelated;border-radius:6px;background:#0d0c0a}
 .pname{font-size:16px;font-weight:700}
 .pstats{margin:6px 0}
 
