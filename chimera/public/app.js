@@ -615,8 +615,11 @@ function personCard(c) {
   const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : c.status === 'recovered' ? (c.reviving ? '遺體在培養槽裡，重新培養中' : '遺體已收回，可以重新培養（等級、技能從頭來）')
     : c.status === 'lost' ? `遺體沒能從${esc(c.downPlace)}帶回來・約 ${cd((c.downAt ?? 0) + 168)}後確認戰死（有人在那一帶打贏就可能撿回來）` : '陣亡';
   const rv = REVIVE_RECIPE[c.cls], canRv = c.status === 'recovered' && !c.reviving;
-  return `<div class="person"><button class="pcx" data-person="" aria-label="關閉">✕</button>
-    <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${who(c)} ${c.id}${crownTag(c)}</div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・記憶片段 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
+  // 版面（Alan 2026-10-10）：左邊（手機在上面）留一整欄給之後的半身／全身立繪（art/full/<立繪>.png，還沒有就先放像素頭像）；右邊是資料
+  return `<div class="person pc2"><button class="pcx" data-person="" aria-label="關閉">✕</button>
+    <div class="pcart"><img src="art/full/${c.portrait}.png" alt="" onerror="this.onerror=null;this.src='${img(c.portrait)}';this.parentElement.classList.add('px')"><span class="pcart-cap">${esc(who(c))}${crownTag(c)}</span></div>
+    <div class="pcmain">
+    <div class="phead"><div><div class="pname">${who(c)} ${c.id}${crownTag(c)}</div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・記憶片段 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>
     ${gearBox(c)}
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
@@ -625,7 +628,7 @@ function personCard(c) {
     ${canRv ? `<div class="row"><button class="primary" data-act="revive" data-id="${c.uid}"${MATS.some(m => GV.mats[m] < rv[m]) ? ' disabled title="素材不夠"' : ''}>重新培養（${MATS.map(m => `${MN[m]} ${rv[m]}`).join('・')}）</button></div>` : ''}
     ${cellBox(c)}
     ${serviceRecord(c)}
-    <p class="mini muted">強化、合成、換武器、加入最愛、指名為看板⋯之後會放在這裡。</p></div>`;
+    </div></div>`;
 }
 
 // ───── 通知：收在右上角的信封，點開一疊卡片 ─────
