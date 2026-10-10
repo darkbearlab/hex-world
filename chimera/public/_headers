@@ -1,3 +1,13 @@
 # Cloudflare 靜態檔的標頭。ASH 的 service worker 放在 /ash/，讓它也能管奇美拉的主頁（戰鬥程式優先讀快取），見 ash/chimera-boot.js
 /ash/sw.js
   Service-Worker-Allowed: /
+# 像素工作室（studio.darkbearlab.workers.dev）要讀得到 Chimera 的點陣圖和清單，畫進 canvas 不能被當成跨網域的髒圖（Alan 2026-10-10）
+/asset-manifest.json
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache
+/portraits/*
+  Access-Control-Allow-Origin: *
+/ash-outdoor/*
+  Access-Control-Allow-Origin: *
+/ash/assets/*
+  Access-Control-Allow-Origin: *

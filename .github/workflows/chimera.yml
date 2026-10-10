@@ -26,6 +26,8 @@ jobs:
         run: cp chimera/sim.js chimera/cases.js chimera/company.js chimera/core.js chimera/npc.js chimera/public/
       - name: 插入 ASH PROTOCOL（固定版本＋補丁＋overlay，建置到 public/ash/）
         run: node chimera/ash/build.mjs
+      - name: 產生點陣圖清單（給像素工作室的「Chimera 素材」）
+        run: node chimera/scripts/asset-manifest.mjs
       - name: 部署
         run: npx wrangler deploy --config chimera/wrangler.toml
         env:
