@@ -36,6 +36,7 @@
   <!-- 其他入口（Alan 2026-10-10）：遊戲、帶戰鬥測試的入口、後台，跟像素工作室放在同一道密語後面 -->
   <nav class="links">
     <span class="muted">其他入口</span>
+    <button id="assetsBtn" class="primary">Chimera 素材</button>
     <a class="ghost btn" href="https://chimera.darkbearlab.workers.dev/" target="_blank" rel="noopener">遊戲（Chimera）</a>
     <a class="ghost btn" href="https://chimera.darkbearlab.workers.dev/?arena" target="_blank" rel="noopener">戰鬥測試</a>
     <a class="ghost btn" href="https://chimera.darkbearlab.workers.dev/admin" target="_blank" rel="noopener">遊戲後台</a>
@@ -57,6 +58,19 @@
 </section>
 
 <!-- 編輯器 -->
+<!-- Chimera 素材（Alan 2026-10-10）：瀏覽 Chimera 現在用的所有點陣圖，挑一張開成新作品 -->
+<section id="assets" class="screen" hidden>
+  <header class="bar">
+    <button id="assetBack" class="ghost">‹ 作品</button>
+    <h1>Chimera 素材</h1>
+    <span id="assetCount" class="pill"></span>
+    <span class="grow"></span>
+    <select id="assetGroup" aria-label="分類"></select>
+    <input id="assetSearch" type="search" placeholder="搜尋檔名" aria-label="搜尋檔名">
+  </header>
+  <div id="assetGrid" class="agrid"></div>
+</section>
+
 <section id="editor" class="screen" hidden>
   <header class="bar">
     <button id="backBtn" class="ghost" title="回作品列表">‹ 作品</button>
@@ -142,6 +156,13 @@
 
 <div id="toast" role="status"></div>
 <!-- 匯入圖片轉像素 -->
+<dialog id="assetDlg" class="adlg">
+  <div class="adhead"><b id="adName"></b><span id="adZoom" class="pill"></span><span class="grow"></span><button id="adClose" class="ghost">關閉</button></div>
+  <div id="adView" class="adview"><img id="adImg" alt=""></div>
+  <p id="adInfo" class="muted"></p>
+  <div class="adbtns"><button id="adOpen" class="primary">原尺寸開新作品</button><button id="adCrop">用匯入工具裁一塊</button><a id="adRaw" class="btn ghost" target="_blank" rel="noopener">下載原圖</a></div>
+</dialog>
+
 <dialog id="impDlg" class="imp">
   <div class="imphead">
     <h3>圖片轉像素</h3>
@@ -196,5 +217,6 @@
 
 <script src="app.js"></script>
 <script src="import.js"></script>
+<script src="assets.js"></script>
 </body>
 </html>

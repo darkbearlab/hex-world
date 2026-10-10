@@ -131,3 +131,18 @@ dialog.imp[open]{display:flex}
 }
 .links{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px 0}
 .links .muted{font-size:13px;margin-right:4px}
+
+/* Chimera 素材 */
+.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;padding:12px 16px 24px}
+.agroup{grid-column:1/-1;margin:14px 0 2px;font-size:14px;color:var(--muted)}
+.acard{display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:6px!important;text-align:left}
+.athumb{display:flex;align-items:center;justify-content:center;height:96px;border-radius:6px;background:repeating-conic-gradient(#2a2d33 0 25%,#22252a 0 50%) 0 0/12px 12px;overflow:hidden}
+.athumb img{max-width:100%;max-height:100%;image-rendering:pixelated;object-fit:contain}
+.aname{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.asize{font-size:11px}
+#assetSearch{width:min(220px,40vw)}
+dialog.adlg{max-width:min(980px,96vw);width:100%}
+.adhead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.adview{height:min(62vh,640px);display:flex;align-items:center;justify-content:center;overflow:auto;border-radius:8px;background:repeating-conic-gradient(#2a2d33 0 25%,#22252a 0 50%) 0 0/16px 16px}
+.adview img{image-rendering:pixelated}
+.adbtns{display:flex;flex-wrap:wrap;gap:8px}

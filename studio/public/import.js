@@ -10,15 +10,17 @@
   let result = null, target = 'layer', raf = 0;
 
   /* ── 開啟 ── */
-  function open(mode) {
+  function open(mode, skipPick) {
     target = mode;
     if (mode === 'layer' && !cur) mode = target = 'new';
     $('impTarget').value = target;
     $('impTarget').querySelector('[value=layer]').disabled = !cur;
     syncTarget();
     D.showModal(); resize();
-    if (!img) $('impFile').click();
+    if (!img && !skipPick) $('impFile').click();
   }
+  // Chimera 素材（assets.js）：直接拿一張圖開匯入工具，不用選檔
+  window.importFromBlob = blob => { open('new', true); load(blob); };
   $('importNew').onclick = () => open('new');
   $('importBtn').onclick = () => { flush(); open('layer'); };
   $('impCancel').onclick = () => D.close();

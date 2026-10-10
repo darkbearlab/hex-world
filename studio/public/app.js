@@ -131,7 +131,7 @@ async function resolveConflict(rec) {
 }
 
 /* ───────────── 畫面切換 ───────────── */
-function show(id) { for (const s of ['login', 'home', 'editor']) $(s).hidden = s !== id; }
+function show(id) { for (const s of ['login', 'home', 'assets', 'editor']) $(s).hidden = s !== id; }
 function showLogin(msg) {
   if (!$('login').hidden) return;
   flush();
