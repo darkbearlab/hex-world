@@ -115,7 +115,8 @@ export class Core {
     const b = game.book, h = game.h;
     out.board = Object.values(b.board || {}).map(e => ({kind: e.opp.kind, title: e.opp.title, detail: e.opp.detail, tile: nm(e.opp.tile), lv: e.opp.lv, start: e.start, end: e.end, gone: !!e.gone, cases: Object.keys(e.cases).length})).filter(e => h < e.end + 24);
     out.cases = b.cases.filter(c => !c.settled || h - (c.settledAt || 0) < 72).map(c => ({id: c.id, kind: c.kind, title: c.title, lv: c.lv, tile: nm(c.tile), start: c.start, end: c.end, open: c.open, settled: c.settled,
-      squads: c.squads.map(id => b.squads[id]).filter(Boolean).map(s => ({name: s.name, player: s.player, alive: s.clones.filter(x => x.alive).length, busy: !!s.busy})),
+      squads: c.squads.map(id => b.squads[id]).filter(Boolean).map(s => ({name: s.name, player: s.player, alive: s.clones.filter(x => x.alive).length, busy: !!s.busy, id: s.id, readyAt: s.readyAt, headedHome: s.headedHome ?? null, status: s.clones.filter(x => x.alive).map(x => x.status).join(','),
+        openTickets: b.tickets.filter(t => t.squad === s.id && !t.done).map(t => t.id)})), closedAt: c.closedAt ?? null, own: !!c.own,
       score: Object.fromEntries(Object.entries(c.score).map(([k, v]) => [k, r1(v)])), tickets: b.tickets.filter(t => t.caseId === c.id).length, open_tickets: b.tickets.filter(t => t.caseId === c.id && !t.done).length, payout: c.payout || null}));
     out.companies = Object.values(game.cos).map(G => {
       const R = G.roster, st = {}; for (const c of R) { const k = c.alive ? c.status : 'kia'; st[k] = (st[k] || 0) + 1; }

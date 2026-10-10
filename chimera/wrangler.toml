@@ -37,6 +37,8 @@ cpu_ms = 30000
 "import.meta.url" = '"https://chimera.invalid/ash/src/server.js"'
 
 [vars]
+# 後台唯讀鑰匙的 SHA-256（鑰匙本身只放在 Alan 電腦的 ~/.chimera-admin-token，不進 git）；給 Claude 查線上問題用
+ADMIN_TOKEN_SHA256 = "ad5a0db23bdad6f37aee5df8e3f5e0ed308e4cf6fe20440525b5e68bc531502e"
 # 改這個數字並推送，星球就從頭重新產生（所有公司一起重來）
 WORLD_VERSION = "3"
 # 星球放在哪一洲的機房（Durable Object 第一次建立時決定，之後不會搬；要搬就得改 WORLD_VERSION 重新產生）。

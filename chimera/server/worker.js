@@ -134,6 +134,13 @@ export class Planet extends DurableObject {
       const err = this.core.command({type: 'submit', ticket: b.ticket, result: b.result}, nm); await this.persist();
       return json({ok: !err, err});
     }
+    // 後台的唯讀鑰匙（Alan 2026-10-10：讓 Claude 也能看後台查問題）：x-admin-token 的 SHA-256 等於 ADMIN_TOKEN_SHA256 才放行；只開 admin/world，不能下指令
+    if (path === 'admin/world' && !pid && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {
+      const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(req.headers.get('x-admin-token')))), hex = [...d].map(x => x.toString(16).padStart(2, '0')).join('');
+      if (hex !== this.env.ADMIN_TOKEN_SHA256) return bad('沒有權限', 403);
+      const accounts = {}; for (const [p, n] of Object.entries(this.roster)) accounts[n] = p[0] === 'g' ? 'Google' : '訪客';
+      return json({...this.core.adminView(accounts), server: {started: this.meta.startedAt, hourMs: this.hourMs(), world: this.env.WORLD_VERSION || '1', colo: this.colo || ''}});
+    }
     if (!pid) return bad('沒有身分代碼', 401);
     if (path === 'view') return name ? json({view: this.core.view(name), hour: this.core.hour}) : json({view: null});
     // 後台（Alan 2026-10-09：上帝視角）：只有管理員的 Google 帳號（ADMIN_EMAILS，預設 darkbearlab@gmail.com）看得到；本機開發（DEV=1）誰都可以
