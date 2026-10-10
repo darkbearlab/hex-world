@@ -141,9 +141,15 @@ export class Planet extends DurableObject {
       // 整份存檔（Alan 2026-10-10：拉到測試環境比對改動的影響）；唯讀
       if (path === 'admin/save') return json({seed: this.meta.seed, save: this.core.save()});
       const accounts = {}; for (const [p, n] of Object.entries(this.roster)) accounts[n] = p[0] === 'g' ? 'Google' : '訪客';
-      return json({...this.core.adminView(accounts), server: {started: this.meta.startedAt, hourMs: this.hourMs(), world: this.env.WORLD_VERSION || '1', colo: this.colo || ''}});
+      return json({...this.core.adminView(accounts), clientErrors: (await this.ctx.storage.get('clientErrors')) || [], server: {started: this.meta.startedAt, hourMs: this.hourMs(), world: this.env.WORLD_VERSION || '1', colo: this.colo || ''}});
     }
     if (!pid) return bad('沒有身分代碼', 401);
+    // 瀏覽器回報的錯誤（Alan 2026-10-10）：留最近 50 筆，後台（admin/world 的 clientErrors）看得到
+    if (path === 'clientlog' && req.method === 'POST') {
+      let b = {}; try { b = await req.json(); } catch {}
+      const L = (await this.ctx.storage.get('clientErrors')) || []; L.push({t: Date.now(), who: name || (pid ? String(pid).slice(0, 6) : '?'), where: String(b.where || '').slice(0, 40), msg: String(b.msg || '').slice(0, 300), stack: String(b.stack || '').slice(0, 1500), ua: String(b.ua || '').slice(0, 200)});
+      await this.ctx.storage.put('clientErrors', L.slice(-50)); return json({ok: true});
+    }
     if (path === 'view') return name ? json({view: this.core.view(name), hour: this.core.hour}) : json({view: null});
     // 後台（Alan 2026-10-09：上帝視角）：只有管理員的 Google 帳號（ADMIN_EMAILS，預設 darkbearlab@gmail.com）看得到；本機開發（DEV=1）誰都可以
     if (path === 'admin/world') {
@@ -154,6 +160,12 @@ export class Planet extends DurableObject {
     }
     if (req.method !== 'POST') return bad('不認得的請求', 404);
     let body; try { body = await req.json(); } catch { return bad('請求格式不對'); }
+    // 本機開發（DEV=1）才有：讀一份存檔進來，並把這個瀏覽器的身分接到指定的公司（拿線上存檔重現問題用；線上不會有這條）
+    if (this.env.DEV === '1' && path === 'dev/import' && req.method === 'POST') {
+      this.core.load(body.seed || this.meta.seed, body.save);
+      if (body.as) { this.roster[pid] = body.as; await this.ctx.storage.put('roster', this.roster); }
+      await this.persist(); return json({ok: true, hour: this.core.hour});
+    }
     if (path === 'found') {
       if (name) return bad('你已經開過公司了');
       const nm = String(body.name || '').trim().slice(0, 16);

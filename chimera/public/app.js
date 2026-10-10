@@ -33,8 +33,8 @@ function start(seed) {
   worker = LOCAL ? new Worker('worker.js', {type: 'module'}) : new ServerLink();
   hist = []; allEvents = []; cur = 0; sel = -1; hiFac = -1; computing = true; GV = null; GM = null; coBuilt = false; $('pane-rep').innerHTML = ''; $('pane-trade').innerHTML = ''; mailSeen.clear(); mailFirst = true; $('mailBtn').hidden = WATCH; $('mail').hidden = true;   // 信封一直在（裡面有系統選單） QT = null; procSel = null; selPath = null; document.body.classList.remove('game'); $('gamebar').hidden = true;
   $('computing').hidden = false; $('computing').textContent = '生成地形…'; $('more').hidden = true;
-  worker.onmessage = e => {
-    const m = e.data;
+  worker.onmessage = e => { try { handle(e.data); } catch (err) { reportError(err, e.data?.type); } };
+  const handle = m => {
     if (m.type === 'static') { ST = m; fit(); }
     else if (m.type === 'year') {
       hist.push(m.data); for (const ev of m.data.events) allEvents.push(ev);
@@ -47,7 +47,7 @@ function start(seed) {
     else if (m.type === 'chronicle') { allEvents = m.events; if (curTab() === 'log') renderLog(); }
     else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); hideTitle(); }
     else if (m.type === 'mission') openMission(m.data);
-    else if (m.type === 'error') { hideMissionLoading(); toast(m.text); }
+    else if (m.type === 'error') { hideMissionLoading(); if (entering) showTitle('連線失敗：' + m.text); else toast(m.text); }   // 進場時出錯：停在標題畫面寫出原因，不卡在「連線中」
     else if (m.type === 'path') { selPath = m; draw(); renderSortie(); if (pickOpp) { renderOpp(); if (curTab() === 'tile' && sel >= 0) renderTile(); } }
     else if (m.type === 'quotes') { QT = m.data; if (procSel && !QT.some(q => q.t === procSel.t)) procSel = null; if (page === 'trade') renderProc(); }
   };
@@ -1021,6 +1021,15 @@ async function showTitle(msg) {
   AUTH.hello = hello; renderAcct(hello);
   if (AUTH.clientId && !AUTH.gsi && !account()) await loadGsi();
 }
+// 畫面處理伺服器資料時出錯（Alan 2026-10-10：進遊戲卡在「連線中」查不出原因）：寫在標題畫面上，並回報給伺服器（後台看得到）
+function reportError(err, where) {
+  console.error(err);
+  const text = `畫面出錯（${where || '?'}）：${err?.message || err}`;
+  if (entering || !$('title').hidden) showTitle(text); else toast(text);
+  try { fetch('/api/clientlog', {method: 'POST', headers: {...authHeaders(), 'content-type': 'application/json'}, body: JSON.stringify({where, msg: String(err?.message || err), stack: String(err?.stack || '').slice(0, 1500), ua: navigator.userAgent.slice(0, 200), href: location.href})}); } catch {}
+}
+addEventListener('error', e => { if (e.error) reportError(e.error, 'window'); });
+addEventListener('unhandledrejection', e => reportError(e.reason, 'promise'));
 function hideTitle() { $('title').hidden = true; entering = false; }
 function renderAcct(hello) {
   const email = account(), note = $('acctNote'), co = hello?.company;
