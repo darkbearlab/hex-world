@@ -60,4 +60,14 @@ async function load() {
     $('err').hidden = true; last = d; render(d);
   } catch (e) { $('err').hidden = false; $('err').textContent = e.message; }
 }
+// 快轉（Alan 2026-10-11：測試用）：世界照常一小時一小時推過去；一次算不完的，下一次讀取時補完
+document.getElementById('ff').onclick = async e => {
+  const b = e.target.closest('[data-ff]'); if (!b) return; const h = +b.dataset.ff;
+  if (!confirm(`整個星球往後快轉 ${h} 小時？所有公司、NPC、案件都會跟著推進，不能倒回來。`)) return;
+  const m = $('ffmsg'); m.textContent = '推進中…'; for (const x of document.querySelectorAll('[data-ff]')) x.disabled = true;
+  try { const r = await fetch('/api/admin/world?forward=' + h, {method: 'POST', headers: authHeaders()}), d = await r.json(); if (!r.ok) throw new Error(d.error || r.status);
+    m.textContent = d.behind > 0 ? `快轉 ${d.hours} 小時：推到第 ${d.hour} 小時，還差 ${d.behind} 小時，下一次讀取時會補完（可能要等一下）` : `快轉 ${d.hours} 小時完成：現在第 ${d.hour} 小時（累計快轉 ${d.forwarded} 小時）`;
+  } catch (err) { m.textContent = '快轉失敗：' + err.message; }
+  for (const x of document.querySelectorAll('[data-ff]')) x.disabled = false; load();
+};
 load(); setInterval(() => { if (!document.activeElement || document.activeElement.id !== 'q') load(); }, 30000);

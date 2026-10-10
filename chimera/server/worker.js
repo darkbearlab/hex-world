@@ -131,6 +131,17 @@ export class Planet extends DurableObject {
     if (this.env.PAUSED !== '1') await this.arm();
     return json({ok: true, year: this.core.year, companies: Object.keys(this.core.game.cos).length});
   }
+  // 快轉（Alan 2026-10-11：測試用）：把開服時刻往前挪 hours 小時，世界照常一小時一小時推過去（NPC、案件、每日結算都照算）。
+  // 一次最多 168 小時；這個請求最多算 20 秒，沒推完的由下一個請求補完
+  async forward(hours) {
+    const h = Math.max(1, Math.min(168, Math.floor(+hours || 0)));
+    this.meta.startedAt -= h * this.hourMs(); this.meta.forwarded = (this.meta.forwarded || 0) + h;
+    const target = this.nowHour(), t0 = Date.now();
+    while (this.core.hour < target && Date.now() - t0 < 20000) this.core.advanceTo(this.core.hour + 1);
+    const t = this.exact(); this.core.exactNow = t; this.core.finishDue(t);
+    await this.persist(); this.out = []; await this.arm();
+    return {ok: true, hours: h, hour: this.core.hour, target, behind: target - this.core.hour, forwarded: this.meta.forwarded, year: this.core.year};
+  }
   async fetch(req) {
     await this.init();
     const url = new URL(req.url), path = url.pathname.slice(5);
@@ -156,11 +167,12 @@ export class Planet extends DurableObject {
       return json({ok: !err, err});
     }
     // 後台的唯讀鑰匙（Alan 2026-10-10：讓 Claude 也能看後台查問題）：x-admin-token 的 SHA-256 等於 ADMIN_TOKEN_SHA256 才放行；只開 admin/world，不能下指令
-    if ((path === 'admin/world' || path === 'admin/save') && !pid && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {
+    if ((path === 'admin/world' || path === 'admin/save' || path === 'admin/forward') && !pid && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {
       const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(req.headers.get('x-admin-token')))), hex = [...d].map(x => x.toString(16).padStart(2, '0')).join('');
       if (hex !== this.env.ADMIN_TOKEN_SHA256) return bad('沒有權限', 403);
       // 整份存檔（Alan 2026-10-10：拉到測試環境比對改動的影響）；唯讀
       if (path === 'admin/save') return json({seed: this.meta.seed, save: this.core.save()});
+      if (path === 'admin/forward' && req.method === 'POST') { let b = {}; try { b = await req.json(); } catch {} return json(await this.forward(b.hours)); }
       const accounts = {}; for (const [p, n] of Object.entries(this.roster)) accounts[n] = p[0] === 'g' ? 'Google' : '訪客';
       return json({...this.core.adminView(accounts), clientErrors: (await this.ctx.storage.get('clientErrors')) || [], server: {started: this.meta.startedAt, hourMs: this.hourMs(), world: this.env.WORLD_VERSION || '1', colo: this.colo || ''}});
     }
@@ -176,6 +188,7 @@ export class Planet extends DurableObject {
     if (path === 'admin/world') {
       const acct = pid[0] === 'g' ? await this.ctx.storage.get('acct:' + pid) : null, admins = String(this.env.ADMIN_EMAILS || 'darkbearlab@gmail.com').split(',').map(x => x.trim().toLowerCase());
       if (this.env.DEV !== '1' && !(acct && admins.includes(String(acct.email).toLowerCase()))) return bad('沒有權限', 403);
+      if (req.method === 'POST' && url.searchParams.get('forward')) return json(await this.forward(+url.searchParams.get('forward')));
       const accounts = {}; for (const [p, n] of Object.entries(this.roster)) accounts[n] = p[0] === 'g' ? 'Google' : '訪客';
       return json({...this.core.adminView(accounts), server: {started: this.meta.startedAt, hourMs: this.hourMs(), world: this.env.WORLD_VERSION || '1', colo: this.colo || ''}});
     }
