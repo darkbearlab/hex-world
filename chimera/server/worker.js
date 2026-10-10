@@ -135,9 +135,11 @@ export class Planet extends DurableObject {
       return json({ok: !err, err});
     }
     // 後台的唯讀鑰匙（Alan 2026-10-10：讓 Claude 也能看後台查問題）：x-admin-token 的 SHA-256 等於 ADMIN_TOKEN_SHA256 才放行；只開 admin/world，不能下指令
-    if (path === 'admin/world' && !pid && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {
+    if ((path === 'admin/world' || path === 'admin/save') && !pid && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {
       const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(req.headers.get('x-admin-token')))), hex = [...d].map(x => x.toString(16).padStart(2, '0')).join('');
       if (hex !== this.env.ADMIN_TOKEN_SHA256) return bad('沒有權限', 403);
+      // 整份存檔（Alan 2026-10-10：拉到測試環境比對改動的影響）；唯讀
+      if (path === 'admin/save') return json({seed: this.meta.seed, save: this.core.save()});
       const accounts = {}; for (const [p, n] of Object.entries(this.roster)) accounts[n] = p[0] === 'g' ? 'Google' : '訪客';
       return json({...this.core.adminView(accounts), server: {started: this.meta.startedAt, hourMs: this.hourMs(), world: this.env.WORLD_VERSION || '1', colo: this.colo || ''}});
     }
