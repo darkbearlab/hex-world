@@ -487,7 +487,7 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
   .scard.full .sart.px{align-items:flex-start;padding-top:28px}
   .scard.full .sart.px img{width:150px;height:150px;object-fit:contain}
   .scard.full .sname{position:absolute;left:0;right:0;top:auto;bottom:calc(50% + 4px);padding:4px 10px;background:linear-gradient(transparent,#000a)}
-  .scard.full .sgear{display:block;position:absolute;left:0;right:0;bottom:0;height:50%;overflow:auto;padding:8px 10px;background:#0d0c0ae6;border-top:1px solid var(--line)}
+  .scard.full .sgear{display:block;position:absolute;left:0;right:0;bottom:0;height:50%;overflow:auto;padding:22px 10px 8px;background:linear-gradient(#0d0c0a00,#0d0c0a99 22%,#0d0c0acc);text-shadow:0 1px 2px #000}
   .scard.full .sgtog{display:none}
 }
 
