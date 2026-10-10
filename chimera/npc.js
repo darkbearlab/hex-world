@@ -5,6 +5,8 @@
 // - careful（謹慎）：人少、挑程度低的；大戰役派一半，陣亡過半就撤軍
 // - late（後到）：等大戰役的行情到 ×2 才進場，站攻方
 // - contrarian（逆風）：等哪一邊的行情先到 ×2 就替那一邊打
+// - shadow（暗影，Alan 2026-10-11）：專接黑單與反情報（等級夠的人才派），其他照一般委託
+// - privateer（私掠）：專接私掠許可，其他照一般委託
 // 由 core.js 每個遊戲小時呼叫 npcHour；所有決定都照目前的狀態與時刻算（不另外存亂數），重播一樣。
 import * as C from './cases.js';
 import * as G from './company.js';
@@ -14,6 +16,15 @@ export const NPCS = [
   {name: '灰鷺保全', style: 'careful', size: 10, cases: 1},
   {name: '晚鐘傭兵團', style: 'late', size: 14, cases: 2},
   {name: '逆流公司', style: 'contrarian', size: 14, cases: 2},
+  // 新世界多開幾家（Alan 2026-10-11：讓暗影戰爭、私掠有人可以互動）
+  {name: '夜鴉工作室', style: 'shadow', size: 12, cases: 2},
+  {name: '黑市聯合', style: 'shadow', size: 14, cases: 2},
+  {name: '鏽港私掠團', style: 'privateer', size: 14, cases: 2},
+  {name: '赤帆兄弟會', style: 'privateer', size: 12, cases: 2},
+  {name: '鋼牙突擊隊', style: 'allin', size: 16, cases: 3},
+  {name: '白沙保全', style: 'careful', size: 10, cases: 1},
+  {name: '灰燼兵團', style: 'late', size: 14, cases: 2},
+  {name: '孤狼公司', style: 'contrarian', size: 12, cases: 2},
 ];
 const RECIPE = {food: 40, water: 40, implant: 40, neural: 40};
 const hash = s => { let x = 2166136261; for (const ch of String(s)) { x ^= ch.charCodeAt(0); x = Math.imul(x, 16777619); } return (x >>> 0) / 4294967296; };
@@ -80,11 +91,15 @@ function act(core, g, N, h) {
   // 一般委託：案件數沒滿、有待命的人就接一個（全押挑程度高的、謹慎挑程度低的，其他照公開順序）
   const open = g.cases.map(id => b.cases.find(c => c.id === id)).filter(c => c && !c.settled).length;
   if (open >= N.cases || home().length < 4) return;
+  const fav = e => N.style === 'shadow' ? (e.kind === 'shadow' || e.kind === 'counter' ? 0 : 1) : N.style === 'privateer' ? (e.kind === 'privateer' ? 0 : 1) : 0;
   const cands = board.filter(e => e.kind !== 'camp' && !e.joined && h >= e.start && h < e.closeAt && !e.gone)
-    .sort((a, b2) => (N.style === 'allin' ? b2.lv - a.lv : N.style === 'careful' ? a.lv - b2.lv : 0) || hash(N.name + a.key + h) - hash(N.name + b2.key + h));
+    .sort((a, b2) => fav(a) - fav(b2) || (N.style === 'allin' ? b2.lv - a.lv : N.style === 'careful' ? a.lv - b2.lv : 0) || hash(N.name + a.key + h) - hash(N.name + b2.key + h));
   for (const e of cands.slice(0, 3)) {
     const side = e.kind === 'front' ? (hash(N.name + e.key) < .5 ? 'att' : 'def') : e.kind === 'tense' ? (hash(N.name + e.key) < .5 ? 'a' : 'b') : '';
     const n = N.style === 'allin' ? Math.min(8, home().length) : 4;
-    if (!cmd({type: 'accept', kind: e.kind, tile: e.tile, side, uids: home().slice(0, n).map(c => c.uid)})) return;
+    // 黑單：雇主要求的等級，等級高的先派；人少比較不容易曝光，只派兩到三個
+    const pool = e.kind === 'shadow' ? home().filter(c => (c.lv || 1) >= (e.minLv || 0)).sort((a, b2) => (b2.lv || 1) - (a.lv || 1)) : home();
+    if (pool.length < 2) continue;
+    if (!cmd({type: 'accept', kind: e.kind, tile: e.tile, side, uids: pool.slice(0, e.kind === 'shadow' ? 3 : n).map(c => c.uid)})) return;
   }
 }

@@ -45,6 +45,7 @@ export class Planet extends DurableObject {
     if (this.ready) return this.ready;
     return this.ready = (async () => { try {
       const st = this.ctx.storage, meta = await st.get('meta'), version = this.env.WORLD_VERSION || '1';
+      if (meta && meta.version === version && meta.pending) { this.meta = meta; this.pending = true; this.roster = {}; this.out = []; return; }
       if (meta && meta.version === version) {
         const parts = []; for (let i = 0; i < meta.chunks; i++) parts.push(await st.get('save:' + i));
         const all = new Uint8Array(parts.reduce((s, p) => s + p.length, 0)); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
@@ -54,6 +55,8 @@ export class Planet extends DurableObject {
       } else {
         // 新世界：用 WORLD_SEED 產生星球、推演歷史，開服時間就是現在
         await st.deleteAll();
+        // WORLD_IMPORT＝1：不在這裡推演，等管理員用 admin/import 把本機推好的世界傳上來（傳上來之前只回「新世界準備中」）
+        if (this.env.WORLD_IMPORT === '1') { this.meta = {version, seed: this.env.WORLD_SEED || '奇美拉-1', startedAt: 0, chunks: 0, aligned: true, pending: true}; await st.put('meta', this.meta); this.pending = true; this.roster = {}; this.out = []; return; }
         const seed = this.env.WORLD_SEED || '奇美拉-1';
         this.core.start(seed); while (this.core.year < YEARS) this.core.sim.stepYear();
         this.core.open();
@@ -86,6 +89,7 @@ export class Planet extends DurableObject {
   }
   async alarm() {
     await this.init();
+    if (this.pending) return;
     if (this.catchUp()) await this.persist();
     this.out = [];
     await this.arm();
@@ -111,9 +115,26 @@ export class Planet extends DurableObject {
     if (!this.roster[gid] && lid && this.roster[lid]) { moved = this.roster[gid] = this.roster[lid]; delete this.roster[lid]; await st.put('roster', this.roster); }
     return json({session: token, email: g.email, company: this.roster[gid] || null, moved});
   }
+  // 管理員把本機推好的新世界傳上來：{seed, save}（core.save() 的格式，已經 open() 過、還沒有公司）。只在新世界還沒建好時開
+  async importWorld(req, path) {
+    if (path !== 'admin/import' || req.method !== 'POST') return bad('新世界準備中，請稍後再來', 503);
+    const tok = req.headers.get('x-admin-token') || '', d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tok))), hex = [...d].map(x => x.toString(16).padStart(2, '0')).join('');
+    if (!this.env.ADMIN_TOKEN_SHA256 || hex !== this.env.ADMIN_TOKEN_SHA256) return bad('沒有權限', 403);
+    let body; try { body = await req.json(); } catch { return bad('請求格式不對'); }
+    if (!body?.save?.sim) return bad('存檔格式不對');
+    const seed = String(body.seed || this.meta.seed);
+    this.core.load(seed, body.save); if (!this.core.game) this.core.open();
+    this.meta = {version: this.env.WORLD_VERSION || '1', seed, startedAt: this.aligned(Date.now()), chunks: 0, aligned: true};
+    this.roster = {}; await this.ctx.storage.put('roster', this.roster); this.out = [];
+    if (this.env.NPC !== '0') this.core.enableNpcs();
+    await this.persist(); this.pending = false;
+    if (this.env.PAUSED !== '1') await this.arm();
+    return json({ok: true, year: this.core.year, companies: Object.keys(this.core.game.cos).length});
+  }
   async fetch(req) {
     await this.init();
     const url = new URL(req.url), path = url.pathname.slice(5);
+    if (this.pending) return this.importWorld(req, path);
     if (path === 'auth/google' && req.method === 'POST') return this.googleLogin(req);
     const pid = await this.who(req);
     if (pid === false) return bad('登入已失效，請重新登入', 401);

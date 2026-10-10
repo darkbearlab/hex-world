@@ -141,13 +141,14 @@ export class Core {
     while (game.h < h) {
       const t = ++game.h;
       C.tick(game.book, this.w, t);
+      this.shadowHour(t);
       this.postBoard(t);
       for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
       G.bodiesHour(game.cos, game.book, this.w, t);
       G.retainerHour(game.cos, game.book, this.w, t, Math.max(1, Math.round(24 * game.yearDays / 4)));
       for (const e of this.sim.campaignHour(t)) this.campaignNews(e, t);
       if (this.npcOn) npcHour(this, t);   // NPC 傭兵公司（npc.js；伺服器才開）
-      if (t % Math.max(1, Math.round(24 * game.yearDays / 4)) === 0) { this.sim.stepSeason(); yearDone = true; }
+      if (t % 24 === 0) { const r = this.sim.stepDay(Math.max(1, Math.round(game.yearDays / 4))); if (r) yearDone = true; }
     }
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});
     return yearDone;
@@ -162,11 +163,33 @@ export class Core {
       // 公開時刻依地點錯開。第一批（星球剛開）往前錯開 0～47 小時，當作開服前就公開了：一開服就有委託可接，而且進度各不相同
       // 大戰役的委託：一開打就公開，開到戰役結束（opportunities 不再列出時就收掉）
       if (!e && o.kind === 'camp') { B[key] = {key, opp: o, start: h, end: h + 24 * 14, cases: {}}; continue; }
+      // 黑單與反情報：跟著那件行動的期限（反情報是察覺之後才開，開到同一個期限）
+      if ((o.kind === 'shadow' || o.kind === 'counter') && o.closeH != null) { if (!e || e.opp.op !== o.op) B[key] = {key, opp: o, start: h, end: o.closeH + C.CFG.FREEZE, cases: {}}; else { e.opp = o; e.gone = false; } continue; }
       if (!e) { let s = 7; for (const ch of key) s = (s * 31 + ch.charCodeAt(0)) >>> 0; const st = first ? h - s % 48 : h + s % 24; B[key] = {key, opp: o, start: st, end: st + C.CFG.CASE_HOURS, cases: {}}; continue; }
       e.opp = o; e.gone = false;
       if (h >= e.end + BOARD_COOL) { e.start = h; e.end = h + C.CFG.CASE_HOURS; e.cases = {}; }
     }
     for (const [key, e] of Object.entries(B)) if (!seen.has(key)) { if (h < e.start || h >= e.end + BOARD_COOL) delete B[key]; else e.gone = true; }
+  }
+  // 暗影戰爭（Alan 2026-10-11）：行動一開放就定好期限；期限到了集體擲骰，結果交給參與的公司（報酬、曝光的後果）
+  shadowHour(t) {
+    const P = this.sim.pmc; if (!P.openOps) return;
+    for (const o of P.openOps()) { if (o.closeH == null) o.closeH = t + o.hours; else if (t >= o.closeH) P.resolveOp(o.id); }
+    for (const o of P.doneOps()) { o.handled = true; this.shadowOutcome(o, t); }
+  }
+  shadowOutcome(o, t) {
+    const game = this.game, b = game.book, K = this.sim.peek(), fn = f => K.fac[f]?.n || '某勢力', nm = this.w.names[o.tile] || '某地', r = o.res || {};
+    const cs = b.cases.filter(c => c.kind === 'shadow' && c.op === o.id), ids = cs.map(c => c.id);
+    for (const c of cs) {
+      const win = c.side === 'def' ? !r.ok : !!r.ok, tot = Object.values(c.score).reduce((x, y) => x + y, 0), bonus = Math.round(60 * c.lv);
+      for (const [co, sc] of Object.entries(c.score)) { if (!sc || !game.cos[co]) continue;
+        const v = win && tot > 0 ? bonus * sc / tot : 0; if (v > 0) C.pay(b, t, co, v, 'shadow', `${c.title}：${c.side === 'def' ? '緝拿成功' : '行動成功'}獎金`, c.id);
+        b.inbox.push({t, player: co, kind: 'war', text: `${c.title}：${r.gone ? '目標已經不在了，行動取消。' : r.ok ? '行動成功' : '行動失敗'}${r.caught ? '，密探被抓' : ''}${v > 0 ? `，分到獎金 $${Math.round(v)}k` : ''}。`, ref: c.id}); }
+    }
+    if (r.caught && r.blame && game.cos[r.blame]) {
+      G.exposed(game.cos[r.blame], b, this.w, o, ids, t);
+      for (const name of Object.keys(game.cos)) b.inbox.push({t, player: name, kind: 'war', text: `${fn(o.b)}公開了在${nm}抓到的密探：是傭兵公司「${r.blame}」的人。`, ref: 'op' + o.id});
+    }
   }
   // 一家公司看得到的委託：已經公開、還能接的；加上自己接了、還沒結束的
   boardView(name) {

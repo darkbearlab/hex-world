@@ -23,7 +23,8 @@ let allEvents = [];
 let sel = -1, hover = -1, hiFac = -1, mouse = {x: 0, y: 0};
 const layers = {fac: true, pop: false, bandit: false, trench: false, opp: true};
 let oppKind = 'all';
-const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}, clean: {n: '清運', ch: '收', c: '#b49ad8'}, retainer: {n: '長約', ch: '約', c: '#e8c35a'}};
+const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}, clean: {n: '清運', ch: '收', c: '#b49ad8'}, retainer: {n: '長約', ch: '約', c: '#e8c35a'},
+  shadow: {n: '黑單', ch: '暗', c: '#a070e0'}, counter: {n: '反情報', ch: '緝', c: '#60a0d0'}, privateer: {n: '私掠', ch: '掠', c: '#d0603a'}};   // 暗影戰爭、私掠（Alan 2026-10-11）
 let logFilter = 'legend';
 let worker = null;
 
@@ -847,7 +848,7 @@ function renderProc() {
 }
 
 // ───── 報表 ─────
-const FK = [['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費'], ['retainer', '長約'], ['bond', '履約保證金'], ['breach', '違約金'], ['garrison', '駐紮費'], ['clean', '清運'], ['body', '賣遺體']];
+const FK = [['shadow', '黑單報酬'], ['loot', '私掠分貨'], ['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費'], ['retainer', '長約'], ['bond', '履約保證金'], ['breach', '違約金'], ['garrison', '駐紮費'], ['clean', '清運'], ['body', '賣遺體']];
 function renderRepPage() {
   const P = $('pane-rep');
   if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }
@@ -868,9 +869,14 @@ function renderRep() {
     return `<tr><td>${esc(c.title)}</td><td>訂金 $${c.pay.deposit * n}k${c.midPaid ? `＋期中 $${c.pay.mid * n}k` : ''}</td><td>${c.midPaid ? '' : `期中 $${c.pay.mid * n}k＋`}尾款池 $${c.pay.final}k<span class="mini">（依積分平分）</span></td></tr>`; }).join('') + '</table>';
   html += `<div class="mini" style="margin-top:10px">結案紀錄</div>` + (R.hist.length ? `<table class="rep"><tr><th>案件</th><th>服務單（勝／自動）</th><th>陣亡</th><th>收入</th></tr>` + R.hist.slice(0, 15).map(c => `<tr><td>${esc(c.title)}${c.delivered !== undefined ? ` <span class="mini">送達 ${Math.round(c.delivered * 100)}%</span>` : ''}</td><td>${c.tickets}（${c.wins}／${c.auto}）</td><td>${c.dead || ''}</td><td>${c.own ? '<span class="muted">—</span>' : money(c.income + c.upkeep)}</td></tr>`).join('') + '</table>' : '<p class="muted">還沒有結案。</p>');
   // 名氣（Alan 2026-10-10）：每一筆怎麼來的
-  const FR = GV.retainer || {fameLog: []}, KN = {camp: '大戰役', front: '勢力戰', hunt: '據點', garrison: '駐守', route: '護送'};
+  const FR = GV.retainer || {fameLog: []}, KN = {camp: '大戰役', front: '勢力戰', hunt: '據點', garrison: '駐守', route: '護送', shadow: '黑單', privateer: '私掠'};
   html += `<div class="mini" style="margin-top:10px">名氣 <b>${FR.fame ?? 0}</b>・世界排行第 ${FR.rank ?? '-'}／${FR.of ?? '-'} 名（產地只找前 ${FR.topN ?? '-'} 名）・成功的單子：規模 × 威脅（等級 × 實際碰到的敵人戰力）× 貢獻（自己的積分佔全案的比例）；違約扣 ${60}</div>` +
     (FR.fameLog?.length ? `<table class="rep"><tr><th>時間</th><th>案件</th><th>規模</th><th>威脅</th><th>貢獻</th><th>名氣</th></tr>` + FR.fameLog.map(e => `<tr><td>第 ${Math.floor(e.h / 24) + 1} 天</td><td>${esc(e.title)}</td><td>${e.base != null ? `${KN[e.kind] || e.kind} ${e.base}` : ''}</td><td>${e.threat != null ? `${'●'.repeat(e.lv)}×${(e.threat / e.lv).toFixed(2)}（敵 ${e.pow}）` : ''}</td><td>${e.share != null ? Math.round(e.share * 100) + '%' : ''}</td><td>${money(e.fame).replace(/k</, '<')}</td></tr>`).join('') + '</table>' : '<p class="mini muted">還沒有。結案拿到尾款就會記上。</p>');
+  // 派系關係（Alan 2026-10-11）：每個勢力對你的觀感與統治者性格；低到門檻就不跟你往來，夠高才開黑單
+  if (GV.rel) { const TN = {好戰: '好戰', 結盟: '重盟約', 機會: '機會主義', 守成: '守成', 均衡: '均衡', 擴張: '擴張', 多疑: '多疑', 重商: '重商', 記仇: '記仇'};
+    html += `<div class="mini" style="margin-top:10px">派系關係（${GV.relRefuse} 以下不跟你往來；黑單要名氣夠、或跟雇主 ${GV.relBlack} 以上）</div><table class="rep"><tr><th>勢力</th><th>統治者</th><th>關係</th></tr>` +
+      GV.rel.slice().sort((a, b) => b.v - a.v).map(r => `<tr><td>${esc(r.n)}</td><td>${TN[r.trait] || ''}</td><td>${money(r.v).replace(/k</, '<')}</td></tr>`).join('') + '</table>' +
+      (GV.relLog?.length ? `<table class="rep"><tr><th>時間</th><th>勢力</th><th>原因</th><th>變化</th></tr>` + GV.relLog.slice(0, 15).map(e => `<tr><td>第 ${Math.floor(e.h / 24) + 1} 天</td><td>${esc(e.n)}</td><td>${esc(e.why)}</td><td>${money(e.v).replace(/k</, '<')}</td></tr>`).join('') + '</table>' : ''); }
   const al = GV.roster.filter(c => c.alive), byC = {}; for (const c of al) byC[c.cls] = (byC[c.cls] || 0) + 1;
   html += `<div class="mini" style="margin-top:10px">人員：${Object.entries(byC).map(([k, n]) => `${CLS[k].n} ${n}`).join('・') || '沒有'}・金冠 ${al.filter(c => c.crown === 'gold').length}・銀冠 ${al.filter(c => c.crown === 'silver').length}</div>`;
   el.innerHTML = html;

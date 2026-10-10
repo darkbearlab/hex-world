@@ -18,7 +18,9 @@ const BIOME = {
 };
 // 服務單的類型 → 地圖的布局
 // 護送、採購車隊遇襲與行軍途中被纏上的（ambush、native、intercept、transit）是公路戰（Alan 2026-10-09；舊的 road／roadblock 布局留著）
-export const LAYOUT = {ambush: 'highway', native: 'highway', intercept: 'highway', transit: 'highway', assault: 'fort', hold: 'ring', trench: 'trench', sabotage: 'depot', probe: 'open', clear: 'camp'};
+export const LAYOUT = {ambush: 'highway', native: 'highway', intercept: 'highway', transit: 'highway', assault: 'fort', hold: 'ring', trench: 'trench', sabotage: 'depot', probe: 'open', clear: 'camp',
+  // 暗影戰爭與私掠（Alan 2026-10-11）：先借現有的戰場
+  scout: 'open', post: 'fort', heist: 'depot', smuggle: 'road', rally: 'ring', armory: 'depot', gunrun: 'highway', demo: 'depot', flag: 'fort', well: 'depot', sweep: 'open', guard: 'ring', raidcv: 'roadblock'};
 const lcg = seed => { let s = (Number(seed) >>> 0) || 1; return () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296); };
 
 export function outdoorMap(tk, floor = 1) {

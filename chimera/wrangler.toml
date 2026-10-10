@@ -29,7 +29,8 @@ tag = "v2"
 new_sqlite_classes = ["Skirmish"]
 
 [limits]
-cpu_ms = 30000
+# 新世界（Alan 2026-10-11：×10,000、每日結算）開服時要推演 150 年歷史，本機約 80 秒；給到上限 5 分鐘
+cpu_ms = 300000
 
 # 伺服器上的戰鬥（server/battle.js）會載入 ASH 的模組；其中幾個在載入時用 import.meta.url 組圖片網址（伺服器不畫圖），
 # 打包後的 Worker 沒有自己的網址，給一個固定的就好
@@ -40,7 +41,9 @@ cpu_ms = 30000
 # 後台唯讀鑰匙的 SHA-256（鑰匙本身只放在 Alan 電腦的 ~/.chimera-admin-token，不進 git）；給 Claude 查線上問題用
 ADMIN_TOKEN_SHA256 = "ad5a0db23bdad6f37aee5df8e3f5e0ed308e4cf6fe20440525b5e68bc531502e"
 # 改這個數字並推送，星球就從頭重新產生（所有公司一起重來）
-WORLD_VERSION = "3"
+WORLD_VERSION = "4"
+# 新世界用匯入的（Alan 2026-10-11）：開服時不在 Worker 上推演（150 年 ×10,000＋每日結算推不完），等管理員用 admin/import 傳上本機推好的世界
+WORLD_IMPORT = "1"
 # 星球放在哪一洲的機房（Durable Object 第一次建立時決定，之後不會搬；要搬就得改 WORLD_VERSION 重新產生）。
 # 2026-10-09 從美國（沒給提示，建在亞特蘭大）搬到亞洲
 PLANET_HINT = "apac"

@@ -5,6 +5,7 @@
 // 每張票的結果立刻寫回沙盒（掠奪者壓力、戰壕、下一場仗的戰力、遺落的裝備），案件結束後依積分分尾款。
 // 時間單位一律是「小時」；整本帳（book）是純資料，可以直接存進 Durable Object。
 import {BIOMES, GN, BASEP, NBR, hdist, VEH} from './sim.js';
+const WX = () => globalThis.WSCALE ?? 1e4;   // 世界倍率（人口、物資、車、兵都放大這麼多；Alan 2026-10-11 新世界 ×10,000）
 
 export const CFG = {
   DEADLINE: 24,     // 服務單期限
@@ -83,13 +84,15 @@ export function openCase(book, w, spec, now) {
   const P = w.sim.pmc, K = w.sim.peek();
   const c = {id: 'K' + book.nextId++, kind: spec.kind, title: spec.title, tile: spec.tile, from: spec.from ?? -1, to: spec.to ?? -1,
     fac: spec.fac ?? -1, foe: spec.foe ?? -1, gang: spec.gang ?? 0, lv: spec.lv || 1, start: now, end: now + (spec.hours || CFG.CASE_HOURS), settled: false, midPaid: false,
-    path: [], convoys: 0, lostConvoys: [], cargo: spec.cargo || null, squads: [], score: {}, tickets: 0, open: true, basePow: 14 + 4 * (spec.lv || 1), history: [], camp: spec.camp ?? null};
+    path: [], convoys: 0, lostConvoys: [], cargo: spec.cargo || null, squads: [], score: {}, tickets: 0, open: true, basePow: 14 + 4 * (spec.lv || 1), history: [], camp: spec.camp ?? null,
+    op: spec.op ?? null, opName: spec.opName ?? null, side: spec.side ?? null, minLv: spec.minLv || 0, lic: spec.lic ?? null};
   if (c.kind === 'route') {
     c.path = P.route(c.from, c.to);
     c.convoys = Math.max(4, Math.min(12, Math.round(c.path.length * .6)));
   }
   const L = c.lv, H = (c.end - c.start) / 168;
-  c.pay = {deposit: 5 * L, mid: 5 * L, final: Math.round(160 * L * H * (c.kind === 'front' ? 1.4 : c.kind === 'hunt' ? 1.2 : c.kind === 'route' ? 1.2 : 1))};
+  c.pay = {deposit: 5 * L, mid: 5 * L, final: Math.round(160 * L * H * (c.kind === 'front' ? 1.4 : c.kind === 'hunt' ? 1.2 : c.kind === 'route' ? 1.2 : c.kind === 'shadow' ? 1.6 : c.kind === 'privateer' ? .6 : 1))};
+  if (c.kind === 'shadow' && c.side === 'att') { c.pay.deposit = 10 * L; c.pay.mid = 10 * L; }   // 黑單：訂金高、尾款更高（Alan 2026-10-11）
   if (spec.own) { c.own = spec.own; c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.basePow = spec.guard ?? c.basePow; }
   // 大戰役：沒有訂金、期中款；每張服務單照當下的傭兵行情付報酬，戰役結束時再照貢獻分一筆（settleCase）
   if (c.kind === 'camp') { c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.wave = {}; }
@@ -105,7 +108,7 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
   const lv = opp.lv, hours = o.hours || CFG.CASE_HOURS;
   if (opp.kind === 'short') {
     const g = opp.g, to = opp.tile, f = K.owner[to];
-    const src = opp.src ?? nearTowns(to, t => t !== to && (K.markets[t].ratio?.[g] ?? 1) >= 1 && K.markets[t].stock[g] > 5)[0];
+    const src = opp.src ?? nearTowns(to, t => t !== to && (K.markets[t].ratio?.[g] ?? 1) >= 1 && K.markets[t].stock[g] > 5 * WX())[0];
     if (src === undefined) return null;   // 沒有一座城有多的貨，就不開（不再從沒貨的城「運」）
     // 一車貨＝目的地兩季的需求，但不超過來源城存貨的一半（結案時從來源城扣）
     const ms = K.markets[src], amt = Math.round(Math.min((K.markets[to].need?.[g] || 5) * 2, ms.stock[g] * .5));
@@ -122,11 +125,11 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
   if (opp.kind === 'route') {
     const [a, b] = nearTowns(opp.tile); if (b === undefined) return null;
     const m = K.markets[a], g = ['food', 'water', 'fuel', 'parts', 'ammo'].sort((x, y) => m.stock[y] * BASEP[y] - m.stock[x] * BASEP[x])[0];
-    return openCase(book, w, {kind: 'route', title: `護送${nm(a)}往${nm(b)}的${GN[g]}車隊`, tile: opp.tile, from: a, to: b, fac: K.owner[a], lv, hours, cargo: {g, amt: Math.round(20 + 15 * lv)}}, now);
+    return openCase(book, w, {kind: 'route', title: `護送${nm(a)}往${nm(b)}的${GN[g]}車隊`, tile: opp.tile, from: a, to: b, fac: K.owner[a], lv, hours, cargo: {g, amt: Math.round((20 + 15 * lv) * WX())}}, now);
   }
   if (opp.kind === 'exp') {
     const [home] = nearTowns(opp.tile); if (home === undefined) return null;
-    return openCase(book, w, {kind: 'route', title: `從${nm(opp.tile)}把東西運回${nm(home)}`, tile: opp.tile, from: opp.tile, to: home, fac: K.owner[home], lv, hours, cargo: {g: 'parts', amt: Math.round(10 + 10 * lv)}}, now);
+    return openCase(book, w, {kind: 'route', title: `從${nm(opp.tile)}把東西運回${nm(home)}`, tile: opp.tile, from: opp.tile, to: home, fac: K.owner[home], lv, hours, cargo: {g: 'parts', amt: Math.round((10 + 10 * lv) * WX())}}, now);
   }
   if (opp.kind === 'front') {
     const side = o.side === 'def' ? 'def' : 'att', f = opp[side], foe = side === 'att' ? opp.def : opp.att;
@@ -139,6 +142,17 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
   if (opp.kind === 'tense') {
     const f = o.side === 'b' ? opp.b : opp.a, foe = f === opp.a ? opp.b : opp.a;
     return openCase(book, w, {kind: 'garrison', title: `替${K.fac[f].n}在${nm(opp.tile)}壓陣`, tile: opp.tile, fac: f, foe, lv, hours}, now);
+  }
+  // 暗影戰爭（Alan 2026-10-11）：黑單（攻方，雇主不具名）與反情報（守方，察覺之後才開）；案期跟著那件行動，到期集體擲骰
+  if (opp.kind === 'shadow' || opp.kind === 'counter') {
+    const def = opp.kind === 'counter', o = w.sim.pmc.op(opp.op); if (!o || o.state !== 'open') return null;
+    return openCase(book, w, {kind: 'shadow', side: def ? 'def' : 'att', op: o.id, opName: o.op, title: def ? `替${K.fac[o.b].n}緝拿密探（${nm(o.tile)}）` : `${K.fac[o.a].n}的黑單：${opp.title.replace(/^黑單：/, '')}`,
+      tile: o.tile, fac: def ? o.b : o.a, foe: def ? o.a : o.b, lv, minLv: def ? 0 : opp.minLv, hours}, now);
+  }
+  // 私掠（Alan 2026-10-11）：替發許可的勢力攔截敵國的商隊；許可範圍以外的勢力不會出單子
+  if (opp.kind === 'privateer') {
+    const t = towns.filter(x => K.owner[x] === opp.foe).sort((a, b) => hdist(a, opp.tile) - hdist(b, opp.tile))[0]; if (t === undefined) return null;
+    return openCase(book, w, {kind: 'privateer', title: `${K.fac[opp.fac].n}的私掠：攔截${K.fac[opp.foe].n}的商隊`, tile: t, fac: opp.fac, foe: opp.foe, lic: opp.lic, lv, hours}, now);
   }
   if (opp.kind === 'lair') {
     const [home] = nearTowns(opp.tile);
@@ -293,6 +307,8 @@ function hazard(c, w) {
     const g = K.gangs.find(x => x.id === c.gang); if (!g || g.gone) return 0;
     return .05 + Math.min(.07, g.str / 4000);
   }
+  if (c.kind === 'shadow') { const o = P.op(c.op); return o && o.state === 'open' ? (c.side === 'def' ? .12 : .14) : 0; }
+  if (c.kind === 'privateer') return P.atWar(c.fac, c.foe) && P.lic(c.lic) ? .14 : 0;
   return 0;
 }
 
@@ -303,6 +319,8 @@ function stillValid(c, w) {
   if (c.kind === 'hunt') { const g = K.gangs.find(x => x.id === c.gang); return !!g && !g.gone; }
   if (c.kind === 'route') return c.lostConvoys.length < c.convoys;
   if (c.kind === 'camp') { const v = w.sim.campaignOf(c.camp); return !!v && !v.done; }
+  if (c.kind === 'shadow') return P.op(c.op)?.state === 'open';
+  if (c.kind === 'privateer') return !!P.lic(c.lic) && P.atWar(c.fac, c.foe);
   return K.fac[c.fac]?.alive && K.fac[c.foe]?.alive;
 }
 
@@ -318,7 +336,25 @@ const TYPES = {
   probe:     {n: '巡邏遭遇', night: .3, obj: [['repel', '逼退對方巡邏隊', 3], ['nolose', '全員生還', 1]]},
   transit:   {n: '行軍遇襲', night: .4, obj: [['through', '突圍到位', 0], ['nolose', '全員生還', 0]]},
   clear:     {n: '清剿', night: .3, obj: [['clear', '掃蕩據點外圍', 3], ['boss', '擊倒頭目', 2], ['nolose', '全員生還', 1]]},
+  // 暗影戰爭（Alan 2026-10-11）：都借現有的戰場（ash/overlay chimera-outdoor.js 的 LAYOUT）
+  scout:     {n: '偵察', night: .8, obj: [['repel', '清掉巡邏', 2], ['out', '全身而退', 2]]},
+  post:      {n: '拔除哨站', night: .9, obj: [['take', '拔掉哨站', 3], ['nolose', '不留下自己人', 2]]},
+  heist:     {n: '潛入竊取', night: 1, obj: [['demo', '拿到東西', 3], ['out', '全身而退', 2]]},
+  smuggle:   {n: '暗中運送', night: .7, obj: [['protect', '東西送到', 3], ['nolose', '不留下自己人', 2]]},
+  rally:     {n: '守住集會', night: .3, obj: [['hold', '撐到集會散場', 3], ['nolose', '不留下自己人', 1]]},
+  armory:    {n: '突襲軍械庫', night: .8, obj: [['demo', '打掉軍械庫', 3], ['out', '全身而退', 2]]},
+  gunrun:    {n: '押運軍火', night: .5, obj: [['protect', '軍火送進匪窩', 3], ['nolose', '不留下自己人', 1]]},
+  demo:      {n: '安裝炸藥', night: 1, obj: [['demo', '炸掉目標', 3], ['out', '全身而退', 2]]},
+  flag:      {n: '偽旗突擊', night: .5, obj: [['take', '打下目標', 3], ['nolose', '不留下自己人', 3]]},
+  well:      {n: '破壞水源', night: 1, obj: [['demo', '毀掉水井與抽水站', 3], ['out', '全身而退', 2]]},
+  sweep:     {n: '搜捕密探', night: .5, obj: [['clear', '抓到密探', 3], ['nolose', '全員生還', 1]]},
+  guard:     {n: '護衛要地', night: .6, obj: [['hold', '守住目標', 3], ['nolose', '全員生還', 1]]},
+  raidcv:    {n: '攔截商隊', night: .3, obj: [['take', '攔下商隊', 3], ['nolose', '全員生還', 1]]},
 };
+// 每種暗影行動的服務單組合（DESIGN 定案）；守方是搜捕與護衛
+const SHADOW_TICKETS = {暗殺: ['scout', 'post', 'heist'], 綁架: ['scout', 'post', 'heist', 'smuggle'], 煽動: ['smuggle', 'rally', 'armory'], 收買: ['smuggle', 'scout'],
+  資助匪幫: ['gunrun'], 破壞: ['scout', 'demo'], 嫁禍: ['flag'], 斷水: ['scout', 'well']};
+export const SHADOW_TYPES = new Set(['scout', 'post', 'heist', 'smuggle', 'rally', 'armory', 'gunrun', 'demo', 'flag', 'well', 'sweep', 'guard']);
 
 // 路上某一格會碰到誰：交戰勢力的地盤是攔截，附近有原住民是原住民，其餘是掠奪者
 function eventAt(c, w, t) {
@@ -343,6 +379,8 @@ function drawType(book, c, w) {
     return {type: opts[k][0], tile: c.tile, foe: c.foe};
   }
   if (c.kind === 'garrison') return {type: 'probe', tile: c.tile, foe: c.foe};
+  if (c.kind === 'shadow') return {type: pickOf(book, c.side === 'def' ? ['sweep', 'sweep', 'guard'] : SHADOW_TICKETS[c.opName] || ['scout']), tile: c.tile, foe: c.foe};
+  if (c.kind === 'privateer') return {type: 'raidcv', tile: c.tile, foe: c.foe};
   if (c.kind === 'hunt') return {type: 'clear', tile: c.tile, gang: c.gang};
 }
 
@@ -422,9 +460,9 @@ function enemyOf(book, w, c, ev, o = {}) {
   const f = ev.foe, F = K.fac[f], side = facSide(F);
   const towns = Object.keys(K.markets).map(Number).filter(x => K.owner[x] === f).sort((a, b) => hdist(a, t) - hdist(b, t));
   const m = towns.length ? K.markets[towns[0]] : null, veh = {};
-  for (const v of ['rush', 'armor', 'gt']) veh[v] = m && m.veh ? Math.min(v === 'rush' ? 3 : 1, Math.floor((m.veh[v] || 0) * (.2 + rng(book) * .3))) : 0;
+  for (const v of ['rush', 'armor', 'gt']) veh[v] = m && m.veh ? Math.min(v === 'rush' ? 3 : 1, Math.floor((m.veh[v] || 0) / WX() * (.2 + rng(book) * .3))) : 0;
   if (ev.type === 'trench' || ev.type === 'sabotage') { veh.rush = 0; }
-  const tr = K.trench[t] || 0, cl = Math.min(1, (F.clones || 0) / 80);
+  const tr = K.trench[t] || 0, cl = Math.min(1, (F.clones || 0) / (80 * WX()));
   const power = ((16 + 6 * L + (ev.type === 'hold' ? 6 : 0) + (ev.type === 'trench' ? tr * 8 : 0) + 8 * cl) * (ev.type === 'probe' ? .7 : 1) + veh.rush * 3 + veh.armor * 10 + veh.gt * 4) * (o.scale || 1);   // 大戰役：一張比一張大
   // 戰鬥卡車只在公路戰：一般戰場換成車上下來的三名乘員
   const crew = veh.gt * 3; veh.gt = 0;
@@ -626,7 +664,7 @@ export function settleTicket(book, w, tk, res, now) {   // export 給 stats/reco
     cl.downAt = now; cl.downTile = tk.tile;
     if (res.win) { cl.downAs = 'recovered'; continue; }
     cl.downAs = 'lost'; pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 倒下，遺體沒能帶回`, c.id); gearLost += sq.gear;
-    (book.bodies ||= []).push({uid: cl.uid, co: sq.player, tile: tk.tile, at: now, value: CFG.CLONE_VALUE + sq.gear}); }
+    (book.bodies ||= []).push({uid: cl.uid, co: sq.player, tile: tk.tile, at: now, value: CFG.CLONE_VALUE + sq.gear, caseId: c.id}); }
   // 格子收集：這一場的積分換成抽格子的次數，這一隊活下來的人各抽各的；升級的人寫進通知
   const ups = [];
   if (tk.pts > 0) for (const cl of alive(sq)) { cl.cellPts = (cl.cellPts || 0) + tk.pts * CELL_DRAWS; const n = Math.floor(cl.cellPts); cl.cellPts -= n;
@@ -690,12 +728,29 @@ function writeBack(book, w, c, tk, win, gearLost, now) {
   else if (tk.type === 'hold') { if (win) P.aid(c.fac, 12); else P.aid(c.foe, 6); }
   else if (tk.type === 'sabotage') {
     if (win) { const tw = Object.keys(K.markets).map(Number).filter(x => K.owner[x] === c.foe).sort((a, b) => hdist(a, t) - hdist(b, t))[0], m = K.markets[tw];
-      if (m && m.veh) { m.veh.armor = Math.max(0, (m.veh.armor || 0) - .5); m.veh.rush = Math.max(0, (m.veh.rush || 0) - 1); m.veh.gt = Math.max(0, (m.veh.gt || 0) - .3); m.stock.fuel *= .9; } }
+      if (m && m.veh) { m.veh.armor = Math.max(0, (m.veh.armor || 0) - .5 * WX()); m.veh.rush = Math.max(0, (m.veh.rush || 0) - WX()); m.veh.gt = Math.max(0, (m.veh.gt || 0) - .3 * WX()); m.stock.fuel *= .9; } }
   } else if (tk.type === 'probe') { if (win) P.calm(c.fac, c.foe, 3); }
   else if (tk.type === 'clear') {
     if (win) { const g = K.gangs.find(x => x.id === c.gang);
       if (g) { for (const n of [g.lair, ...nb(g.lair)]) K.bandit[n] *= .7; g.str *= .8;
         if (K.bandit[g.lair] < 12 && !g.gone) { g.gone = 1; P.say('bandit', `${g.name}${g.native ? '' : '的據點'}被傭兵公司清剿，手下四散。`, g.lair); c.closedEarly = true; } } }
+  }
+  else if (c.kind === 'shadow' && SHADOW_TYPES.has(tk.type)) {
+    // 成功一張＝難度（案件等級）×等級加成；曝光：警報（輸）、留下屍體、派太多人、放著讓雇主自動結算（Alan 2026-10-11 DESIGN）
+    const sq = book.squads[tk.squad], L = sq ? sq.clones.filter(x => x.alive || (tk.dead || []).includes(x.id)) : [], lvA = L.length ? L.reduce((s, x) => s + (x.lv || 1), 0) / L.length : 1;
+    const s = win ? (.6 + .2 * c.lv) * (1 + (lvA - 1) * .08) : 0;
+    if (c.side === 'def') { if (win) { P.shadowAid(c.op, 'def', s, 0, tk.player); if (tk.player) pay(book, now, tk.player, 4 * c.lv, 'shadow', `${tk.title}：緝拿報酬`, c.id); } }
+    else if (tk.player) {
+      const left = win ? 0 : (tk.dead || []).length, e = (.005 + (win ? 0 : .025) + .015 * left + .003 * Math.max(0, L.length - 2) + (tk.auto ? .005 : 0)) * (tk.night ? .8 : 1);
+      P.shadowAid(c.op, 'att', s, e, tk.player); tk.exposure = +e.toFixed(3);
+      // 勝算接近升級時報酬加碼（Alan 2026-10-11：催雙方在最後一天下場）
+      const o = P.op(c.op), od = o ? P.oddsOf(o) : {more: null};
+      if (win) pay(book, now, tk.player, 4 * c.lv * (od.more != null && od.more <= 3 ? 1.5 : 1), 'shadow', `${tk.title}：黑單報酬`, c.id);
+    }
+  } else if (tk.type === 'raidcv') {
+    if (win) { P.privAid(c.lic, 1 + .2 * c.lv);
+      if (tk.player) { pay(book, now, tk.player, 6 * c.lv, 'loot', `${tk.title}：攔下的貨分六成`, c.id); (book.relQ ||= []).push({co: tk.player, f: c.foe, v: -1, why: `替${K.fac[c.fac]?.n || ''}私掠`}); }
+      const m = K.markets[K.fac[c.fac]?.cap]; if (m) m.stock.fuel += 2 * c.lv * (globalThis.WSCALE ?? 1e4) / 100; }   // 雇主拿四成（記成燃料進首府）
   }
   if (gearLost > 0) P.drop(t, gearLost);
 }
