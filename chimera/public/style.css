@@ -519,3 +519,31 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
   .pcmain{position:relative;z-index:1;margin-top:40vh;min-height:60vh;padding:14px 16px 16px;background:color-mix(in srgb,var(--panel) 80%,transparent);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);border-top:1px solid var(--line);border-radius:14px 14px 10px 10px;box-shadow:0 -8px 24px #0008}
   .pcx{z-index:3;background:#000a!important}
 }
+
+/* 簽收演出（艦隊收藏式）：全版立繪、資訊依序淡入、下面對話框 */
+.reveal.r2{padding:0;display:block;background:radial-gradient(ellipse at 50% 40%,#2a2318 0%,#0b0a08 70%);cursor:pointer;overflow:hidden}
+.r2 .rart{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;animation:rartin .9s ease both}
+.r2 .rart img{width:100%;height:100%;object-fit:contain;object-position:50% 100%}
+.r2 .rart.px{align-items:center}
+.r2 .rart.px img{width:min(62vmin,420px);height:min(62vmin,420px);image-rendering:pixelated;object-fit:contain}
+.r2.gold{box-shadow:inset 0 0 120px #ffd27a55}.r2.silver{box-shadow:inset 0 0 100px #cfd8e044}.r2.tpl{box-shadow:inset 0 0 90px #6fd0d844}
+.r2 .rinfo{position:absolute;left:max(18px,6vw);top:max(18px,7vh);text-shadow:0 2px 6px #000,0 0 2px #000;max-width:46vw}
+.r2 .rcls{font-size:14px;color:var(--accent);letter-spacing:.2em;animation:rslide .5s .15s ease both}
+.r2 .rname2{font-size:clamp(28px,5vw,48px);font-weight:800;line-height:1.1;animation:rslide .5s .25s ease both}
+.r2 .rname2 span{font-size:.55em;color:var(--accent)}
+.r2 .rid{font-family:var(--mono);font-size:15px;color:var(--muted);margin-bottom:12px;animation:rslide .5s .35s ease both}
+.r2 .rstats{display:grid;gap:4px;min-width:170px}
+.r2 .rs{display:flex;justify-content:space-between;gap:16px;padding:3px 10px;background:linear-gradient(90deg,#000a,#0000);border-left:2px solid var(--accent);opacity:0;animation:rslide .4s ease both}
+.r2 .rs span{color:var(--muted)}
+.r2 .rstamp{display:inline-block;margin-top:12px;padding:3px 14px;font-weight:800;font-size:18px;color:#1b140a;background:#ffd27a;border-radius:6px;opacity:0;animation:rstamp .5s cubic-bezier(.2,1.6,.4,1) both;box-shadow:0 0 22px #ffd27a99}
+.r2 .rstamp.silver{background:#cfd8e0;box-shadow:0 0 18px #cfd8e099}.r2 .rstamp.tpl{background:var(--cyan);box-shadow:0 0 16px #6fd0d899}
+.r2 .rdlg{position:absolute;left:50%;bottom:max(16px,4vh);transform:translateX(-50%);width:min(760px,calc(100% - 32px));background:#0b0a08e6;border:1px solid var(--line);border-top:2px solid var(--accent);border-radius:10px;padding:12px 16px 14px;opacity:0;animation:rfade .35s ease both}
+.r2 .rdlg b{color:var(--accent);font-size:14px}
+.r2 .rline{margin:6px 0 0;font-size:17px;min-height:1.5em}
+.r2 .rhint{position:absolute;right:12px;bottom:6px;font-size:11px;color:var(--muted);opacity:0;transition:opacity .3s}
+.r2.rdone .rhint{opacity:1}
+.r2.rdone .rs,.r2.rdone .rstamp,.r2.rdone .rdlg,.r2.rdone .rcls,.r2.rdone .rname2,.r2.rdone .rid,.r2.rdone .rart{animation:none;opacity:1}
+@keyframes rartin{from{opacity:0;transform:scale(1.04)}to{opacity:1;transform:none}}
+@keyframes rslide{from{opacity:0;transform:translateX(-14px)}to{opacity:1;transform:none}}
+@keyframes rstamp{from{opacity:0;transform:scale(2.2) rotate(-8deg)}to{opacity:1;transform:rotate(-3deg)}}
+@media (max-width:759px){.r2 .rinfo{max-width:70vw}.r2 .rart.px{align-items:flex-start;padding-top:32vh}}

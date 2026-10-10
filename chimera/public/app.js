@@ -639,20 +639,33 @@ const RF = {home: '待命', away: '出勤', keep: '不出擊', ...Object.fromEnt
 const inF = (c, f = rosterF) => f === 'all' || (f.startsWith('t:') ? (c.tags || []).includes(f.slice(2)) && (c.alive || c.status === 'recovered') : f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : f === 'kia' ? c.status === 'kia' || c.status === 'sold' : f === 'recovered' ? c.status === 'recovered' || c.status === 'lost' : c.status === f);   // 遺體＝收回的＋還沒撿回的；已除名＝陣亡＋賣掉
 // 簽收時跳出新人的卡片（Alan 2026-10-09：對標艦隊收藏）：簽收送出後，等伺服器回來、最新的人換了就秀出來
 let revealAfter;
+// 簽收（Alan 2026-10-10：對標艦隊收藏的建造完成）：全版立繪＋名字、兵種、編號；數值、素質、金冠銀冠依序淡入；下面的對話框打出入伍台詞。
+// 演出途中點一下跳到最後，演完再點一下關閉。台詞先一律「某某、入伍。」（之後每位原主各自有台詞）
 function maybeReveal() {
   if (revealAfter === undefined || !GV || GV.fresh == null || GV.fresh === revealAfter) return;
   revealAfter = undefined; const c = GV.roster.find(x => x.uid === GV.fresh); if (!c) return;
   const rank = c.crown === 'gold' ? 'gold' : c.crown === 'silver' ? 'silver' : c.template ? 'tpl' : '';
-  const box = Object.assign(document.createElement('div'), {className: 'reveal', innerHTML: `<div class="rcard ${rank}">
+  const rows = [['生命', c.st.hp], ['命中', sg(c.st.acc)], ['閃避', sg(c.st.eva)], ['近戰', sg(c.st.mel)], ['素質', `前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%`]];
+  const STEP = .32, t0 = .6, tRank = t0 + rows.length * STEP + .2, tLine = tRank + (rank ? .7 : 0), line = `${who(c)}、入伍。`;
+  const box = Object.assign(document.createElement('div'), {className: `reveal r2 ${rank}`, innerHTML: `
+    <div class="rart"><img src="art/full/${c.portrait}.png" alt="" onerror="this.onerror=null;this.src='${img(c.portrait)}';this.parentElement.classList.add('px')"></div>
     <div class="rflash"></div>
-    ${rank ? `<div class="rrank">${rank === 'gold' ? '金冠' : rank === 'silver' ? '銀冠' : '模板'}</div>` : ''}
-    <img src="${img(c.portrait)}" alt="">
-    <div class="rname">${nameFull(c)}</div>
-    <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td></tr></table>
-    <div class="mini">素質前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%・${esc(c.weapon || '')}</div>
-    <div class="mini muted">點一下關閉</div></div>`});
-  box.onclick = () => box.remove(); document.body.appendChild(box);
+    <div class="rinfo">
+      <div class="rcls">${CLS[c.cls].n}</div>
+      <div class="rname2">${esc(who(c))}${c.callsign ? ` <span>${csq(c)}</span>` : ''}</div>
+      <div class="rid">${c.id}</div>
+      <div class="rstats">${rows.map(([k, v], i) => `<div class="rs" style="animation-delay:${(t0 + i * STEP).toFixed(2)}s"><span>${k}</span><b>${v}</b></div>`).join('')}</div>
+      ${rank ? `<div class="rstamp ${rank}" style="animation-delay:${tRank.toFixed(2)}s">${rank === 'gold' ? '金冠' : rank === 'silver' ? '銀冠' : '模板'}</div>` : ''}
+    </div>
+    <div class="rdlg" style="animation-delay:${(tLine - .25).toFixed(2)}s"><b>${esc(who(c))}</b><p class="rline"></p><span class="rhint">點一下繼續</span></div>`});
+  const P = box.querySelector('.rline'), timers = [];
+  let done = false;
+  const finish = () => { done = true; timers.forEach(clearTimeout); box.classList.add('rdone'); P.textContent = line; };
+  [...line].forEach((ch, k) => timers.push(setTimeout(() => { P.textContent += ch; if (k === line.length - 1) finish(); }, (tLine + k * .09) * 1000)));
+  box.onclick = () => { if (!done) finish(); else box.remove(); };
+  document.body.appendChild(box);
 }
+
 // 人員詳細資料：獨立的一張卡片，疊在畫面上（Alan 2026-10-10：比較好控制版面）；✕、點外面、Esc 關掉
 function renderPerson() {
   const P = $('pcard'); if (!P) return;
