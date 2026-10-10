@@ -1,5 +1,5 @@
 // 離線用：把編輯器本身存起來；作品資料不經過這裡（由 IndexedDB 與 /api 處理）
-const CACHE = 'studio-shell-v7';
+const CACHE = 'studio-shell-v8';
 const SHELL = ['./', 'index.html', 'app.js', 'import.js', 'style.css', 'manifest.webmanifest', 'icon.svg'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())));

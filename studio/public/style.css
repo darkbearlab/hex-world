@@ -129,3 +129,5 @@ dialog.imp[open]{display:flex}
   .impctl{width:auto}
   #impSrcWrap,#impOutWrap{min-height:38vh}
 }
+.links{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px 0}
+.links .muted{font-size:13px;margin-right:4px}
