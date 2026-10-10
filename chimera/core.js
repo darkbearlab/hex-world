@@ -315,6 +315,8 @@ export class Core {
     // 舊存檔：格子收集取代經驗（Alan 2026-10-10）。原本的等級換成等量的格子（每級 10 格，照 uid 擲），不降級
     for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.cells) { c.cells = [0, 0, 0, 0]; c.dup = 0; c.cellPts = 0; let s = (c.uid * 2654435761) >>> 0; const r = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
       const want = ((c.lv || 1) - 1) * 10; for (let k = 0; k < 2000 && C.cellCount(c) < want; k++) C.drawCells(c, 1, r); c.lv = C.cellLevel(c); }
+    // 舊存檔：名氣紀錄照已經結案的案子補算（Alan 2026-10-10）
+    for (const co of Object.values(g.cos)) G.fame(co, g.book);
     // 舊存檔：服役紀錄從現在開始記（之前的事補不回來），先補一筆出槽
     for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.record) c.record = [{h: c.born || 0, t: 'born', co: co.name, tile: co.base, before: true}];
     // 舊存檔（Alan 2026-10-10）：uid 從「每家公司各自數」改成全星球流水號。照公司、名冊的順序重新發號；顯示的編號不改（認得的人還是那個名字）

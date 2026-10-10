@@ -65,7 +65,7 @@ export function makeClone(G, rng, cls, portrait, u, o = {}) {
 
 // ===== 公司 =====
 export function newCompany(w, base, name = '我的公司', seed = 7, book = null) {
-  const G = {flows: [], daily: [], name, base, cash: GCFG.START_CASH, mats: {...GCFG.START_MATS}, roster: [], templates: [], queue: [], store: [], itemSeq: 0, seq: 1, rs: seed | 0, h: 0, ledgerAt: 0, inboxAt: 0, log: [], cases: [], returning: []};
+  const G = {flows: [], daily: [], name, base, cash: GCFG.START_CASH, mats: {...GCFG.START_MATS}, roster: [], templates: [], queue: [], store: [], itemSeq: 0, seq: 1, fameLog: [], rs: seed | 0, h: 0, ledgerAt: 0, inboxAt: 0, log: [], cases: [], returning: []};
   const r = () => rnd(G);
   // 開局：一隊四人（配方平均），外加一張模板
   for (let i = 0; i < 6; i++) { const cls = pickW(r, classOdds({food: 30, water: 30, implant: 30, neural: 30})), c = makeClone(G, r, cls, pickPortrait(r, cls), [r(), r(), r(), r()], {uid: nextUid(book)}); C.rec(c, {h: 0, t: 'born', co: name, tile: base}); G.roster.push(c); }
@@ -399,6 +399,7 @@ export function hour(G, book, w, h) {
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.garrison != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       if (sq.fast) C.paySpeed(book, w, G.name, c.tile, G.base, sq.clones.filter(x => x.alive && x.status === 'away').length, h, `${c.title}（${sq.name}）回程`, c.id); for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
+    if (got > 0) { fame(G, book); const f = fameOfCase(G, book, c); if (f.fame) G.fameLog.push({h, title: c.title, kind: c.kind, ...f}); }   // 名氣
     if (c.contract && c.delivered < 1) { const k = (book.contracts || []).find(x => x.id === c.contract)?.signers.find(s => s.co === G.name); if (k) k.lost++; }   // 長約：丟了車隊，這一季沒有獎金
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq?.player !== G.name) continue; for (const x of sq.clones) { const e = C.caseRec(x, c.id); if (e && e.end == null) { e.end = h; e.payout = got; if (c.delivered !== undefined) e.delivered = c.delivered; } } }
     note(G, h, `「${c.title}」結案${c.delivered !== undefined ? `，送達 ${Math.round(c.delivered * 100)}%` : ''}，分到尾款 $${got}k。`);
@@ -448,17 +449,28 @@ function cleanDone(G, book, w, j, h) {
 }
 
 // ===== 長期護衛合約與駐紮（Alan 2026-10-10，warband/DESIGN.md「長期合約 v2」）=====
-// 產地（石油城、彈藥農場、綠洲）每季在委託板開一份長期護衛約，期限 4 季、4 個名額；名氣不夠、規模太小、跟產地的勢力在打仗、被那個勢力拉黑的公司看不到。
+// 產地（石油城、彈藥農場、綠洲）每季在委託板開一份長期護衛約，期限 4 季、4 個名額；只找世界名氣排行前 4 名（至少有過一張成功的單子）的公司（Alan 2026-10-10），規模太小、跟產地的勢力在打仗、被那個勢力拉黑的公司看不到。
 // 錢：簽約金一次給，或分四季給（總額多兩成）；有些要先付履約保證金（期滿沒違約就退）；一整季沒丟車隊、沒違約，季末有獎金。
 // 義務：產地每 2～4 天發一趟車隊，輪流指派給一家簽約公司；5 小時內要決定派誰，時限到了還沒派，就從駐在那個產地的小隊隨機拉一隊；連駐軍都沒有就是違約。
 // 違約：第一次賠簽約金的四分之一、保證金沒收；第二次再賠一半、合約作廢、那個勢力一年（4 季）不跟你往來。
-export const RET = {SLOTS: 4, SEASONS: 4, WINDOW: 5, GAP0: 48, GAP1: 96, FAME_MIN: 80, SIZE_MIN: 8, GAR_UPKEEP: 1.5, BAN_SEASONS: 4, INSTALL: .3, BONUS: .15};
+export const RET = {SLOTS: 4, SEASONS: 4, WINDOW: 5, GAP0: 48, GAP1: 96, TOP_N: 4, SIZE_MIN: 8, GAR_UPKEEP: 1.5, BAN_SEASONS: 4, INSTALL: .3, BONUS: .15};
 const SITE_N = {oil: '石油城', ammo: '彈藥農場', oasis: '綠洲'}, SITE_G = {oil: 'fuel', ammo: 'ammo', oasis: 'water'}, GOOD_N = {fuel: '燃料', ammo: '彈藥', water: '淨水'};
 const h01 = (a, b) => (((a * 2654435761) ^ (b * 40503)) >>> 0) / 4294967296;
-// 名氣：結案拿到尾款的案件 ×10、活著的人 ×3、違約 ×－40（之後可以換成更完整的指標）
+// 名氣（Alan 2026-10-10）：成功的單子（拿到尾款）才加：規模（案子類型）× 威脅（案子的等級 × 實際碰到的敵人戰力）× 貢獻（自己的積分佔整個案子的比例）；違約扣 60。
+// 每一筆記在 G.fameLog（報表看得到）
+export const FAME = {BASE: {camp: 40, front: 30, hunt: 25, garrison: 25, route: 20}, POW: 15, BREACH: 60};
+export function fameOfCase(G, book, c) {
+  const me = G.name, tot = Object.values(c.score || {}).reduce((x, y) => x + y, 0), share = tot > 0 ? (c.score[me] || 0) / tot : 0;
+  const T = book.tickets.filter(t => t.caseId === c.id && t.player === me && t.done && t.enemy), pow = T.length ? T.reduce((s, t) => s + (t.enemy.power || 0), 0) / T.length : FAME.POW;
+  const threat = (c.lv || 1) * Math.max(.7, Math.min(1.5, pow / FAME.POW)), base = FAME.BASE[c.kind] || 20;
+  return {base, lv: c.lv || 1, pow: +pow.toFixed(1), threat: +threat.toFixed(2), share: +share.toFixed(2), fame: Math.round(base * threat * share)};
+}
 export function fame(G, book) {
-  const ok = G.cases.map(id => book.cases.find(c => c.id === id)).filter(c => c && c.settled && !c.own && (c.payout?.[G.name] || 0) > 0).length;
-  return ok * 10 + G.roster.filter(c => c.alive).length * 3 - (G.breaches || 0) * 40;
+  if (!G.fameLog) {   // 舊存檔：照已經結案、拿到尾款的案子補算一次；違約照記
+    G.fameLog = []; for (const id of G.cases) { const c = book.cases.find(x => x.id === id); if (c && c.settled && !c.own && (c.payout?.[G.name] || 0) > 0) { const f = fameOfCase(G, book, c); G.fameLog.push({h: c.settledAt ?? 0, title: c.title, kind: c.kind, ...f}); } }
+    for (let i = 0; i < (G.breaches || 0); i++) G.fameLog.push({h: 0, title: '違約（舊紀錄）', fame: -FAME.BREACH});
+  }
+  return G.fameLog.reduce((s, e) => s + e.fame, 0);
 }
 const garSquads = (G, book, site) => Object.values(book.squads).filter(sq => sq.player === G.name && sq.garrison === site);
 const garFree = (sq, now) => !sq.caseId && sq.readyAt <= now && sq.clones.filter(c => c.alive).length >= 2 && sq.clones.filter(c => c.alive).every(c => c.status === 'away');
@@ -469,7 +481,7 @@ function canSign(G, book, w, c, now) {
   if (c.signers.length >= c.slots) return '名額滿了';
   if (me >= 0 && c.fac >= 0 && P.atWar(me, c.fac)) return '跟你的總部勢力在打仗';
   if ((G.bans?.[c.fac] ?? -1) > now) return '這個勢力不跟你往來';
-  if (fame(G, book) < RET.FAME_MIN || G.roster.filter(x => x.alive).length < RET.SIZE_MIN) return '名氣或規模不夠';
+  if (!(book.fameTop || []).includes(G.name) || G.roster.filter(x => x.alive).length < RET.SIZE_MIN) return '名氣排行或規模不夠';
   return null;
 }
 export function sign(G, book, w, id, now) {
@@ -526,7 +538,7 @@ export function answer(G, book, w, callId, how, now) {
 }
 function breach(cos, book, w, c, q, h, SH) {
   const s = c.signers.find(x => x.co === q.co), G = cos[q.co]; q.state = 'missed'; if (!s || !G) return;
-  s.breaches++; s.missed++; G.breaches = (G.breaches || 0) + 1;
+  s.breaches++; s.missed++; G.breaches = (G.breaches || 0) + 1; fame(G, book); G.fameLog.push({h, title: `違約：${w.names[c.site] || ''}${SITE_N[c.kind]}的車隊沒人護送`, fame: -FAME.BREACH});
   const nm = (w.names[c.site] || '') + SITE_N[c.kind];
   if (s.breaches === 1) {
     const pen = Math.round(c.fee * .25); C.pay(book, h, q.co, -pen, 'breach', `${nm}長約：違約金（第一次）`);
@@ -542,6 +554,9 @@ function breach(cos, book, w, c, q, h, SH) {
 export function retainerHour(cos, book, w, h, SH) {
   const K = w.sim.peek(), P = w.sim.pmc, sites = P.sites ? P.sites() : {}; book.contracts ||= [];
   const nm = t => w.names[t] || '無名之地';
+  // 名氣排行：前 TOP_N 名、名氣大於 0 的公司才會被產地找
+  const rank = Object.values(cos).map(g => [g.name, fame(g, book)]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  book.fameRank = rank; book.fameTop = rank.filter(([, f]) => f > 0).slice(0, RET.TOP_N).map(([n]) => n);
   // 開約：每季、每個還在的產地一份
   if (h % SH === 0 || !book.contractsInit) { book.contractsInit = true;
     for (const [k, kind] of Object.entries(sites)) { const t = +k, m = K.markets[t]; if (!m || K.owner[t] < 0 || book.contracts.some(c => c.site === t && h < c.signUntil)) continue;
@@ -593,7 +608,8 @@ export function retainerView(G, book, w) {
     return {id: c.id, site: c.site, name: nm(c.site), kn: SITE_N[c.kind], end: c.end, done: !!c.done, void: !!s.void, breaches: s.breaches, plan: c.plan, paid: s.paid, bond: s.bond, bondLost: !!s.bondLost,
       calls: c.calls.filter(q => q.co === G.name && q.state === 'open').map(q => ({id: q.id, to: nm(q.to), g: GOOD_N[q.g], deadline: q.deadline})),
       garrison: garSquads(G, book, c.site).map(sq => ({id: sq.id, name: sq.name, alive: sq.clones.filter(x => x.alive).length, uids: sq.clones.map(x => x.uid), busy: !!sq.caseId, ready: sq.readyAt <= now, readyAt: sq.readyAt}))}; });
-  return {fame: fame(G, book), fameMin: RET.FAME_MIN, sizeMin: RET.SIZE_MIN, offers, mine};
+  const rk = (book.fameRank || []).findIndex(([n]) => n === G.name);
+  return {fame: fame(G, book), rank: rk >= 0 ? rk + 1 : null, of: (book.fameRank || []).length, topN: RET.TOP_N, fameLog: G.fameLog.slice(-40).reverse(), sizeMin: RET.SIZE_MIN, offers, mine};
 }
 
 // 沙盒裡的遺體被撿走（每個遊戲小時，在所有公司的 hour 之後；core.js 呼叫）：物歸原主就沖回損失；別家撿到就易主（原公司只看到確認戰死）

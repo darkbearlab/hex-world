@@ -7,7 +7,8 @@ c.found(towns[0], '甲'); c.advanceTo(30); const A = c.co('甲'), b = c.game.boo
 const ledger = k => b.ledger.filter(x => x.player === '甲' && x.kind === k).reduce((s, x) => s + x.amount, 0);
 let v = c.view('甲').data.retainer;
 console.log('1 開約', (b.contracts || []).length, '份｜名氣', v.fame, '門檻', v.fameMin, '｜看得到', v.offers.length, '份');
-G.RET.FAME_MIN = 0; G.RET.SIZE_MIN = 0;   // 測試：門檻先拿掉
+G.RET.SIZE_MIN = 0; A.fameLog.push({h: 0, title: '測試', fame: 1});   // 測試：規模門檻拿掉、給一點名氣（只有一家公司，就是第一名）
+c.advanceTo(c.game.h + 1);
 v = c.view('甲').data.retainer; const off = v.offers.sort((a, b2) => (a.bond ? 1 : 0) - (b2.bond ? 1 : 0))[0];
 console.log('  拿掉門檻後看得到', v.offers.length, '份；簽', off.name + off.kn, `簽約金 ${off.fee}（${off.plan}）保證金 ${off.bond}`, c.command({type: 'sign', id: off.id}, '甲') || 'ok', '再簽一次', c.command({type: 'sign', id: off.id}, '甲'));
 c.advanceTo(c.game.h + 1); console.log('  入帳 簽約金', ledger('retainer'), '保證金', ledger('bond'));
