@@ -103,6 +103,9 @@ function smoke(r, o, time) {
 
 export function installOutdoor(renderer) {
   registerStyles();
+  // 公路戰不貼勢力痕跡（Alan 2026-10-10：貼在路面的殘骸、塗鴉會留在原地不跟著捲；貼在車上的也不跟著車走）
+  const D = renderer?.decals && Object.getPrototypeOf(renderer.decals);
+  if (D && !D.chimeraHighway) { D.chimeraHighway = true; const draw = D.draw; D.draw = function (r, ...rest) { if (r?.game?.chimeraOutdoor?.deck) return; return draw.call(this, r, ...rest); }; }
   if (renderer?.terrainImages) for (const u of Object.values(URL)) if (!renderer.terrainImages.has(u)) renderer.terrainImages.set(u, img(u));
   const R = Renderer.prototype, terrain = R.terrain, wall = R.wall, exit = R.exit;
   R.terrain = function (role, a, point, size = Math.round(this.tile), rotation = 0) {
