@@ -505,3 +505,17 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .smenu{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:3;display:flex;gap:4px;padding:4px;background:var(--panel2);border:1px solid var(--accent);border-radius:8px;box-shadow:0 6px 18px #000c;white-space:nowrap}
 .smenu button{padding:3px 9px!important;font-size:12px}
 .csbtn{padding:1px 7px!important;font-size:11px;margin-left:6px;vertical-align:middle}
+/* 手機的人員卡片（Alan 2026-10-10）：人像當整張卡片的背景（之後是半身像），上半部留空看得到胸部以上；
+   資料從畫面中間開始，往上捲時蓋過人像，底色半透明還看得到人像 */
+@media (max-width:759px){
+  .pcard{padding:8px}
+  .pcbox{padding:0;overflow:auto}
+  .pc2{display:block;position:relative}
+  .pcart{position:sticky;top:0;height:min(78vh,640px);margin-bottom:calc(-1 * min(78vh,640px));border:0;border-radius:10px 10px 0 0;z-index:0;align-items:flex-start}
+  .pcart img{width:100%;height:100%;object-fit:cover;object-position:50% 0}
+  .pcart.px{align-items:flex-start;padding-top:36px}
+  .pcart.px img{width:150px;height:150px;object-fit:contain;object-position:50% 0}
+  .pcart-cap{display:none}
+  .pcmain{position:relative;z-index:1;margin-top:40vh;min-height:60vh;padding:14px 16px 16px;background:color-mix(in srgb,var(--panel) 80%,transparent);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);border-top:1px solid var(--line);border-radius:14px 14px 10px 10px;box-shadow:0 -8px 24px #0008}
+  .pcx{z-index:3;background:#000a!important}
+}

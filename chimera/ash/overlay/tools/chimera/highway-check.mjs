@@ -5,7 +5,7 @@ import {SquadGame} from '../../src/chimera-squad.js';
 import {installFullSquad} from './full-squad.mjs';
 import {pendingCrew, onVehicle} from '../../src/chimera-highway.js';
 import {HIGHWAY_SHAKE} from '../../src/chimera-mission.js';
-const squad = [['A', 'soldier'], ['B', 'recon'], ['C', 'bulwark'], ['D', 'berserker']].map(([id, cls]) => ({id, cls, st: {hp: cls === 'berserker' ? 160 : 100}, lv: 3}));
+const squad = [['A', 'soldier'], ['B', 'recon'], ['C', 'bulwark'], ['D', 'berserker']].map(([id, cls]) => ({id, cls, st: {hp: cls === 'berserker' ? 160 : 100}, lv: 3, perkPicks: 2}));   // 3 級的升級三選一已經挑完（記憶片段之後，沒挑的會在開場補挑，直接下指令的測試會被擋住）
 let bad = 0; const fail = m => { bad++; console.log('✗', m); };
 const mk = (seed, n, type = 'ambush') => new SquadGame({seed, faction: 'rebel', type, biome: '旱原', night: false, enemy: {units: {raider: n}, veh: {rush: 1}, boss: null}, squad});
 const rows = [];
