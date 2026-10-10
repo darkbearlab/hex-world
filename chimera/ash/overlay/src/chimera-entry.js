@@ -17,7 +17,8 @@ const {SquadGame}=await import('./chimera-squad.js'),{installFullSquad}=await im
 async function build(tk){
  const g=new SquadGame(tk);installFullSquad(g);return g;
 }
-let current=WARMUP,sent=false;
+let current=WARMUP,sent=false,runOutcome=async()=>{};
+E.outcomeHooks=E.outcomeHooks||[];   // 打完時依序 await 的演出鉤子：(game, outcome) => Promise（見 chimera-outcome.js）
 const root=()=>document.getElementById('ash-root');
 Object.assign(E,{
  game:await build(current),
@@ -25,8 +26,9 @@ Object.assign(E,{
  ready(){},   // 控制器載好時叫；畫面的外掛（小隊、寬螢幕）裝好之後才算載好，見檔尾
  // 打完：本機算的把戰果交給奇美拉；伺服器上的戰鬥由伺服器自己結算，這裡只通知畫面去更新
  // 瀏覽器跑、伺服器驗證的戰鬥：等最後幾筆輸入送到伺服器（伺服器重播到結束就會自己結算），再通知畫面更新
- finish(g){if(sent||!current.id)return;sent=true;const id=current.id,server=Boolean(E.remote||E.uplink);const wait=E.uplink?E.uplink.idle():Promise.resolve();
-  Promise.all([wait,new Promise(r=>setTimeout(r,1200))]).then(()=>{E.hide();E.onresult?.(id,server?{server:true}:g.missionResult);});},
+ // 2026-10-10：不再直接跳走——先跑演出鉤子（E.outcomeHooks）、出勝利／失敗的提示（chimera-outcome.js），玩家按了才關掉；伺服器那邊的上傳同時在背景等
+ finish(g){if(sent||!current.id)return;sent=true;const id=current.id,tk=current,server=Boolean(E.remote||E.uplink);const wait=E.uplink?E.uplink.idle():Promise.resolve();
+  Promise.all([wait,new Promise(r=>setTimeout(r,900)).then(()=>runOutcome(E,g,tk))]).then(()=>{E.hide();E.onresult?.(id,server?{server:true}:g.missionResult);});},
  async start(tk){current=tk;sent=false;E.remote=null;E.uplink=null;const g=await build(tk);E.game=g;E.load(g);E.show();},
  // 伺服器驗證的戰鬥（DESIGN.md 2026-10-09 方案 A）：tk={id,title,mode:'verify',mission,log}。用伺服器給的任務（含種子）在這裡建遊戲，
  // 接回時先把已經送到伺服器的輸入重播一次（和伺服器同一個狀態），之後玩家的每個輸入都記下來、在背景送給伺服器，不等回應。
@@ -124,6 +126,7 @@ const {renderer}=await import('./controller.js');
 E.renderer=renderer;
 const pause=renderer.isPaused;renderer.isPaused=()=>!E.active||pause?.();
 const {installSquadUI}=await import('./chimera-squad-ui.js');installSquadUI();
+const {installGuard,runOutcome:ro}=await import('./chimera-outcome.js');installGuard(E);runOutcome=ro;   // 選單擋掉回 ASH 的路、打完的提示
 const {installWide}=await import('./chimera-wide.js');installWide();
 const {installOutdoor}=await import('./chimera-outdoor-render.js');installOutdoor(renderer);
 resolveLoaded(E);
