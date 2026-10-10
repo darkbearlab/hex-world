@@ -27,6 +27,7 @@ import {FIRE_TUNING,burningAt} from './fire.js';
 import {AFFIXES,weaponStats} from './weapons.js';
 import {WEAPONS,PERKS} from './data.js';
 import {perkDef} from './perks.js';
+import {perkLimit} from './endless.js';
 import {initialSkillState,SKILLS} from './skills.js';
 import {initializeAllies} from './allies.js';
 import {grantTrait,removeTraitSource} from './traits.js';
@@ -53,6 +54,8 @@ export class SquadGame extends MissionGame{
   super(ticket);
   const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;
   this.equip(lead,ticket.squad[0]);for(const k of COUNTERS)this[k]=ticket.squad[0][k]||0;
+  // 格子收集（Alan 2026-10-10）：等級在戰場外決定；這一級該有、還沒挑的升級，進場時補給（照 ASH 的 perkLimit：每升一級一個）
+  this.pendingPerks=Math.max(0,perkLimit(lead.level)-(this.perkPicks||0));
   // brains（函式）與 stash 不可列舉：ASH 每一步動畫前用 structuredClone 複製遊戲（presentation.js snapshot）
   for(const [k,v]of [['stash',new Map([[lead,{}]])],['brains',new Map()]])Object.defineProperty(this,k,{configurable:true,writable:true,enumerable:false,value:v});
   this.members=[lead];this.controlled=lead;
@@ -62,7 +65,7 @@ export class SquadGame extends MissionGame{
    const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;applyStats(m,c,CHARACTERS[cls]);
    this.shareArmory(m,lead);this.equip(m,c);
    const cell=this.freeCellNear(lead);if(!cell)continue;Object.assign(m,{x:cell.x,y:cell.y});
-   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:0,perkDraft:null,perkPicks:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
+   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:Math.max(0,perkLimit(m.level)-(c.perkPicks||0)),perkDraft:null,perkPicks:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
    this.chimera.units[c.id]=m;
   }
   this.chimera.units[ticket.squad[0].id]=lead;
@@ -114,10 +117,8 @@ export class SquadGame extends MissionGame{
   if(this.members&&id==='workshop'){const keep=this.player;this.swap(m);try{initializeAllies(this);}finally{this.swap(keep);}}
   return true;
  }
- settleLevels(){
-  const p=this.player,before=p.level;super.settleLevels();
-  if(p.level>before&&this.learnClassSkill(p))this.log(`${p.squadId||''} 升到 ${p.level} 級，學會了「${SKILLS[CLASS_SKILL[p.character]]?.name||CLASS_SKILL[p.character]}」。`,true);
- }
+ // 格子收集取代經驗（Alan 2026-10-10）：戰場上打倒敵人不再升級（等級由戰後的積分抽格子決定），經驗直接歸零
+ settleLevels(){this.player.xp=0;}
  choosePerk(id){const ok=super.choosePerk(id);if(ok)(this.player.chimeraPicks||=[]).push(id);return ok;}
  // 戰後寫回名冊的成長
  progressOf(m){const own=m===this.player,st=this.stash?.get(m)||{};return {gear:this.gearOf(m),lv:m.level,xp:m.xp,picks:[...(m.chimeraPicks||[])],skills:[...m.skills],prep:m.prepared?.skill||null,...Object.fromEntries(COUNTERS.map(k=>[k,own?this[k]:st[k]||0]))};}

@@ -60,7 +60,7 @@ export function makeClone(G, rng, cls, portrait, u, o = {}) {
   const n = Math.floor(rng() * 10000);
   return {id: o.uid != null ? `${L}-${String(o.uid).padStart(5, '0')}` : `${L}-${String(n).padStart(4, '0')}`, uid: o.uid ?? G.seq++, cls, portrait, st, u, pct: +pct.toFixed(4),
     crown: pct >= .99 ? 'gold' : pct >= .9 ? 'silver' : '', pow: +(6 * CLS[cls].k * (.85 + .075 * sum)).toFixed(2), weapon: CLS[cls].weapon,
-    hp: 20, alive: true, status: 'home', keep: false, born: o.born || 0, template: !!o.template, kills: 0, missions: 0, donor: portrait, record: []};
+    hp: 20, alive: true, status: 'home', keep: false, born: o.born || 0, template: !!o.template, kills: 0, missions: 0, donor: portrait, record: [], lv: 1, cells: [0, 0, 0, 0], dup: 0, cellPts: 0};
 }
 
 // ===== 公司 =====
@@ -184,7 +184,7 @@ function finishBuild(G, q, h, book = null) {
   const r = () => rnd(G);
   if (q.revive != null) {
     const c = G.roster.find(x => x.uid === q.revive); if (!c || c.status !== 'recovered') { for (const m of MATS) G.mats[m] += q.recipe[m] || 0; note(G, h, '重新培養失敗：遺體不在了，素材退回。'); return; }
-    Object.assign(c, {alive: true, status: 'home', hp: 20, lv: 1, xp: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0, downAs: null, downAt: null, downTile: null, diedH: null, born: h});
+    Object.assign(c, {alive: true, status: 'home', hp: 20, lv: 1, xp: 0, cells: [0, 0, 0, 0], dup: 0, cellPts: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0, downAs: null, downAt: null, downTile: null, diedH: null, born: h});
     // 舊小隊的名單裡還有這個人（倒下時留著，給結案記紀錄用）：拿掉，不然活過來的人會被當成那一隊的人繼續派單
     if (book) for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(c); if (i >= 0) sq.clones.splice(i, 1); }
     C.rec(c, {h, t: 'revive', co: G.name, tile: G.base}); G.fresh = c.uid;
@@ -459,10 +459,27 @@ export function bodiesHour(cos, book, w, h) {
     }
     // 易主：原公司名冊留一個確認戰死的影子（編號改成負的，不跟正本撞號），正本搬到撿到的公司
     const ghost = {...c, uid: -c.uid, status: 'kia', record: [...(c.record || []), {h, t: 'kia', co: own.name, confirm: true}], gear: null};
+    // 原公司的舊小隊名單也換成影子：同一個物件不能同時掛在兩家公司（存檔讀回來會拆成兩份，狀態就對不上）
+    for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(c); if (i >= 0) sq.clones[i] = ghost; }
     own.roster[own.roster.indexOf(c)] = ghost; note(own, h, `${who} 的遺體沒能收回，確認戰死。`);
     c.status = 'recovered'; c.keep = false; C.rec(c, {h, t: 'transfer', from: own.name, co: to.name, tile: b.tile});
     to.roster.push(c); note(to, h, `在${w.names[b.tile] || '無名之地'}一帶撿到一具遺體：${who}（原本是別家的人）。可以到培養槽重新培養。`);
   }
+}
+
+// 合成（Alan 2026-10-10）：同一位原主的兩個人，留主體（個體值、編號、裝備、服役紀錄都是主體的），被合成的只提供格子，合成後就沒了（身上的裝備進倉庫）
+export function merge(G, keepUid, feedUid, now = G.h, book = null) {
+  const K = G.roster.find(x => x.uid === keepUid), F = G.roster.find(x => x.uid === feedUid);
+  if (!K || !F || K === F) return '要選兩個不同的人';
+  if (!K.alive || !F.alive || K.status !== 'home' || F.status !== 'home') return '兩個人都要在總部待命';
+  if ((K.donor ?? K.portrait) !== (F.donor ?? F.portrait)) return '只有同一位原主的人才能合成';
+  const g = gearOf(G, F); G.store ||= []; for (const s of SLOTS) { const it = slotGet(g, s); if (it && !it.homemade && !/^土製/.test(itemName(it))) G.store.push(it); slotSet(g, s, null); }
+  const lv0 = K.lv || 1, gain = C.mergeCells(K, F); K.lv = C.cellLevel(K);
+  C.rec(K, {h: now, t: 'merge', co: G.name, fed: F.id, gain});
+  G.roster.splice(G.roster.indexOf(F), 1); if (G.fresh === F.uid) G.fresh = null;
+  if (book) for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(F); if (i >= 0) sq.clones.splice(i, 1); }
+  note(G, now, `合成：${donorName(K)} ${K.id} 吸收了 ${F.id} 的格子，多了 ${gain} 格（${C.cellCount(K)}／100）${K.lv > lv0 ? `，升到 ${K.lv} 級` : ''}。${F.id} 身上的裝備放進倉庫。`);
+  return null;
 }
 
 // 重新培養（Alan 2026-10-10）：把收回的遺體放進培養槽，同一個人回到名冊——職業、立繪、個體值、編號、裝備、服役紀錄都留著，等級和技能從頭來。素材照職業的固定配方

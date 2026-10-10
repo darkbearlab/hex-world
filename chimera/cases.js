@@ -38,6 +38,27 @@ const REC_MAX = 300;
 export function rec(cl, e) { (cl.record ||= []).push(e); if (cl.record.length > REC_MAX) cl.record.splice(1, 1); }
 export const caseRec = (cl, id) => id == null ? null : (cl.record || []).findLast(e => e.t === 'case' && e.case === id);
 export function joinRec(cl, c, co, now) { if (!caseRec(cl, c.id)) rec(cl, {h: now, t: 'case', co, case: c.id, title: c.title, tile: c.tile, kind: c.kind, fights: 0, wins: 0}); }
+// ===== 格子收集經驗（Alan 2026-10-10）=====
+// 每個人 100 格（存成 4 個 32 位元整數，格子編號 0～99；之後要把某一段對應到技能時不用改存檔）。照貢獻抽：每 1 點積分抽 CELL_DRAWS 次（照貢獻數抽）；
+// 抽到空格就填上，抽到已經有的就累積保底，重複 CELL_PITY 次後下一抽保證是空格。等級＝1＋已填格數／10。同名（同一位原主）的兩個人可以合成：格子取聯集。
+export const CELLS = 100, CELL_DRAWS = 1, CELL_PITY = 4;
+export const cellHas = (c, i) => !!((c.cells?.[i >> 5] >>> (i & 31)) & 1);
+const cellSet = (c, i) => { (c.cells ||= [0, 0, 0, 0])[i >> 5] = (c.cells[i >> 5] | (1 << (i & 31))) >>> 0; };
+export const cellCount = c => { let n = 0; for (let i = 0; i < CELLS; i++) if (cellHas(c, i)) n++; return n; };
+export const cellLevel = c => 1 + Math.floor(cellCount(c) / 10);
+// 抽 n 次（r：0～1 的亂數）；回傳填了幾格
+export function drawCells(c, n, r) {
+  let got = 0; c.cells ||= [0, 0, 0, 0];
+  for (let k = 0; k < n; k++) {
+    const empty = []; for (let i = 0; i < CELLS; i++) if (!cellHas(c, i)) empty.push(i); if (!empty.length) break;
+    if ((c.dup || 0) >= CELL_PITY) { cellSet(c, empty[Math.floor(r() * empty.length)]); c.dup = 0; got++; continue; }
+    const i = Math.floor(r() * CELLS); if (cellHas(c, i)) c.dup = (c.dup || 0) + 1; else { cellSet(c, i); got++; }
+  }
+  return got;
+}
+// 合成：把 feed 的格子併進 keep；回傳多了幾格
+export function mergeCells(keep, feed) { const n0 = cellCount(keep); keep.cells = [0, 1, 2, 3].map(i => ((keep.cells?.[i] || 0) | (feed.cells?.[i] || 0)) >>> 0); return cellCount(keep) - n0; }
+
 export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, cloneSeq: 1, t: 0, cases: [], tickets: [], squads: {}, ledger: [], inbox: [], companies: {}, amends: [], trips: []}; }
 
 // ===== 小隊 =====
@@ -606,6 +627,11 @@ export function settleTicket(book, w, tk, res, now) {   // export 給 stats/reco
     if (res.win) { cl.downAs = 'recovered'; continue; }
     cl.downAs = 'lost'; pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 倒下，遺體沒能帶回`, c.id); gearLost += sq.gear;
     (book.bodies ||= []).push({uid: cl.uid, co: sq.player, tile: tk.tile, at: now, value: CFG.CLONE_VALUE + sq.gear}); }
+  // 格子收集：這一場的積分換成抽格子的次數，這一隊活下來的人各抽各的；升級的人寫進通知
+  const ups = [];
+  if (tk.pts > 0) for (const cl of alive(sq)) { cl.cellPts = (cl.cellPts || 0) + tk.pts * CELL_DRAWS; const n = Math.floor(cl.cellPts); cl.cellPts -= n;
+    const lv0 = cl.lv || 1; drawCells(cl, n, () => rng(book)); cl.lv = cellLevel(cl); if (cl.lv > lv0) ups.push(`${cl.id} 升到 ${cl.lv} 級`); }
+  if (ups.length) notify(book, now, sq.player, 'result', `${tk.title}：${ups.join('、')}（格子收集）`, tk.id);
   // 生物廢棄物（清運案的來源）：這一場倒下的敵人（打贏全算、打輸算三成）加上我方倒下的人
   { const foes = tk.enemy ? enemyRoster(tk.enemy).length : 0, waste = foes * (res.win ? 1 : .3) + res.dead.length; if (waste > 0) { const W = book.waste ||= {}; W[tk.tile] = (W[tk.tile] || 0) + waste; } }
   // 打贏的人順便撿走附近（同一格或隔壁）還沒壞的遺體

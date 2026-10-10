@@ -12,7 +12,7 @@ const r1 = v => Math.round(v * 10) / 10;
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'equip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'equip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -209,6 +209,7 @@ export class Core {
     if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
     if (m.type === 'claim') return G.claim(g, +m.slot, this.game.book);
+    if (m.type === 'merge') return G.merge(g, +m.keep, +m.feed, h, b);
     if (m.type === 'clean') return G.clean(g, b, w, +m.tile, h);
     if (m.type === 'revive') return G.revive(g, +m.uid, m.slot == null ? null : +m.slot, this.exactNow ?? h);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
@@ -256,8 +257,9 @@ export class Core {
       const ups = [];
       for (const [id, pr] of Object.entries(m.result.progress || {})) {
         const c = sq.clones.find(x => x.id === id); if (!c || !pr) continue;
-        if ((pr.lv || 1) > (c.lv || 1)) ups.push(`${c.id} ${c.lv || 1}→${pr.lv} 級${(pr.skills || []).length > (c.skills || []).length ? `，學會了${pr.skills.filter(s => !(c.skills || []).includes(s)).map(s => G.SKILL_NAME[s] || s).join('、')}` : ''}`);
-        Object.assign(c, {lv: pr.lv, xp: pr.xp, picks: pr.picks, skills: pr.skills, prep: pr.prep, perkPicks: pr.perkPicks, classPerkMisses: pr.classPerkMisses, legacyPerkPicks: pr.legacyPerkPicks});
+        // 等級改由格子收集決定（Alan 2026-10-10）：戰場上不再用經驗升級，這裡不寫回 lv、xp
+        if (false) ups.push(`${c.id} ${c.lv || 1}→${pr.lv} 級${(pr.skills || []).length > (c.skills || []).length ? `，學會了${pr.skills.filter(s => !(c.skills || []).includes(s)).map(s => G.SKILL_NAME[s] || s).join('、')}` : ''}`);
+        Object.assign(c, {picks: pr.picks, skills: pr.skills, prep: pr.prep, perkPicks: pr.perkPicks, classPerkMisses: pr.classPerkMisses, legacyPerkPicks: pr.legacyPerkPicks});
         if (pr.gear) G.gearAfterBattle(g, c, pr.gear);   // 撿到的槍、用剩的預備品
       }
       // 彈藥費（Alan 2026-10-09）：接案的由雇主吸收；自費的（自己的車隊）結算時扣
@@ -304,6 +306,9 @@ export class Core {
       const byUid = new Map(co.roster.map(c => [c.uid, c]));
       sq.clones = sq.clones.map(c => (c.uid != null && byUid.get(c.uid)) || c);
     }
+    // 舊存檔：格子收集取代經驗（Alan 2026-10-10）。原本的等級換成等量的格子（每級 10 格，照 uid 擲），不降級
+    for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.cells) { c.cells = [0, 0, 0, 0]; c.dup = 0; c.cellPts = 0; let s = (c.uid * 2654435761) >>> 0; const r = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
+      const want = ((c.lv || 1) - 1) * 10; for (let k = 0; k < 2000 && C.cellCount(c) < want; k++) C.drawCells(c, 1, r); c.lv = C.cellLevel(c); }
     // 舊存檔：服役紀錄從現在開始記（之前的事補不回來），先補一筆出槽
     for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.record) c.record = [{h: c.born || 0, t: 'born', co: co.name, tile: co.base, before: true}];
     // 舊存檔（Alan 2026-10-10）：uid 從「每家公司各自數」改成全星球流水號。照公司、名冊的順序重新發號；顯示的編號不改（認得的人還是那個名字）
