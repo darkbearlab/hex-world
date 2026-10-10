@@ -13,4 +13,5 @@ for (let k = 0; k < 14; k++) {
 }
 for (const x of G.roster.filter(x => x.record.length > 1).slice(0, 3)) console.log(`${donorName(x)} ${x.id}${x.alive ? '' : '（陣亡）'}：` + x.record.map(e => e.t === 'case' ? `[${e.title} ${e.fights}戰${e.wins}勝${e.end != null ? ' 尾款' + e.payout : ''}]` : `[${e.t}${e.title ? ' ' + e.title : ''}]`).join(' '));
 const v = c.view('甲').data.roster[0]; console.log('畫面', v.name, v.record.map(e => e.place).join('/'));
-console.log('陣亡有紀錄', G.roster.filter(x => !x.alive).every(x => x.record.some(e => e.t === 'kia')), '陣亡', G.roster.filter(x => !x.alive).length);
+console.log('陣亡有紀錄', G.roster.filter(x => !x.alive).every(x => x.record.some(e => e.t === 'down' || e.t === 'kia')), '陣亡', G.roster.filter(x => !x.alive).length);
+console.log('倒下的狀態', G.roster.filter(x => !x.alive).map(x => x.status + ':' + x.record.at(-1).t).join(' '))

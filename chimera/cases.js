@@ -15,6 +15,7 @@ export const CFG = {
   AUTO_POW: .8,     // 自動結算：火力打折
   NPC_POW: 1,       // NPC 傭兵公司（npc.js）的服務單用自動結算，不打折（真人親自打還是強得多）
   AUTO_PTS: .8,     // 自動結算：積分打折
+  BODY_H: 168,      // 打輸留在戰場的遺體，幾小時內還撿得回來（Alan 2026-10-10：7 天），過了就確認戰死
   CLONE_VALUE: 30,  // 一名複製人的成本（死了就是業務損失）
   UPKEEP: 4,        // 每小隊每天的維持費（糧水、零件）
   ROUNDS: 6,        // 自動結算的交火回合
@@ -585,7 +586,7 @@ function npcResolve(book, w, c, tk, now) {
   bossOutcome(book, w, tk, {win: r.win}, null, now);
 }
 
-function settleTicket(book, w, tk, res, now) {
+export function settleTicket(book, w, tk, res, now) {   // export 給 stats/recovery-check.mjs
   const c = book.cases.find(x => x.id === tk.caseId), sq = book.squads[tk.squad];
   tk.done = true; tk.win = res.win; tk.auto = res.auto; tk.dead = res.dead; tk.doneAt = now;
   const valid = new Set(tk.objectives.map(o => o.k));
@@ -596,10 +597,17 @@ function settleTicket(book, w, tk, res, now) {
   // 服役紀錄：這一隊的每個人都記一場（不記殺敵數，Alan 2026-10-10）；這一場倒下的記陣亡
   for (const cl of sq.clones) { if (!cl.alive && !res.dead.includes(cl.id)) continue; let e = caseRec(cl, c.id); if (!e) { joinRec(cl, c, sq.player, now); e = caseRec(cl, c.id); }
     e.fights++; if (res.win) e.wins++;
-    if (res.dead.includes(cl.id)) rec(cl, {h: now, t: 'kia', co: sq.player, title: tk.title, tile: tk.tile, case: c.id}); }
-  // 陣亡的複製人：當下就是業務損失；身上的裝備掉在那一格
+    if (res.dead.includes(cl.id)) rec(cl, {h: now, t: 'down', co: sq.player, title: tk.title, tile: tk.tile, case: c.id, recovered: !!res.win}); }
+  // 回收（Alan 2026-10-10）：打贏，倒下的人連同裝備當場收回（不算損失，回總部可以重新培養）；
+  // 打輸，當下就算業務損失、裝備值掉在那一格，遺體進沙盒（book.bodies），7 天內有人在附近打贏就撿走（物歸原主就沖回損失，別家撿到就易主）
   let gearLost = 0;
-  for (const id of res.dead) { pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 陣亡`, c.id); gearLost += sq.gear; }
+  for (const id of res.dead) { const cl = sq.clones.find(x => x.id === id && !x.alive && !x.downAs); if (!cl) continue;
+    cl.downAt = now; cl.downTile = tk.tile;
+    if (res.win) { cl.downAs = 'recovered'; continue; }
+    cl.downAs = 'lost'; pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 倒下，遺體沒能帶回`, c.id); gearLost += sq.gear;
+    (book.bodies ||= []).push({uid: cl.uid, co: sq.player, tile: tk.tile, at: now, value: CFG.CLONE_VALUE + sq.gear}); }
+  // 打贏的人順便撿走附近（同一格或隔壁）還沒壞的遺體
+  if (res.win) for (const b of book.bodies || []) if (!b.takenBy && now < b.at + CFG.BODY_H && hdist(b.tile, tk.tile) <= 1 && b.at < now) { b.takenBy = sq.player; b.takenAt = now; }
   const wiped = !alive(sq).length;
   if (wiped && sq.wipedAt == null) sq.wipedAt = now;   // 全滅之後不再算維持費
   if (wiped && sq.veh) { gearLost += VPOW[sq.veh] * 4; pay(book, now, sq.player, -VPOW[sq.veh] * 4, 'loss', `${tk.title}：${sq.name} 的${sq.veh === 'rush' ? '衝鋒車' : sq.veh === 'gt' ? '戰鬥卡車' : '武裝車'}丟在戰場上`, c.id); sq.veh = null; }

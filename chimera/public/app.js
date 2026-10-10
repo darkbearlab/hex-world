@@ -1,5 +1,5 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
-import {CLS, MN, MATS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES} from './company.js';
+import {CLS, MN, MATS, REVIVE_RECIPE, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES} from './company.js';
 import {unitName} from './cases.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
@@ -402,7 +402,7 @@ setInterval(() => {
 }, 1000);
 // el.html = ...：內容（倒數的數字不算）和上次一樣就不重畫。整塊 innerHTML 重設會讓頭像重新載入、閃一下（Alan 2026-10-09 回報）
 Object.defineProperty(HTMLElement.prototype, 'html', {configurable: true, set(v) { const k = String(v).replace(/(<span class="cd"[^>]*>)[^<]*/g, '$1'); if (this._k === k && this.childNodes.length) return; this._k = k; this.innerHTML = v; }});
-const STATUS = {home: '待命', away: '出勤', returning: '歸途', kia: '陣亡'};
+const STATUS = {home: '待命', away: '出勤', returning: '歸途', kia: '陣亡', recovered: '遺體已收回', lost: '遺體沒能帶回'};
 function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3200); }
 function found(base) { if (WATCH) return; send({type: 'found', base}); }
 function onGame(m) {
@@ -485,7 +485,7 @@ function renderVat() {
       <table class="vatform"><tr>${MATS.map(m => `<th>${MN[m]}</th>`).join('')}</tr><tr>${MATS.map(m => `<td data-n="${MN[m]}"><div class="stepper"><button data-rcd="-10" data-m="${m}" data-vat="${i}" aria-label="少 10">−</button><input type="number" min="${GCFG.MIN}" max="${GCFG.MAX}" step="10" value="${r[m]}" data-rc="${m}" data-vat="${i}"${short.includes(m) ? ' class="short"' : ''}><button data-rcd="10" data-m="${m}" data-vat="${i}" aria-label="多 10">＋</button></div></td>`).join('')}</tr></table>
       <div class="vatgo"><button class="primary" data-act="build" data-vat="${i}"${short.length ? ' disabled title="素材不夠"' : ''}>開始培養</button></div>
       ${q ? (q.ready ? `<div class="vatcover ready"><b>培養完成</b><button class="primary" data-act="claim" data-vat="${i}">簽收</button></div>`
-        : `<div class="vatcover"><b>${q.tpl ? CLS[q.tpl].n + '模板' : '培養中'}</b><span class="vatcd">${cd(q.done)}</span><div class="vatbar"><i data-s="${q.start}" data-d="${q.done}"></i></div><span class="mini">${q.tpl ? '' : MATS.map(m => `${MN[m]} ${q.recipe?.[m] ?? '?'}`).join('・')}</span></div>`) : ''}
+        : `<div class="vatcover"><b>${q.revive != null ? `重新培養 ${esc(q.revive)}` : q.tpl ? CLS[q.tpl].n + '模板' : '培養中'}</b><span class="vatcd">${cd(q.done)}</span><div class="vatbar"><i data-s="${q.start}" data-d="${q.done}"></i></div><span class="mini">${q.tpl ? '' : MATS.map(m => `${MN[m]} ${q.recipe?.[m] ?? '?'}`).join('・')}</span></div>`) : ''}
     </div>`;
   };
   P.html = `<div class="vatpage"><div class="cohead"><div class="mini">每座 ${G.buildH} 小時・素材在「交易」補</div></div>
@@ -527,8 +527,8 @@ function renderTrade() {
 
 // ───── 名冊：任務管制、培養槽、交易共用的底部面板（Alan 2026-10-09）。平常收著，點了往上展開；點人看詳細資料 ─────
 let drawerOpen = false, personSel = null;
-const RF = {home: '待命', away: '出勤', keep: '供在家裡', kia: '陣亡', all: '全部'};
-const inF = (c, f = rosterF) => f === 'all' || (f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : c.status === f);
+const RF = {home: '待命', away: '出勤', keep: '供在家裡', recovered: '遺體', kia: '陣亡', all: '全部'};
+const inF = (c, f = rosterF) => f === 'all' || (f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : f === 'kia' ? !c.alive && c.status !== 'recovered' : c.status === f);
 // 簽收時跳出新人的卡片（Alan 2026-10-09：對標艦隊收藏）：簽收送出後，等伺服器回來、最新的人換了就秀出來
 let revealAfter;
 function maybeReveal() {
@@ -575,17 +575,24 @@ function serviceRecord(c) {
   const R = (c.record || []).slice().reverse(), d = h => `第 ${Math.floor(h / 24) + 1} 天`;
   const line = e => e.t === 'born' ? (e.before ? `${esc(e.co)}・在這之前的事沒有留下紀錄` : `${d(e.h)}・在${esc(e.place)}的${esc(e.co)}出槽`)
     : e.t === 'case' ? `${d(e.h)}・${esc(e.co)}「${esc(e.title)}」：打了 ${e.fights} 場、贏 ${e.wins} 場${e.recalled ? '・中途召回' : e.end != null ? `・結案${e.delivered !== undefined ? `（送達 ${Math.round(e.delivered * 100)}%）` : ''}・尾款 $${e.payout || 0}k` : '・進行中'}`
-    : e.t === 'kia' ? `${d(e.h)}・在${esc(e.place)}「${esc(e.title)}」陣亡` : esc(e.t);
+    : e.t === 'kia' ? (e.confirm ? `${d(e.h)}・遺體沒能收回，確認戰死` : e.title ? `${d(e.h)}・在${esc(e.place)}「${esc(e.title)}」陣亡` : `${d(e.h)}・陣亡`)
+    : e.t === 'down' ? `${d(e.h)}・在${esc(e.place)}「${esc(e.title)}」倒下${e.recovered ? '，遺體當場收回' : '，遺體沒能帶回'}`
+    : e.t === 'recovered' ? `${d(e.h)}・${esc(e.co)}在${esc(e.place)}一帶撿回遺體`
+    : e.t === 'transfer' ? `${d(e.h)}・遺體輾轉到了${esc(e.co)}手上`
+    : e.t === 'revive' ? `${d(e.h)}・在${esc(e.co)}重新培養，等級、技能從頭來` : esc(e.t);
   return `<h4 class="sec2">服役紀錄</h4>${R.length ? R.map(e => `<div class="mini caseline">${line(e)}</div>`).join('') : '<p class="mini muted">還沒有紀錄。</p>'}`;
 }
 function personCard(c) {
-  const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : '陣亡';
+  const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : c.status === 'recovered' ? (c.reviving ? '遺體在培養槽裡，重新培養中' : '遺體已收回，可以重新培養（等級、技能從頭來）')
+    : c.status === 'lost' ? `遺體沒能從${esc(c.downPlace)}帶回來・約 ${cd((c.downAt ?? 0) + 168)}後確認戰死（有人在那一帶打贏就可能撿回來）` : '陣亡';
+  const rv = REVIVE_RECIPE[c.cls], canRv = c.status === 'recovered' && !c.reviving;
   return `<div class="person"><button class="back" data-person="">← 名冊</button>
     <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${who(c)} ${c.id}${crownTag(c)}</div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・經驗 ${c.xp || 0}・出勤 ${c.missions || 0} 次</div></div></div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>
     ${gearBox(c)}
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
     <div class="row">${c.alive && c.status === 'home' ? `<button data-act="keep" data-id="${c.uid}" class="${c.keep ? 'on' : ''}">${c.keep ? '不再供著' : '供在家裡（不會被派出去）'}</button>` : ''}</div>
+    ${canRv ? `<div class="row"><button class="primary" data-act="revive" data-id="${c.uid}"${MATS.some(m => GV.mats[m] < rv[m]) ? ' disabled title="素材不夠"' : ''}>重新培養（${MATS.map(m => `${MN[m]} ${rv[m]}`).join('・')}）</button></div>` : ''}
     ${serviceRecord(c)}
     <p class="mini muted">強化、合成、換武器、加入最愛、指名為看板⋯之後會放在這裡。</p></div>`;
 }
@@ -819,6 +826,7 @@ const coClick = e => {
   else if (A === 'tpl') send({type: 'build', tpl: id});
   else if (A === 'claim') { revealAfter = GV.fresh ?? null; send({type: 'claim', slot: +b.dataset.vat}); }
   else if (A === 'keep') send({type: 'keep', uid: +id});
+  else if (A === 'revive') send({type: 'revive', uid: +id});
   else if (A === 'resolve' || A === 'fight') return;   // 上面 pointerdown 已經送出
   else if (A === 're') { pickRe = {squad: id, uids: new Set()}; renderCo(); }
   else if (A === 're-go') { send({type: 'reinforce', squad: pickRe.squad, uids: [...pickRe.uids], fast: !!pickRe.fast}); pickRe = null; }

@@ -182,6 +182,14 @@ export function claim(G, slot, book = null) {
 }
 function finishBuild(G, q, h, book = null) {
   const r = () => rnd(G);
+  if (q.revive != null) {
+    const c = G.roster.find(x => x.uid === q.revive); if (!c || c.status !== 'recovered') { for (const m of MATS) G.mats[m] += q.recipe[m] || 0; note(G, h, '重新培養失敗：遺體不在了，素材退回。'); return; }
+    Object.assign(c, {alive: true, status: 'home', hp: 20, lv: 1, xp: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0, downAs: null, downAt: null, downTile: null, diedH: null, born: h});
+    // 舊小隊的名單裡還有這個人（倒下時留著，給結案記紀錄用）：拿掉，不然活過來的人會被當成那一隊的人繼續派單
+    if (book) for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(c); if (i >= 0) sq.clones.splice(i, 1); }
+    C.rec(c, {h, t: 'revive', co: G.name, tile: G.base}); G.fresh = c.uid;
+    note(G, h, `培養槽出槽：${CLS[c.cls].n} ${donorName(c)} ${c.id} 重新培養完成，回到名冊（等級、技能從頭來）。`); return;
+  }
   const c = q.tpl ? makeClone(G, r, q.tpl.cls, q.tpl.portrait, [GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U], {born: h, template: true, uid: nextUid(book)})
     : (cls => makeClone(G, r, cls, pickPortrait(r, cls), [r(), r(), r(), r()], {born: h, uid: nextUid(book)}))(pickW(r, classOdds(q.recipe)));
   C.rec(c, {h, t: 'born', co: G.name, tile: G.base});
@@ -346,7 +354,17 @@ export function hour(G, book, w, h) {
   // 帳：真正進出的錢（陣亡是帳面上的業務損失，不再扣一次現金：人和素材早就付過了）
   for (; G.ledgerAt < book.ledger.length; G.ledgerAt++) { const x = book.ledger[G.ledgerAt]; if (x.player !== G.name) continue; if (x.kind !== 'loss') { G.cash += x.amount; if (x.amount) flow(G, x.kind, x.amount, x.text); } else { G.lossBook = (G.lossBook || 0) - x.amount; flow(G, 'loss', x.amount, x.text); } }
   // 陣亡
-  for (const c of G.roster) if (!c.alive && c.status !== 'kia') { c.status = 'kia'; c.diedH = h; note(G, h, `${CLS[c.cls].n} ${c.id} 陣亡${c.crown === 'gold' ? '（金冠）' : ''}。`); }
+  // 倒下（Alan 2026-10-10 回收）：打贏的當場收回（recovered，可以重新培養）；打輸的遺體留在戰場（lost，7 天內可能被撿回來）；其他路徑倒下的直接算戰死
+  const nm = t => w.names[t] || '無名之地', who = c => `${CLS[c.cls].n} ${donorName(c)} ${c.id}${c.crown === 'gold' ? '（金冠）' : ''}`;
+  for (const c of G.roster) if (!c.alive && !['kia', 'recovered', 'lost'].includes(c.status)) {
+    c.status = c.downAs || 'kia'; c.diedH = h;
+    if (c.status === 'recovered') note(G, h, `${who(c)} 倒下，遺體連同裝備當場收回，可以到培養槽重新培養（等級、技能從頭來）。`);
+    else if (c.status === 'lost') note(G, h, `${who(c)} 倒下，遺體沒能從${nm(c.downTile)}帶回來。7 天內有人在那一帶打贏，還有機會撿回來。`);
+    else { note(G, h, `${who(c)} 陣亡。`); C.rec(c, {h, t: 'kia', co: G.name}); }
+  }
+  // 遺體 7 天沒撿回來：確認戰死
+  for (const c of G.roster) if (c.status === 'lost' && h >= (c.downAt ?? h) + C.CFG.BODY_H) { c.status = 'kia'; C.rec(c, {h, t: 'kia', co: G.name, confirm: true}); note(G, h, `${who(c)} 的遺體沒能收回，確認戰死。`); }
+
   // 收尾就啟程（Alan 2026-10-10）：案件進入收尾（不再派服務單），自己的服務單都打完的小隊就啟程返回，不必等案件結算（結算還要等案期結束、一天緩衝、別家的單打完）
   for (const id of G.cases) {
     const c = book.cases.find(x => x.id === id); if (!c || c.settled || c.own || c.open) continue;
@@ -379,6 +397,46 @@ export function hour(G, book, w, h) {
   // 補員縱隊全滅、或到的時候案件已結算：人留在現場（駐紮），MVP 先直接讓他們走回來
   // 也包括「還在已結案的舊小隊名單裡」的人（共用案件的歸建問題留下的，見上面）：只算還在案子裡的小隊、還在路上的補員縱隊
   for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c) && (sq.caseId || sq.column))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
+}
+
+// 沙盒裡的遺體被撿走（每個遊戲小時，在所有公司的 hour 之後；core.js 呼叫）：物歸原主就沖回損失；別家撿到就易主（原公司只看到確認戰死）
+export function bodiesHour(cos, book, w, h) {
+  const L = book.bodies; if (!L?.length) return;
+  for (const b of L.slice()) {
+    const own = cos[b.co], c = own?.roster.find(x => x.uid === b.uid);
+    if (!c || c.status !== 'lost') { L.splice(L.indexOf(b), 1); continue; }   // 已經確認戰死（或資料不在了）
+    if (!b.takenBy) continue;
+    L.splice(L.indexOf(b), 1);
+    const to = cos[b.takenBy], who = `${CLS[c.cls].n} ${donorName(c)} ${c.id}`;
+    if (!to) continue;
+    if (to === own) {
+      c.status = 'recovered'; C.rec(c, {h, t: 'recovered', co: own.name, tile: b.tile});
+      C.pay(book, h, own.name, b.value, 'loss', `${who} 的遺體撿回來了，沖回損失`);
+      note(own, h, `${who} 的遺體在${w.names[b.tile] || '無名之地'}一帶撿回來了，可以到培養槽重新培養。`); continue;
+    }
+    // 易主：原公司名冊留一個確認戰死的影子（編號改成負的，不跟正本撞號），正本搬到撿到的公司
+    const ghost = {...c, uid: -c.uid, status: 'kia', record: [...(c.record || []), {h, t: 'kia', co: own.name, confirm: true}], gear: null};
+    own.roster[own.roster.indexOf(c)] = ghost; note(own, h, `${who} 的遺體沒能收回，確認戰死。`);
+    c.status = 'recovered'; c.keep = false; C.rec(c, {h, t: 'transfer', from: own.name, co: to.name, tile: b.tile});
+    to.roster.push(c); note(to, h, `在${w.names[b.tile] || '無名之地'}一帶撿到一具遺體：${who}（原本是別家的人）。可以到培養槽重新培養。`);
+  }
+}
+
+// 重新培養（Alan 2026-10-10）：把收回的遺體放進培養槽，同一個人回到名冊——職業、立繪、個體值、編號、裝備、服役紀錄都留著，等級和技能從頭來。素材照職業的固定配方
+export const REVIVE_RECIPE = {soldier: {food: 60, water: 80, implant: 60, neural: 60}, recon: {food: 50, water: 50, implant: 50, neural: 120}, bulwark: {food: 60, water: 50, implant: 120, neural: 50},
+  berserker: {food: 130, water: 60, implant: 50, neural: 40}, engineer: {food: 40, water: 50, implant: 100, neural: 100}};
+export function revive(G, uid, slot, now = G.h) {
+  const c = G.roster.find(x => x.uid === uid); if (!c || c.status !== 'recovered') return '這個人沒有可以重新培養的遺體';
+  if (G.queue.some(q => q.revive === uid)) return '已經在培養槽裡了';
+  if (G.queue.length >= GCFG.VATS) return '培養槽都在用';
+  const used = new Set(G.queue.map((q, i) => q.slot ?? i));
+  if (slot == null || !(slot >= 0 && slot < GCFG.VATS)) slot = [...Array(GCFG.VATS).keys()].find(i => !used.has(i));
+  if (used.has(slot)) return '這座培養槽在用';
+  const r = REVIVE_RECIPE[c.cls] || REVIVE_RECIPE.soldier;
+  for (const m of MATS) if (G.mats[m] < r[m]) return `${MN[m]}不夠（要 ${r[m]}）`;
+  for (const m of MATS) G.mats[m] -= r[m];
+  G.queue.push({recipe: {...r}, tpl: null, revive: uid, start: now, done: now + GCFG.BUILD_H, slot});
+  return null;
 }
 
 // ===== 召回：派出去的小隊（合約算毀約）、還在路上的補員 =====
@@ -430,8 +488,8 @@ export function view(G, book, w) {
   }).reverse();
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
-  return {units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, ready: !!q.ready})),
-    templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''}))})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
+  return {units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
+    templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid)})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 
 // 地圖上要標的：每一支派出去的人馬現在在哪、往哪走

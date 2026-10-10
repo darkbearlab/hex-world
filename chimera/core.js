@@ -12,7 +12,7 @@ const r1 = v => Math.round(v * 10) / 10;
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'equip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'equip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -143,6 +143,7 @@ export class Core {
       C.tick(game.book, this.w, t);
       this.postBoard(t);
       for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
+      G.bodiesHour(game.cos, game.book, this.w, t);
       for (const e of this.sim.campaignHour(t)) this.campaignNews(e, t);
       if (this.npcOn) npcHour(this, t);   // NPC 傭兵公司（npc.js；伺服器才開）
       if (t % Math.max(1, Math.round(24 * game.yearDays / 4)) === 0) { this.sim.stepSeason(); yearDone = true; }
@@ -208,6 +209,7 @@ export class Core {
     if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
     if (m.type === 'claim') return G.claim(g, +m.slot, this.game.book);
+    if (m.type === 'revive') return G.revive(g, +m.uid, m.slot == null ? null : +m.slot, this.exactNow ?? h);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
     if (m.type === 'sell') return G.sellItem(g, String(m.item), w);
     if (m.type === 'mod') return G.modItem(g, String(m.item), String(m.affix));
