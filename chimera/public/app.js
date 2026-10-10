@@ -1,5 +1,5 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
-import {CLS, MN, MATS, REVIVE_RECIPE, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES} from './company.js';
+import {CLS, MN, MATS, REVIVE_RECIPE, TAGS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES} from './company.js';
 import {unitName, cellHas, cellCount, CELL_PITY} from './cases.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
@@ -314,6 +314,12 @@ function renderTile() {
   }
   $('pane-tile').innerHTML = html;
 }
+// 選人照分類列（Alan 2026-10-10）：主力、最愛、培育中、替補、待合成、沒分類；有好幾個分類的人每一組都會出現（勾的是同一個人）
+function pickGroups(av) {
+  if (!av.length) return '<div class="chips"><span class="muted">沒有待命的人</span></div>';
+  const G = [...Object.entries(TAGS).map(([k, n]) => [n, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
+  return G.map(([n, L]) => `<div class="mini pgroup">${n}（${L.length}）</div><div class="chips">${L.map(c => chip(c, pickOpp.uids.has(c.uid), 'pk')).join('')}</div>`).join('');
+}
 function accPicker(o) {
   const key = o.kind + ':' + o.tile; if (!GV) return '';
   if (o.clean) return `<div class="row" style="margin-top:4px"><button data-clean="${o.tile}">出車清運</button></div>`;
@@ -324,7 +330,7 @@ function accPicker(o) {
   const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : [];
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
   return `<div class="picker">${campNote}${sides.length ? `<div class="row">${sides.map(([v, n]) => `<button data-side="${v}" class="${pickOpp.side === v ? 'on' : ''}">${esc(n)}</button>`).join('')}</div>` : ''}
-    <div class="mini" style="margin-top:6px">選要派的人（四人一隊，最少兩人${camp ? '；全部派上去也可以' : ''}）：</div><div class="chips">${av.map(c => chip(c, pickOpp.uids.has(c.uid), 'pk')).join('') || '<span class="muted">沒有待命的人</span>'}</div>
+    <div class="mini" style="margin-top:6px">選要派的人（四人一隊，最少兩人${camp ? '；全部派上去也可以' : ''}）：</div>${pickGroups(av)}
     ${speedRow(o.tile, pickOpp.uids.size, pickOpp.fast)}
     <div class="row"><button class="primary" data-go="1">${pickOpp.fast ? '加速' : ''}出發（${pickOpp.uids.size} 人）</button><button data-cancel="1">取消</button></div></div>`;
 }
@@ -448,7 +454,7 @@ function renderCo() {
   const active = G.cases.filter(c => !c.settled), alive = G.roster.filter(c => c.alive);
   $('co-head').html = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div></div>
     <div class="kpi">待命<b>${alive.filter(c => c.status === 'home' && !c.keep).length}</b></div><div class="kpi">出勤<b>${alive.filter(c => c.status === 'away' || c.status === 'returning').length}</b></div>
-    <div class="kpi">供在家裡<b>${alive.filter(c => c.keep).length}</b></div><div class="kpi">陣亡<b>${G.roster.length - alive.length}</b></div>
+    <div class="kpi">不出擊<b>${alive.filter(c => c.keep).length}</b></div><div class="kpi">陣亡<b>${G.roster.length - alive.length}</b></div>
     <div class="kpi">進行中<b>${active.filter(c => !c.own).length} 案・${active.filter(c => c.own).length} 車隊</b></div><div class="kpi">待打的服務單<b>${G.tickets.length}</b></div>
     <div class="kpi">帳面業務損失<b>$${G.lossBook}k</b></div>`;
   $('co-tk').html = G.tickets.length ? G.tickets.map(t => {
@@ -535,8 +541,8 @@ function renderTrade() {
 
 // ───── 名冊：任務管制、培養槽、交易共用的底部面板（Alan 2026-10-09）。平常收著，點了往上展開；點人看詳細資料 ─────
 let drawerOpen = false, personSel = null;
-const RF = {home: '待命', away: '出勤', keep: '供在家裡', recovered: '遺體', kia: '陣亡', all: '全部'};
-const inF = (c, f = rosterF) => f === 'all' || (f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : f === 'kia' ? !c.alive && c.status !== 'recovered' : c.status === f);
+const RF = {home: '待命', away: '出勤', keep: '不出擊', ...Object.fromEntries(Object.entries(TAGS).map(([k, n]) => ['t:' + k, n])), recovered: '遺體', kia: '陣亡', all: '全部'};
+const inF = (c, f = rosterF) => f === 'all' || (f.startsWith('t:') ? (c.tags || []).includes(f.slice(2)) && (c.alive || c.status === 'recovered') : f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : f === 'kia' ? !c.alive && c.status !== 'recovered' : c.status === f);
 // 簽收時跳出新人的卡片（Alan 2026-10-09：對標艦隊收藏）：簽收送出後，等伺服器回來、最新的人換了就秀出來
 let revealAfter;
 function maybeReveal() {
@@ -584,8 +590,8 @@ function cellBox(c) {
   let g = ''; for (let i = 0; i < 100; i++) g += `<i class="${cellHas(c, i) ? 'on' : ''}"></i>`;
   const mates = c.alive && c.status === 'home' ? GV.roster.filter(x => x !== c && x.alive && x.status === 'home' && (x.donor ?? x.portrait) === (c.donor ?? c.portrait)) : [];
   const gain = x => { let n = 0; for (let i = 0; i < 100; i++) if (cellHas(x, i) && !cellHas(c, i)) n++; return n; };
-  return `<h4 class="sec2">格子 ${cellCount(c)}／100 <span class="muted">保底 ${c.dup || 0}／${CELL_PITY}・每 1 點積分抽 1 次・每 10 格升一級</span></h4><div class="cells">${g}</div>
-    ${mates.length ? `<div class="mini" style="margin-top:6px">合成：留下這一位，吃掉另一位（對方只提供格子，身上的裝備進倉庫）</div>${mates.map(x => `<div class="row caseline"><span class="mini" style="flex:1">${esc(who(x))} ${x.id}・${x.lv || 1} 級・格子 ${cellCount(x)}・能多 <b>${gain(x)}</b> 格</span><button data-act="merge" data-id="${c.uid}" data-feed="${x.uid}">吃掉這位</button></div>`).join('')}` : ''}`;
+  return `<h4 class="sec2">記憶片段 ${cellCount(c)}／100 <span class="muted">保底 ${c.dup || 0}／${CELL_PITY}・每 1 點積分抽 1 片・每 10 片升一級</span></h4><div class="cells">${g}</div>
+    ${mates.length ? `<div class="mini" style="margin-top:6px">合成：留下這一位，吃掉另一位（對方只提供記憶片段，身上的裝備進倉庫）</div>${mates.map(x => `<div class="row caseline"><span class="mini" style="flex:1">${esc(who(x))} ${x.id}・${x.lv || 1} 級・記憶片段 ${cellCount(x)}・能多 <b>${gain(x)}</b> 片</span><button data-act="merge" data-id="${c.uid}" data-feed="${x.uid}">吃掉這位</button></div>`).join('')}` : ''}`;
 }
 function serviceRecord(c) {
   const R = (c.record || []).slice().reverse(), d = h => `第 ${Math.floor(h / 24) + 1} 天`;
@@ -595,7 +601,7 @@ function serviceRecord(c) {
     : e.t === 'down' ? `${d(e.h)}・在${esc(e.place)}「${esc(e.title)}」倒下${e.recovered ? '，遺體當場收回' : '，遺體沒能帶回'}`
     : e.t === 'recovered' ? `${d(e.h)}・${esc(e.co)}在${esc(e.place)}一帶撿回遺體`
     : e.t === 'transfer' ? `${d(e.h)}・遺體輾轉到了${esc(e.co)}手上`
-    : e.t === 'merge' ? `${d(e.h)}・吸收了 ${esc(e.fed)} 的格子，多了 ${e.gain} 格`
+    : e.t === 'merge' ? `${d(e.h)}・吸收了 ${esc(e.fed)} 的記憶片段，多了 ${e.gain} 片`
     : e.t === 'revive' ? `${d(e.h)}・在${esc(e.co)}重新培養，等級、技能從頭來` : esc(e.t);
   return `<h4 class="sec2">服役紀錄</h4>${R.length ? R.map(e => `<div class="mini caseline">${line(e)}</div>`).join('') : '<p class="mini muted">還沒有紀錄。</p>'}`;
 }
@@ -604,11 +610,12 @@ function personCard(c) {
     : c.status === 'lost' ? `遺體沒能從${esc(c.downPlace)}帶回來・約 ${cd((c.downAt ?? 0) + 168)}後確認戰死（有人在那一帶打贏就可能撿回來）` : '陣亡';
   const rv = REVIVE_RECIPE[c.cls], canRv = c.status === 'recovered' && !c.reviving;
   return `<div class="person"><button class="back" data-person="">← 名冊</button>
-    <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${who(c)} ${c.id}${crownTag(c)}</div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・格子 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
+    <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${who(c)} ${c.id}${crownTag(c)}</div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・記憶片段 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>
     ${gearBox(c)}
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
-    <div class="row">${c.alive && c.status === 'home' ? `<button data-act="keep" data-id="${c.uid}" class="${c.keep ? 'on' : ''}">${c.keep ? '不再供著' : '供在家裡（不會被派出去）'}</button>` : ''}</div>
+    <div class="mini" style="margin-top:8px">分類（可以多選；「不出擊」的人不會被派出去）</div>
+    <div class="row tags">${c.alive || c.status === 'recovered' ? [['keep', '不出擊'], ...Object.entries(TAGS)].map(([k, n]) => `<button data-act="tag" data-id="${c.uid}" data-tag="${k}" class="${k === 'keep' ? c.keep ? 'on' : '' : (c.tags || []).includes(k) ? 'on' : ''}">${n}</button>`).join('') : ''}</div>
     ${canRv ? `<div class="row"><button class="primary" data-act="revive" data-id="${c.uid}"${MATS.some(m => GV.mats[m] < rv[m]) ? ' disabled title="素材不夠"' : ''}>重新培養（${MATS.map(m => `${MN[m]} ${rv[m]}`).join('・')}）</button></div>` : ''}
     ${cellBox(c)}
     ${serviceRecord(c)}
@@ -844,6 +851,7 @@ const coClick = e => {
   else if (A === 'tpl') send({type: 'build', tpl: id});
   else if (A === 'claim') { revealAfter = GV.fresh ?? null; send({type: 'claim', slot: +b.dataset.vat}); }
   else if (A === 'keep') send({type: 'keep', uid: +id});
+  else if (A === 'tag') send({type: 'tag', uid: +id, tag: b.dataset.tag});
   else if (A === 'revive') send({type: 'revive', uid: +id});
   else if (A === 'clean') send({type: 'clean', tile: +id});
   else if (A === 'merge') { if (confirm('合成之後，被吃掉的那一位就不在了。確定？')) send({type: 'merge', keep: +id, feed: +b.dataset.feed}); }

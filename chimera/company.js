@@ -467,6 +467,15 @@ export function bodiesHour(cos, book, w, h) {
   }
 }
 
+// 分類標籤（Alan 2026-10-10，可以多選）：不出擊（就是原本的 keep：不會被派出去）之外，純粹給玩家整理用；在機會選人時照分類列
+export const TAGS = {main: '主力', fav: '最愛', train: '培育中', bench: '替補', fodder: '待合成'};
+export function tag(G, uid, t) {
+  const c = G.roster.find(x => x.uid === uid); if (!c) return '找不到這個人';
+  if (t === 'keep') { c.keep = !c.keep; return null; }
+  if (!TAGS[t]) return '沒有這個分類';
+  c.tags ||= []; const i = c.tags.indexOf(t); if (i >= 0) c.tags.splice(i, 1); else c.tags.push(t);
+  return null;
+}
 // 合成（Alan 2026-10-10）：同一位原主的兩個人，留主體（個體值、編號、裝備、服役紀錄都是主體的），被合成的只提供格子，合成後就沒了（身上的裝備進倉庫）
 export function merge(G, keepUid, feedUid, now = G.h, book = null) {
   const K = G.roster.find(x => x.uid === keepUid), F = G.roster.find(x => x.uid === feedUid);
@@ -478,7 +487,7 @@ export function merge(G, keepUid, feedUid, now = G.h, book = null) {
   C.rec(K, {h: now, t: 'merge', co: G.name, fed: F.id, gain});
   G.roster.splice(G.roster.indexOf(F), 1); if (G.fresh === F.uid) G.fresh = null;
   if (book) for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(F); if (i >= 0) sq.clones.splice(i, 1); }
-  note(G, now, `合成：${donorName(K)} ${K.id} 吸收了 ${F.id} 的格子，多了 ${gain} 格（${C.cellCount(K)}／100）${K.lv > lv0 ? `，升到 ${K.lv} 級` : ''}。${F.id} 身上的裝備放進倉庫。`);
+  note(G, now, `合成：${donorName(K)} ${K.id} 吸收了 ${F.id} 的記憶片段，多了 ${gain} 片（${C.cellCount(K)}／100）${K.lv > lv0 ? `，升到 ${K.lv} 級` : ''}。${F.id} 身上的裝備放進倉庫。`);
   return null;
 }
 

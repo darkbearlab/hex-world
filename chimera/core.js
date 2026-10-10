@@ -12,7 +12,7 @@ const r1 = v => Math.round(v * 10) / 10;
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'equip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'equip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -220,6 +220,7 @@ export class Core {
     // 通知看過了（Alan 2026-10-09：重新登入後看過的通知又變紅）：記到看過的最後一個小時，和那個小時裡看過的幾則（同一小時之後才來的仍算新的）
     if (m.type === 'read') { const h = +m.h || 0, sigs = (Array.isArray(m.sigs) ? m.sigs : []).slice(0, 40).map(String); if (!g.mailRead || h > g.mailRead.h) g.mailRead = {h, sigs}; else if (h === g.mailRead.h) g.mailRead.sigs = [...new Set([...g.mailRead.sigs, ...sigs])].slice(-80); return null; }
     if (m.type === 'keep') { const c = g.roster.find(x => x.uid === m.uid); if (c) c.keep = !c.keep; return null; }
+    if (m.type === 'tag') return G.tag(g, +m.uid, String(m.tag));
     if (m.type === 'accept') {
       const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile), e = b.board?.[m.kind + ':' + m.tile];
       if (!o || !e || e.gone) return '這個委託已經不在了';

@@ -631,7 +631,7 @@ export function settleTicket(book, w, tk, res, now) {   // export 給 stats/reco
   const ups = [];
   if (tk.pts > 0) for (const cl of alive(sq)) { cl.cellPts = (cl.cellPts || 0) + tk.pts * CELL_DRAWS; const n = Math.floor(cl.cellPts); cl.cellPts -= n;
     const lv0 = cl.lv || 1; drawCells(cl, n, () => rng(book)); cl.lv = cellLevel(cl); if (cl.lv > lv0) ups.push(`${cl.id} 升到 ${cl.lv} 級`); }
-  if (ups.length) notify(book, now, sq.player, 'result', `${tk.title}：${ups.join('、')}（格子收集）`, tk.id);
+  if (ups.length) notify(book, now, sq.player, 'result', `${tk.title}：${ups.join('、')}（記憶片段）`, tk.id);
   // 生物廢棄物（清運案的來源）：這一場倒下的敵人（打贏全算、打輸算三成）加上我方倒下的人
   { const foes = tk.enemy ? enemyRoster(tk.enemy).length : 0, waste = foes * (res.win ? 1 : .3) + res.dead.length; if (waste > 0) { const W = book.waste ||= {}; W[tk.tile] = (W[tk.tile] || 0) + waste; } }
   // 打贏的人順便撿走附近（同一格或隔壁）還沒壞的遺體
