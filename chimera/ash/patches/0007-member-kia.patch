@@ -1,0 +1,38 @@
+--- a/src/presentation.js
++++ b/src/presentation.js
+@@ -123,12 +123,14 @@
+     // 3.219.0 裝死 (src/concealed.js): a unit that drops as a body falls as one.
+     const deaths=[...step.after.enemies,...(step.after.allies||[])].filter(e=>e.kind!=='pet'&&(e.hp<=0||downed(e))&&[...step.before.enemies,...(step.before.allies||[])].some(b=>b.id===e.id&&b.hp>0&&!downed(b)));
+     if(step.before.player.hp>0&&step.after.player.hp<=0)deaths.push({...step.after.player,type:'player'});
++    // 奇美拉（hex-world chimera/ash 的補丁）：小隊裡沒在操作的隊員倒下，也照玩家戰死演出（快照的 squadMembers，見 chimera-squad.js presentView）
++    {const mb=step.before.squadMembers||[];for(const m of step.after.squadMembers||[])if(m.hp<=0&&mb.some(b=>b.id===m.id&&b.hp>0))deaths.push({...m,type:'player',member:true});}
+     // A brief impact flash precedes the grey corpse's settling motion.
+     // 3.174.0: the operative's fall carries the killing blow's direction for the killed-in-action scene (src/kia.js);
+     // 3.175.0: every other fall carries it too, with what the body is made of, for kill gore (src/gore.js).
+     // 3.204.0: and whose body it is (`actorId`), and `enemy` for an enemy's (your own units share the boss chassis), so an
+     // enemy boss's fall plays its scene once (src/boss-scenes.js bossFallOf).
+-    for(const dead of deaths)impacts.push({type:'fall',actorType:dead.type,from:{x:dead.x,y:dead.y},to:{x:dead.x,y:dead.y},damage:0,...(dead.type==='player'?{blow:killingBlow(step.effects,dead)}:{actorId:dead.id,...(step.after.enemies.some(e=>e.id===dead.id)?{enemy:true}:{}),blow:killingBlow(step.effects,dead,ENEMY_BLOWS),force:goreForce(step.effects,dead,ENEMY_BLOWS),gore:goreKind(dead),size:goreSize(dead.maxHp||enemyDef(dead)?.hp),elite:Boolean(dead.elite)})});
++    for(const dead of deaths)impacts.push({type:'fall',actorType:dead.type,from:{x:dead.x,y:dead.y},to:{x:dead.x,y:dead.y},damage:0,...(dead.type==='player'?{blow:killingBlow(step.effects,dead),member:!!dead.member}:{actorId:dead.id,...(step.after.enemies.some(e=>e.id===dead.id)?{enemy:true}:{}),blow:killingBlow(step.effects,dead,ENEMY_BLOWS),force:goreForce(step.effects,dead,ENEMY_BLOWS),gore:goreKind(dead),size:goreSize(dead.maxHp||enemyDef(dead)?.hp),elite:Boolean(dead.elite)})});
+     // 3.176.0 hit gore: a harmful hit on a body that lives through it carries what the renderer needs for a small
+     // spray (src/gore.js hitBurst). Hits on props and on bodies that fell this step (their fall bursts) carry nothing.
+     for(let i=0;i<impacts.length;i++){const e=impacts[i],body=e.type==='impact'&&e.damage>0?livingBody(step.after,e.to):null;if(body)impacts[i]={...e,hit:hitInfo(step.effects,e.to,body)};}
+--- a/src/controller-comms.js
++++ b/src/controller-comms.js
+@@ -111,7 +111,7 @@
+   clearComms();resetCourse();
+   // 3.198.0: the training course voices its deaths (src/course.js courseDeathLines); the rest of the kill house stays quiet.
+   const quiet=Boolean(replay)||isSimulation(game)&&!courseActive(game),seed=(Number(game.seed)||0)*31+game.turn;
+-  kia={start:performance.now(),times:kiaTimes(),quiet,voiced:false,resultAt:Infinity,resultPending:false,shown:false};
++  kia={start:performance.now(),times:kiaTimes(),quiet,voiced:false,resultAt:Infinity,resultPending:false,shown:false,member:!!fall.member};
+   renderer.kia={start:renderer.time,at:{x:fall.to.x,y:fall.to.y},blow:fall.blow||null,burst:kiaBurst(seed,fall.blow||null),frozen:true};
+   renderer.pace=()=>{if(!kia)return null;const since=performance.now()-kia.start;renderer.kia.frozen=since<KIA_TUNING.freezeMs;return {scale:kiaTimeScale(since),zoom:kiaZoom(since,kia.times.voiceAt)};};
+ }
+@@ -130,6 +130,8 @@
+     }
+   }
+   if(since>=kia.resultAt&&kia.resultPending&&!playback){kia.shown=true;renderer.pace=null;renderer.kia.frozen=false;endRun();}
++  // 奇美拉（hex-world chimera/ash 的補丁）：小隊的隊員倒下（或操作中的人倒下、別人接手），戲演完就收掉、戰鬥接著打；血留在地上
++  else if(since>=kia.resultAt&&(kia.member||game.status==='playing')&&!playback){const k=renderer.kia;if(k?.burst)(renderer.gore||=[]).push({burst:k.burst,at:k.at,start:k.start});kia=null;renderer.kia=null;renderer.pace=null;}
+ }
+ // A new run, a loaded save or a replay clears the scene; the fallen body and the blood stay until then, so the last
+ // battlefield still shows them.

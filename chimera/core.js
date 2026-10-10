@@ -245,7 +245,7 @@ export class Core {
     if (m.type === 'fight') {
       const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
       if (!sq) return '這張服務單已經不在了';
-      const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
+      const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, name: G.donorName(c) || null, callsign: c.callsign || null, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
         lv: c.lv || 1, xp: c.xp || 0, picks: c.picks || [], skills: c.skills || [], prep: c.prep || null, gear: G.gearOf(g, c), perkPicks: c.perkPicks || 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: c.legacyPerkPicks || 0}));
       if (!squad.length) return '這一隊沒有活著的人';
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;

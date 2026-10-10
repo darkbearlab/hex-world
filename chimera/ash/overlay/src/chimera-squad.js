@@ -48,11 +48,13 @@ const COUNTERS=['perkPicks','classPerkMisses','legacyPerkPicks'];
 
 const PERSONAL=['target','shadowSteps','pursuit','pursuitPending','pursuitBlocked','pendingPerks','perkDraft','perkPicks','classPerkMisses','legacyPerkPicks','sensorContacts','refusal'];
 
+// 戰場上的名字（Alan 2026-10-10）：有綽號用綽號，沒有用原主名字，都沒有用編號
+const callName=c=>c.callsign?`“${c.callsign}”`:c.name||c.id;
 export class SquadGame extends MissionGame{
  static fullSquad=true;
  constructor(ticket){
   super(ticket);
-  const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;
+  const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;lead.callName=callName(ticket.squad[0]);
   this.equip(lead,ticket.squad[0]);for(const k of COUNTERS)this[k]=ticket.squad[0][k]||0;
   // 格子收集（Alan 2026-10-10）：等級在戰場外決定；這一級該有、還沒挑的升級，進場時補給（照 ASH 的 perkLimit：每升一級一個）
   this.pendingPerks=Math.max(0,perkLimit(lead.level)-(this.perkPicks||0));
@@ -62,7 +64,7 @@ export class SquadGame extends MissionGame{
   for(const c of ticket.squad.slice(1)){
    // 一位完整的玩家角色：借一個同種子的新遊戲建出來，只拿它的 player
    const cls=character(c.cls),spare=new Game(this.seed,[],0,cls,validPortrait(c.portrait)?c.portrait:pickPortrait(),'extraction',{facilityFaction:this.facilityFaction,simulation:{kind:'chimera'}});
-   const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;applyStats(m,c,CHARACTERS[cls]);
+   const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;m.callName=callName(c);applyStats(m,c,CHARACTERS[cls]);
    this.shareArmory(m,lead);this.equip(m,c);
    const cell=this.freeCellNear(lead);if(!cell)continue;Object.assign(m,{x:cell.x,y:cell.y});
    this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:Math.max(0,perkLimit(m.level)-(c.perkPicks||0)),perkDraft:null,perkPicks:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
@@ -192,7 +194,10 @@ export class SquadGame extends MissionGame{
  // 交棒：還有人活著就不算結束（ASH 在「玩家」倒下時會判死，這位玩家可能是被敵人借去的其他隊員）
  // 每個行動之後檢查交棒（隊員在 soloTurn 裡的行動不算，那時「玩家」是他自己）
  action(type,arg){
+  const up=this.members?new Set(this.members.filter(m=>m.hp>0&&m!==this.controlled).map(m=>m.id)):null;
   const r=super.action(type,arg);
+  // 沒在操作的隊員倒下：寫一行戰報（演出由 presentation.js 補丁照玩家戰死的做）
+  if(up)for(const m of this.members)if(up.has(m.id)&&m.hp<=0)this.log(`${m.callName||m.squadId} 倒下了。`,true);
   if(!this.soloTurn&&this.members)this.handOver();
   return r;
  }
@@ -200,10 +205,11 @@ export class SquadGame extends MissionGame{
   const next=this.living[0];if(!next)return false;
   if(this.status==='dead')this.status='playing';
   if(this.player.hp>0)return false;
-  this.player.hp=0;this.swap(next);this.controlled=next;this.log(`${next.squadId} 接手指揮。`,true);return true;
+  this.player.hp=0;this.swap(next);this.controlled=next;this.log(`${next.callName||next.squadId} 接手指揮。`,true);return true;
  }
  // 動畫快照（presentation.js 補丁）：隊員行動那幾步的快照裡，「玩家」換回操作中的隊員，鏡頭和狀態列才不會跳
- presentView(v){const c=v.members?.find(m=>m.id===this.controlled?.id);if(c&&v.player!==c)v.player=c;return v;}
+ // 沒在操作的隊員另外列在 squadMembers（presentation.js 補丁照這份判斷誰倒下、做戰死演出）
+ presentView(v){const c=v.members?.find(m=>m.id===this.controlled?.id);if(c&&v.player!==c)v.player=c;if(v.members)v.squadMembers=v.members.filter(m=>m!==v.player).map(m=>({id:m.id,x:m.x,y:m.y,hp:m.hp,character:m.character}));return v;}
  setControlled(m){if(!this.members.includes(m)||m.hp<=0||this.soloTurn)return false;this.swap(m);this.controlled=m;return true;}
  cycleControlled(){const L=this.living;if(L.length<2)return false;return this.setControlled(L[(L.indexOf(this.player)+1)%L.length]);}
  descend(){if(this.status!=='playing'||this.player.hp<=0)return false;if(this.chimeraOutdoor&&this.chimeraOutdoor.goal!=='exit')return this.fail('這一場要把敵人清掉，不能撤離');if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);this.status='won';this.log('撤離完成。');return true;}

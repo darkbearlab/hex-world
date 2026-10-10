@@ -181,7 +181,7 @@ export class MissionGame extends Game{
  }
  chimeraFalls(){
   if(!this.chimeraOutdoor?.deck)return;
-  for(const u of [...(this.members||[this.player]),...this.enemies])if(u.hp>0&&!this.deckAt(u.x,u.y)){u.hp=0;this.log(`${u.squadId||u.courseName||'有人'}摔下車。`,true);}
+  for(const u of [...(this.members||[this.player]),...this.enemies])if(u.hp>0&&!this.deckAt(u.x,u.y)){u.hp=0;this.log(`${u.callName||u.squadId||u.courseName||'有人'}摔下車。`,true);}
  }
  trenchStep(u,from){
   if(!this.chimeraOutdoor?.trench||!u||u.hp<=0)return;

@@ -19,7 +19,7 @@ export function installSquadUI(){
    if(!g.seen[m.y]?.[m.x])continue;
    const a=this.projectActor(m);
    if(m!==g.player){if(m.hp<=0)this.corpse(a,'player',m.character);else this.actor(a,'player',time,m);}
-   if(m.hp>0)this.text(m.squadId,a.x,a.y-this.tile*.62,m===g.player?'#ffd27a':'#9fe8d5',9);
+   if(m.hp>0)this.text(m.callName||m.squadId,a.x,a.y-this.tile*.62,m===g.player?'#ffd27a':'#9fe8d5',9);
   }
   return hidden;
  };
@@ -27,7 +27,7 @@ export function installSquadUI(){
  const bar=document.createElement('div');bar.id='chimera-squad';
  bar.style.cssText='position:fixed;top:4px;left:50%;transform:translateX(-50%);z-index:30;display:flex;gap:4px;font:12px/1.2 system-ui,sans-serif;pointer-events:auto';
  (document.getElementById('ash-root')||document.body).appendChild(bar);   // 奇美拉的頁面裡：放在戰鬥畫面那一層
- const label=m=>`${m.squadId} ${CLS[m.character]||CHARACTERS[m.character]?.name||m.character}<br>${Math.max(0,m.hp)}/${m.maxHp}`;
+ const label=m=>`${m.callName&&m.callName!==m.squadId?m.callName+' ':''}${m.squadId} ${CLS[m.character]||CHARACTERS[m.character]?.name||m.character}<br>${Math.max(0,m.hp)}/${m.maxHp}`;
  let last='';
  const render=()=>{
   if(globalThis.ASH_EMBED&&!globalThis.ASH_EMBED.active)return;

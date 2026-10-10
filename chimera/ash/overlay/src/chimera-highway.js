@@ -118,7 +118,7 @@ export function vehicleStep(g, R) {
   }
   // 開出地圖的：敵人離開戰場，我方的人被帶走（陣亡），東西不見；整台都出去的車拿掉
   const out = (x, y) => !inside(x, y);
-  for (const m of squad) if (out(m.x, m.y)) { if (m.hp > 0) { m.hp = 0; logs.push([`${m.squadId || '隊員'}被敵車帶走了。`, true]); } m.x = Math.min(m.x, N - 1); }
+  for (const m of squad) if (out(m.x, m.y)) { if (m.hp > 0) { m.hp = 0; logs.push([`${m.callName || m.squadId || '隊員'}被敵車帶走了。`, true]); } m.x = Math.min(m.x, N - 1); }
   const gone = g.enemies.filter(e => out(e.x, e.y));
   if (gone.length) { g.enemies = g.enemies.filter(e => !gone.includes(e)); const live = gone.filter(e => e.hp > 0).length; if (live) logs.push([`${live} 個敵人跟著車離開了。`, false]); }
   g.props = g.props.filter(q => !out(q.x, q.y)); g.items = g.items.filter(it => !out(it.x, it.y));
