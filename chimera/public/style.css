@@ -500,3 +500,7 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .sprow{display:flex;gap:10px;align-items:center;text-align:left;padding:6px 8px!important;width:100%}
 .sprow img{width:44px;height:44px;image-rendering:pixelated;border-radius:4px;background:#0d0c0a;flex:none}
 .sprn{line-height:1.35;min-width:0}
+
+.scard .sart{cursor:pointer}
+.smenu{position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:3;display:flex;gap:4px;padding:4px;background:var(--panel2);border:1px solid var(--accent);border-radius:8px;box-shadow:0 6px 18px #000c;white-space:nowrap}
+.smenu button{padding:3px 9px!important;font-size:12px}

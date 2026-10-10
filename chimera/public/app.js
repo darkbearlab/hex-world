@@ -336,12 +336,12 @@ function sortieCard(u, i, j) {
   const get = gearOfC(c), gear = SLOTS.map(s => [SLOT_N[s], get(s)]).filter(([, it]) => it).map(([n, it]) => `<div><span>${n}</span>${esc(itemName(it))}</div>`).join('') || '<div class="muted">沒有裝備</div>';
   const open = sortie.open.has(u);
   return `<div class="scard full${open ? ' gopen' : ''}">
-    <div class="sart"><img src="art/full/${c.portrait}.png" alt="" onerror="this.onerror=null;this.src='${img(c.portrait)}';this.parentElement.classList.add('px')"></div>
+    <div class="sart" data-smenu="${i}:${j}" title="點一下：換人、編輯裝備"><img src="art/full/${c.portrait}.png" alt="" onerror="this.onerror=null;this.src='${img(c.portrait)}';this.parentElement.classList.add('px')"></div>
+    ${sortie.menu?.[0] === i && sortie.menu?.[1] === j ? `<div class="smenu"><button data-slot="${i}:${j}">換人</button><button data-sgear="${u}">編輯裝備</button><button data-sinfo="${u}">看資料</button></div>` : ''}
     <div class="sname"><b>${esc(who(c))}</b> <span class="mini">${c.id}・${CLS[c.cls].n}・${c.lv || 1} 級</span></div>
     <div class="sgear">${gear}</div>
     <button class="sgtog" data-sg="${u}">${open ? '收起裝備 ▴' : '裝備 ▾'}</button>
-    <button class="sx" data-sx="${i}:${j}" aria-label="拿掉">✕</button>
-    <button class="sswap" data-slot="${i}:${j}">換人</button></div>`;
+    <button class="sx" data-sx="${i}:${j}" aria-label="拿掉">✕</button></div>`;
 }
 function renderSortie() {
   const P = $('sortie'); if (!P) return;
@@ -367,9 +367,15 @@ function renderSortie() {
 }
 $('sortie').onclick = e => {
   if (e.target.id === 'sortie') { sortie = null; renderSortie(); return; }
-  const a = e.target.closest('[data-slot],[data-sp],[data-sx],[data-sg],[data-addsq],[data-sqx],[data-side],[data-fast],[data-sgo],[data-scancel],[data-pickx]'); if (!a || !sortie) return;
+  const a = e.target.closest('[data-smenu],[data-sgear],[data-sinfo],[data-slot],[data-sp],[data-sx],[data-sg],[data-addsq],[data-sqx],[data-side],[data-fast],[data-sgo],[data-scancel],[data-pickx]');
+  if (!sortie) return;
+  // 點大頭照：卡片上面跳出小選單（換人、編輯裝備、看資料）；點別的地方就收起來
+  const menu0 = sortie.menu; sortie.menu = null;
+  if (!a) { if (menu0) renderSortie(); return; }
   const d = a.dataset, ij = v => v.split(':').map(Number);
-  if (d.slot) sortie.pick = ij(d.slot);
+  if (d.smenu) { const m = ij(d.smenu); sortie.menu = menu0 && menu0[0] === m[0] && menu0[1] === m[1] ? null : m; }
+  else if (d.sgear || d.sinfo) { personSel = +(d.sgear || d.sinfo); gearPick = null; renderRoster(); }   // 人員卡片疊在編成畫面上，裝備在那裡換
+  else if (d.slot) sortie.pick = ij(d.slot);
   else if (d.sp) { const [i, j] = sortie.pick || []; if (i != null) sortie.sq[i][j] = +d.sp; sortie.pick = null; }
   else if (d.sx) { const [i, j] = ij(d.sx); sortie.open.delete(sortie.sq[i][j]); sortie.sq[i][j] = null; }
   else if (d.sg) { const u = +d.sg; sortie.open.has(u) ? sortie.open.delete(u) : sortie.open.add(u); }
@@ -388,7 +394,7 @@ $('spick').onclick = e => {
   const a = e.target.closest('[data-sp]'); if (!a) return;
   const [i, j] = sortie.pick || []; if (i != null) sortie.sq[i][j] = +a.dataset.sp; sortie.pick = null; renderSortie();
 };
-document.addEventListener('keydown', e => { if (e.key === 'Escape' && sortie) { if (sortie.pick) sortie.pick = null; else sortie = null; renderSortie(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && sortie && $('pcard').hidden) { if (sortie.pick) sortie.pick = null; else sortie = null; renderSortie(); } });
 function accPicker(o) {
   const key = o.kind + ':' + o.tile; if (!GV) return '';
   if (o.clean) return `<div class="row" style="margin-top:4px"><button data-clean="${o.tile}">出車清運</button></div>`;
@@ -631,7 +637,7 @@ function maybeReveal() {
 // 人員詳細資料：獨立的一張卡片，疊在畫面上（Alan 2026-10-10：比較好控制版面）；✕、點外面、Esc 關掉
 function renderPerson() {
   const P = $('pcard'); if (!P) return;
-  const c = GV && personSel != null && ['co', 'vat', 'store', 'trade'].includes(page) && GV.roster.find(x => x.uid === personSel);
+  const c = GV && personSel != null && (['co', 'vat', 'store', 'trade'].includes(page) || sortie) && GV.roster.find(x => x.uid === personSel);
   P.hidden = !c; if (c) $('pcbox').html = personCard(c);
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && personSel != null && !$('pcard').hidden) { personSel = null; gearPick = null; renderRoster(); } });
