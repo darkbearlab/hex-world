@@ -23,7 +23,7 @@ let allEvents = [];
 let sel = -1, hover = -1, hiFac = -1, mouse = {x: 0, y: 0};
 const layers = {fac: true, pop: false, bandit: false, trench: false, opp: true};
 let oppKind = 'all';
-const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}};
+const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}, clean: {n: '清運', ch: '收', c: '#b49ad8'}};
 let logFilter = 'legend';
 let worker = null;
 
@@ -316,6 +316,7 @@ function renderTile() {
 }
 function accPicker(o) {
   const key = o.kind + ':' + o.tile; if (!GV) return '';
+  if (o.clean) return `<div class="row" style="margin-top:4px"><button data-clean="${o.tile}">出車清運</button></div>`;
   // 大戰役（Alan 2026-10-09）：不限隊數、接了之後可以一再加派、撤軍不違約
   const camp = o.kind === 'camp', campNote = camp ? '<div class="mini">大戰役：派幾隊都可以，服務單一張接一張、越來越大；撤軍不算違約，已打下的貢獻照算。</div>' : '';
   if (!pickOpp || pickOpp.key !== key) return `${camp && !o.joined ? campNote : ''}<div class="row" style="margin-top:4px"><button data-acc="${key}">${o.joined ? '加派' : '接案'}</button></div>`;
@@ -334,7 +335,10 @@ function speedRow(tile, n, on) {
   return `<label class="speed${on ? ' on' : ''}"><input type="checkbox" data-fast="1"${on ? ' checked' : ''}> 加速 <span class="mini">${info}</span></label>`;
 }
 // 開了公司之後，機會就是伺服器上的委託板（跟著伺服器時間：公開三天，截止前一天不能再接；Alan 2026-10-09）；沒開公司時是沙盒的機會
-const curOpps = (s = hist[cur]) => GM?.board || s?.opps || [];
+// 清運也列進機會（Alan 2026-10-10）：不用派人，按了就出車；自己人倒下的地方程度最高
+const cleanOpps = () => (GV?.cleanSites || []).filter(c => c.ok).map(c => ({kind: 'clean', tile: c.tile, lv: c.fallen ? 3 : c.daily || c.waste >= 20 ? 2 : 1, title: c.daily ? `${c.name}（總部）的每日清運` : `清運${c.name}`,
+  detail: `${c.fallen ? '有自己人倒在這裡・' : ''}${c.daily ? '免費，附四種素材各 30' : `廢棄物 ${c.waste}・${c.dist} 格・車資 $${c.fare}k`}・約 ${c.hours} 小時`, clean: true}));
+const curOpps = (s = hist[cur]) => GM?.board ? [...GM.board, ...cleanOpps()] : s?.opps || [];
 function renderOpp() {
   const s = hist[cur], O = curOpps(s).slice().sort((a, b) => (b.joined ? 1 : 0) - (a.joined ? 1 : 0) || b.lv - a.lv || a.kind.localeCompare(b.kind));
   const cnt = k => O.filter(o => (k === 'all' || o.kind === k) && o.lv >= 2).length;
@@ -345,7 +349,8 @@ function renderOpp() {
   $('pane-opp').html = html || '';
 }
 $('pane-opp').onclick = e => {
-  const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-fast]');
+  const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-fast],[data-clean]');
+  if (a?.dataset.clean) { send({type: 'clean', tile: +a.dataset.clean}); return; }
   if (a) {
     if (a.dataset.acc) { pickOpp = {key: a.dataset.acc, side: '', uids: new Set(), fast: false}; const o = curOpps().find(x => x.kind + ':' + x.tile === a.dataset.acc); if (o) { pickOpp.side = o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' ? 'a' : ''; if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile}); } }
     else if (a.dataset.fast) pickOpp.fast = a.checked;
