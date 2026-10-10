@@ -30,5 +30,5 @@ if (pair) {
 } else console.log('3 這次沒有同原主的兩個人在家（跳過）');
 // 4. 舊存檔：原本 5 級的人換成 40 格
 const S = JSON.parse(JSON.stringify(g.save())); const co = S.game.cos['甲']; for (const x of co.roster) { delete x.cells; x.lv = 5; }
-const b = new Core(() => {}); b.load('奇美拉-1', S); const L = b.co('甲').roster.filter(x => x.alive);
+const b = new Core(() => {}); b.load('奇美拉-1', S); const L = b.co('甲').roster;   // 活的死的都看（這一輪可能全滅）
 console.log('4 舊存檔 5 級 →', [...new Set(L.map(x => `${x.lv}級/${C.cellCount(x)}格`))].join('、'));

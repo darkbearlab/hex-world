@@ -381,6 +381,7 @@ export function hour(G, book, w, h) {
     const c = book.cases.find(x => x.id === id); if (!c || c.settled || c.own || c.open) continue;
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.headedHome || book.tickets.some(t => t.squad === sid && !t.done)) continue;
       const away = sq.clones.filter(x => x.alive && x.status === 'away'); sq.headedHome = h; if (!away.length) continue;
+      if (sq.garrison != null) { sq.readyAt = Math.max(sq.readyAt, h + 6); note(G, h, `「${c.title}」收尾，${sq.name} 回到駐地。`); continue; }   // 駐軍回駐地待命（休整 6 小時）
       const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       if (sq.fast) C.paySpeed(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id);
       for (const x of away) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); }
@@ -395,9 +396,10 @@ export function hour(G, book, w, h) {
       for (const sid of c.squads) for (const x of book.squads[sid].clones) if (x.alive && x.status === 'away') x.status = 'home';
       note(G, h, `採購車隊回到總部：${MN[c.mat]} ${got}／${c.qty}${got < c.qty ? `（路上被劫走 ${c.qty - got}）` : ''}。`); continue;
     }
-    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
+    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.garrison != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       if (sq.fast) C.paySpeed(book, w, G.name, c.tile, G.base, sq.clones.filter(x => x.alive && x.status === 'away').length, h, `${c.title}（${sq.name}）回程`, c.id); for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
+    if (c.contract && c.delivered < 1) { const k = (book.contracts || []).find(x => x.id === c.contract)?.signers.find(s => s.co === G.name); if (k) k.lost++; }   // 長約：丟了車隊，這一季沒有獎金
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq?.player !== G.name) continue; for (const x of sq.clones) { const e = C.caseRec(x, c.id); if (e && e.end == null) { e.end = h; e.payout = got; if (c.delivered !== undefined) e.delivered = c.delivered; } } }
     note(G, h, `「${c.title}」結案${c.delivered !== undefined ? `，送達 ${Math.round(c.delivered * 100)}%` : ''}，分到尾款 $${got}k。`);
     if (got > 0 && rnd(G) < GCFG.TEMPLATE_P) { const t = mkTemplate(G, () => rnd(G)); G.templates.push(t); note(G, h, `雇主另外送了一張模板：${CLS[t.cls].n}。`); }
@@ -407,7 +409,7 @@ export function hour(G, book, w, h) {
   for (const r of G.returning.slice()) if (h >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive) c.status = 'home'; }
   // 補員縱隊全滅、或到的時候案件已結算：人留在現場（駐紮），MVP 先直接讓他們走回來
   // 也包括「還在已結案的舊小隊名單裡」的人（共用案件的歸建問題留下的，見上面）：只算還在案子裡的小隊、還在路上的補員縱隊
-  for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c) && (sq.caseId || sq.column))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
+  for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c) && (sq.caseId || sq.column || sq.garrison != null))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
 }
 
 // ===== 清運案（Alan 2026-10-09 方向、2026-10-10 做）=====
@@ -443,6 +445,155 @@ function cleanDone(G, book, w, j, h) {
   for (const [m, n] of Object.entries(got)) G.mats[m] = Math.min(GCFG.MAX * 10, (G.mats[m] || 0) + n);
   let bodies = 0; for (const b of book.bodies || []) if (!b.takenBy && h < b.at + C.CFG.BODY_H && hdist(b.tile, j.tile) <= 1) { b.takenBy = G.name; b.takenAt = h; bodies++; }
   note(G, h, `清運車從${nm(j.tile)}回來了：${Object.entries(got).filter(([, n]) => n).map(([m, n]) => `${MN[m]} ${n}`).join('、') || '沒撈到什麼'}${bodies ? `，還撿到 ${bodies} 具遺體` : ''}。`);
+}
+
+// ===== 長期護衛合約與駐紮（Alan 2026-10-10，warband/DESIGN.md「長期合約 v2」）=====
+// 產地（石油城、彈藥農場、綠洲）每季在委託板開一份長期護衛約，期限 4 季、4 個名額；名氣不夠、規模太小、跟產地的勢力在打仗、被那個勢力拉黑的公司看不到。
+// 錢：簽約金一次給，或分四季給（總額多兩成）；有些要先付履約保證金（期滿沒違約就退）；一整季沒丟車隊、沒違約，季末有獎金。
+// 義務：產地每 2～4 天發一趟車隊，輪流指派給一家簽約公司；5 小時內要決定派誰，時限到了還沒派，就從駐在那個產地的小隊隨機拉一隊；連駐軍都沒有就是違約。
+// 違約：第一次賠簽約金的四分之一、保證金沒收；第二次再賠一半、合約作廢、那個勢力一年（4 季）不跟你往來。
+export const RET = {SLOTS: 4, SEASONS: 4, WINDOW: 5, GAP0: 48, GAP1: 96, FAME_MIN: 80, SIZE_MIN: 8, GAR_UPKEEP: 1.5, BAN_SEASONS: 4, INSTALL: .3, BONUS: .15};
+const SITE_N = {oil: '石油城', ammo: '彈藥農場', oasis: '綠洲'}, SITE_G = {oil: 'fuel', ammo: 'ammo', oasis: 'water'}, GOOD_N = {fuel: '燃料', ammo: '彈藥', water: '淨水'};
+const h01 = (a, b) => (((a * 2654435761) ^ (b * 40503)) >>> 0) / 4294967296;
+// 名氣：結案拿到尾款的案件 ×10、活著的人 ×3、違約 ×－40（之後可以換成更完整的指標）
+export function fame(G, book) {
+  const ok = G.cases.map(id => book.cases.find(c => c.id === id)).filter(c => c && c.settled && !c.own && (c.payout?.[G.name] || 0) > 0).length;
+  return ok * 10 + G.roster.filter(c => c.alive).length * 3 - (G.breaches || 0) * 40;
+}
+const garSquads = (G, book, site) => Object.values(book.squads).filter(sq => sq.player === G.name && sq.garrison === site);
+const garFree = (sq, now) => !sq.caseId && sq.readyAt <= now && sq.clones.filter(c => c.alive).length >= 2 && sq.clones.filter(c => c.alive).every(c => c.status === 'away');
+function canSign(G, book, w, c, now) {
+  const K = w.sim.peek(), P = w.sim.pmc, me = K.owner[G.base];
+  if (c.done || now >= c.signUntil) return '這份合約已經不簽了';
+  if (c.signers.some(s => s.co === G.name)) return '已經簽了';
+  if (c.signers.length >= c.slots) return '名額滿了';
+  if (me >= 0 && c.fac >= 0 && P.atWar(me, c.fac)) return '跟你的總部勢力在打仗';
+  if ((G.bans?.[c.fac] ?? -1) > now) return '這個勢力不跟你往來';
+  if (fame(G, book) < RET.FAME_MIN || G.roster.filter(x => x.alive).length < RET.SIZE_MIN) return '名氣或規模不夠';
+  return null;
+}
+export function sign(G, book, w, id, now) {
+  const c = (book.contracts || []).find(x => x.id === id); if (!c) return '沒有這份合約';
+  const why = canSign(G, book, w, c, now); if (why) return why;
+  if (c.bond && G.cash < c.bond) return `錢不夠付履約保證金 $${c.bond}k`;
+  const nm = w.names[c.site] || '無名之地';
+  if (c.bond) C.pay(book, now, G.name, -c.bond, 'bond', `${nm}${SITE_N[c.kind]}長約：履約保證金`);
+  const first = c.plan === 'lump' ? c.fee : Math.round(c.fee * RET.INSTALL);
+  C.pay(book, now, G.name, first, 'retainer', `${nm}${SITE_N[c.kind]}長約：簽約金${c.plan === 'lump' ? '' : '（第 1 期）'}`);
+  c.signers.push({co: G.name, at: now, paid: c.plan === 'lump' ? RET.SEASONS : 1, bond: c.bond || 0, breaches: 0, lost: 0, missed: 0});
+  note(G, now, `簽下${nm}${SITE_N[c.kind]}的長期護衛約（到第 ${Math.floor(c.end / 24) + 1} 天）。產地發車隊時要在 ${RET.WINDOW} 小時內派人；駐在那裡的小隊會在時限到時自動接。`);
+  return null;
+}
+// 駐紮：派人去簽約的產地待命（每天付駐紮費）；時限到了還沒手動派，就從駐軍裡隨機拉一隊
+export function garrison(G, book, w, site, uids, now) {
+  const c = (book.contracts || []).find(x => !x.done && x.site === site && x.signers.some(s => s.co === G.name && !s.void)); if (!c) return '只能駐在簽了長約的產地';
+  const pick = uids.map(u => G.roster.find(x => x.uid === u)).filter(x => x && x.alive && x.status === 'home' && !x.keep);
+  if (pick.length < 2) return '至少兩個人';
+  let n = 0;
+  for (let i = 0; i < pick.length; i += 4) { const g = pick.slice(i, i + 4); if (g.length < 2) break;
+    const sq = C.makeSquad(book, G.name, {clones: g, gear: 3, at: site, name: `${G.name}・${w.names[site] || ''}駐軍`}); sq.garrison = site;
+    const t = C.travelHours(w, G.base, site), eta = now + (isFinite(t) ? t : 24); sq.readyAt = eta; sq.move = {path: w.sim.pmc.route(G.base, site), t0: now, t1: eta};
+    for (const x of g) { x.status = 'away'; C.rec(x, {h: now, t: 'garrison', co: G.name, tile: site}); } n++; }
+  note(G, now, `派 ${n} 隊去${w.names[site] || ''}駐紮，約 ${Math.round(C.travelHours(w, G.base, site))} 小時後到位。`);
+  return null;
+}
+export function ungarrison(G, book, w, squadId, now) {
+  const sq = book.squads[squadId]; if (!sq || sq.player !== G.name || sq.garrison == null) return '找不到這支駐軍';
+  if (sq.caseId) return '這支駐軍正在護送車隊';
+  const hrs = sendHome(G, w, sq.clones, sq.garrison, now, false, book, sq.name); delete book.squads[squadId];
+  note(G, now, `撤回${sq.name}，約 ${C.fmtDur(hrs)}後回到總部。`);
+  return null;
+}
+// 接一趟車隊應召：手動選人（uids，從總部出發）或指定駐軍（squad）
+export function answer(G, book, w, callId, how, now) {
+  const c = (book.contracts || []).find(x => x.calls?.some(q => q.id === callId)), q = c?.calls.find(x => x.id === callId);
+  if (!q || q.co !== G.name || q.state !== 'open') return '這趟應召已經結束了';
+  const K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
+  const path = w.sim.pmc.route(c.site, q.to), risk = path.reduce((s, i) => s + (K.bandit[i] || 0), 0), lv = risk > 400 ? 3 : risk > 150 ? 2 : 1;
+  let sq = null;
+  if (how.squad) { sq = book.squads[how.squad]; if (!sq || sq.player !== G.name || sq.garrison !== c.site || !garFree(sq, now)) return '這支駐軍現在不能出動'; }
+  else { const pick = (how.uids || []).map(u => G.roster.find(x => x.uid === u)).filter(x => x && x.alive && x.status === 'home' && !x.keep).slice(0, 4);
+    if (pick.length < 2) return '至少兩個人'; sq = C.makeSquad(book, G.name, {clones: pick, gear: 3, at: G.base, name: `${G.name}・第${G.seq++}隊`}); }
+  const lead = C.travelHours(w, sq.at, c.site), hours = Math.round((isFinite(lead) ? lead : 24) + C.travelHours(w, c.site, q.to) * 2 + 48);
+  const cs = C.openCase(book, w, {kind: 'route', title: `護送${nm(c.site)}${SITE_N[c.kind]}的${GOOD_N[q.g]}車隊往${nm(q.to)}（長約）`, tile: c.site, from: c.site, to: q.to, fac: c.fac, lv, hours, cargo: {g: q.g, amt: q.amt, src: c.site}}, now);
+  cs.pay.final = Math.round(cs.pay.final * .5); cs.contract = c.id;   // 長約的車馬費比較少（簽約金已經付過）
+  delete sq.headedHome;
+  if (!C.enlist(book, cs.id, sq.id, now, w)) { book.cases.splice(book.cases.indexOf(cs), 1); if (!sq.garrison) delete book.squads[sq.id]; return '趕不上'; }
+  for (const x of sq.clones) if (x.alive) { if (x.status === 'home') { x.status = 'away'; } x.missions++; C.joinRec(x, cs, G.name, now); }
+  G.cases.push(cs.id); q.state = 'answered'; q.case = cs.id; q.auto = !!how.auto;
+  note(G, now, `${how.auto ? '時限到了，駐軍' : ''}${sq.name}接下${nm(c.site)}的車隊應召（往${nm(q.to)}）。`);
+  return null;
+}
+function breach(cos, book, w, c, q, h, SH) {
+  const s = c.signers.find(x => x.co === q.co), G = cos[q.co]; q.state = 'missed'; if (!s || !G) return;
+  s.breaches++; s.missed++; G.breaches = (G.breaches || 0) + 1;
+  const nm = (w.names[c.site] || '') + SITE_N[c.kind];
+  if (s.breaches === 1) {
+    const pen = Math.round(c.fee * .25); C.pay(book, h, q.co, -pen, 'breach', `${nm}長約：違約金（第一次）`);
+    if (s.bond) { s.bondLost = true; }
+    note(G, h, `違約！${nm}的車隊在時限內沒人來護送：賠 $${pen}k${s.bond ? `，履約保證金 $${s.bond}k 沒收` : ''}。再違約一次，合約作廢、那個勢力一年不跟你往來。`);
+  } else {
+    const pen = Math.round(c.fee * .5); C.pay(book, h, q.co, -pen, 'breach', `${nm}長約：違約金（第二次，合約作廢）`);
+    s.void = true; (G.bans ||= {})[c.fac] = h + SH * RET.BAN_SEASONS;
+    note(G, h, `再次違約：${nm}的長約作廢，賠 $${pen}k；${w.sim.peek().fac[c.fac]?.n || '那個勢力'}一年內不跟你往來。`);
+  }
+}
+// 每個遊戲小時（core.js 呼叫）
+export function retainerHour(cos, book, w, h, SH) {
+  const K = w.sim.peek(), P = w.sim.pmc, sites = P.sites ? P.sites() : {}; book.contracts ||= [];
+  const nm = t => w.names[t] || '無名之地';
+  // 開約：每季、每個還在的產地一份
+  if (h % SH === 0 || !book.contractsInit) { book.contractsInit = true;
+    for (const [k, kind] of Object.entries(sites)) { const t = +k, m = K.markets[t]; if (!m || K.owner[t] < 0 || book.contracts.some(c => c.site === t && h < c.signUntil)) continue;
+      const out = m.site?.out || 10, fee = Math.round(150 + out * 3), r = h01(t, h);
+      book.contracts.push({id: 'R' + book.nextId++, site: t, kind, fac: K.owner[t], start: h, signUntil: h + SH, end: h + SH * RET.SEASONS, fee, plan: r < .5 ? 'lump' : 'install',
+        bond: h01(t + 1, h) < .4 ? Math.round(fee * .5) : 0, bonus: Math.round(fee * RET.BONUS), slots: RET.SLOTS, signers: [], nextAt: h + 24, turn: 0, calls: []}); } }
+  for (const c of book.contracts) {
+    if (c.done) continue;
+    const m = K.markets[c.site], gone = !m || K.owner[c.site] < 0, S = c.signers.filter(s => !s.void);
+    if (gone || h >= c.end) {
+      c.done = true;
+      for (const s of c.signers) { const G = cos[s.co]; if (!G) continue; if (s.bond && !s.bondLost) C.pay(book, h, s.co, s.bond, 'bond', `${nm(c.site)}${SITE_N[c.kind]}長約：退還履約保證金`);
+        if (!s.void) note(G, h, gone ? `${nm(c.site)}的${SITE_N[c.kind]}沒了（被打下或荒廢），長約提前結束，不算違約。` : `${nm(c.site)}${SITE_N[c.kind]}的長約期滿。`); }
+      continue;
+    }
+    if (!c.signers.length && h >= c.signUntil) { c.done = true; continue; }   // 一季都沒人簽
+    // 分期與季末獎金
+    if ((h - c.start) % SH === 0 && h > c.start) for (const s of S) { const G = cos[s.co]; if (!G) continue;
+      if (c.plan === 'install' && s.paid < RET.SEASONS) { s.paid++; C.pay(book, h, s.co, Math.round(c.fee * RET.INSTALL), 'retainer', `${nm(c.site)}${SITE_N[c.kind]}長約：簽約金第 ${s.paid} 期`); }
+      if (!s.lost && !s.missed && h - s.at >= SH) { C.pay(book, h, s.co, c.bonus, 'retainer', `${nm(c.site)}${SITE_N[c.kind]}長約：這一季車隊一趟沒丟，獎金`); }
+      s.lost = 0; s.missed = 0; }
+    // 發車隊
+    if (S.length && h >= c.nextAt) {
+      const s = S[c.turn++ % S.length], g = SITE_G[c.kind], me = K.owner[c.site];
+      const dests = Object.keys(K.markets).map(Number).filter(t => t !== c.site && K.owner[t] >= 0 && !P.atWar(K.owner[t], me) && hdist(t, c.site) >= 3 && hdist(t, c.site) <= 15);
+      dests.sort((a, b) => (K.markets[a].ratio?.[g] ?? 1) - (K.markets[b].ratio?.[g] ?? 1) || a - b);
+      const to = dests[0], amt = Math.round(Math.min(m.stock[g] * .4, (m.site?.out || 10) * .5));
+      if (to !== undefined && amt >= 2) { const q = {id: 'Q' + book.nextId++, co: s.co, to, g, amt, at: h, deadline: h + RET.WINDOW, state: 'open'}; c.calls.push(q);
+        book.inbox.push({t: h, player: s.co, kind: 'ticket', text: `長約應召：${nm(c.site)}${SITE_N[c.kind]}有一趟${GOOD_N[g]}車隊要往${nm(to)}，${RET.WINDOW} 小時內派人（沒派就從駐軍拉一隊；沒有駐軍就是違約）。`, ref: q.id}); }
+      c.nextAt = h + RET.GAP0 + Math.floor(h01(c.site, h) * (RET.GAP1 - RET.GAP0));
+    }
+    // 應召時限
+    for (const q of c.calls) if (q.state === 'open' && h >= q.deadline) {
+      const G = cos[q.co], free = G ? garSquads(G, book, c.site).filter(sq => garFree(sq, h)) : [];
+      if (free.length && !answer(G, book, w, q.id, {squad: free[Math.floor(h01(c.site, h + 7) * free.length)].id, auto: true}, h)) continue;
+      breach(cos, book, w, c, q, h, SH);
+    }
+    if (c.calls.length > 40) c.calls = c.calls.filter(q => q.state === 'open' || h - q.at < 24 * 14);
+  }
+  // 駐紮費：每天
+  if (h % 24 === 0) for (const sq of Object.values(book.squads)) if (sq.garrison != null && cos[sq.player]) { const n = sq.clones.filter(c => c.alive).length; if (n) C.pay(book, h, sq.player, -RET.GAR_UPKEEP * n, 'garrison', `${sq.name}：駐紮費（${n} 人）`); }
+}
+// 給畫面：看得到的長約、自己簽的、應召、駐軍
+export function retainerView(G, book, w) {
+  const K = w.sim.peek(), nm = t => w.names[t] || '無名之地', now = G.h, L = book.contracts || [];
+  const offers = L.filter(c => !canSign(G, book, w, c, now)).map(c => ({id: c.id, site: c.site, name: nm(c.site), kind: c.kind, kn: SITE_N[c.kind], fac: K.fac[c.fac]?.n || '', fee: c.fee, plan: c.plan, bond: c.bond, bonus: c.bonus,
+    total: c.plan === 'lump' ? c.fee : Math.round(c.fee * RET.INSTALL * RET.SEASONS), seasons: RET.SEASONS, left: c.slots - c.signers.length, until: c.signUntil}));
+  const mine = L.filter(c => c.signers.some(s => s.co === G.name) && (!c.done || now - c.end < 72)).map(c => { const s = c.signers.find(x => x.co === G.name);
+    return {id: c.id, site: c.site, name: nm(c.site), kn: SITE_N[c.kind], end: c.end, done: !!c.done, void: !!s.void, breaches: s.breaches, plan: c.plan, paid: s.paid, bond: s.bond, bondLost: !!s.bondLost,
+      calls: c.calls.filter(q => q.co === G.name && q.state === 'open').map(q => ({id: q.id, to: nm(q.to), g: GOOD_N[q.g], deadline: q.deadline})),
+      garrison: garSquads(G, book, c.site).map(sq => ({id: sq.id, name: sq.name, alive: sq.clones.filter(x => x.alive).length, uids: sq.clones.map(x => x.uid), busy: !!sq.caseId, ready: sq.readyAt <= now, readyAt: sq.readyAt}))}; });
+  return {fame: fame(G, book), fameMin: RET.FAME_MIN, sizeMin: RET.SIZE_MIN, offers, mine};
 }
 
 // 沙盒裡的遺體被撿走（每個遊戲小時，在所有公司的 hour 之後；core.js 呼叫）：物歸原主就沖回損失；別家撿到就易主（原公司只看到確認戰死）
@@ -566,7 +717,7 @@ export function view(G, book, w) {
   }).reverse();
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
-  return {cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
+  return {retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
     templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid)})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 
