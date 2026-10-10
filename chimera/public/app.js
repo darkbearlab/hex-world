@@ -452,7 +452,12 @@ function renderCo() {
       ${t.transit ? '<div class="mini">行軍遇襲，不算案件積分</div>' : `<div class="mini">目標：${t.objectives.map(o => `${esc(o.text)}（${o.pts}）`).join('、')}</div>`}
       ${t.est ? `<div class="mini">小隊戰力 ${t.est.pow}・自動結算勝算約 <span class="odds-est ${t.est.p < .4 ? 'bad' : t.est.p < .75 ? 'mid' : 'good'}">${Math.round(t.est.p * 100)}%</span>・預估陣亡 ${t.est.dead.toFixed(1)} 人</div>` : ''}
       <div class="row"><button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的服務單。</p>';
-  $('co-cases').html = G.cases.length ? G.cases.map(c => {
+  // 案件分三段（Alan 2026-10-10）：進行中的照舊整張卡；人都回來、只等結案撥款的，和已結案的，收成一行，不再列人
+  const nowH = hourNow() ?? h, back = c => !c.own && !c.settled && c.squads.length && c.squads.every(sq => sq.headedHome != null && !(sq.backAt > nowH));
+  const brief = c => `<div class="mini caseline"><a href="#" data-center="${c.tile}">${esc(c.title)}</a>・${c.settled ? (c.own ? '車隊已回到總部' : `尾款 $${c.payout || 0}k`) : `${cd(c.end + 24)}後結算`}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>`;
+  const waitC = G.cases.filter(back), doneC = G.cases.filter(c => c.settled), liveC = G.cases.filter(c => !c.settled && !back(c));
+  const sec = (t, L) => L.length ? `<h4 class="sec2">${t}（${L.length}）</h4>${L.map(brief).join('')}` : '';
+  $('co-cases').html = !G.cases.length ? '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>' : (liveC.length ? '' : '<p class="muted">沒有進行中的案件。</p>') + liveC.map(c => {
     const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}k` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? `${cd(c.end - 24)}後合約到期` : `收尾中・${cd(c.end + 24)}後結算`;
     return `<div class="card"><h4><a href="#" data-center="${c.tile}">${esc(c.title)}</a><span class="mini">${c.own ? '採購' : '●'.repeat(c.lv) + '○'.repeat(3 - c.lv)}</span></h4>
       <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>
@@ -461,7 +466,7 @@ function renderCo() {
         const sts = sq.headedHome != null ? (sq.backAt > (hourNow() ?? h) ? `歸途中・約 ${cd(sq.backAt)}後回到總部` : '已回到總部') : sq.busy ? '服務單處理中' : sq.readyAt > (hourNow() ?? h) ? `ETA ${cd(sq.readyAt)}` : '待命中';
         return `<div style="margin-top:6px"><span class="mini">${c.settled ? '' : sts}${sq.pending.length ? `・補員 ${sq.pending.map(p => `${p.n} 人 ${cd(p.eta)}後到`).join('、')}` : ''}${sq.refused ? '・<span style="color:var(--war)">雇主不准再補人</span>' : ''}</span>
         <div class="chips">${cl.map(x => chip(x, false)).join('')}</div>
-        ${sq.headedHome != null ? '' : squadActions(sq, c, al)}</div>`; }).join('')}</div>`; }).join('') : '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>';
+        ${sq.headedHome != null ? '' : squadActions(sq, c, al)}</div>`; }).join('')}</div>`; }).join('') + sec('人都回來了，等結案撥款', waitC) + sec('已結案', doneC);
 }
 
 // ───── 培養槽（Alan 2026-10-09：像艦娘的建造船塢，一座一列；培養中整列蓋上倒數） ─────
