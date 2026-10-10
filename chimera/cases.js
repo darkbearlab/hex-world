@@ -606,6 +606,8 @@ export function settleTicket(book, w, tk, res, now) {   // export 給 stats/reco
     if (res.win) { cl.downAs = 'recovered'; continue; }
     cl.downAs = 'lost'; pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 倒下，遺體沒能帶回`, c.id); gearLost += sq.gear;
     (book.bodies ||= []).push({uid: cl.uid, co: sq.player, tile: tk.tile, at: now, value: CFG.CLONE_VALUE + sq.gear}); }
+  // 生物廢棄物（清運案的來源）：這一場倒下的敵人（打贏全算、打輸算三成）加上我方倒下的人
+  { const foes = tk.enemy ? enemyRoster(tk.enemy).length : 0, waste = foes * (res.win ? 1 : .3) + res.dead.length; if (waste > 0) { const W = book.waste ||= {}; W[tk.tile] = (W[tk.tile] || 0) + waste; } }
   // 打贏的人順便撿走附近（同一格或隔壁）還沒壞的遺體
   if (res.win) for (const b of book.bodies || []) if (!b.takenBy && now < b.at + CFG.BODY_H && hdist(b.tile, tk.tile) <= 1 && b.at < now) { b.takenBy = sq.player; b.takenAt = now; }
   const wiped = !alive(sq).length;

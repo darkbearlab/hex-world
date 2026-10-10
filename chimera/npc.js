@@ -44,6 +44,8 @@ function act(core, g, N, h) {
   const alive = g.roster.filter(c => c.alive).length + g.queue.length;
   // 金主：人打光了、錢也不夠重新培養時，每 7 天撥一筆 300k（讓世界一直有 NPC 在動）
   if (alive < 2 && g.cash < 300 && h - (g.npc.funded ?? -999) >= 24 * 7) { g.cash += 300; g.npc.funded = h; g.log.push({h, text: '金主撥了一筆款子：$300k，重新招兵。'}); }
+  // 清運：總部每天一趟免費的；自己人倒下的地方，錢夠就派車去撿（謹慎的一定去，其他的看錢）
+  for (const s of G.cleanSites(g, core.game.book, core.w)) if (s.ok && (s.daily || s.fallen && g.cash > s.fare * (N.style === 'careful' ? 2 : 5))) cmd({type: 'clean', tile: s.tile});
   // 收回的遺體先重新培養（同一個人回來，比抽新的划算）
   for (const c of g.roster.filter(c => c.status === 'recovered' && !g.queue.some(q => q.revive === c.uid))) {
     if (g.queue.length >= G.GCFG.VATS) break; const r = G.REVIVE_RECIPE[c.cls];

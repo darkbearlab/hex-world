@@ -434,7 +434,8 @@ function renderCo() {
     P.innerHTML = `<div class="cohead" id="co-head"></div>
       <div class="cocols" id="co-ops">
         <div class="cocol"><div class="box"><h3 class="sec">服務單</h3><div id="co-tk"></div></div></div>
-        <div class="cocol"><div class="box"><h3 class="sec">案件與車隊</h3><div id="co-cases"></div></div></div>
+        <div class="cocol"><div class="box"><h3 class="sec">案件與車隊</h3><div id="co-cases"></div></div>
+          <div class="box"><h3 class="sec">清運 <span class="muted">不用派人：收生物廢棄物換植入物、神經介質，順便撿回那一帶的遺體</span></h3><div id="co-clean"></div></div></div>
       </div>`;
     coBuilt = true;
   }
@@ -458,6 +459,8 @@ function renderCo() {
   const brief = c => `<div class="mini caseline"><a href="#" data-center="${c.tile}">${esc(c.title)}</a>・${c.settled ? (c.own ? '車隊已回到總部' : `尾款 $${c.payout || 0}k`) : `${cd(c.end + 24)}後結算`}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>`;
   const waitC = G.cases.filter(back), doneC = G.cases.filter(c => c.settled), liveC = G.cases.filter(c => !c.settled && !back(c));
   const sec = (t, L) => L.length ? `<h4 class="sec2">${t}（${L.length}）</h4>${L.map(brief).join('')}` : '';
+  // 清運（Alan 2026-10-10）
+  $('co-clean').html = (G.cleanJobs || []).map(j => `<div class="mini caseline">清運車在${esc(j.name)}・約 ${cd(j.done)}後回來</div>`).join('') + (G.cleanSites || []).map(s => `<div class="row caseline"><span class="mini" style="flex:1"><a href="#" data-center="${s.tile}">${esc(s.name)}</a>${s.daily ? '・總部每天一趟（免費，附基本素材）' : `・${s.dist} 格`}${s.fallen ? '・<b>有自己人倒在這裡</b>' : ''}${s.waste ? `・廢棄物 ${s.waste}` : ''}・約 ${s.hours} 小時${s.fare ? `・車資 $${s.fare}k` : ''}</span>${s.ok ? `<button data-act="clean" data-id="${s.tile}">清運</button>` : `<span class="mini muted">${s.next != null ? `${cd(s.next)}後可再跑` : '車在路上'}</span>`}</div>`).join('');
   $('co-cases').html = !G.cases.length ? '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>' : (liveC.length ? '' : '<p class="muted">沒有進行中的案件。</p>') + liveC.map(c => {
     const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}k` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? `${cd(c.end - 24)}後合約到期` : `收尾中・${cd(c.end + 24)}後結算`;
     return `<div class="card"><h4><a href="#" data-center="${c.tile}">${esc(c.title)}</a><span class="mini">${c.own ? '採購' : '●'.repeat(c.lv) + '○'.repeat(3 - c.lv)}</span></h4>
@@ -827,6 +830,7 @@ const coClick = e => {
   else if (A === 'claim') { revealAfter = GV.fresh ?? null; send({type: 'claim', slot: +b.dataset.vat}); }
   else if (A === 'keep') send({type: 'keep', uid: +id});
   else if (A === 'revive') send({type: 'revive', uid: +id});
+  else if (A === 'clean') send({type: 'clean', tile: +id});
   else if (A === 'resolve' || A === 'fight') return;   // 上面 pointerdown 已經送出
   else if (A === 're') { pickRe = {squad: id, uids: new Set()}; renderCo(); }
   else if (A === 're-go') { send({type: 'reinforce', squad: pickRe.squad, uids: [...pickRe.uids], fast: !!pickRe.fast}); pickRe = null; }

@@ -12,7 +12,7 @@ const r1 = v => Math.round(v * 10) / 10;
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'equip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'equip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -209,6 +209,7 @@ export class Core {
     if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
     if (m.type === 'claim') return G.claim(g, +m.slot, this.game.book);
+    if (m.type === 'clean') return G.clean(g, b, w, +m.tile, h);
     if (m.type === 'revive') return G.revive(g, +m.uid, m.slot == null ? null : +m.slot, this.exactNow ?? h);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
     if (m.type === 'sell') return G.sellItem(g, String(m.item), w);

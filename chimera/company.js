@@ -362,6 +362,8 @@ export function hour(G, book, w, h) {
     else if (c.status === 'lost') note(G, h, `${who(c)} 倒下，遺體沒能從${nm(c.downTile)}帶回來。7 天內有人在那一帶打贏，還有機會撿回來。`);
     else { note(G, h, `${who(c)} 陣亡。`); C.rec(c, {h, t: 'kia', co: G.name}); }
   }
+  // 清運車回來
+  for (const j of (G.cleanJobs || []).slice()) if (h >= j.done) { G.cleanJobs.splice(G.cleanJobs.indexOf(j), 1); cleanDone(G, book, w, j, h); }
   // 遺體 7 天沒撿回來：確認戰死
   for (const c of G.roster) if (c.status === 'lost' && h >= (c.downAt ?? h) + C.CFG.BODY_H) { c.status = 'kia'; C.rec(c, {h, t: 'kia', co: G.name, confirm: true}); note(G, h, `${who(c)} 的遺體沒能收回，確認戰死。`); }
 
@@ -399,9 +401,50 @@ export function hour(G, book, w, h) {
   for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c) && (sq.caseId || sq.column))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
 }
 
+// ===== 清運案（Alan 2026-10-09 方向、2026-10-10 做）=====
+// 不用派人：雇一隊清運車去收生物廢棄物，花車資和時間，回收植入物、神經介質；那一帶（同一格、隔壁）還沒壞的遺體一起撿回來（自己的沖回損失，別家的就易主）。
+// 總部那座城每天一趟免費的小清運，保底收得到一個人的素材（玩得再爛，每天也補得出一個人）。
+export const CLEAN = {RANGE: 10, MIN_WASTE: 4, FARE: 4, FARE_PER: 1.5, H0: 6, H_PER: .5, H_MAX: 12, YIELD: .8, CAP: 120, DAILY: {food: 30, water: 30, implant: 30, neural: 30}};
+const cleanHours = d => Math.min(CLEAN.H_MAX, CLEAN.H0 + d * CLEAN.H_PER), cleanFare = d => Math.round(CLEAN.FARE + d * CLEAN.FARE_PER);
+export function cleanSites(G, book, w) {
+  const nm = t => w.names[t] || '無名之地', W = book.waste || {}, busy = new Set((G.cleanJobs || []).map(j => j.tile)), out = [];
+  const dailyOk = !busy.has(G.base) && G.h - (G.cleanDaily ?? -999) >= 24;
+  out.push({tile: G.base, name: nm(G.base), daily: true, ok: dailyOk, waste: Math.round(W[G.base] || 0), hours: CLEAN.H0, fare: 0, next: dailyOk ? null : (G.cleanDaily ?? 0) + 24});
+  // 自己的人倒在哪裡是知道的：那一格不管遠近、廢棄物多少都列出來（被賣走了就撲空）
+  const mine = new Set(G.roster.filter(c => c.status === 'lost' && c.downTile != null).map(c => c.downTile));
+  for (const t of new Set([...Object.keys(W).map(Number), ...mine])) { const v = W[t] || 0, d = hdist(t, G.base); if (t === G.base || !mine.has(t) && (v < CLEAN.MIN_WASTE || d > CLEAN.RANGE)) continue;
+    out.push({tile: t, name: nm(t), waste: Math.round(v), dist: d, hours: cleanHours(d), fare: cleanFare(d), ok: !busy.has(t), fallen: mine.has(t)}); }
+  return out.sort((a, b) => (b.daily ? 1 : 0) - (a.daily ? 1 : 0) || (b.fallen ? 1 : 0) - (a.fallen ? 1 : 0) || b.waste - a.waste).slice(0, 13);
+}
+export function clean(G, book, w, tile, now) {
+  const s = cleanSites(G, book, w).find(x => x.tile === tile); if (!s) return '那裡沒有可以清運的東西';
+  if (!s.ok) return s.daily ? '今天的清運已經跑過了' : '那裡已經有車在清運';
+  if (G.cash < s.fare) return '錢不夠付車資';
+  if (s.fare) C.pay(book, now, G.name, -s.fare, 'clean', `清運車資：${s.name}`);
+  if (s.daily) G.cleanDaily = now;
+  (G.cleanJobs ||= []).push({tile, daily: !!s.daily, start: now, done: now + s.hours});
+  note(G, now, `雇了清運車去${s.name}${s.daily ? '（總部每天一趟，免費）' : `，車資 $${s.fare}k`}，約 ${s.hours} 小時後回來。`);
+  return null;
+}
+function cleanDone(G, book, w, j, h) {
+  const W = book.waste || {}, nm = t => w.names[t] || '無名之地', got = {};
+  if (j.daily) Object.assign(got, CLEAN.DAILY);
+  const waste = W[j.tile] || 0, take = Math.min(waste, CLEAN.CAP);
+  if (take > 0) { got.implant = (got.implant || 0) + Math.round(take * CLEAN.YIELD); got.neural = (got.neural || 0) + Math.round(take * CLEAN.YIELD); W[j.tile] = waste - take; if (W[j.tile] < 1) delete W[j.tile]; }
+  for (const [m, n] of Object.entries(got)) G.mats[m] = Math.min(GCFG.MAX * 10, (G.mats[m] || 0) + n);
+  let bodies = 0; for (const b of book.bodies || []) if (!b.takenBy && h < b.at + C.CFG.BODY_H && hdist(b.tile, j.tile) <= 1) { b.takenBy = G.name; b.takenAt = h; bodies++; }
+  note(G, h, `清運車從${nm(j.tile)}回來了：${Object.entries(got).filter(([, n]) => n).map(([m, n]) => `${MN[m]} ${n}`).join('、') || '沒撈到什麼'}${bodies ? `，還撿到 ${bodies} 具遺體` : ''}。`);
+}
+
 // 沙盒裡的遺體被撿走（每個遊戲小時，在所有公司的 hour 之後；core.js 呼叫）：物歸原主就沖回損失；別家撿到就易主（原公司只看到確認戰死）
 export function bodiesHour(cos, book, w, h) {
+  // 廢棄物每天少一成（風沙、拾荒的、野狗）
+  if (h % 24 === 0 && book.waste) for (const k of Object.keys(book.waste)) { book.waste[k] *= .9; if (book.waste[k] < 1) delete book.waste[k]; }
   const L = book.bodies; if (!L?.length) return;
+  // 沒人撿的遺體放了兩天，可能被拾荒的拖去賣（Alan 2026-10-10：出現在地圖另一邊就說是輾轉被賣過去的）：搬到 10 格內的一座市鎮，那裡的清運或打贏的人撿得到
+  const K = w.sim.peek(), towns = Object.keys(K.markets).map(Number).filter(t => K.owner[t] >= 0);
+  for (const b of L) if (!b.takenBy && !b.sold && h - b.at >= 48) { let x = (b.uid * 2654435761 + h * 40503) >>> 0; if (x % 1000 >= 15) continue;
+    const near = towns.filter(t => t !== b.tile && hdist(t, b.tile) <= 10); if (!near.length) continue; b.from = b.tile; b.tile = near[(x >>> 8) % near.length]; b.sold = true; const W = book.waste ||= {}; W[b.tile] = (W[b.tile] || 0) + 5; }   // 賣到的那座城多了一點「貨」，清運看得到
   for (const b of L.slice()) {
     const own = cos[b.co], c = own?.roster.find(x => x.uid === b.uid);
     if (!c || c.status !== 'lost') { L.splice(L.indexOf(b), 1); continue; }   // 已經確認戰死（或資料不在了）
@@ -488,7 +531,7 @@ export function view(G, book, w) {
   }).reverse();
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
-  return {units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
+  return {cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
     templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid)})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 
