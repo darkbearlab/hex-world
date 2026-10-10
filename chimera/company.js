@@ -44,17 +44,19 @@ export function makeClone(G, rng, cls, portrait, u, o = {}) {
   const B = CLS[cls].base, sum = u.reduce((x, y) => x + y, 0), pct = ihCdf(sum);
   const st = {hp: Math.round(B.hp * (.9 + .2 * u[0])), acc: B.acc + Math.round(-8 + 16 * u[1]), eva: B.eva + Math.round(-8 + 16 * u[2]), mel: B.mel + Math.round(-8 + 16 * u[3])};
   const L = 'ABCDEFGHJKLMNPRSTVWXZ'[Math.floor(rng() * 21)];
-  return {id: `${L}-${String(Math.floor(rng() * 10000)).padStart(4, '0')}`, uid: G.seq++, cls, portrait, st, u, pct: +pct.toFixed(4),
+  // 編號（Alan 2026-10-10）：uid 是全星球的流水號（帳本 book.cloneSeq 發號），之後易主、回收不會撞號；顯示的編號也照流水號（五位數，跟舊的四位數亂數分得開）
+  const n = Math.floor(rng() * 10000);
+  return {id: o.uid != null ? `${L}-${String(o.uid).padStart(5, '0')}` : `${L}-${String(n).padStart(4, '0')}`, uid: o.uid ?? G.seq++, cls, portrait, st, u, pct: +pct.toFixed(4),
     crown: pct >= .99 ? 'gold' : pct >= .9 ? 'silver' : '', pow: +(6 * CLS[cls].k * (.85 + .075 * sum)).toFixed(2), weapon: CLS[cls].weapon,
     hp: 20, alive: true, status: 'home', keep: false, born: o.born || 0, template: !!o.template, kills: 0, missions: 0};
 }
 
 // ===== 公司 =====
-export function newCompany(w, base, name = '我的公司', seed = 7) {
+export function newCompany(w, base, name = '我的公司', seed = 7, book = null) {
   const G = {flows: [], daily: [], name, base, cash: GCFG.START_CASH, mats: {...GCFG.START_MATS}, roster: [], templates: [], queue: [], store: [], itemSeq: 0, seq: 1, rs: seed | 0, h: 0, ledgerAt: 0, inboxAt: 0, log: [], cases: [], returning: []};
   const r = () => rnd(G);
   // 開局：一隊四人（配方平均），外加一張模板
-  for (let i = 0; i < 6; i++) G.roster.push(makeClone(G, r, pickW(r, classOdds({food: 30, water: 30, implant: 30, neural: 30})), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()]));
+  for (let i = 0; i < 6; i++) G.roster.push(makeClone(G, r, pickW(r, classOdds({food: 30, water: 30, implant: 30, neural: 30})), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()], {uid: nextUid(book)}));
   G.templates.push(mkTemplate(G, r));
   note(G, 0, `公司在${w.names[base]}掛牌。培養槽 ${GCFG.VATS} 座，六名複製人待命，另有一張模板。`);
   return G;
@@ -161,14 +163,15 @@ export function finishDue(G, t) {
 // 培養完成：留在槽裡等簽收（Alan 2026-10-09：要去簽收才會入列）
 function readyBuild(G, q, h) { q.ready = true; note(G, h, `第 ${(q.slot ?? 0) + 1} 座培養槽培養完成，到培養槽簽收。`); }
 // 簽收：這一座培養好的人進名冊，培養槽空出來
-export function claim(G, slot) {
+export const nextUid = book => book ? (book.cloneSeq ??= 1, book.cloneSeq++) : undefined;
+export function claim(G, slot, book = null) {
   const q = G.queue.find((x, i) => (x.slot ?? i) === slot && x.ready); if (!q) return '這座培養槽沒有可以簽收的人';
-  G.queue.splice(G.queue.indexOf(q), 1); finishBuild(G, q, G.h); return null;
+  G.queue.splice(G.queue.indexOf(q), 1); finishBuild(G, q, G.h, book); return null;
 }
-function finishBuild(G, q, h) {
+function finishBuild(G, q, h, book = null) {
   const r = () => rnd(G);
-  const c = q.tpl ? makeClone(G, r, q.tpl.cls, q.tpl.portrait, [GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U], {born: h, template: true})
-    : makeClone(G, r, pickW(r, classOdds(q.recipe)), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()], {born: h});
+  const c = q.tpl ? makeClone(G, r, q.tpl.cls, q.tpl.portrait, [GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U], {born: h, template: true, uid: nextUid(book)})
+    : makeClone(G, r, pickW(r, classOdds(q.recipe)), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()], {born: h, uid: nextUid(book)});
   gearOf(G, c); c.weapon = gearLabel(c.gear); G.roster.push(c); G.fresh = c.uid;
   note(G, h, `培養槽出槽：${CLS[c.cls].n} ${c.id}${c.crown === 'gold' ? '（金冠！）' : c.crown === 'silver' ? '（銀冠）' : ''}${c.template ? '（模板）' : ''}，配發${c.weapon}。`);
 }

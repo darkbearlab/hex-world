@@ -31,7 +31,7 @@ export const CFG = {
 function rng(book) { let a = book.rs | 0; a = a + 0x6D2B79F5 | 0; book.rs = a; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
 const pickOf = (book, arr) => arr[Math.floor(rng(book) * arr.length)];
 
-export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, t: 0, cases: [], tickets: [], squads: {}, ledger: [], inbox: [], companies: {}, amends: [], trips: []}; }
+export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, cloneSeq: 1, t: 0, cases: [], tickets: [], squads: {}, ledger: [], inbox: [], companies: {}, amends: [], trips: []}; }
 
 // ===== 小隊 =====
 const VPOW = {rush: 4, gt: 6, armor: 14};

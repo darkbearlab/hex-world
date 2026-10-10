@@ -89,7 +89,7 @@ export class Core {
     if (this.game?.cos[name]) return '這個名字已經有人用了';
     if (!this.game) this.open();
     this.log.push({h: this.game.h, year: this.sim.year, who: name, cmd: {type: 'found', base, name}});
-    const g = G.newCompany(this.w, base, name, base * 17 + 3 + Object.keys(this.game.cos).length * 7919);
+    const g = G.newCompany(this.w, base, name, base * 17 + 3 + Object.keys(this.game.cos).length * 7919, this.game.book);
     g.h = this.game.h; this.game.cos[name] = g;
     return null;
   }
@@ -207,7 +207,7 @@ export class Core {
     if (m.type === 'speed') { game.speed = m.v; return null; }
     if (m.type === 'yearDays') { game.yearDays = Math.max(3, Math.min(365, m.v | 0)); return null; }
     if (m.type === 'buy') return G.buy(g, w, m.mat, m.qty);
-    if (m.type === 'claim') return G.claim(g, +m.slot);
+    if (m.type === 'claim') return G.claim(g, +m.slot, this.game.book);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
     if (m.type === 'sell') return G.sellItem(g, String(m.item), w);
     if (m.type === 'mod') return G.modItem(g, String(m.item), String(m.affix));
@@ -300,6 +300,17 @@ export class Core {
       const co = g.cos[sq.player]; if (!co) continue;
       const byUid = new Map(co.roster.map(c => [c.uid, c]));
       sq.clones = sq.clones.map(c => (c.uid != null && byUid.get(c.uid)) || c);
+    }
+    // 舊存檔（Alan 2026-10-10）：uid 從「每家公司各自數」改成全星球流水號。照公司、名冊的順序重新發號；顯示的編號不改（認得的人還是那個名字）
+    if (!g.book.cloneSeq) {
+      let n = 1; const all = Object.values(g.book.squads);
+      for (const co of Object.values(g.cos)) {
+        const map = new Map(); for (const c of co.roster) { map.set(c.uid, n); c.uid = n++; }
+        for (const r of co.returning || []) if (map.has(r.uid)) r.uid = map.get(r.uid);
+        if (co.fresh != null) co.fresh = map.get(co.fresh) ?? null;
+        for (const sq of all) if (sq.player === co.name) for (const c of sq.clones) if (!co.roster.includes(c) && map.has(c.uid)) c.uid = map.get(c.uid);
+      }
+      g.book.cloneSeq = n;
     }
   }
   // 狀態指紋：比對兩個核心是不是一模一樣（帳本＋公司＋沙盒的年份與時間）
