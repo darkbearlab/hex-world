@@ -48,7 +48,7 @@ function start(seed) {
     else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); hideTitle(); }
     else if (m.type === 'mission') openMission(m.data);
     else if (m.type === 'error') { hideMissionLoading(); toast(m.text); }
-    else if (m.type === 'path') { selPath = m; draw(); if (pickOpp) { renderOpp(); if (curTab() === 'tile' && sel >= 0) renderTile(); } }
+    else if (m.type === 'path') { selPath = m; draw(); renderSortie(); if (pickOpp) { renderOpp(); if (curTab() === 'tile' && sel >= 0) renderTile(); } }
     else if (m.type === 'quotes') { QT = m.data; if (procSel && !QT.some(q => q.t === procSel.t)) procSel = null; if (page === 'trade') renderProc(); }
   };
   worker.onerror = e => { $('computing').textContent = '推演出錯：' + (e.message || ''); };
@@ -320,6 +320,65 @@ function pickGroups(av) {
   const G = [...Object.entries(TAGS).map(([k, n]) => [n, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
   return G.map(([n, L]) => `<div class="mini pgroup">${n}（${L.length}）</div><div class="chips">${L.map(c => chip(c, pickOpp.uids.has(c.uid), 'pk')).join('')}</div>`).join('');
 }
+// ===== 出擊編成（Alan 2026-10-10）=====
+// 在機會按「接案」進到這個畫面：一隊四個位置。電腦橫向是四張直長卡片排開，選中的人卡片下半壓一層他現在的裝備；
+// 手機直向是四張橫長卡片，只露出頭和往右延伸的名字，裝備收在卡片下面、點開才展開。按「確認出擊」才真的派出去。
+let sortie = null;   // {key, tile, side, fast, sq: [[uid|null ×4]…], pick: [i, j] | null, open: Set}
+function openSortie(o) {
+  sortie = {key: o.kind + ':' + o.tile, tile: o.tile, side: o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' ? 'a' : '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set()};
+  if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile});
+  renderSortie();
+}
+const sortieUids = () => sortie.sq.flat().filter(u => u != null);
+function sortieCard(u, i, j) {
+  const c = u != null && GV.roster.find(x => x.uid === u);
+  if (!c) return `<button class="scard empty${sortie.pick?.[0] === i && sortie.pick?.[1] === j ? ' on' : ''}" data-slot="${i}:${j}"><span>＋</span><small>選人</small></button>`;
+  const get = gearOfC(c), gear = SLOTS.map(s => [SLOT_N[s], get(s)]).filter(([, it]) => it).map(([n, it]) => `<div><span>${n}</span>${esc(itemName(it))}</div>`).join('') || '<div class="muted">沒有裝備</div>';
+  const open = sortie.open.has(u);
+  return `<div class="scard full${open ? ' gopen' : ''}">
+    <div class="sart"><img src="art/full/${c.portrait}.png" alt="" onerror="this.onerror=null;this.src='${img(c.portrait)}';this.parentElement.classList.add('px')"></div>
+    <div class="sname"><b>${esc(who(c))}</b> <span class="mini">${c.id}・${CLS[c.cls].n}・${c.lv || 1} 級</span></div>
+    <div class="sgear">${gear}</div>
+    <button class="sgtog" data-sg="${u}">${open ? '收起裝備 ▴' : '裝備 ▾'}</button>
+    <button class="sx" data-sx="${i}:${j}" aria-label="拿掉">✕</button>
+    <button class="sswap" data-slot="${i}:${j}">換人</button></div>`;
+}
+function renderSortie() {
+  const P = $('sortie'); if (!P) return;
+  const o = sortie && GV && curOpps().find(x => x.kind + ':' + x.tile === sortie.key);
+  P.hidden = !o; if (!o) { if (sortie && GV) sortie = null; return; }
+  const K = OK[o.kind], s = hist[cur], fn = id => s?.fac?.find(f => f.id === id)?.n || '';
+  const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : [];
+  const chosen = new Set(sortieUids()), n = chosen.size, bad = sortie.sq.some(q => q.filter(u => u != null).length === 1);
+  const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid));
+  const groups = [...Object.entries(TAGS).map(([k, nm]) => [nm, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
+  const picker = sortie.pick ? `<div class="spick"><div class="row"><b style="flex:1">選一個人放進第 ${sortie.pick[0] + 1} 隊第 ${sortie.pick[1] + 1} 位</b><button data-pickx="1">✕</button></div>${groups.map(([nm, L]) => `<div class="mini pgroup">${nm}（${L.length}）</div><div class="chips">${L.map(c => chip(c, false, 'sp')).join('')}</div>`).join('') || '<p class="muted">沒有待命的人</p>'}</div>` : '';
+  $('sbox').html = `<div class="shead"><div style="flex:1"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}<div class="mini muted">${esc(o.detail || '')}</div></div><button data-scancel="1" aria-label="關閉">✕</button></div>
+    ${sides.length ? `<div class="row">${sides.map(([v, nm]) => `<button data-side="${v}" class="${sortie.side === v ? 'on' : ''}">${esc(nm)}</button>`).join('')}</div>` : ''}
+    ${sortie.sq.map((q, i) => `<div class="sqlabel mini">第 ${i + 1} 隊（${q.filter(u => u != null).length}／4）${sortie.sq.length > 1 && !q.some(u => u != null) ? ` <button data-sqx="${i}">拿掉這一隊</button>` : ''}</div><div class="srow">${q.map((u, j) => sortieCard(u, i, j)).join('')}</div>`).join('')}
+    <div class="row"><button data-addsq="1">＋ 再編一隊</button></div>
+    ${picker}
+    ${speedRow(o.tile, n, sortie.fast)}
+    <div class="row sfoot">${bad ? '<span class="mini" style="color:var(--war)">每一隊至少兩個人</span>' : ''}<button class="primary" data-sgo="1"${n < 2 || bad ? ' disabled' : ''}>${sortie.fast ? '加速' : ''}確認出擊（${n} 人）</button><button data-scancel="1">取消</button></div>`;
+}
+$('sortie').onclick = e => {
+  if (e.target.id === 'sortie') { sortie = null; renderSortie(); return; }
+  const a = e.target.closest('[data-slot],[data-sp],[data-sx],[data-sg],[data-addsq],[data-sqx],[data-side],[data-fast],[data-sgo],[data-scancel],[data-pickx]'); if (!a || !sortie) return;
+  const d = a.dataset, ij = v => v.split(':').map(Number);
+  if (d.slot) sortie.pick = ij(d.slot);
+  else if (d.sp) { const [i, j] = sortie.pick || []; if (i != null) sortie.sq[i][j] = +d.sp; sortie.pick = null; }
+  else if (d.sx) { const [i, j] = ij(d.sx); sortie.open.delete(sortie.sq[i][j]); sortie.sq[i][j] = null; }
+  else if (d.sg) { const u = +d.sg; sortie.open.has(u) ? sortie.open.delete(u) : sortie.open.add(u); }
+  else if (d.addsq) sortie.sq.push([null, null, null, null]);
+  else if (d.sqx) sortie.sq.splice(+d.sqx, 1);
+  else if (d.side) sortie.side = d.side;
+  else if (d.fast) sortie.fast = a.checked;
+  else if (d.pickx) sortie.pick = null;
+  else if (d.sgo) { const [kind, tile] = sortie.key.split(':'); send({type: 'accept', kind, tile: +tile, side: sortie.side, uids: sortie.sq.flatMap(q => q.filter(u => u != null)), fast: sortie.fast}); sortie = null; }
+  else if (d.scancel) sortie = null;
+  renderSortie();
+};
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && sortie) { if (sortie.pick) sortie.pick = null; else sortie = null; renderSortie(); } });
 function accPicker(o) {
   const key = o.kind + ':' + o.tile; if (!GV) return '';
   if (o.clean) return `<div class="row" style="margin-top:4px"><button data-clean="${o.tile}">出車清運</button></div>`;
@@ -358,7 +417,7 @@ $('pane-opp').onclick = e => {
   const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-fast],[data-clean]');
   if (a?.dataset.clean) { send({type: 'clean', tile: +a.dataset.clean}); return; }
   if (a) {
-    if (a.dataset.acc) { pickOpp = {key: a.dataset.acc, side: '', uids: new Set(), fast: false}; const o = curOpps().find(x => x.kind + ':' + x.tile === a.dataset.acc); if (o) { pickOpp.side = o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' ? 'a' : ''; if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile}); } }
+    if (a.dataset.acc) { const o = curOpps().find(x => x.kind + ':' + x.tile === a.dataset.acc); if (o) openSortie(o); return; }
     else if (a.dataset.fast) pickOpp.fast = a.checked;
     else if (a.dataset.side) pickOpp.side = a.dataset.side;
     else if (a.dataset.pk) { const u = +a.dataset.pk; pickOpp.uids.has(u) ? pickOpp.uids.delete(u) : pickOpp.uids.add(u); }
@@ -425,7 +484,7 @@ function onGame(m) {
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
   $('gcash').textContent = `$${GV.cash}k`; $('gcash').classList.toggle('neg', GV.cash < 0);
   $('gmats').html = MATS.map(m => `<span>${MN[m]} <b>${GV.mats[m]}</b></span>`).join('');   // 玩家的資源都在頂端（Alan 2026-10-09）
-  maybeReveal(); renderPage(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
+  maybeReveal(); renderPage(); renderSortie(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
   renderMail();
   draw();
 }

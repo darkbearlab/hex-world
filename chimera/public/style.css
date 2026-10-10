@@ -450,3 +450,43 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
   .pcart{height:auto;min-height:520px;align-self:start;position:sticky;top:0}
   .pcart.px img{width:200px;height:200px}
 }
+
+/* 出擊編成（Alan 2026-10-10） */
+.sortie{position:fixed;inset:0;z-index:35;background:#000b;display:flex;align-items:center;justify-content:center;padding:12px}
+.sortie[hidden]{display:none}
+.sbox{width:min(1080px,100%);max-height:calc(100vh - 24px);overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 40px #000c;padding:14px 16px}
+.shead{display:flex;gap:10px;align-items:flex-start;margin-bottom:8px}
+.sqlabel{margin:10px 0 4px;color:var(--accent)}
+.srow{display:grid;grid-template-columns:1fr;gap:8px}
+.scard{position:relative;border:1px solid var(--line);border-radius:8px;background:radial-gradient(ellipse at 50% 35%,#2a241c,#0d0c0a 80%);overflow:hidden;color:var(--text)}
+.scard.empty{display:flex;align-items:center;justify-content:center;gap:8px;min-height:64px;border-style:dashed;cursor:pointer}
+.scard.empty span{font-size:26px;color:var(--muted)}
+.scard.empty.on{border-color:var(--accent)}
+.scard .sx{position:absolute;right:4px;top:4px;padding:1px 7px!important;font-size:12px}
+.scard .sswap{position:absolute;right:34px;top:4px;padding:1px 7px!important;font-size:12px}
+.sgear div{display:flex;gap:6px;font-size:12px}
+.sgear div span{color:var(--muted);min-width:52px}
+.spick{margin:10px 0;padding:10px;border:1px solid var(--accent);border-radius:8px;background:var(--panel2)}
+.sfoot{justify-content:flex-end;align-items:center;margin-top:10px}
+/* 手機直向：橫長卡片，頭像在左、名字往右延伸；裝備收在下面 */
+.scard.full{display:grid;grid-template-columns:64px 1fr;grid-template-areas:"art name" "tog tog" "gear gear";min-height:64px}
+.scard.full .sart{grid-area:art;width:64px;height:64px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.scard.full .sart img{width:64px;height:64px;object-fit:cover;object-position:50% 15%}
+.scard.full .sart.px img{image-rendering:pixelated;object-position:50% 50%}
+.scard.full .sname{grid-area:name;align-self:center;padding:0 90px 0 10px}
+.scard.full .sgtog{grid-area:tog;border:0!important;border-top:1px solid var(--line)!important;border-radius:0!important;font-size:12px;padding:3px!important;background:transparent!important}
+.scard.full .sgear{grid-area:gear;display:none;padding:6px 10px}
+.scard.full.gopen .sgear{display:block}
+/* 電腦橫向：四張直長卡片排開，裝備壓在卡片下半 */
+@media (orientation:landscape) and (min-width:760px){
+  .srow{grid-template-columns:repeat(4,1fr)}
+  .scard.empty{min-height:380px;flex-direction:column}
+  .scard.full{display:block;height:380px}
+  .scard.full .sart{position:absolute;inset:0;width:auto;height:auto;align-items:flex-end}
+  .scard.full .sart img{width:100%;height:100%;object-fit:contain;object-position:50% 100%}
+  .scard.full .sart.px{align-items:flex-start;padding-top:28px}
+  .scard.full .sart.px img{width:150px;height:150px;object-fit:contain}
+  .scard.full .sname{position:absolute;left:0;right:0;top:auto;bottom:calc(50% + 4px);padding:4px 10px;background:linear-gradient(transparent,#000a)}
+  .scard.full .sgear{display:block;position:absolute;left:0;right:0;bottom:0;height:50%;overflow:auto;padding:8px 10px;background:#0d0c0ae6;border-top:1px solid var(--line)}
+  .scard.full .sgtog{display:none}
+}
