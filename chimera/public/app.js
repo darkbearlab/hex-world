@@ -469,8 +469,8 @@ const img = p => `portraits/${p}.png`;
 let ART = new Set();
 fetch('asset-manifest.json', {cache: 'no-cache'}).then(r => r.ok ? r.json() : null).then(d => { if (!d) return; ART = new Set(d.items.map(x => x.path)); if (GV) { try { renderPage(); renderRoster(); } catch {} } }).catch(() => {});
 const donorKey = c => c.donor ?? c.portrait;
-const face = c => ART.has(`donors/${donorKey(c)}/portrait.png`) ? `donors/${donorKey(c)}/portrait.png` : face(c);
-const fullArt = c => ART.has(`donors/${donorKey(c)}/full.png`) ? `donors/${donorKey(c)}/full.png` : `${fullArt(c)}`;
+const face = c => ART.has(`donors/${donorKey(c)}/portrait.png`) ? `donors/${donorKey(c)}/portrait.png` : img(c.portrait);
+const fullArt = c => ART.has(`donors/${donorKey(c)}/full.png`) ? `donors/${donorKey(c)}/full.png` : `art/full/${c.portrait}.png`;
 const who = c => c.name || CLS[c.cls].n;   // 原主的名字（Alan 2026-10-10）；舊資料沒有就顯示職業
 // 綽號（call sign，Alan 2026-10-10）：有綽號就優先顯示。完整：瑟琳 “人獵人” X-0910；簡短：瑟琳 “人獵人”；最短：“人獵人”
 const csq = c => c.callsign ? `“${esc(c.callsign)}”` : '';
