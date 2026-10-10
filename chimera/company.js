@@ -28,6 +28,14 @@ export const DONORS = {
   'portrait-13': {name: '瑟琳', cls: 'bulwark'}, 'portrait-14': {name: '朵拉', cls: 'berserker'}, 'portrait-15': {name: '雅絲', cls: 'engineer'}, 'portrait-16': {name: '露恩', cls: 'soldier'},
 };
 export const donorName = c => DONORS[c.donor ?? c.portrait]?.name || '';
+// 綽號（call sign，Alan 2026-10-10）：每個人可以自己取；完整的叫法是「瑟琳 “人獵人” X-0910」
+export const label = c => `${donorName(c)}${c.callsign ? ` “${c.callsign}”` : ''} ${c.id}`;
+export function setCallsign(G, uid, name) {
+  const c = G.roster.find(x => x.uid === uid); if (!c) return '找不到這個人';
+  const v = String(name || '').replace(/[“”"'<>\n\r\t]/g, '').trim().slice(0, 8);
+  if (v) { c.callsign = v; C.rec(c, {h: G.h, t: 'callsign', co: G.name, name: v}); } else delete c.callsign;
+  return null;
+}
 const donorsOf = cls => PORTRAITS.filter(p => DONORS[p]?.cls === cls);
 // 先照素材比例擲職業，再從這個職業的原主裡挑一位
 const pickPortrait = (r, cls) => { const L = donorsOf(cls); return L.length ? L[Math.floor(r() * L.length)] : PORTRAITS[Math.floor(r() * PORTRAITS.length)]; };
@@ -197,13 +205,13 @@ function finishBuild(G, q, h, book = null) {
     // 舊小隊的名單裡還有這個人（倒下時留著，給結案記紀錄用）：拿掉，不然活過來的人會被當成那一隊的人繼續派單
     if (book) for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(c); if (i >= 0) sq.clones.splice(i, 1); }
     C.rec(c, {h, t: 'revive', co: G.name, tile: G.base}); G.fresh = c.uid;
-    note(G, h, `培養槽出槽：${CLS[c.cls].n} ${donorName(c)} ${c.id} 重新培養完成，回到名冊（等級、技能從頭來）。`); return;
+    note(G, h, `培養槽出槽：${CLS[c.cls].n} ${label(c)} 重新培養完成，回到名冊（等級、技能從頭來）。`); return;
   }
   const c = q.tpl ? makeClone(G, r, q.tpl.cls, q.tpl.portrait, [GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U], {born: h, template: true, uid: nextUid(book)})
     : (cls => makeClone(G, r, cls, pickPortrait(r, cls), [r(), r(), r(), r()], {born: h, uid: nextUid(book)}))(pickW(r, classOdds(q.recipe)));
   C.rec(c, {h, t: 'born', co: G.name, tile: G.base});
   gearOf(G, c); c.weapon = gearLabel(c.gear); G.roster.push(c); G.fresh = c.uid;
-  note(G, h, `培養槽出槽：${CLS[c.cls].n} ${donorName(c)} ${c.id}${c.crown === 'gold' ? '（金冠！）' : c.crown === 'silver' ? '（銀冠）' : ''}${c.template ? '（模板）' : ''}，配發${c.weapon}。`);
+  note(G, h, `培養槽出槽：${CLS[c.cls].n} ${label(c)}${c.crown === 'gold' ? '（金冠！）' : c.crown === 'silver' ? '（銀冠）' : ''}${c.template ? '（模板）' : ''}，配發${c.weapon}。`);
 }
 
 // ===== 接案、派兵、補員 =====
@@ -364,7 +372,7 @@ export function hour(G, book, w, h) {
   for (; G.ledgerAt < book.ledger.length; G.ledgerAt++) { const x = book.ledger[G.ledgerAt]; if (x.player !== G.name) continue; if (x.kind !== 'loss') { G.cash += x.amount; if (x.amount) flow(G, x.kind, x.amount, x.text); } else { G.lossBook = (G.lossBook || 0) - x.amount; flow(G, 'loss', x.amount, x.text); } }
   // 陣亡
   // 倒下（Alan 2026-10-10 回收）：打贏的當場收回（recovered，可以重新培養）；打輸的遺體留在戰場（lost，7 天內可能被撿回來）；其他路徑倒下的直接算戰死
-  const nm = t => w.names[t] || '無名之地', who = c => `${CLS[c.cls].n} ${donorName(c)} ${c.id}${c.crown === 'gold' ? '（金冠）' : ''}`;
+  const nm = t => w.names[t] || '無名之地', who = c => `${CLS[c.cls].n} ${label(c)}${c.crown === 'gold' ? '（金冠）' : ''}`;
   for (const c of G.roster) if (!c.alive && !['kia', 'recovered', 'lost'].includes(c.status)) {
     c.status = c.downAs || 'kia'; c.diedH = h;
     if (c.status === 'recovered') note(G, h, `${who(c)} 倒下，遺體連同裝備當場收回，可以到培養槽重新培養（等級、技能從頭來）。`);
@@ -626,7 +634,7 @@ export function bodiesHour(cos, book, w, h) {
     if (!c || c.status !== 'lost') { L.splice(L.indexOf(b), 1); continue; }   // 已經確認戰死（或資料不在了）
     if (!b.takenBy) continue;
     L.splice(L.indexOf(b), 1);
-    const to = cos[b.takenBy], who = `${CLS[c.cls].n} ${donorName(c)} ${c.id}`;
+    const to = cos[b.takenBy], who = `${CLS[c.cls].n} ${label(c)}`;
     if (!to) continue;
     if (to === own) {
       c.status = 'recovered'; C.rec(c, {h, t: 'recovered', co: own.name, tile: b.tile});
@@ -663,7 +671,7 @@ export function merge(G, keepUid, feedUid, now = G.h, book = null) {
   C.rec(K, {h: now, t: 'merge', co: G.name, fed: F.id, gain});
   G.roster.splice(G.roster.indexOf(F), 1); if (G.fresh === F.uid) G.fresh = null;
   if (book) for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(F); if (i >= 0) sq.clones.splice(i, 1); }
-  note(G, now, `合成：${donorName(K)} ${K.id} 吸收了 ${F.id} 的記憶片段，多了 ${gain} 片（${C.cellCount(K)}／100）${K.lv > lv0 ? `，升到 ${K.lv} 級` : ''}。${F.id} 身上的裝備放進倉庫。`);
+  note(G, now, `合成：${label(K)} 吸收了 ${F.id} 的記憶片段，多了 ${gain} 片（${C.cellCount(K)}／100）${K.lv > lv0 ? `，升到 ${K.lv} 級` : ''}。${F.id} 身上的裝備放進倉庫。`);
   return null;
 }
 
