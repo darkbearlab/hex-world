@@ -490,3 +490,13 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
   .scard.full .sgear{display:block;position:absolute;left:0;right:0;bottom:0;height:50%;overflow:auto;padding:8px 10px;background:#0d0c0ae6;border-top:1px solid var(--line)}
   .scard.full .sgtog{display:none}
 }
+
+/* 出擊編成的選人卡片（疊在編成畫面上） */
+.spick2{position:fixed;inset:0;z-index:38;background:#0008;display:flex;align-items:center;justify-content:center;padding:16px}
+.spick2[hidden]{display:none}
+.spbox{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);border:1px solid var(--accent);border-radius:10px;box-shadow:0 12px 40px #000c;padding:14px 16px}
+.sprows{display:grid;grid-template-columns:1fr;gap:6px}
+@media (min-width:760px){.sprows{grid-template-columns:1fr 1fr}}
+.sprow{display:flex;gap:10px;align-items:center;text-align:left;padding:6px 8px!important;width:100%}
+.sprow img{width:44px;height:44px;image-rendering:pixelated;border-radius:4px;background:#0d0c0a;flex:none}
+.sprn{line-height:1.35;min-width:0}

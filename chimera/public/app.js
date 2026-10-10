@@ -346,13 +346,17 @@ function sortieCard(u, i, j) {
 function renderSortie() {
   const P = $('sortie'); if (!P) return;
   const o = sortie && GV && curOpps().find(x => x.kind + ':' + x.tile === sortie.key);
-  P.hidden = !o; if (!o) { if (sortie && GV) sortie = null; return; }
+  P.hidden = !o; if (!o) { $('spick').hidden = true; if (sortie && GV) sortie = null; return; }
   const K = OK[o.kind], s = hist[cur], fn = id => s?.fac?.find(f => f.id === id)?.n || '';
   const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : [];
   const chosen = new Set(sortieUids()), n = chosen.size, bad = sortie.sq.some(q => q.filter(u => u != null).length === 1);
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid));
   const groups = [...Object.entries(TAGS).map(([k, nm]) => [nm, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
-  const picker = sortie.pick ? `<div class="spick"><div class="row"><b style="flex:1">選一個人放進第 ${sortie.pick[0] + 1} 隊第 ${sortie.pick[1] + 1} 位</b><button data-pickx="1">✕</button></div>${groups.map(([nm, L]) => `<div class="mini pgroup">${nm}（${L.length}）</div><div class="chips">${L.map(c => chip(c, false, 'sp')).join('')}</div>`).join('') || '<p class="muted">沒有待命的人</p>'}</div>` : '';
+  // 選人：另一張卡片疊在編成畫面上（Alan 2026-10-10）；一列一個人，照分類分組
+  const row = c => `<button class="sprow" data-sp="${c.uid}"><img src="${img(c.portrait)}" alt=""><span class="sprn"><b>${esc(who(c))}</b> <span class="mini">${c.id}</span><br><span class="mini">${CLS[c.cls].n}・${c.lv || 1} 級・記憶片段 ${cellCount(c)}${c.crown === 'gold' ? '・金冠' : c.crown === 'silver' ? '・銀冠' : ''}${(c.tags || []).length ? '・' + c.tags.map(t => TAGS[t]).join('、') : ''}</span></span></button>`;
+  const SP = $('spick'); SP.hidden = !sortie.pick;
+  if (sortie.pick) $('spbox').html = `<div class="shead"><b style="flex:1">選人：第 ${sortie.pick[0] + 1} 隊第 ${sortie.pick[1] + 1} 位</b><button data-pickx="1" aria-label="關閉">✕</button></div>${groups.map(([nm, L]) => `<div class="mini pgroup">${nm}（${L.length}）</div><div class="sprows">${L.map(row).join('')}</div>`).join('') || '<p class="muted">沒有待命的人（「不出擊」的人不會列出）</p>'}`;
+  const picker = '';
   $('sbox').html = `<div class="shead"><div style="flex:1"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}<div class="mini muted">${esc(o.detail || '')}</div></div><button data-scancel="1" aria-label="關閉">✕</button></div>
     ${sides.length ? `<div class="row">${sides.map(([v, nm]) => `<button data-side="${v}" class="${sortie.side === v ? 'on' : ''}">${esc(nm)}</button>`).join('')}</div>` : ''}
     ${sortie.sq.map((q, i) => `<div class="sqlabel mini">第 ${i + 1} 隊（${q.filter(u => u != null).length}／4）${sortie.sq.length > 1 && !q.some(u => u != null) ? ` <button data-sqx="${i}">拿掉這一隊</button>` : ''}</div><div class="srow">${q.map((u, j) => sortieCard(u, i, j)).join('')}</div>`).join('')}
@@ -377,6 +381,12 @@ $('sortie').onclick = e => {
   else if (d.sgo) { const [kind, tile] = sortie.key.split(':'); send({type: 'accept', kind, tile: +tile, side: sortie.side, uids: sortie.sq.flatMap(q => q.filter(u => u != null)), fast: sortie.fast}); sortie = null; }
   else if (d.scancel) sortie = null;
   renderSortie();
+};
+$('spick').onclick = e => {
+  if (!sortie) return;
+  if (e.target.id === 'spick' || e.target.closest('[data-pickx]')) { sortie.pick = null; renderSortie(); return; }
+  const a = e.target.closest('[data-sp]'); if (!a) return;
+  const [i, j] = sortie.pick || []; if (i != null) sortie.sq[i][j] = +a.dataset.sp; sortie.pick = null; renderSortie();
 };
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && sortie) { if (sortie.pick) sortie.pick = null; else sortie = null; renderSortie(); } });
 function accPicker(o) {
