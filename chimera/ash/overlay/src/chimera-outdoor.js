@@ -23,6 +23,8 @@ export const LAYOUT = {ambush: 'highway', native: 'highway', intercept: 'highway
   scout: 'open', post: 'fort', heist: 'depot', smuggle: 'road', rally: 'ring', armory: 'depot', gunrun: 'highway', demo: 'depot', flag: 'fort', well: 'depot', sweep: 'open', guard: 'ring', raidcv: 'roadblock'};
 const lcg = seed => { let s = (Number(seed) >>> 0) || 1; return () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296); };
 
+// 目標點＋撤離的服務單：幾個目標點（潛入竊取只有一個）
+export const PLANT = {sabotage: 2, demo: 3, well: 2, armory: 2, heist: 1};
 export function outdoorMap(tk, floor = 1) {
   const R = lcg((tk.seed || 1) ^ 0x5eed), pick = a => a[Math.floor(R() * a.length)], N = SIZE, mid = Math.floor(N / 2);
   const layout = tk.layout || LAYOUT[tk.type] || 'open', bio = BIOME[tk.biome] || BIOME[pick(Object.keys(BIOME))];
@@ -104,6 +106,8 @@ export function outdoorMap(tk, floor = 1) {
     walls(9, any); covers(12, any);
     for (let y = 3; y < 13; y++) for (let x = 2; x < N - 2; x++) if (R() < .15) spots.push({x, y});
   }
+  // 目標點＋撤離：撤離點就在出發的地方（從哪裡摸進來就從哪裡出去）
+  if (PLANT[tk.type]) { end.x = mid; end.y = N - 2; }
   // 補給：幾個彈藥、醫療包、手榴彈散在地上
   for (const [type, amount] of [['ammo', 60], ['med', 1], ['grenade', 1], ['ammo', 40]]) for (let i = 0; i < 30; i++) {
     const x = 2 + Math.floor(R() * (N - 4)), y = 3 + Math.floor(R() * (N - 8)); if (!free(x, y) || trench[y][x]) continue; items.push({x, y, type, amount, floor}); taken.add(key(x, y)); break;
@@ -117,5 +121,5 @@ export function outdoorMap(tk, floor = 1) {
   return {map: {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items, props, hazards: [], marks: [], barriers,
     cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'chimera-outdoor-v2'}, lighting: light, slots: [], lamps: [], lightModel: 2},
     spots: enemySpots, style: `chimera-${bio.wall}-${lowArt}`,
-    outdoor: {layout, biome: tk.biome || '', goal: tk.type === 'transit' ? 'exit' : layout === 'ring' ? 'hold' : 'kill', holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
+    outdoor: {layout, biome: tk.biome || '', goal: tk.type === 'transit' ? 'exit' : PLANT[tk.type] ? 'plant' : layout === 'ring' ? 'hold' : 'kill', plantN: PLANT[tk.type] || 0, holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
 }

@@ -67,15 +67,15 @@ const convoyRng=o=>()=>((o.rs=Math.imul(o.rs,1664525)+1013904223>>>0)/4294967296
 // 我方的人站上去、旁邊沒有敵人站在點上，每回合推進一格，推完就拿下；全部拿下就贏。守點是「守點」——敵人分兩種，
 // 一種衝著據點來（站上去每回合扣一格，扣完就失守），一種來找你；全部失守就輸。借 ASH 的 game.survival（敵人的佔點行為、繞過別的點、
 // 畫面上的點），但不是生存任務：不排波次、不鎖撤離，回合結束的計分在 MissionGame.chimeraPoints。
-export const POINT_TAKE=3,POINT_KEEP=10;
+export const POINT_TAKE=3,POINT_KEEP=10,POINT_PLANT=2;
 function objectivePoints(o,map,enemies){
- const mode=o.layout==='fort'||o.layout==='trench'?'take':o.layout==='ring'?'keep':null;if(!mode)return;
+ const mode=o.goal==='plant'?'plant':o.layout==='fort'||o.layout==='trench'?'take':o.layout==='ring'?'keep':null;if(!mode)return;
  const N=map.grid.length,mid=Math.floor(N/2),busy=new Set([...map.props,...map.items,map.start].map(q=>`${q.x},${q.y}`));
- const want=o.layout==='fort'?[[mid,7],[mid-2,7],[mid+2,7]]:o.layout==='trench'?[[mid-6,5],[mid,5],[mid+6,5]]:[[mid,mid-1],[mid-2,mid],[mid+2,mid]];
+ const want=mode==='plant'?[[mid,4],[mid-7,9],[mid+7,9]].slice(0,o.plantN||1):o.layout==='fort'?[[mid,7],[mid-2,7],[mid+2,7]]:o.layout==='trench'?[[mid-6,5],[mid,5],[mid+6,5]]:[[mid,mid-1],[mid-2,mid],[mid+2,mid]];
  const pts=[];
  for(const [x0,y0] of want){let best=null,bd=99;for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const d=Math.abs(x-x0)+Math.abs(y-y0);if(d<bd&&map.grid[y][x]===1&&!busy.has(`${x},${y}`)&&!pts.some(q=>q.x===x&&q.y===y)){bd=d;best={x,y}}}if(best)pts.push(best);}
  if(!pts.length)return;
- o.points=pts;o.mode=mode;
+ o.points=pts;o.mode=mode;if(mode==='plant')return;   // 目標點＋撤離：敵人照平常巡邏、警戒，不去搶點
  // 敵人的角色：奪點時全部守點（照順序分到三個點）；守點時三分之二衝據點、三分之一來找你
  enemies.forEach((e,i)=>{if(isNoncombatant(e))return;e.survival=mode==='take'||i%3!==2?{role:'point',target:`point-${i%pts.length}`}:{role:'hunter'};});
 }
@@ -90,8 +90,8 @@ export class MissionGame extends Game{
   building=ticket;
   try{super(ticket.seed,[],0,character(lead.cls),portrait,'extraction',{facilityFaction:ticket.faction||'rebel',simulation:{kind:'chimera'}});}finally{building=null;}
   this.ticket=ticket;this.chimera={members:ticket.squad.map(c=>c.id),units:{}};
-  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;this.mapStyle=outdoorBuilt.style;outdoorBuilt=null;const o=this.chimeraOutdoor;if(o.points){if(o.mode==='take')o.goal='take';this.survival={integrity:o.points.length*(o.mode==='take'?POINT_TAKE:POINT_KEEP),points:o.points.map((q,i)=>({id:`point-${i}`,x:q.x,y:q.y,hp:o.mode==='take'?POINT_TAKE:POINT_KEEP,pressed:false})),wave:0,nextWave:1e9,open:false,turns:o.mode==='keep'?o.holdTurns:999,incoming:[]};}
-  const g=this.chimeraOutdoor.goal;this.log(g==='take'?`奪點：拿下敵人守著的 ${o.points.length} 個據點（站上去、點上沒有敵人，每回合推進一格，${POINT_TAKE} 格拿下），或把敵人清光。`:o.mode==='keep'?`守點：守住 ${o.points.length} 個據點撐過 ${o.holdTurns} 回合，或把敵人清光。敵人站上據點每回合扣一格，${POINT_KEEP} 格扣完就失守，全部失守就輸。`:g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='drive'?`公路戰：敵人的車靠上來了。撐過 ${this.chimeraOutdoor.holdTurns} 回合開到目的地，或把敵人清光。掉下車就沒命。`:g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
+  if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;this.mapStyle=outdoorBuilt.style;outdoorBuilt=null;const o=this.chimeraOutdoor;if(o.points){if(o.mode==='take')o.goal='take';const P0=o.mode==='take'?POINT_TAKE:o.mode==='plant'?POINT_PLANT:POINT_KEEP;this.survival={integrity:o.points.length*P0,points:o.points.map((q,i)=>({id:`point-${i}`,x:q.x,y:q.y,hp:P0,pressed:false})),wave:0,nextWave:1e9,open:false,turns:o.mode==='keep'?o.holdTurns:999,incoming:[]};}
+  const g=this.chimeraOutdoor.goal;this.log(g==='plant'?`破壞：摸到 ${o.points.length} 個目標點裝好炸藥（站上去、點上沒有敵人，每回合推進一格，${POINT_PLANT} 格裝好），全部裝好之後回到出發的地方撤離。清光敵人不算完成。`:g==='take'?`奪點：拿下敵人守著的 ${o.points.length} 個據點（站上去、點上沒有敵人，每回合推進一格，${POINT_TAKE} 格拿下），或把敵人清光。`:o.mode==='keep'?`守點：守住 ${o.points.length} 個據點撐過 ${o.holdTurns} 回合，或把敵人清光。敵人站上據點每回合扣一格，${POINT_KEEP} 格扣完就失守，全部失守就輸。`:g==='exit'?'突圍：走到地圖另一頭的撤離點。':g==='drive'?`公路戰：敵人的車靠上來了。撐過 ${this.chimeraOutdoor.holdTurns} 回合開到目的地，或把敵人清光。掉下車就沒命。`:g==='hold'?`守住陣地：撐過 ${this.chimeraOutdoor.holdTurns} 回合，或把敵人清光。`:'把敵人清光。');}
   this.chimera.units[lead.id]='player';applyStats(this.player,lead,CHARACTERS[this.player.character]);
   this.logs=[];this.log(t('game.arrived'));
  }
@@ -173,10 +173,12 @@ export class MissionGame extends Game{
  chimeraPoints(o){
   const S=this.survival,ours=u=>u.hp>0&&u.x!==undefined,squad=(this.members||[this.player]).filter(ours),foe=pt=>this.enemies.some(e=>e.hp>0&&!e.concealed&&!isNoncombatant(e)&&e.x===pt.x&&e.y===pt.y);
   for(const pt of S.points){if(pt.hp<=0)continue;
-   if(o.mode==='take'){const on=squad.some(m=>m.x===pt.x&&m.y===pt.y)&&!foe(pt);pt.pressed=on;if(!on)continue;pt.hp--;S.integrity--;if(pt.hp<=0){pt.pressed=false;this.log(`拿下據點 ${String.fromCharCode(65+Number(pt.id.slice(6)))}。`,true);}}
+   if(o.mode==='plant'){const on=squad.some(m=>m.x===pt.x&&m.y===pt.y)&&!foe(pt);pt.pressed=on;if(!on)continue;pt.hp--;S.integrity--;if(pt.hp<=0){pt.pressed=false;this.log(`目標 ${String.fromCharCode(65+Number(pt.id.slice(6)))} 的炸藥裝好了。`,true);}}
+   else if(o.mode==='take'){const on=squad.some(m=>m.x===pt.x&&m.y===pt.y)&&!foe(pt);pt.pressed=on;if(!on)continue;pt.hp--;S.integrity--;if(pt.hp<=0){pt.pressed=false;this.log(`拿下據點 ${String.fromCharCode(65+Number(pt.id.slice(6)))}。`,true);}}
    else{const was=pt.pressed;pt.pressed=foe(pt);if(!pt.pressed)continue;if(!was)this.log(`敵人站上據點 ${String.fromCharCode(65+Number(pt.id.slice(6)))}！`,true);pt.hp--;S.integrity--;if(pt.hp<=0){pt.pressed=false;this.log(`據點 ${String.fromCharCode(65+Number(pt.id.slice(6)))} 失守。`,true);}}
   }
   S.integrity=Math.max(0,S.integrity);
+  if(o.mode==='plant'){if(!o.armed&&S.points.every(pt=>pt.hp<=0)){o.armed=true;this.log('炸藥全部裝好了，回到出發的地方撤離！',true);for(const e of this.enemies)if(e.hp>0&&!isNoncombatant(e)){e.alert=true;e.lastKnown={x:this.player.x,y:this.player.y};}}return;}
   if(S.points.every(pt=>pt.hp<=0)){if(o.mode==='take'){this.status='won';this.log('據點全部拿下。');}else{this.status='failed';this.log('據點全部失守，陣地丟了。');}}
  }
  chimeraFalls(){
@@ -234,7 +236,7 @@ export class MissionGame extends Game{
   if(this.survival&&o0?.mode&&this.status==='playing'&&this.turn!==o0.pointTurn){o0.pointTurn=this.turn;this.chimeraPoints(o0);}
   this.chimeraFalls();this.chimeraBossCheck();this.chimeraLegacyDrop();
   const o=this.chimeraOutdoor;
-  if(o&&o.goal!=='exit'&&this.status==='playing'){
+  if(o&&o.goal!=='exit'&&o.goal!=='plant'&&this.status==='playing'){
    if(!this.enemies.some(e=>e.hp>0&&!isNoncombatant(e))&&!o.waves?.length&&(o.goal!=='drive'||convoyDone(o))){this.status='won';this.log(o.goal==='drive'?'追上來的車都打退了。':'敵人清光了。');}
    else if(o.goal==='hold'&&this.turn>=o.holdTurns){this.status='won';this.log(`撐過 ${o.holdTurns} 回合，陣地守住了。`);}
    else if(o.goal==='hold'&&ok&&this.turn%10===0)this.log(`守住陣地：還要撐 ${o.holdTurns-this.turn} 回合。`);
@@ -246,7 +248,8 @@ export class MissionGame extends Game{
  // 撤離＝勝：走到電梯旁按撤離就結束，不下樓
  descend(){
   if(this.status!=='playing'||this.player.hp<=0)return false;
-  if(this.chimeraOutdoor&&this.chimeraOutdoor.goal!=='exit')return this.fail('這一場要把敵人清掉，不能撤離');
+  const og=this.chimeraOutdoor?.goal;if(og==='plant'&&!this.chimeraOutdoor.armed)return this.fail('炸藥還沒裝完，不能撤離');
+  if(this.chimeraOutdoor&&og!=='exit'&&og!=='plant')return this.fail('這一場要把敵人清掉，不能撤離');
   if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));
   if(this.exitBlocked)return this.fail(this.exitBlocked);
   this.status='won';this.log('撤離完成。');return true;
