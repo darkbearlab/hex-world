@@ -499,7 +499,7 @@ setInterval(() => {
 }, 1000);
 // el.html = ...：內容（倒數的數字不算）和上次一樣就不重畫。整塊 innerHTML 重設會讓頭像重新載入、閃一下（Alan 2026-10-09 回報）
 Object.defineProperty(HTMLElement.prototype, 'html', {configurable: true, set(v) { const k = String(v).replace(/(<span class="cd"[^>]*>)[^<]*/g, '$1'); if (this._k === k && this.childNodes.length) return; this._k = k; this.innerHTML = v; }});
-const STATUS = {home: '待命', away: '出勤', returning: '歸途', kia: '陣亡', recovered: '遺體已收回', lost: '遺體沒能帶回'};
+const STATUS = {home: '待命', away: '出勤', returning: '歸途', kia: '已除名', recovered: '遺體已收回', lost: '遺體沒能帶回', sold: '已除名'};   // 陣亡、遺體賣掉都算除名（Alan 2026-10-10）
 function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3200); }
 function found(base) { if (WATCH) return; send({type: 'found', base}); }
 function onGame(m) {
@@ -541,7 +541,7 @@ function renderCo() {
   const active = G.cases.filter(c => !c.settled), alive = G.roster.filter(c => c.alive);
   $('co-head').html = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div></div>
     <div class="kpi">待命<b>${alive.filter(c => c.status === 'home' && !c.keep).length}</b></div><div class="kpi">出勤<b>${alive.filter(c => c.status === 'away' || c.status === 'returning').length}</b></div>
-    <div class="kpi">不出擊<b>${alive.filter(c => c.keep).length}</b></div><div class="kpi">陣亡<b>${G.roster.length - alive.length}</b></div>
+    <div class="kpi">不出擊<b>${alive.filter(c => c.keep).length}</b></div><div class="kpi">已除名<b>${G.roster.filter(c => c.status === 'kia' || c.status === 'sold').length}</b></div>
     <div class="kpi">進行中<b>${active.filter(c => !c.own).length} 案・${active.filter(c => c.own).length} 車隊</b></div><div class="kpi">待打的服務單<b>${G.tickets.length}</b></div>
     <div class="kpi">帳面業務損失<b>$${G.lossBook}k</b></div>`;
   $('co-tk').html = G.tickets.length ? G.tickets.map(t => {
@@ -635,8 +635,8 @@ function renderTrade() {
 
 // ───── 名冊：任務管制、培養槽、交易共用的底部面板（Alan 2026-10-09）。平常收著，點了往上展開；點人看詳細資料 ─────
 let drawerOpen = false, personSel = null;
-const RF = {home: '待命', away: '出勤', keep: '不出擊', ...Object.fromEntries(Object.entries(TAGS).map(([k, n]) => ['t:' + k, n])), recovered: '遺體', kia: '陣亡', all: '全部'};
-const inF = (c, f = rosterF) => f === 'all' || (f.startsWith('t:') ? (c.tags || []).includes(f.slice(2)) && (c.alive || c.status === 'recovered') : f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : f === 'kia' ? !c.alive && c.status !== 'recovered' : c.status === f);
+const RF = {home: '待命', away: '出勤', keep: '不出擊', ...Object.fromEntries(Object.entries(TAGS).map(([k, n]) => ['t:' + k, n])), recovered: '遺體', kia: '已除名', all: '全部'};
+const inF = (c, f = rosterF) => f === 'all' || (f.startsWith('t:') ? (c.tags || []).includes(f.slice(2)) && (c.alive || c.status === 'recovered') : f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : f === 'kia' ? c.status === 'kia' || c.status === 'sold' : f === 'recovered' ? c.status === 'recovered' || c.status === 'lost' : c.status === f);   // 遺體＝收回的＋還沒撿回的；已除名＝陣亡＋賣掉
 // 簽收時跳出新人的卡片（Alan 2026-10-09：對標艦隊收藏）：簽收送出後，等伺服器回來、最新的人換了就秀出來
 let revealAfter;
 function maybeReveal() {
@@ -666,7 +666,7 @@ function renderRoster() {
   D.hidden = !GV || !['co', 'vat', 'store', 'trade'].includes(page); if (D.hidden) return;
   D.classList.toggle('open', drawerOpen);
   const G = GV, alive = G.roster.filter(c => c.alive), n = k => G.roster.filter(c => inF(c, k)).length;
-  $('drawbar').html = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${G.roster.filter(c => c.alive && c.status === 'away').length}${G.roster.some(c => c.alive && c.status === 'returning') ? `・歸途 ${G.roster.filter(c => c.alive && c.status === 'returning').length}` : ''}${n('kia') ? `・陣亡 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
+  $('drawbar').html = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${G.roster.filter(c => c.alive && c.status === 'away').length}${G.roster.some(c => c.alive && c.status === 'returning') ? `・歸途 ${G.roster.filter(c => c.alive && c.status === 'returning').length}` : ''}${n('kia') ? `・已除名 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
   if (!drawerOpen) return;
   const B = $('drawbody');
   const R = G.roster.filter(x => inF(x)).sort((a, b) => b.pct - a.pct);
@@ -702,13 +702,15 @@ function serviceRecord(c) {
     : e.t === 'recovered' ? `${d(e.h)}・${esc(e.co)}在${esc(e.place)}一帶撿回遺體`
     : e.t === 'transfer' ? `${d(e.h)}・遺體輾轉到了${esc(e.co)}手上`
     : e.t === 'callsign' ? `${d(e.h)}・在${esc(e.co)}被叫作 “${esc(e.name)}”`
+    : e.t === 'sold' ? `${d(e.h)}・${esc(e.co)}把遺體賣了（$${e.price}k）`
     : e.t === 'merge' ? `${d(e.h)}・吸收了 ${esc(e.fed)} 的記憶片段，多了 ${e.gain} 片`
     : e.t === 'revive' ? `${d(e.h)}・在${esc(e.co)}重新培養，等級、技能從頭來` : esc(e.t);
   return `<h4 class="sec2">服役紀錄</h4>${R.length ? R.map(e => `<div class="mini caseline">${line(e)}</div>`).join('') : '<p class="mini muted">還沒有紀錄。</p>'}`;
 }
 function personCard(c) {
   const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : c.status === 'recovered' ? (c.reviving ? '遺體在培養槽裡，重新培養中' : '遺體已收回，可以重新培養（等級、技能從頭來）')
-    : c.status === 'lost' ? `遺體沒能從${esc(c.downPlace)}帶回來・約 ${cd((c.downAt ?? 0) + 168)}後確認戰死（有人在那一帶打贏就可能撿回來）` : '陣亡';
+    : c.status === 'sold' ? '已除名'
+    : c.status === 'lost' ? `遺體沒能從${esc(c.downPlace)}帶回來・約 ${cd((c.downAt ?? 0) + 168)}後確認戰死（有人在那一帶打贏就可能撿回來）` : '已除名';
   const rv = REVIVE_RECIPE[c.cls], canRv = c.status === 'recovered' && !c.reviving;
   // 版面（Alan 2026-10-10）：左邊（手機在上面）留一整欄給之後的半身／全身立繪（art/full/<立繪>.png，還沒有就先放像素頭像）；右邊是資料
   return `<div class="person pc2"><button class="pcx" data-person="" aria-label="關閉">✕</button>
@@ -720,7 +722,7 @@ function personCard(c) {
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
     <div class="mini" style="margin-top:8px">分類（可以多選；「不出擊」的人不會被派出去）</div>
     <div class="row tags">${c.alive || c.status === 'recovered' ? [['keep', '不出擊'], ...Object.entries(TAGS)].map(([k, n]) => `<button data-act="tag" data-id="${c.uid}" data-tag="${k}" class="${k === 'keep' ? c.keep ? 'on' : '' : (c.tags || []).includes(k) ? 'on' : ''}">${n}</button>`).join('') : ''}</div>
-    ${canRv ? `<div class="row"><button class="primary" data-act="revive" data-id="${c.uid}"${MATS.some(m => GV.mats[m] < rv[m]) ? ' disabled title="素材不夠"' : ''}>重新培養（${MATS.map(m => `${MN[m]} ${rv[m]}`).join('・')}）</button></div>` : ''}
+    ${canRv ? `<div class="row"><button class="primary" data-act="revive" data-id="${c.uid}"${MATS.some(m => GV.mats[m] < rv[m]) ? ' disabled title="素材不夠"' : ''}>重新培養（${MATS.map(m => `${MN[m]} ${rv[m]}`).join('・')}）</button><button data-act="sellbody" data-id="${c.uid}" data-p="${c.bodyPrice}">賣掉遺體（時價 $${c.bodyPrice}k）</button></div><div class="mini muted">時價：最近 7 天全星球倒下 ${GV.deaths7 ?? 0} 人，死的人越多越便宜；金冠、銀冠、記憶片段多的比較值錢。賣掉前身上的裝備會先放進倉庫。</div>` : ''}
     ${cellBox(c)}
     ${serviceRecord(c)}
     </div></div>`;
@@ -825,7 +827,7 @@ function renderProc() {
 }
 
 // ───── 報表 ─────
-const FK = [['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費']];
+const FK = [['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費'], ['retainer', '長約'], ['bond', '履約保證金'], ['breach', '違約金'], ['garrison', '駐紮費'], ['clean', '清運'], ['body', '賣遺體']];
 function renderRepPage() {
   const P = $('pane-rep');
   if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }
@@ -961,6 +963,7 @@ const coClick = e => {
   else if (A === 'claim') { revealAfter = GV.fresh ?? null; send({type: 'claim', slot: +b.dataset.vat}); }
   else if (A === 'keep') send({type: 'keep', uid: +id});
   else if (A === 'tag') send({type: 'tag', uid: +id, tag: b.dataset.tag});
+  else if (A === 'sellbody') { const c = GV.roster.find(x => x.uid === +id); if (c && confirm(`賣掉 ${who(c)} ${c.id} 的遺體，$${b.dataset.p}k？\n賣掉之後就不能再重新培養了。`)) send({type: 'sellbody', uid: +id}); }
   else if (A === 'callsign') { const c = GV.roster.find(x => x.uid === +id), v = prompt('綽號（最多 8 個字；清空就拿掉）', c?.callsign || ''); if (v !== null) send({type: 'callsign', uid: +id, name: v}); }
   else if (A === 'revive') send({type: 'revive', uid: +id});
   else if (A === 'clean') send({type: 'clean', tile: +id});

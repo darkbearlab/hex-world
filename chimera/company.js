@@ -373,7 +373,7 @@ export function hour(G, book, w, h) {
   // 陣亡
   // 倒下（Alan 2026-10-10 回收）：打贏的當場收回（recovered，可以重新培養）；打輸的遺體留在戰場（lost，7 天內可能被撿回來）；其他路徑倒下的直接算戰死
   const nm = t => w.names[t] || '無名之地', who = c => `${CLS[c.cls].n} ${label(c)}${c.crown === 'gold' ? '（金冠）' : ''}`;
-  for (const c of G.roster) if (!c.alive && !['kia', 'recovered', 'lost'].includes(c.status)) {
+  for (const c of G.roster) if (!c.alive && !['kia', 'recovered', 'lost', 'sold'].includes(c.status)) {
     c.status = c.downAs || 'kia'; c.diedH = h;
     if (c.status === 'recovered') note(G, h, `${who(c)} 倒下，遺體連同裝備當場收回，可以到培養槽重新培養（等級、技能從頭來）。`);
     else if (c.status === 'lost') note(G, h, `${who(c)} 倒下，遺體沒能從${nm(c.downTile)}帶回來。7 天內有人在那一帶打贏，還有機會撿回來。`);
@@ -675,6 +675,26 @@ export function merge(G, keepUid, feedUid, now = G.h, book = null) {
   return null;
 }
 
+// 處置遺體：直接賣掉（Alan 2026-10-10）。時價：基本 18k，金冠 ×2、銀冠 ×1.4，記憶片段越多越值錢（滿了 +40%）；
+// 最近 7 天全星球倒下的人越多越便宜（÷（1＋死亡數／25））。身上非土製的裝備先拆下來放進倉庫
+export const BODY = {BASE: 18, GOLD: 2, SILVER: 1.4, CELLS: .4, GLUT: 25};
+export const deaths7 = (book, h) => book.tickets.reduce((s, t) => s + (t.done && (t.doneAt ?? -1) >= h - 168 ? (t.dead?.length || 0) : 0), 0);
+export function bodyPrice(book, c, h) {
+  const k = c.crown === 'gold' ? BODY.GOLD : c.crown === 'silver' ? BODY.SILVER : 1;
+  return Math.max(1, Math.round(BODY.BASE * k * (1 + BODY.CELLS * C.cellCount(c) / 100) / (1 + deaths7(book, h) / BODY.GLUT)));
+}
+export function sellBody(G, book, uid, now = G.h) {
+  const c = G.roster.find(x => x.uid === uid); if (!c || c.status !== 'recovered') return '沒有可以處置的遺體';
+  if (G.queue.some(q => q.revive === uid)) return '遺體在培養槽裡';
+  const price = bodyPrice(book, c, now), g = gearOf(G, c); G.store ||= [];
+  for (const s of SLOTS) { const it = slotGet(g, s); if (it && !it.homemade && !/^土製/.test(itemName(it))) G.store.push(it); slotSet(g, s, null); }
+  for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(c); if (i >= 0) sq.clones.splice(i, 1); }
+  c.status = 'sold'; c.keep = false; C.rec(c, {h: now, t: 'sold', co: G.name, price});
+  C.pay(book, now, G.name, price, 'body', `賣掉${label(c)}的遺體`);
+  note(G, now, `賣掉 ${label(c)} 的遺體，$${price}k（最近 7 天全星球倒下 ${deaths7(book, now)} 人）。身上的裝備先拆下來放進倉庫。`);
+  return null;
+}
+
 // 重新培養（Alan 2026-10-10）：把收回的遺體放進培養槽，同一個人回到名冊——職業、立繪、個體值、編號、裝備、服役紀錄都留著，等級和技能從頭來。素材照職業的固定配方
 export const REVIVE_RECIPE = {soldier: {food: 60, water: 80, implant: 60, neural: 60}, recon: {food: 50, water: 50, implant: 50, neural: 120}, bulwark: {food: 60, water: 50, implant: 120, neural: 50},
   berserker: {food: 130, water: 60, implant: 50, neural: 40}, engineer: {food: 40, water: 50, implant: 100, neural: 100}};
@@ -741,8 +761,8 @@ export function view(G, book, w) {
   }).reverse();
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
-  return {retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
-    templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid)})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
+  return {deaths7: deaths7(book, G.h), retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
+    templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid), bodyPrice: c.status === 'recovered' ? bodyPrice(book, c, G.h) : null})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 
 // 地圖上要標的：每一支派出去的人馬現在在哪、往哪走
