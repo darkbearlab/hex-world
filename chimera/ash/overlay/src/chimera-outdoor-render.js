@@ -51,9 +51,12 @@ function darkWall(r, x, y, rect) {
 const ROAD_SPEED = 10;   // 每秒捲幾格（Alan 2026-10-09：加快一倍）
 function road(r, o, p, a, t) {
   const c = r.ctx, l = Math.round(a.x - t / 2), tp = Math.round(a.y - t / 2), n = o.ground[p.y]?.[p.x] ?? 0;   // 車外是沙漠（ground.png）
-  const off = Math.round(((r.time || performance.now()) / 1000 * ROAD_SPEED % 1) * t);
+  // 整片地面一起往右捲（Alan 2026-10-10：原本每一格只在自己裡面捲，各格的沙地、碎石花樣原地不動）：
+  // 這一格看到的是「往左 S 格那一欄」的地面，S＝時間×速度；地面那一列頭尾接起來循環
+  const S = (r.time || performance.now()) / 1000 * ROAD_SPEED, row = o.ground[p.y] || [], W = row.length || 1, u = p.x - S, c1 = Math.floor(u), dx = Math.round((c1 - u) * t);
+  const at = k => row[((k % W) + W) % W] ?? n, off = dx + t;
   c.save(); c.beginPath(); c.rect(l, tp, t, t); c.clip(); c.imageSmoothingEnabled = false;
-  for (const dx of [off - t, off]) c.drawImage(ATLAS.ground, (n % 4) * 32, Math.floor(n / 4) * 32, 32, 32, l + dx, tp, t, t);
+  for (const [k, x0] of [[c1, l + dx], [c1 + 1, l + dx + t]]) { const m = at(k); c.drawImage(ATLAS.ground, (m % 4) * 32, Math.floor(m / 4) * 32, 32, 32, x0, tp, t, t); }
   // 車斗正下方的那一格：車底的陰影與輪子（不跟著捲）
   const up = o.deck[p.y - 1]?.[p.x];
   if (up) { c.fillStyle = 'rgba(0,0,0,.5)'; c.fillRect(l, tp, t, Math.round(t * .4)); const T = o.trucks.find(q => q.id === up);
