@@ -20,6 +20,13 @@ export function installGuard(E) {
       if (btns.length && btns.every(b => BLOCK.includes(b.dataset.modal))) for (const n of [h, ...part]) n.style.display = 'none'; } };
   const watch = () => { const M = document.getElementById('modal'); if (!M) return setTimeout(watch, 500); new MutationObserver(tidy).observe(M, {childList: true, subtree: true}); tidy(); };
   watch();
+  // 「放棄這一輪」換成「撤出戰場」：選單的本局分頁（有「任務簡介」那一頁）加一顆，按了確認、關選單，下 chimeraRetreat 行動
+  const addRetreat = () => { const M = document.getElementById('modal'); if (!M || !E.active || M.querySelector('#chimera-retreat')) return; const brief = M.querySelector('[data-modal="mission"]'); if (!brief || !E.game || E.game.status !== 'playing') return;
+    const b = document.createElement('button'); b.id = 'chimera-retreat'; b.type = 'button'; b.className = 'modal-button secondary'; b.textContent = '撤出戰場（算敗北）';
+    b.onclick = async () => { if (!confirm('撤出戰場？\n\n這一場算敗北、沒有積分；撤的當下，附近的敵人會追擊一下，可能有人倒下。活著的人撤出後還留在合約上。')) return;
+      M.close?.(); const ok = E.game.action('chimeraRetreat'); if (ok) { try { (await import('./controller-hud.js')).update(); } catch {} } };
+    brief.parentElement.insertBefore(b, brief.nextSibling); };
+  new MutationObserver(addRetreat).observe(document.body, {childList: true, subtree: true});
   document.addEventListener('click', e => { const b = e.target instanceof Element && e.target.closest('[data-modal]'); if (b && E.active && BLOCK.includes(b.dataset.modal)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
 }
 
@@ -27,16 +34,16 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&
 export function outcomeOf(g, ticket) {
   const r = g.missionResult || {win: g.status === 'won', dead: [], kills: 0, total: 0, turns: g.turn};
   const members = g.members || [g.player], alive = members.filter(m => m.hp > 0);
-  const kind = r.win ? 'won' : alive.length ? 'lost' : 'wiped';
+  const kind = r.win ? 'won' : g.status === 'retreated' && alive.length ? 'retreat' : alive.length ? 'lost' : 'wiped';
   const names = id => { const m = members.find(x => x.squadId === id); return m?.callName || id; };
-  return {kind, result: r, title: {won: '任務完成', lost: '任務失敗', wiped: '小隊全滅'}[kind], sub: ticket?.title || '',
+  return {kind, result: r, title: {won: '任務完成', lost: '任務失敗', wiped: '小隊全滅', retreat: '撤出戰場'}[kind], sub: ticket?.title || '',
     lines: [`回合 ${r.turns}`, `打倒 ${r.kills}／${r.total}`, r.dead.length ? `倒下：${r.dead.map(names).join('、')}` : '沒有人倒下'].concat(r.boss ? [`頭目：${{retreat: '負傷撤退', dead: '戰死', taken: '戰死，遺產級到手'}[r.boss] || r.boss}`] : [])};
 }
 // 勝利／失敗的提示：疊在戰場上，按「回到任務管制」才結束
 export function showOutcome(o) {
   return new Promise(done => {
     const box = document.createElement('div'); box.className = `chimera-outcome ${o.kind}`;
-    box.innerHTML = `<div class="co-card"><div class="co-eyebrow">${o.kind === 'won' ? 'MISSION COMPLETE' : o.kind === 'wiped' ? 'SQUAD LOST' : 'MISSION FAILED'}</div>
+    box.innerHTML = `<div class="co-card"><div class="co-eyebrow">${o.kind === 'won' ? 'MISSION COMPLETE' : o.kind === 'wiped' ? 'SQUAD LOST' : o.kind === 'retreat' ? 'WITHDRAWN' : 'MISSION FAILED'}</div>
       <h2>${o.title}</h2>${o.sub ? `<div class="co-sub">${esc(o.sub)}</div>` : ''}<ul>${o.lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>
       <button class="modal-button" type="button">回到任務管制</button></div>`;
     (document.getElementById('ash-root') || document.body).appendChild(box);
@@ -55,7 +62,7 @@ export async function runOutcome(E, g, ticket) {
 const style = document.createElement('style');
 style.textContent = `.chimera-outcome{position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at center,#000a,#000d);animation:coIn .5s ease both}
 .chimera-outcome .co-card{min-width:min(420px,92vw);padding:22px 26px 20px;background:#0f0e0bf2;border:1px solid #6a5a3a;border-top:3px solid #e0a64a;border-radius:10px;color:#eadfca;font-family:inherit;box-shadow:0 18px 60px #000c;animation:coPop .45s .1s cubic-bezier(.2,1.4,.4,1) both}
-.chimera-outcome.lost .co-card,.chimera-outcome.wiped .co-card{border-top-color:#d0503a}
+.chimera-outcome.lost .co-card,.chimera-outcome.wiped .co-card,.chimera-outcome.retreat .co-card{border-top-color:#d0503a}
 .chimera-outcome .co-eyebrow{font-size:11px;letter-spacing:.28em;color:#a3977f}
 .chimera-outcome h2{margin:4px 0 2px;font-size:30px;color:#ffd27a}.chimera-outcome.lost h2,.chimera-outcome.wiped h2{color:#ff8a70}
 .chimera-outcome .co-sub{color:#a3977f;font-size:13px;margin-bottom:8px}

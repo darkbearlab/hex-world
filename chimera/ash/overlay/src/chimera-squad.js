@@ -48,6 +48,7 @@ const COUNTERS=['perkPicks','classPerkMisses','legacyPerkPicks'];
 
 const PERSONAL=['target','shadowSteps','pursuit','pursuitPending','pursuitBlocked','pendingPerks','perkDraft','perkPicks','classPerkMisses','legacyPerkPicks','sensorContacts','refusal'];
 
+export const CHIMERA_RETREAT={range:6,hit:.5,min:8,max:18};
 // 戰場上的名字（Alan 2026-10-10）：有綽號用綽號，沒有用原主名字，都沒有用編號
 const callName=c=>c.callsign?`“${c.callsign}”`:c.name||c.id;
 export class SquadGame extends MissionGame{
@@ -193,7 +194,18 @@ export class SquadGame extends MissionGame{
  }
  // 交棒：還有人活著就不算結束（ASH 在「玩家」倒下時會判死，這位玩家可能是被敵人借去的其他隊員）
  // 每個行動之後檢查交棒（隊員在 soloTurn 裡的行動不算，那時「玩家」是他自己）
+ // 撤出戰場（Alan 2026-10-10）：這一場算敗北、活著的人撤出；撤的當下每個還站著的敵人往最近的隊員（6 格內）追擊一下（五成命中、8～18 傷害）。
+ // 是一個行動（chimeraRetreat），照常記進紀錄、伺服器重播得到一樣的結果
+ chimeraRetreat(){
+  if(this.status!=='playing')return false;
+  const R=CHIMERA_RETREAT,foes=this.enemies.filter(e=>e.hp>0&&!isNoncombatant(e)),members=this.members||[this.player];let shots=0,hits=0;
+  for(const e of foes){const L=members.filter(m=>m.hp>0);if(!L.length)break;const m=L.reduce((a,b)=>distance(e,b)<distance(e,a)?b:a);if(distance(e,m)>R.range)continue;shots++;
+   if(this.rng()>=R.hit)continue;hits++;m.hp-=R.min+Math.floor(this.rng()*(R.max-R.min+1));if(m.hp<=0){m.hp=0;this.log(`${m.callName||m.squadId} 在撤退時倒下了。`,true);}}
+  this.log(`撤出戰場：敵人追擊 ${shots} 次、打中 ${hits} 次。`,true);
+  this.status='retreated';return true;
+ }
  action(type,arg){
+  if(type==='chimeraRetreat')return this.chimeraRetreat();
   const up=this.members?new Set(this.members.filter(m=>m.hp>0&&m!==this.controlled).map(m=>m.id)):null;
   const r=super.action(type,arg);
   // 沒在操作的隊員倒下：寫一行戰報（演出由 presentation.js 補丁照玩家戰死的做）
