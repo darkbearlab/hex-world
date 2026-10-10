@@ -336,7 +336,7 @@ function sortieCard(u, i, j) {
   const get = gearOfC(c), gear = SLOTS.map(s => [SLOT_N[s], get(s)]).filter(([, it]) => it).map(([n, it]) => `<div><span>${n}</span>${esc(itemName(it))}</div>`).join('') || '<div class="muted">沒有裝備</div>';
   const open = sortie.open.has(u);
   return `<div class="scard full${open ? ' gopen' : ''}">
-    <div class="sart" data-smenu="${i}:${j}" title="點一下：換人、編輯裝備"><img src="art/full/${c.portrait}.png" alt="" onerror="this.onerror=null;this.src='${img(c.portrait)}';this.parentElement.classList.add('px')"></div>
+    <div class="sart" data-smenu="${i}:${j}" title="點一下：換人、編輯裝備"><img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"></div>
     ${sortie.menu?.[0] === i && sortie.menu?.[1] === j ? `<div class="smenu"><button data-slot="${i}:${j}">換人</button><button data-sgear="${u}">編輯裝備</button><button data-sinfo="${u}">看資料</button></div>` : ''}
     <div class="sname"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b> <span class="mini">${c.id}・${CLS[c.cls].n}・${c.lv || 1} 級</span></div>
     <div class="sgear">${gear}</div>
@@ -353,7 +353,7 @@ function renderSortie() {
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid));
   const groups = [...Object.entries(TAGS).map(([k, nm]) => [nm, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
   // 選人：另一張卡片疊在編成畫面上（Alan 2026-10-10）；一列一個人，照分類分組
-  const row = c => `<button class="sprow" data-sp="${c.uid}"><img src="${img(c.portrait)}" alt=""><span class="sprn"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b> <span class="mini">${c.id}</span><br><span class="mini">${CLS[c.cls].n}・${c.lv || 1} 級・記憶片段 ${cellCount(c)}${c.crown === 'gold' ? '・金冠' : c.crown === 'silver' ? '・銀冠' : ''}${(c.tags || []).length ? '・' + c.tags.map(t => TAGS[t]).join('、') : ''}</span></span></button>`;
+  const row = c => `<button class="sprow" data-sp="${c.uid}"><img src="${face(c)}" alt=""><span class="sprn"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b> <span class="mini">${c.id}</span><br><span class="mini">${CLS[c.cls].n}・${c.lv || 1} 級・記憶片段 ${cellCount(c)}${c.crown === 'gold' ? '・金冠' : c.crown === 'silver' ? '・銀冠' : ''}${(c.tags || []).length ? '・' + c.tags.map(t => TAGS[t]).join('、') : ''}</span></span></button>`;
   const SP = $('spick'); SP.hidden = !sortie.pick;
   if (sortie.pick) $('spbox').html = `<div class="shead"><b style="flex:1">選人：第 ${sortie.pick[0] + 1} 隊第 ${sortie.pick[1] + 1} 位</b><button data-pickx="1" aria-label="關閉">✕</button></div>${groups.map(([nm, L]) => `<div class="mini pgroup">${nm}（${L.length}）</div><div class="sprows">${L.map(row).join('')}</div>`).join('') || '<p class="muted">沒有待命的人（「不出擊」的人不會列出）</p>'}`;
   const picker = '';
@@ -464,6 +464,13 @@ let GV = null, GM = null, coBuilt = false, pickOpp = null, pickRe = null, roster
 const recipe = {food: 30, water: 30, implant: 30, neural: 30};
 const send = m => worker.postMessage(m);
 const img = p => `portraits/${p}.png`;
+// 每位資料主人的專屬圖（Alan 2026-10-10）：public/donors/<原主>/portrait.png（頭像）、full.png（立繪）、sprite.png（戰場）。
+// 部署時的素材清單（asset-manifest.json）列得到就用，沒有就照舊（頭像用 portraits/、立繪用 art/full/、都沒有就放大頭像）
+let ART = new Set();
+fetch('asset-manifest.json', {cache: 'no-cache'}).then(r => r.ok ? r.json() : null).then(d => { if (!d) return; ART = new Set(d.items.map(x => x.path)); if (GV) { try { renderPage(); renderRoster(); } catch {} } }).catch(() => {});
+const donorKey = c => c.donor ?? c.portrait;
+const face = c => ART.has(`donors/${donorKey(c)}/portrait.png`) ? `donors/${donorKey(c)}/portrait.png` : face(c);
+const fullArt = c => ART.has(`donors/${donorKey(c)}/full.png`) ? `donors/${donorKey(c)}/full.png` : `${fullArt(c)}`;
 const who = c => c.name || CLS[c.cls].n;   // 原主的名字（Alan 2026-10-10）；舊資料沒有就顯示職業
 // 綽號（call sign，Alan 2026-10-10）：有綽號就優先顯示。完整：瑟琳 “人獵人” X-0910；簡短：瑟琳 “人獵人”；最短：“人獵人”
 const csq = c => c.callsign ? `“${esc(c.callsign)}”` : '';
@@ -471,7 +478,7 @@ const nameFull = c => `${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''} ${c.id}`;
 const nameShort = c => c.callsign ? `${esc(who(c))} ${csq(c)}` : `${esc(who(c))} ${c.id}`;
 const nameMin = c => c.callsign ? csq(c) : esc(who(c));
 const crownTag = c => c.crown === 'gold' ? '<span class="crown gold">金冠</span>' : c.crown === 'silver' ? '<span class="crown silver">銀冠</span>' : c.template ? '<span class="crown tpl">模板</span>' : '';
-const chip = (c, on, key) => `<span class="chip${on ? ' on' : ''}${c.alive ? '' : ' dead'}${key ? '' : ' static'}"${key && c.alive ? ` data-${key}="${c.uid}"` : ''}><img src="${img(c.portrait)}" alt="">${nameShort(c)}</span>`;   // 金冠、銀冠只在詳細資料裡顯示（Alan 2026-10-09）
+const chip = (c, on, key) => `<span class="chip${on ? ' on' : ''}${c.alive ? '' : ' dead'}${key ? '' : ' static'}"${key && c.alive ? ` data-${key}="${c.uid}"` : ''}><img src="${face(c)}" alt="">${nameShort(c)}</span>`;   // 金冠、銀冠只在詳細資料裡顯示（Alan 2026-10-09）
 const fmtH = x => x <= 0 ? '0 小時' : x < 48 ? `${Math.round(x)} 小時` : `${Math.floor(x / 24)} 天 ${Math.round(x % 24)} 小時`;
 // 倒數在本機跑（每秒更新；到點之後的結果仍以伺服器為準，伺服器結算完下一次拉資料才會出現）。單人測試模式的時鐘是加速的，照舊只顯示小時
 const hourNow = () => !LOCAL && worker?.hourNow ? worker.hourNow() : null;
@@ -598,7 +605,7 @@ function renderVat() {
   };
   P.html = `<div class="vatpage"><div class="cohead"><div class="mini">每座 ${G.buildH} 小時・素材在「交易」補</div></div>
     <div class="vats">${Array.from({length: G.vats}, (_, i) => row(i)).join('')}</div>
-    ${G.templates.length ? `<div class="box"><h3 class="sec">模板 <span class="muted">保證拿到這一位，數值固定在約前 20%</span></h3>${G.templates.map(t => `<div class="row"><span class="chip static"><img src="${img(t.portrait)}" alt="">${CLS[t.cls].n}</span><span class="mini">${MATS.map(m => `${MN[m]} ${t.recipe[m]}`).join('・')}</span><button data-act="tpl" data-id="${t.id}"${G.queue.length >= G.vats ? ' disabled' : ''}>用模板培養</button></div>`).join('')}</div>` : ''}</div>`;
+    ${G.templates.length ? `<div class="box"><h3 class="sec">模板 <span class="muted">保證拿到這一位，數值固定在約前 20%</span></h3>${G.templates.map(t => `<div class="row"><span class="chip static"><img src="${face(t)}" alt="">${CLS[t.cls].n}</span><span class="mini">${MATS.map(m => `${MN[m]} ${t.recipe[m]}`).join('・')}</span><button data-act="tpl" data-id="${t.id}"${G.queue.length >= G.vats ? ' disabled' : ''}>用模板培養</button></div>`).join('')}</div>` : ''}</div>`;
   tickVat();
 }
 // 進度條跟著本機時鐘走
@@ -615,7 +622,7 @@ function renderStore() {
   const al = GV.roster.filter(c => c.alive), store = GV.store || [], KN = {gun: '槍', melee: '近戰', armor: '護甲', kit: '預備品'};
   const kit = c => { const get = gearOfC(c); return [get('armor'), get('kit0'), get('kit1')].filter(Boolean).map(itemName).join('、'); };
   P.html = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">身上的裝備 <span class="muted">點人換裝</span></h3>
-    <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${img(c.portrait)}" alt="">${nameShort(c)}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
+    <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${face(c)}" alt="">${nameShort(c)}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
     <div class="cocol"><div class="box"><h3 class="sec">庫存 <span class="muted">戰鬥撿到的、換下來的・本地行情 ×${(GV.sellFactor ?? 1).toFixed(2)}</span></h3>
     ${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${store.map(it => `<tr><td>${KN[it.kind]}</td><td>${esc(it.name)}${it.kind === 'armor' && it.affix ? `<div class="mini muted">${esc(ARMOR_TEXT[it.affix] || '')}</div>` : ''}</td><td class="acts">${it.kind === 'gun' ? `<button data-modpick="${it.id}">改裝</button>` : ''}<button data-sell="${it.id}">${it.value ? `賣 $${it.value}k` : '丟棄'}</button></td></tr>${modPick === it.id ? `<tr><td colspan="3"><div class="gpick">${Object.keys(MOD_AFFIXES).filter(a => !MOD_AFFIXES[a].notOn?.includes(it.base) && a !== it.affix).map(a => `<button data-mod="${it.id}:${a}">${AFFIX_NAMES[a]}</button>`).join('')}<span class="mini">每次 $${modCost(it.base)}k</span><button data-modx="1">取消</button></div></td></tr>` : ''}`).join('')}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
 }
@@ -648,7 +655,7 @@ function maybeReveal() {
   const rows = [['生命', c.st.hp], ['命中', sg(c.st.acc)], ['閃避', sg(c.st.eva)], ['近戰', sg(c.st.mel)], ['素質', `前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%`]];
   const STEP = .32, t0 = .6, tRank = t0 + rows.length * STEP + .2, tLine = tRank + (rank ? .7 : 0), line = `${who(c)}、入伍。`;
   const box = Object.assign(document.createElement('div'), {className: `reveal r2 ${rank}`, innerHTML: `
-    <div class="rart"><img src="art/full/${c.portrait}.png" alt="" onerror="this.onerror=null;this.src='${img(c.portrait)}';this.parentElement.classList.add('px')"></div>
+    <div class="rart"><img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"></div>
     <div class="rflash"></div>
     <div class="rinfo">
       <div class="rcls">${CLS[c.cls].n}</div>
@@ -684,7 +691,7 @@ function renderRoster() {
   const B = $('drawbody');
   const R = G.roster.filter(x => inF(x)).sort((a, b) => b.pct - a.pct);
   B.html = `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
-    <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${img(x.portrait)}" alt=""><b>${nameMin(x)}</b><span>${x.callsign ? esc(who(x)) + '・' : ''}${x.id}・${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
+    <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${face(x)}" alt=""><b>${nameMin(x)}</b><span>${x.callsign ? esc(who(x)) + '・' : ''}${x.id}・${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
 }
 // 裝備欄（Alan 2026-10-09）：槍 ×3、近戰、護甲、預備品 ×2。在總部待命時可以換：點「換」從倉庫挑，原本那件回倉庫
 const SLOT_N = {gun0: '槍 1', gun1: '槍 2', gun2: '槍 3', melee: '近戰', armor: '護甲', kit0: '預備品 1', kit1: '預備品 2'};
@@ -727,7 +734,7 @@ function personCard(c) {
   const rv = REVIVE_RECIPE[c.cls], canRv = c.status === 'recovered' && !c.reviving;
   // 版面（Alan 2026-10-10）：左邊（手機在上面）留一整欄給之後的半身／全身立繪（art/full/<立繪>.png，還沒有就先放像素頭像）；右邊是資料
   return `<div class="person pc2"><button class="pcx" data-person="" aria-label="關閉">✕</button>
-    <div class="pcart"><img src="art/full/${c.portrait}.png" alt="" onerror="this.onerror=null;this.src='${img(c.portrait)}';this.parentElement.classList.add('px')"><span class="pcart-cap">${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}${crownTag(c)}</span></div>
+    <div class="pcart"><img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"><span class="pcart-cap">${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}${crownTag(c)}</span></div>
     <div class="pcmain">
     <div class="phead"><div><div class="pname">${nameFull(c)}${crownTag(c)} <button class="csbtn" data-act="callsign" data-id="${c.uid}" title="取綽號">✎ 綽號</button></div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・記憶片段 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>

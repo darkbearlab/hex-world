@@ -6,6 +6,7 @@ import {fileURLToPath} from 'node:url';
 const pub = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 // 資料夾 → 分類名稱（照前綴比對，越前面越優先）
 const GROUPS = [
+  ['donors/', '原主專屬圖（頭像、立繪、戰場）'],
   ['portraits/', '複製人頭像'],
   ['ash-outdoor/', '戶外戰場材質（Chimera）'],
   ['ash/assets/pixel/units', 'ASH 單位'],

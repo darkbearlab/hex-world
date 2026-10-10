@@ -54,7 +54,7 @@ export class SquadGame extends MissionGame{
  static fullSquad=true;
  constructor(ticket){
   super(ticket);
-  const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;lead.callName=callName(ticket.squad[0]);
+  const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;lead.callName=callName(ticket.squad[0]);lead.donor=ticket.squad[0].donor||null;
   this.equip(lead,ticket.squad[0]);for(const k of COUNTERS)this[k]=ticket.squad[0][k]||0;
   // 格子收集（Alan 2026-10-10）：等級在戰場外決定；這一級該有、還沒挑的升級，進場時補給（照 ASH 的 perkLimit：每升一級一個）
   this.pendingPerks=Math.max(0,perkLimit(lead.level)-(this.perkPicks||0));
@@ -64,7 +64,7 @@ export class SquadGame extends MissionGame{
   for(const c of ticket.squad.slice(1)){
    // 一位完整的玩家角色：借一個同種子的新遊戲建出來，只拿它的 player
    const cls=character(c.cls),spare=new Game(this.seed,[],0,cls,validPortrait(c.portrait)?c.portrait:pickPortrait(),'extraction',{facilityFaction:this.facilityFaction,simulation:{kind:'chimera'}});
-   const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;m.callName=callName(c);applyStats(m,c,CHARACTERS[cls]);
+   const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;m.callName=callName(c);m.donor=c.donor||null;applyStats(m,c,CHARACTERS[cls]);
    this.shareArmory(m,lead);this.equip(m,c);
    const cell=this.freeCellNear(lead);if(!cell)continue;Object.assign(m,{x:cell.x,y:cell.y});
    this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:Math.max(0,perkLimit(m.level)-(c.perkPicks||0)),perkDraft:null,perkPicks:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});

@@ -4,6 +4,7 @@
 //   - 地面：terrain('floor') 照 game.chimeraOutdoor.ground 畫地面圖集（每格不同的花樣）；戰壕格加暗邊。
 //   - 地圖邊緣：外圈的牆格畫成塵霧地面（不是牆、不是石頭；Alan 2026-10-09）。
 //   - 撤離點：綠色的信號（行軍遇襲才用得到）。
+import './chimera-donor-art.js';   // 原主各自的戰場 sprite：要裝在戰壕裁切的裡面（先 import）
 import {Renderer} from './renderer.js';
 import {MAP_STYLES} from './map-styles.js';
 import {TERRAIN_ATLAS} from './materials.js';

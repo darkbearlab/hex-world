@@ -202,7 +202,7 @@ function arenaMission(b) {
   const enemy = {name: '測試敵人', side, power: 0, units, veh, boss};
   return {id: 'arena-' + Date.now().toString(36) + r[1].toString(36).slice(0, 4), title: '戰鬥測試場', seed: 1 + r[0] % 999999, faction: ASH_FACTION[side] || 'rebel', night, type, biome,
     enemy: {...enemy, roster: enemyRoster(enemy)},
-    squad: ARENA_CLS.map((cls, i) => ({id: `T-${1001 + i}`, cls, portrait: ARENA_FACES[i], st: {hp: cls === 'berserker' ? 160 : 100}, lv: 3, xp: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0}))};
+    squad: ARENA_CLS.map((cls, i) => ({id: `T-${1001 + i}`, cls, portrait: ARENA_FACES[i], donor: ARENA_FACES[i], st: {hp: cls === 'berserker' ? 160 : 100}, lv: 3, xp: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0}))};
 }
 // 給瀏覽器的開戰資料：verify＝任務（含種子）與已收到的輸入，瀏覽器自己跑；authority＝過濾過的畫面
 const battleTicket = (mission, d) => d.mode === 'verify' ? {id: mission.id, title: mission.title, remote: true, mode: 'verify', mission: d.mission, log: d.log, resumed: !!d.resumed}

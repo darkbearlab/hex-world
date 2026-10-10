@@ -18,7 +18,7 @@ export function installSquadUI(){
   for(const m of g.members){
    if(!g.seen[m.y]?.[m.x])continue;
    const a=this.projectActor(m);
-   if(m!==g.player){if(m.hp<=0)this.corpse(a,'player',m.character);else this.actor(a,'player',time,m);}
+   if(m!==g.player){if(m.hp<=0){const k=this.chimeraUnit;this.chimeraUnit=m;try{this.corpse(a,'player',m.character);}finally{this.chimeraUnit=k;}}else this.actor(a,'player',time,m);}
    if(m.hp>0)this.text(m.callName||m.squadId,a.x,a.y-this.tile*.62,m===g.player?'#ffd27a':'#9fe8d5',9);
   }
   return hidden;
