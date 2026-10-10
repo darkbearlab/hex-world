@@ -144,6 +144,7 @@ function createSim(w,rand,pick){
   // town[i]=1 表示這格是市鎮（有市集）；其他有人住的格子是村莊，產出送到綁定的市鎮 mkt[i]
   const town=new Uint8Array(N),mkt=new Int16Array(N).fill(-1),mcost=new Float32Array(N).fill(Infinity),mrisk=new Float32Array(N);
   let markets={},carts=[],caravans=[],flows=[],townNet={},mDs={},routeTiles=new Set();
+  const sites={};   // 固定產出的地點：格子 → 'oil'／'ammo'／'oasis'（見 siteRuns）
   // 商路熱度（每年衰減，約十幾年的記憶）、路段流量、饑荒熱度
   const traffic=new Float32Array(N),famineH=new Float32Array(N);let edgeT={};
   const trafNear=t=>traffic[t]+NBR[t].reduce((x,n)=>x+traffic[n],0);
@@ -249,6 +250,8 @@ function createSim(w,rand,pick){
     const fiefs=[];for(const c of cands){if(fiefs.length>=9)break;if(fiefs.every(f=>hdist(f,c)>=3)){fiefs.push(c);town[c]=1;markets[c]=newMarket();pop[c]=Math.max(pop[c],60)}}
     const ind=t=>{let v=0;for(let i=0;i<N;i++)if(hdist(i,t)<=2)v+=(w.vein0[i]>0?3:0)+timberK[i]/60;return v};
     const works=fiefs.slice().sort((a,b)=>ind(b)-ind(a)).slice(0,3);for(const t of works)markets[t].works=1;
+    // 固定產出的地點（Alan 2026-10-10）：舊帝國留下的設施，不管當地的自然資源都產得出來（要吃投入）。廠區以外的轄區輪流分成石油城、彈藥農場、綠洲
+    {const rest=fiefs.filter(t=>!works.includes(t)),kinds=['oil','ammo','oasis'];rest.forEach((t,i)=>{if(i<6)sites[t]=kinds[i%3]})}
     // 培養槽：原本是替領導層備份身體用的，首府三座、每個轄區一座
     markets[cap].vat=3;for(const t of fiefs)markets[t].vat=1;
     // 維安部隊的車：首府幾輛武裝車和戰鬥卡車，各轄區幾輛卡車
@@ -521,7 +524,8 @@ function createSim(w,rand,pick){
     // 煉鐵的燃料：同一座市鎮範圍內的林子一起供木炭（燒炭人只砍超過一半林木的部分，林子不會燒光）
     // 礦石多、林子少的地方煉不了那麼多，鐵就受木炭所限
     const oreOf=i=>{const p=pop[i];return [p*.006*(biome[i]===9?1:river[i]?.35:0),vein[i]>0?Math.min(vein[i],p*.0625):0]};
-    const cop=t=>Math.max(0,timber[t]-.5*timberK[t])*.12;
+    // 燒炭精煉（Alan 2026-10-10 行情檢查：林子砍到一半以下就完全不精煉，零件全面缺貨）：跟伐木隊一樣只看超過三成的部分（試過拿市集的燃料去煉，燃料滿足率從七成掉到不到六成，不做）
+    const cop=t=>Math.max(0,timber[t]-.3*timberK[t])*.12;
     const oreM=new Float32Array(N),fuelM=new Float32Array(N),fOre=new Float32Array(N),fFuel=new Float32Array(N);
     const wild=new Int16Array(N).fill(-1);   // 領地邊上的無主林子也有人去燒炭
     for(let i=0;i<N;i++){const m=mkt[i];if(owner[i]<0||m<0)continue;const [b,v]=oreOf(i);oreM[m]+=b+v;fuelM[m]+=cop(i);
@@ -534,6 +538,7 @@ function createSim(w,rand,pick){
       for(let n=0;n<N;n++){const m=wild2[n];if(m<0||!markets[m])continue;const cut=Math.min(Math.max(0,timber[n]-.3*timberK[n])*WILDCUT,timberK[n]*.02);if(cut<=0)continue;
         timber[n]-=cut;markets[m].stock.fuel+=cut*.8;if(owner[m]>=0)fac[owner[m]].prod.fuel+=cut*.8}}
     fuelRuns(y,s);
+    siteRuns(y,s);
     let robbedTold=0;
     for(let i=0;i<N;i++){if(owner[i]<0)continue;const f=fac[owner[i]],p=pop[i];
       const hunt=Math.min(game[i]*.08,p*.08*(s===3?.5:1));game[i]-=hunt;
@@ -588,7 +593,8 @@ function createSim(w,rand,pick){
       // 平民用零件：越貴用得越省（修了再修），省下的用量改成多燒燃料
       const civBase=m.pop*IRON_CIV;m.civIron=civBase*Math.min(1.15,Math.max(.35,1/m.price.parts));
       m.need={food:m.pop*.25,fuel:m.pop*FIREWOOD+m.cold*(s===3?.05:s===1?0:.012)*(f.hardy?HARDY:1)+(civBase-m.civIron)*IRON_SUB,parts:m.civIron+f.frontsPrev*.25*share,scrap:m.pop*.002+m.walls*.05+share,water:m.pop*WATER_NEED,ammo:m.pop*.0005+f.frontsPrev*.3*share};
-      for(const g of GOODS){const cover=m.stock[g]/Math.max(.01,m.need[g]*4),pr=Math.min(3.5,Math.max(.3,1/(.35+cover)));m.price[g]=m.price[g]*.6+pr*.4}}
+      // 價格（Alan 2026-10-10）：原本在「完全缺貨」（2.86）和「過剩」（0.3）兩端都卡住，各地看起來一樣。缺貨時再看上一季缺多少往上推；過剩時用對數慢慢往下
+      for(const g of GOODS){const cover=m.stock[g]/Math.max(.01,m.need[g]*4),r=m.ratio?.[g]??1,pr=Math.min(4.5,Math.max(.12,cover<1?(1+(1-r)*.6)/(.35+cover):1/(1.35+Math.log(cover))));m.price[g]=m.price[g]*.6+pr*.4}}
     tradeSeason(y,s);
     // 消耗與腐壞
     for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;
@@ -596,6 +602,7 @@ function createSim(w,rand,pick){
       for(const g of GOODS){const r=m.need[g]>0?Math.min(1,m.stock[g]/m.need[g]):1;m.rsum[g]+=r/4;if(g==='parts')civUsed=(m.civIron||0)*r;m.stock[g]=Math.max(0,m.stock[g]-m.need[g])}
       m.stock.parts+=civUsed*IRON_RECYCLE;   // 壞掉的東西拆了重用
       m.stock.food=Math.min(m.stock.food*.92,m.need.food*3);
+      { const cap=m.need.water*6+10; if(m.stock.water>cap)m.stock.water=cap+(m.stock.water-cap)*.6; }   // 水窖只裝得下約六季的用量，多的蒸發、發臭（Alan 2026-10-10：淨水各地都過剩）
       m.stock.fuel*=.96;m.stock.water*=.97;m.stock.parts*=.998;m.stock.ammo*=.995;m.stock.scrap=Math.min(m.stock.scrap,m.need.scrap*16+40);   // 廢料堆不下了就不再拆
       if(s===2)m.store=m.stock.food/Math.max(.01,m.pop*.25)}
     // 複製兵：有培養槽的勢力打仗時（或正被威脅時）用糧、水、零件養兵；養著的兵每季要吃喝，養不起就散掉
@@ -825,6 +832,27 @@ function createSim(w,rand,pick){
   // 燃料不夠的市鎮每季派伐木隊去 2～4 格外的林子（油棘林 5 格內也去：油棘的木頭含油，同樣的林木能做三倍的燃料）。
   // 只砍超過三成林木的部分（林子會再長）；不進交戰中敵人的地盤；越遠路上損耗越多（每格 5%）；路上掠奪者多，整隊可能被劫走一半。
   // 每座市鎮這一季去了哪裡記在 m.logging（給委託板開「伐木車隊」的護送委託）。
+  // ===== 固定產出的地點（Alan 2026-10-10）=====
+  // 石油城（燃料）、彈藥農場（彈藥）、綠洲（淨水、熱量）：不吃林子、礦、水源，但要投入——石油城要淨水、熱量；彈藥農場要廢料（熔了做彈頭）、燃料；綠洲的抽水機要燃料。
+  // 產出照服務人口算、有上限（承平時期自用加外銷綽綽有餘；被打、人口銳減，產值自然下降）。投入先用自己的存貨，不夠就向其他沒在跟自己打仗的產地調（彼此供料，像結盟），再不夠向自己勢力的其他城調。
+  const SITE={oil:{n:'石油城',k:.02,cap:60,out:{fuel:1},inp:{water:.4,food:.2}},ammo:{n:'彈藥農場',k:.01,cap:30,out:{ammo:1},inp:{scrap:.6,fuel:.3}},oasis:{n:'綠洲',k:.05,cap:150,out:{water:1,food:.4},inp:{fuel:.05}}};
+  // 舊存檔沒有：照地形挑一次（石油城挑油棘林多的、綠洲挑最缺水的、彈藥農場挑舊礦與廢墟多的），各兩座、彼此隔 4 格以上
+  function pickSites(){
+    const ts=Object.keys(markets).map(Number).filter(t=>owner[t]>=0&&!markets[t].works),near=(t,f)=>{let v=0;for(let i=0;i<N;i++)if(hdist(i,t)<=3)v+=f(i);return v};
+    const score={oil:t=>near(t,i=>biome[i]===6?1:0),ammo:t=>near(t,i=>(vein[i]>0?2:0)+(ruin[i]?1:0)),oasis:t=>-near(t,i=>waterK[i])};
+    for(const k of ['oil','ammo','oasis']){const L=ts.filter(t=>!sites[t]).sort((a,b)=>score[k](b)-score[k](a)||a-b);let n=0;for(const t of L){if(n>=2)break;if(Object.keys(sites).some(u=>hdist(+u,t)<4))continue;sites[t]=k;n++}}
+  }
+  function siteRuns(y,s){
+    const L=Object.keys(sites).map(Number).filter(t=>markets[t]&&owner[t]>=0);
+    for(const t of L){const S_=SITE[sites[t]],m=markets[t],o=owner[t];let x=Math.min(S_.cap,m.pop*S_.k);if(x<.1)continue;
+      // 投入：自己的存貨不夠，就向其他沒在打仗的產地調
+      for(const [g,per] of Object.entries(S_.inp)){let want=x*per;const take=(mm,a)=>{const v=Math.min(a,mm.stock[g]);mm.stock[g]-=v;return v};want-=take(m,want);
+        for(const u of L){if(want<=0)break;if(u===t||atWar(owner[u],o))continue;want-=take(markets[u],want)}
+        if(want>0)for(const k2 in markets){if(want<=0)break;const u=+k2;if(u===t||owner[u]!==o)continue;want-=take(markets[k2],want)}   // 再向自己勢力的其他城調
+        if(want>0)x*=Math.max(0,1-want/(x*per))}
+      for(const [g,r] of Object.entries(S_.out)){m.stock[g]+=x*r;fac[o].prod[g]+=x*r}
+      m.site={kind:sites[t],out:+x.toFixed(1)}}
+  }
   const OILX=3,LOGR=4,OILR=5;
   function fuelRuns(y,s){
     const used=new Set();
@@ -1271,14 +1299,14 @@ function createSim(w,rand,pick){
   // ===== 存檔：把整個世界的可變狀態匯出成一個物件，之後原樣讀回 =====
   const MUT={drops,pmcAid,biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,trench,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town,traffic,famineH};   // traffic、famineH：奇美拉的委託板要（機會層的商路看 traffic），原本沒存，讀檔後歸零
   function exportState(){const o={};for(const k in MUT)o[k]=MUT[k];
-    return {...o,histY,qs,campaigns,campSeq,fac,events:ev.slice(-20000),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
+    return {...o,sites,histY,qs,campaigns,campSeq,fac,events:ev.slice(-20000),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
   // 奇美拉（伺服器存檔）：JSON 存過的型別陣列會變成普通物件，先轉回陣列再 set；推演到第幾年（histY）也要接上
-  function importState(S){for(const k in MUT)if(S[k])MUT[k].set(Array.isArray(S[k])||ArrayBuffer.isView(S[k])?S[k]:Object.values(S[k]));if(S.histY!=null)histY=S.histY;qs=S.qs||0;campaigns=S.campaigns||[];campSeq=S.campSeq||1;
+  function importState(S){for(const k in MUT)if(S[k])MUT[k].set(Array.isArray(S[k])||ArrayBuffer.isView(S[k])?S[k]:Object.values(S[k]));if(S.histY!=null)histY=S.histY;qs=S.qs||0;campaigns=S.campaigns||[];for(const k of Object.keys(sites))delete sites[k];Object.assign(sites,S.sites||{});campSeq=S.campSeq||1;
     fac.splice(0,fac.length,...S.fac);ev.splice(0,ev.length,...S.events);graves.splice(0,graves.length,...S.graves);heroes.splice(0,heroes.length,...S.heroes);
     for(const k of Object.keys(routeSeen))delete routeSeen[k];Object.assign(routeSeen,S.routeSeen);
     for(let a=0;a<FMAX;a++){tension[a]=S.tension[a].slice();war[a]=S.war[a].slice()}
     routes=S.routes;T=S.T;curY=S.curY;live=S.live;story=S.story;actors=S.actors;nextId=S.nextId;ownerHist=S.ownerHist||[];lastComputed=S.lastComputed||0;rand.setState(S.rng);
-    markets=S.markets||{};carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;battles=S.battles||[];nextHero=S.nextHero||1;
+    markets=S.markets||{};if(!S.sites)pickSites();carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;battles=S.battles||[];nextHero=S.nextHero||1;
     if(S.legend){const L=S.legend;for(const k of Object.keys(ARC))delete ARC[k];Object.assign(ARC,L.ARC);weapons.splice(0,weapons.length,...L.weapons);saga.splice(0,saga.length,...L.saga);
       for(const o of [aff,houseAff])for(const k of Object.keys(o))delete o[k];Object.assign(aff,L.aff);Object.assign(houseAff,L.houseAff);leagues.splice(0,leagues.length,...(L.leagues||[]))}
     netSig='';netYear=-99;if(live)yearStartNetOnly(S);else{refreshCE();if(qs)bindMarkets();if(S.townNet)townNet=S.townNet;if(S.front){bc=S.bc;front=S.front;covet=S.covet}}}   // 年中讀檔（每季結算，Alan 2026-10-09）：開年綁好的市場要重綁   // 移動成本表（CE）不存檔，讀檔要重算，不然所有路都是零成本（尋路亂繞、車程 0 小時）
@@ -1362,6 +1390,7 @@ function createSim(w,rand,pick){
     aid(f,v){if(f>=0&&f<pmcAid.length)pmcAid[f]=Math.min(200,pmcAid[f]+v)},
     drop(t,v){if(t>=0)drops[t]+=v},
     cutForest,
+    sites:()=>({...sites}),
     calm(a,b,v){if(a<0||b<0||a===b)return;const x=Math.min(a,b),y=Math.max(a,b);tension[x][y]=Math.max(0,tension[x][y]-v)},
     tension(a,b){if(a<0||b<0||a===b)return 0;return tension[Math.min(a,b)][Math.max(a,b)]},
     atWar,

@@ -84,10 +84,19 @@ function mkTemplate(G, r) {
 }
 
 // ===== 素材價格：跟總部所在城的市價走 =====
+// 行情（Alan 2026-10-10）：植入物看離廠區多遠（廠區打七折，越遠越貴）；神經介質只有培養槽城做得出來，培養槽越多越便宜、打仗的勢力越貴，沒有培養槽的城要從最近的培養槽城運來
+const nearest = (K, t, ok) => { let d = 99; for (const k in K.markets) { const u = +k; if (K.owner[u] >= 0 && ok(K.markets[k]) && hdist(u, t) < d) d = hdist(u, t); } return d; };
+function implantK(K, t) { const m = K.markets[t]; return m?.works ? .7 : 1 + .02 * Math.min(25, nearest(K, t, x => x.works)); }
+function neuralAt(w, t) {
+  const K = w.sim.peek(), m = K.markets[t], o = K.owner[t], P = w.sim.pmc;
+  let wars = 0; if (o >= 0) for (let f = 0; f < K.fac.length; f++) if (f !== o && P.atWar(f, o)) wars++;
+  const war = 1 + .08 * Math.min(4, wars);
+  if ((m?.vat || 0) > 0) return +(.8 * Math.max(.6, Math.min(1.25, 1.25 - .07 * m.vat)) * war).toFixed(2);
+  return +(.8 * 1.1 * (1 + .04 * Math.min(25, nearest(K, t, x => (x.vat || 0) > 0))) * war).toFixed(2);
+}
 export function prices(G, w) {
   const K = w.sim.peek(), m = K.markets[G.base], p = g => m?.price?.[g] ?? 1;
-  const vat = (m?.vat || 0) > 0;
-  return {food: +(.2 * p('food')).toFixed(2), water: +(.24 * p('water')).toFixed(2), implant: +(.25 * p('parts')).toFixed(2), neural: vat ? .8 : 1.4};
+  return {food: +(.2 * p('food')).toFixed(2), water: +(.24 * p('water')).toFixed(2), implant: +(.25 * p('parts') * implantK(K, G.base)).toFixed(2), neural: neuralAt(w, G.base)};
 }
 export function buy(G, w, mat, qty) {
   const pr = prices(G, w)[mat], cost = Math.round(pr * qty);
@@ -109,8 +118,8 @@ function offerAt(w, t) {
   return {
     food: {price: +(.2 * p('food')).toFixed(2), max: Math.min(999, Math.floor(m.stock.food / .05 / 100) * 100)},
     water: {price: +(.24 * p('water')).toFixed(2), max: Math.min(999, Math.floor(m.stock.water / .05 / 100) * 100)},
-    implant: {price: +(.25 * p('parts') * (m.works ? .7 : 1)).toFixed(2), max: m.works ? 999 : (m.vat || 0) > 0 ? 500 : Math.min(999, Math.floor(m.stock.parts * 200 / 100) * 100)},
-    neural: {price: .8, max: (m.vat || 0) > 0 ? 999 : 0},
+    implant: {price: +(.25 * p('parts') * implantK(K, t)).toFixed(2), max: m.works ? 999 : (m.vat || 0) > 0 ? 500 : Math.min(999, Math.floor(m.stock.parts * 200 / 100) * 100)},
+    neural: {price: neuralAt(w, t), max: (m.vat || 0) > 0 ? 999 : 0},
   };
 }
 export function quotes(G, w) {
