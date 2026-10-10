@@ -31,6 +31,12 @@ export const CFG = {
 function rng(book) { let a = book.rs | 0; a = a + 0x6D2B79F5 | 0; book.rs = a; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
 const pickOf = (book, arr) => arr[Math.floor(rng(book) * arr.length)];
 
+// 服役紀錄（Alan 2026-10-10：每個實體自己的履歷，服務過哪些公司、打過哪些仗——故事的來源）。跟著人走，易主也不斷。
+// 事件：born（出槽）、case（一個案件：打了幾場、贏幾場、尾款）、kia（陣亡）；之後加 down／recovered／transfer／merge
+const REC_MAX = 300;
+export function rec(cl, e) { (cl.record ||= []).push(e); if (cl.record.length > REC_MAX) cl.record.splice(1, 1); }
+export const caseRec = (cl, id) => id == null ? null : (cl.record || []).findLast(e => e.t === 'case' && e.case === id);
+export function joinRec(cl, c, co, now) { if (!caseRec(cl, c.id)) rec(cl, {h: now, t: 'case', co, case: c.id, title: c.title, tile: c.tile, kind: c.kind, fights: 0, wins: 0}); }
 export function newBook(seed = 1) { return {rs: seed | 0, nextId: 1, cloneSeq: 1, t: 0, cases: [], tickets: [], squads: {}, ledger: [], inbox: [], companies: {}, amends: [], trips: []}; }
 
 // ===== 小隊 =====
@@ -587,6 +593,10 @@ function settleTicket(book, w, tk, res, now) {
   tk.pts = Math.round(pts * 10) / 10;
   if (c.kind === 'camp' && !tk.transit) campSettle(book, w, c, tk, res, sq, now);
   else if (!tk.transit) c.score[sq.player] = (c.score[sq.player] || 0) + tk.pts;
+  // 服役紀錄：這一隊的每個人都記一場（不記殺敵數，Alan 2026-10-10）；這一場倒下的記陣亡
+  for (const cl of sq.clones) { if (!cl.alive && !res.dead.includes(cl.id)) continue; let e = caseRec(cl, c.id); if (!e) { joinRec(cl, c, sq.player, now); e = caseRec(cl, c.id); }
+    e.fights++; if (res.win) e.wins++;
+    if (res.dead.includes(cl.id)) rec(cl, {h: now, t: 'kia', co: sq.player, title: tk.title, tile: tk.tile, case: c.id}); }
   // 陣亡的複製人：當下就是業務損失；身上的裝備掉在那一格
   let gearLost = 0;
   for (const id of res.dead) { pay(book, now, sq.player, -(CFG.CLONE_VALUE + sq.gear), 'loss', `${tk.title}：${id} 陣亡`, c.id); gearLost += sq.gear; }

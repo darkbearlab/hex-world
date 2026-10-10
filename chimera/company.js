@@ -19,6 +19,18 @@ export const CLS = {
 // ASH 技能的中文名（複製人出生沒有技能，3 級學會職業技能；chimera/ash/overlay/src/chimera-squad.js）
 export const SKILL_NAME = {early_warning: '預警', signal_break: '訊號斷層', anchor: '下錨', grapple: '鉤鎖', workshop: '工坊'};
 export const PORTRAITS = ['ember', 'onyx', 'silver', 'cedar', ...Array.from({length: 12}, (_, i) => `portrait-${String(i + 5).padStart(2, '0')}`)];
+// 資料主人（DNA 原主）（Alan 2026-10-10）：每張立繪是一位原主，名字和職業都綁在原主身上（大和不會變成輕巡）；
+// 複製人是原主的一批，畫面顯示「原主名字 編號」。名單是暫定的，之後 Alan 會換掉。
+export const DONORS = {
+  ember: {name: '凱拉', cls: 'soldier'}, onyx: {name: '伊薇', cls: 'recon'}, silver: {name: '莎菈', cls: 'bulwark'}, cedar: {name: '娜迪亞', cls: 'berserker'},
+  'portrait-05': {name: '蕾雅', cls: 'engineer'}, 'portrait-06': {name: '米菈', cls: 'soldier'}, 'portrait-07': {name: '塔莉亞', cls: 'recon'}, 'portrait-08': {name: '艾琳', cls: 'bulwark'},
+  'portrait-09': {name: '薇拉', cls: 'berserker'}, 'portrait-10': {name: '諾娃', cls: 'engineer'}, 'portrait-11': {name: '茵格', cls: 'soldier'}, 'portrait-12': {name: '菲歐', cls: 'recon'},
+  'portrait-13': {name: '瑟琳', cls: 'bulwark'}, 'portrait-14': {name: '朵拉', cls: 'berserker'}, 'portrait-15': {name: '雅絲', cls: 'engineer'}, 'portrait-16': {name: '露恩', cls: 'soldier'},
+};
+export const donorName = c => DONORS[c.donor ?? c.portrait]?.name || '';
+const donorsOf = cls => PORTRAITS.filter(p => DONORS[p]?.cls === cls);
+// 先照素材比例擲職業，再從這個職業的原主裡挑一位
+const pickPortrait = (r, cls) => { const L = donorsOf(cls); return L.length ? L[Math.floor(r() * L.length)] : PORTRAITS[Math.floor(r() * PORTRAITS.length)]; };
 export const GCFG = {
   START_CASH: 400, START_MATS: {food: 400, water: 400, implant: 200, neural: 200},
   MIN: 30, MAX: 999,       // 每種素材一次最少、最多投多少
@@ -48,7 +60,7 @@ export function makeClone(G, rng, cls, portrait, u, o = {}) {
   const n = Math.floor(rng() * 10000);
   return {id: o.uid != null ? `${L}-${String(o.uid).padStart(5, '0')}` : `${L}-${String(n).padStart(4, '0')}`, uid: o.uid ?? G.seq++, cls, portrait, st, u, pct: +pct.toFixed(4),
     crown: pct >= .99 ? 'gold' : pct >= .9 ? 'silver' : '', pow: +(6 * CLS[cls].k * (.85 + .075 * sum)).toFixed(2), weapon: CLS[cls].weapon,
-    hp: 20, alive: true, status: 'home', keep: false, born: o.born || 0, template: !!o.template, kills: 0, missions: 0};
+    hp: 20, alive: true, status: 'home', keep: false, born: o.born || 0, template: !!o.template, kills: 0, missions: 0, donor: portrait, record: []};
 }
 
 // ===== 公司 =====
@@ -56,7 +68,7 @@ export function newCompany(w, base, name = '我的公司', seed = 7, book = null
   const G = {flows: [], daily: [], name, base, cash: GCFG.START_CASH, mats: {...GCFG.START_MATS}, roster: [], templates: [], queue: [], store: [], itemSeq: 0, seq: 1, rs: seed | 0, h: 0, ledgerAt: 0, inboxAt: 0, log: [], cases: [], returning: []};
   const r = () => rnd(G);
   // 開局：一隊四人（配方平均），外加一張模板
-  for (let i = 0; i < 6; i++) G.roster.push(makeClone(G, r, pickW(r, classOdds({food: 30, water: 30, implant: 30, neural: 30})), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()], {uid: nextUid(book)}));
+  for (let i = 0; i < 6; i++) { const cls = pickW(r, classOdds({food: 30, water: 30, implant: 30, neural: 30})), c = makeClone(G, r, cls, pickPortrait(r, cls), [r(), r(), r(), r()], {uid: nextUid(book)}); C.rec(c, {h: 0, t: 'born', co: name, tile: base}); G.roster.push(c); }
   G.templates.push(mkTemplate(G, r));
   note(G, 0, `公司在${w.names[base]}掛牌。培養槽 ${GCFG.VATS} 座，六名複製人待命，另有一張模板。`);
   return G;
@@ -65,7 +77,7 @@ function rnd(G) { let a = G.rs | 0; a = a + 0x6D2B79F5 | 0; G.rs = a; let t = Ma
 function pickW(r, odds) { let x = r(); for (const k in odds) { x -= odds[k]; if (x <= 0) return k; } return 'soldier'; }
 function note(G, h, text) { G.log.push({h, text}); if (G.log.length > 200) G.log.shift(); }
 function mkTemplate(G, r) {
-  const cls = Object.keys(CLS)[Math.floor(r() * 5)], portrait = PORTRAITS[Math.floor(r() * PORTRAITS.length)];
+  const cls = Object.keys(CLS)[Math.floor(r() * 5)], portrait = pickPortrait(r, cls);
   const lean = {soldier: {food: 60, water: 80, implant: 60, neural: 60}, recon: {food: 50, water: 50, implant: 50, neural: 120}, bulwark: {food: 60, water: 50, implant: 120, neural: 50},
     berserker: {food: 130, water: 60, implant: 50, neural: 40}, engineer: {food: 40, water: 50, implant: 100, neural: 100}}[cls];
   return {id: 'TP' + G.seq++, cls, portrait, recipe: lean};
@@ -171,9 +183,10 @@ export function claim(G, slot, book = null) {
 function finishBuild(G, q, h, book = null) {
   const r = () => rnd(G);
   const c = q.tpl ? makeClone(G, r, q.tpl.cls, q.tpl.portrait, [GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U, GCFG.TEMPLATE_U], {born: h, template: true, uid: nextUid(book)})
-    : makeClone(G, r, pickW(r, classOdds(q.recipe)), PORTRAITS[Math.floor(r() * PORTRAITS.length)], [r(), r(), r(), r()], {born: h, uid: nextUid(book)});
+    : (cls => makeClone(G, r, cls, pickPortrait(r, cls), [r(), r(), r(), r()], {born: h, uid: nextUid(book)}))(pickW(r, classOdds(q.recipe)));
+  C.rec(c, {h, t: 'born', co: G.name, tile: G.base});
   gearOf(G, c); c.weapon = gearLabel(c.gear); G.roster.push(c); G.fresh = c.uid;
-  note(G, h, `培養槽出槽：${CLS[c.cls].n} ${c.id}${c.crown === 'gold' ? '（金冠！）' : c.crown === 'silver' ? '（銀冠）' : ''}${c.template ? '（模板）' : ''}，配發${c.weapon}。`);
+  note(G, h, `培養槽出槽：${CLS[c.cls].n} ${donorName(c)} ${c.id}${c.crown === 'gold' ? '（金冠！）' : c.crown === 'silver' ? '（銀冠）' : ''}${c.template ? '（模板）' : ''}，配發${c.weapon}。`);
 }
 
 // ===== 接案、派兵、補員 =====
@@ -304,7 +317,7 @@ export function accept(G, book, w, opp, side, uids, now, fast = false, contract 
   let n = 0;
   for (const g of groups) {
     const sq = C.makeSquad(book, G.name, {clones: g, gear: 3, at: G.base, name: `${G.name}・第${G.seq++}隊`}); sq.fast = !!fast;
-    if (C.enlist(book, c.id, sq.id, now, w)) { n++; for (const x of g) { x.status = 'away'; x.missions++; } }
+    if (C.enlist(book, c.id, sq.id, now, w)) { n++; for (const x of g) { x.status = 'away'; x.missions++; C.joinRec(x, c, G.name, now); } }
     else delete book.squads[sq.id];
   }
   if (!n) {
@@ -321,7 +334,8 @@ export function reinforce(G, book, w, squadId, uids, now, fast = false) {
   if (!pick.length) return '沒有選人';
   const r = C.amend(book, w, squadId, pick.length, G.base, now, {clones: pick, fast});
   if (!r.ok) return r.why;
-  for (const c of r.amend.col ? book.squads[r.amend.col].clones : []) { c.status = 'away'; c.missions++; }
+  const cs = book.cases.find(x => x.id === book.squads[squadId]?.caseId);
+  for (const c of r.amend.col ? book.squads[r.amend.col].clones : []) { c.status = 'away'; c.missions++; if (cs) C.joinRec(c, cs, G.name, now); }
   return null;
 }
 
@@ -355,6 +369,7 @@ export function hour(G, book, w, h) {
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       if (sq.fast) C.paySpeed(book, w, G.name, c.tile, G.base, sq.clones.filter(x => x.alive && x.status === 'away').length, h, `${c.title}（${sq.name}）回程`, c.id); for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
+    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq?.player !== G.name) continue; for (const x of sq.clones) { const e = C.caseRec(x, c.id); if (e && e.end == null) { e.end = h; e.payout = got; if (c.delivered !== undefined) e.delivered = c.delivered; } } }
     note(G, h, `「${c.title}」結案${c.delivered !== undefined ? `，送達 ${Math.round(c.delivered * 100)}%` : ''}，分到尾款 $${got}k。`);
     if (got > 0 && rnd(G) < GCFG.TEMPLATE_P) { const t = mkTemplate(G, () => rnd(G)); G.templates.push(t); note(G, h, `雇主另外送了一張模板：${CLS[t.cls].n}。`); }
     if (got > 0 && rnd(G) < GCFG.ARMOR_P) rewardArmor(G, h);
@@ -375,7 +390,8 @@ function sendHome(G, w, clones, from, h, fast = false, book = null, what = '召�
 }
 export function recall(G, book, w, squadId, now) {
   const sq = book.squads[squadId]; if (!sq || sq.player !== G.name) return '找不到這一隊';
-  const r = C.withdraw(book, w, squadId, now); if (!r.ok) return r.why;
+  const caseId = sq.caseId, r = C.withdraw(book, w, squadId, now); if (!r.ok) return r.why;
+  for (const x of sq.clones) { const e = C.caseRec(x, caseId); if (e && e.end == null) { e.end = now; e.recalled = true; } }
   const hrs = sendHome(G, w, sq.clones, r.here, now, sq.fast, book, sq.name);
   for (const col of r.cols) sendHome(G, w, col.clones, col.here, now, col.fast, book, `${sq.name} 的補員`);
   note(G, now, `召回${sq.name}${r.penalty ? `，付違約金 $${r.penalty}k` : ''}，約 ${C.fmtDur(hrs)}後回到總部。`);
@@ -415,7 +431,7 @@ export function view(G, book, w) {
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
   return {units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, ready: !!q.ready})),
-    templates: G.templates, roster: G.roster.map(c => ({...c, squad: sqOf[c.uid]?.name || ''})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
+    templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''}))})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 
 // 地圖上要標的：每一支派出去的人馬現在在哪、往哪走

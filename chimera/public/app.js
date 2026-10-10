@@ -372,8 +372,9 @@ let GV = null, GM = null, coBuilt = false, pickOpp = null, pickRe = null, roster
 const recipe = {food: 30, water: 30, implant: 30, neural: 30};
 const send = m => worker.postMessage(m);
 const img = p => `portraits/${p}.png`;
+const who = c => c.name || CLS[c.cls].n;   // 原主的名字（Alan 2026-10-10）；舊資料沒有就顯示職業
 const crownTag = c => c.crown === 'gold' ? '<span class="crown gold">金冠</span>' : c.crown === 'silver' ? '<span class="crown silver">銀冠</span>' : c.template ? '<span class="crown tpl">模板</span>' : '';
-const chip = (c, on, key) => `<span class="chip${on ? ' on' : ''}${c.alive ? '' : ' dead'}${key ? '' : ' static'}"${key && c.alive ? ` data-${key}="${c.uid}"` : ''}><img src="${img(c.portrait)}" alt="">${CLS[c.cls].n} ${c.id}</span>`;   // 金冠、銀冠只在詳細資料裡顯示（Alan 2026-10-09）
+const chip = (c, on, key) => `<span class="chip${on ? ' on' : ''}${c.alive ? '' : ' dead'}${key ? '' : ' static'}"${key && c.alive ? ` data-${key}="${c.uid}"` : ''}><img src="${img(c.portrait)}" alt="">${who(c)} ${c.id}</span>`;   // 金冠、銀冠只在詳細資料裡顯示（Alan 2026-10-09）
 const fmtH = x => x <= 0 ? '0 小時' : x < 48 ? `${Math.round(x)} 小時` : `${Math.floor(x / 24)} 天 ${Math.round(x % 24)} 小時`;
 // 倒數在本機跑（每秒更新；到點之後的結果仍以伺服器為準，伺服器結算完下一次拉資料才會出現）。單人測試模式的時鐘是加速的，照舊只顯示小時
 const hourNow = () => !LOCAL && worker?.hourNow ? worker.hourNow() : null;
@@ -506,7 +507,7 @@ function renderStore() {
   const al = GV.roster.filter(c => c.alive), store = GV.store || [], KN = {gun: '槍', melee: '近戰', armor: '護甲', kit: '預備品'};
   const kit = c => { const get = gearOfC(c); return [get('armor'), get('kit0'), get('kit1')].filter(Boolean).map(itemName).join('、'); };
   P.html = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">身上的裝備 <span class="muted">點人換裝</span></h3>
-    <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${img(c.portrait)}" alt="">${CLS[c.cls].n} ${c.id}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
+    <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${img(c.portrait)}" alt="">${who(c)} ${c.id}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
     <div class="cocol"><div class="box"><h3 class="sec">庫存 <span class="muted">戰鬥撿到的、換下來的・本地行情 ×${(GV.sellFactor ?? 1).toFixed(2)}</span></h3>
     ${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${store.map(it => `<tr><td>${KN[it.kind]}</td><td>${esc(it.name)}${it.kind === 'armor' && it.affix ? `<div class="mini muted">${esc(ARMOR_TEXT[it.affix] || '')}</div>` : ''}</td><td class="acts">${it.kind === 'gun' ? `<button data-modpick="${it.id}">改裝</button>` : ''}<button data-sell="${it.id}">${it.value ? `賣 $${it.value}k` : '丟棄'}</button></td></tr>${modPick === it.id ? `<tr><td colspan="3"><div class="gpick">${Object.keys(MOD_AFFIXES).filter(a => !MOD_AFFIXES[a].notOn?.includes(it.base) && a !== it.affix).map(a => `<button data-mod="${it.id}:${a}">${AFFIX_NAMES[a]}</button>`).join('')}<span class="mini">每次 $${modCost(it.base)}k</span><button data-modx="1">取消</button></div></td></tr>` : ''}`).join('')}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
 }
@@ -538,7 +539,7 @@ function maybeReveal() {
     <div class="rflash"></div>
     ${rank ? `<div class="rrank">${rank === 'gold' ? '金冠' : rank === 'silver' ? '銀冠' : '模板'}</div>` : ''}
     <img src="${img(c.portrait)}" alt="">
-    <div class="rname">${CLS[c.cls].n} ${c.id}</div>
+    <div class="rname">${who(c)} ${c.id}</div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td></tr></table>
     <div class="mini">素質前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%・${esc(c.weapon || '')}</div>
     <div class="mini muted">點一下關閉</div></div>`});
@@ -556,7 +557,7 @@ function renderRoster() {
   if (c) { B.html = personCard(c); return; }
   const R = G.roster.filter(x => inF(x)).sort((a, b) => b.pct - a.pct);
   B.html = `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
-    <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${img(x.portrait)}" alt=""><b>${x.id}</b><span>${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
+    <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${img(x.portrait)}" alt=""><b>${who(x)}</b><span>${x.id}・${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
 }
 // 裝備欄（Alan 2026-10-09）：槍 ×3、近戰、護甲、預備品 ×2。在總部待命時可以換：點「換」從倉庫挑，原本那件回倉庫
 const SLOT_N = {gun0: '槍 1', gun1: '槍 2', gun2: '槍 3', melee: '近戰', armor: '護甲', kit0: '預備品 1', kit1: '預備品 2'};
@@ -569,14 +570,23 @@ function gearBox(c) {
     return `<tr><th>${SLOT_N[s]}</th><td>${it ? esc(itemName(it)) : '<span class="muted">—</span>'}</td><td>${can ? `<button data-gslot="${s}">換</button>` : ''}</td></tr>${pick ? `<tr><td colspan="3">${pick}</td></tr>` : ''}`; }).join('');
   return `<table class="rep gear">${rows}</table>${can ? '' : '<p class="mini muted">出勤中，回到總部才能換裝。</p>'}`;
 }
+// 服役紀錄（Alan 2026-10-10）：新的在上面
+function serviceRecord(c) {
+  const R = (c.record || []).slice().reverse(), d = h => `第 ${Math.floor(h / 24) + 1} 天`;
+  const line = e => e.t === 'born' ? (e.before ? `${esc(e.co)}・在這之前的事沒有留下紀錄` : `${d(e.h)}・在${esc(e.place)}的${esc(e.co)}出槽`)
+    : e.t === 'case' ? `${d(e.h)}・${esc(e.co)}「${esc(e.title)}」：打了 ${e.fights} 場、贏 ${e.wins} 場${e.recalled ? '・中途召回' : e.end != null ? `・結案${e.delivered !== undefined ? `（送達 ${Math.round(e.delivered * 100)}%）` : ''}・尾款 $${e.payout || 0}k` : '・進行中'}`
+    : e.t === 'kia' ? `${d(e.h)}・在${esc(e.place)}「${esc(e.title)}」陣亡` : esc(e.t);
+  return `<h4 class="sec2">服役紀錄</h4>${R.length ? R.map(e => `<div class="mini caseline">${line(e)}</div>`).join('') : '<p class="mini muted">還沒有紀錄。</p>'}`;
+}
 function personCard(c) {
   const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : '陣亡';
   return `<div class="person"><button class="back" data-person="">← 名冊</button>
-    <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${c.id} ${CLS[c.cls].n}${crownTag(c)}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・經驗 ${c.xp || 0}・出勤 ${c.missions || 0} 次</div></div></div>
+    <div class="phead"><img src="${img(c.portrait)}" alt=""><div><div class="pname">${who(c)} ${c.id}${crownTag(c)}</div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・經驗 ${c.xp || 0}・出勤 ${c.missions || 0} 次</div></div></div>
     <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>
     ${gearBox(c)}
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
     <div class="row">${c.alive && c.status === 'home' ? `<button data-act="keep" data-id="${c.uid}" class="${c.keep ? 'on' : ''}">${c.keep ? '不再供著' : '供在家裡（不會被派出去）'}</button>` : ''}</div>
+    ${serviceRecord(c)}
     <p class="mini muted">強化、合成、換武器、加入最愛、指名為看板⋯之後會放在這裡。</p></div>`;
 }
 

@@ -301,6 +301,8 @@ export class Core {
       const byUid = new Map(co.roster.map(c => [c.uid, c]));
       sq.clones = sq.clones.map(c => (c.uid != null && byUid.get(c.uid)) || c);
     }
+    // 舊存檔：服役紀錄從現在開始記（之前的事補不回來），先補一筆出槽
+    for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.record) c.record = [{h: c.born || 0, t: 'born', co: co.name, tile: co.base, before: true}];
     // 舊存檔（Alan 2026-10-10）：uid 從「每家公司各自數」改成全星球流水號。照公司、名冊的順序重新發號；顯示的編號不改（認得的人還是那個名字）
     if (!g.book.cloneSeq) {
       let n = 1; const all = Object.values(g.book.squads);
