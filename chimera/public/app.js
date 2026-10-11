@@ -858,32 +858,42 @@ function renderRepPage() {
   $('rep-cash').textContent = `$${GV.cash}k`; $('rep-cash').classList.toggle('neg', GV.cash < 0);
   renderRep();
 }
+// 報表分頁（Alan 2026-10-11：越拖越長，依性質分）：收支、案件、名氣、派系、人員；記住上次看的分頁
+const REP_TABS = [['money', '收支'], ['cases', '案件'], ['fame', '名氣'], ['rel', '派系'], ['people', '人員']];
+let repTab = (() => { try { return localStorage.getItem('chimera.repTab') || 'money'; } catch { return 'money'; } })();
 function renderRep() {
   const el = $('co-rep'); if (!el) return;
   const R = GV.report, money = v => `<span class="${v > 0 ? 'pos' : v < 0 ? 'neg' : ''}">${v > 0 ? '+' : ''}${Math.round(v || 0)}k</span>`;
-  const tot = o => FK.reduce((x, [k]) => x + (o[k] || 0), 0);
-  let html = `<div class="mini">現金走勢（每天一點）</div><div class="spark" id="co-spark">${sparkSvg(R.daily, Math.max(280, (el.clientWidth || 320) - 4), 180)}</div>`;
-  html += `<table class="rep" style="margin-top:8px"><tr><th>收支</th><th>近 30 天</th><th>累計</th></tr>` + FK.map(([k, n]) => `<tr><td>${n}</td><td>${money(R.d30[k])}</td><td>${money(R.all[k])}</td></tr>`).join('') +
-    `<tr class="tot"><td>現金合計</td><td>${money(tot(R.d30))}</td><td>${money(tot(R.all))}</td></tr><tr><td class="muted">帳面業務損失（陣亡）</td><td>${money(R.d30.loss)}</td><td>${money(R.all.loss)}</td></tr></table>`;
-  // 應付帳款（Alan 2026-10-11）：維持費每人每天先記在這裡，結案時才結帳
-  if (GV.payable) html += `<div class="mini" style="margin-top:8px">應付帳款（維持費，每人每天 $1k，結案時結帳）：<b class="neg">−$${Math.round(GV.payable)}k</b></div>`;
-  // 進行中的案件：已收（訂金、期中款）與應收（還沒付的期中款、尾款池）（Alan 2026-10-09：從任務管制的案件卡搬過來）
-  const act = GV.cases.filter(c => !c.settled && !c.own);
-  if (act.length) html += `<div class="mini" style="margin-top:10px">進行中的案件</div><table class="rep"><tr><th>案件</th><th>已收</th><th>應收</th><th>應付維持費</th></tr>` + act.map(c => { const n = c.squads.length;
-    return `<tr><td>${esc(c.title)}</td><td>訂金 $${c.pay.deposit * n}k${c.midPaid ? `＋期中 $${c.pay.mid * n}k` : ''}</td><td>${c.midPaid ? '' : `期中 $${c.pay.mid * n}k＋`}尾款池 $${c.pay.final}k<span class="mini">（依積分平分）</span></td><td>${c.due ? `−$${Math.round(c.due)}k` : ''}</td></tr>`; }).join('') + '</table>';
-  html += `<div class="mini" style="margin-top:10px">結案紀錄</div>` + (R.hist.length ? `<table class="rep"><tr><th>案件</th><th>服務單（勝／自動）</th><th>陣亡</th><th>收入</th></tr>` + R.hist.slice(0, 15).map(c => `<tr><td>${esc(c.title)}${c.delivered !== undefined ? ` <span class="mini">送達 ${Math.round(c.delivered * 100)}%</span>` : ''}</td><td>${c.tickets}（${c.wins}／${c.auto}）</td><td>${c.dead || ''}</td><td>${c.own ? '<span class="muted">—</span>' : money(c.income + c.upkeep)}</td></tr>`).join('') + '</table>' : '<p class="muted">還沒有結案。</p>');
-  // 名氣（Alan 2026-10-10）：每一筆怎麼來的
-  const FR = GV.retainer || {fameLog: []}, KN = {camp: '大戰役', front: '勢力戰', hunt: '據點', garrison: '駐守', route: '護送', shadow: '黑單', privateer: '私掠'};
-  html += `<div class="mini" style="margin-top:10px">名氣 <b>${FR.fame ?? 0}</b>・世界排行第 ${FR.rank ?? '-'}／${FR.of ?? '-'} 名（產地只找前 ${FR.topN ?? '-'} 名）・成功的單子：規模 × 威脅（等級 × 實際碰到的敵人戰力）× 貢獻（自己的積分佔全案的比例）；違約扣 ${60}</div>` +
-    (FR.fameLog?.length ? `<table class="rep"><tr><th>時間</th><th>案件</th><th>規模</th><th>威脅</th><th>貢獻</th><th>名氣</th></tr>` + FR.fameLog.map(e => `<tr><td>第 ${Math.floor(e.h / 24) + 1} 天</td><td>${esc(e.title)}</td><td>${e.base != null ? `${KN[e.kind] || e.kind} ${e.base}` : ''}</td><td>${e.threat != null ? `${'●'.repeat(e.lv)}×${(e.threat / e.lv).toFixed(2)}（敵 ${e.pow}）` : ''}</td><td>${e.share != null ? Math.round(e.share * 100) + '%' : ''}</td><td>${money(e.fame).replace(/k</, '<')}</td></tr>`).join('') + '</table>' : '<p class="mini muted">還沒有。結案拿到尾款就會記上。</p>');
-  // 派系關係（Alan 2026-10-11）：每個勢力對你的觀感與統治者性格；低到門檻就不跟你往來，夠高才開黑單
-  if (GV.rel) { const TN = {好戰: '好戰', 結盟: '重盟約', 機會: '機會主義', 守成: '守成', 均衡: '均衡', 擴張: '擴張', 多疑: '多疑', 重商: '重商', 記仇: '記仇'};
-    html += `<div class="mini" style="margin-top:10px">派系關係（${GV.relRefuse} 以下不跟你往來；黑單要名氣夠、或跟雇主 ${GV.relBlack} 以上）</div><table class="rep"><tr><th>勢力</th><th>統治者</th><th>關係</th></tr>` +
-      GV.rel.slice().sort((a, b) => b.v - a.v).map(r => `<tr><td>${esc(r.n)}</td><td>${TN[r.trait] || ''}</td><td>${money(r.v).replace(/k</, '<')}</td></tr>`).join('') + '</table>' +
-      (GV.relLog?.length ? `<table class="rep"><tr><th>時間</th><th>勢力</th><th>原因</th><th>變化</th></tr>` + GV.relLog.slice(0, 15).map(e => `<tr><td>第 ${Math.floor(e.h / 24) + 1} 天</td><td>${esc(e.n)}</td><td>${esc(e.why)}</td><td>${money(e.v).replace(/k</, '<')}</td></tr>`).join('') + '</table>' : ''); }
-  const al = GV.roster.filter(c => c.alive), byC = {}; for (const c of al) byC[c.cls] = (byC[c.cls] || 0) + 1;
-  html += `<div class="mini" style="margin-top:10px">人員：${Object.entries(byC).map(([k, n]) => `${CLS[k].n} ${n}`).join('・') || '沒有'}・金冠 ${al.filter(c => c.crown === 'gold').length}・銀冠 ${al.filter(c => c.crown === 'silver').length}</div>`;
-  el.innerHTML = html;
+  const tot = o => FK.reduce((x, [k]) => x + (o[k] || 0), 0), day = h => `第 ${Math.floor(h / 24) + 1} 天`;
+  if (!REP_TABS.some(([k]) => k === repTab)) repTab = 'money';
+  const sec = {
+    // 收支：現金走勢、各項收支（兩欄都是 0 的不列）、應付帳款
+    money: () => `<div class="mini">現金走勢（每天一點）</div><div class="spark" id="co-spark">${sparkSvg(R.daily, Math.max(280, (el.clientWidth || 320) - 4), 180)}</div>` +
+      (GV.payable ? `<div class="mini" style="margin-top:8px">應付帳款（維持費，每人每天 $1k，結案時結帳）：<b class="neg">−$${Math.round(GV.payable)}k</b></div>` : '') +
+      `<table class="rep" style="margin-top:8px"><tr><th>收支</th><th>近 30 天</th><th>累計</th></tr>` + FK.filter(([k]) => Math.round(R.d30[k] || 0) || Math.round(R.all[k] || 0)).map(([k, n]) => `<tr><td>${n}</td><td>${money(R.d30[k])}</td><td>${money(R.all[k])}</td></tr>`).join('') +
+      `<tr class="tot"><td>現金合計</td><td>${money(tot(R.d30))}</td><td>${money(tot(R.all))}</td></tr><tr><td class="muted">帳面業務損失（陣亡）</td><td>${money(R.d30.loss)}</td><td>${money(R.all.loss)}</td></tr></table>`,
+    // 案件：進行中的（已收、應收、應付維持費）與結案紀錄
+    cases: () => { const act = GV.cases.filter(c => !c.settled && !c.own);
+      return (act.length ? `<div class="mini">進行中的案件</div><table class="rep"><tr><th>案件</th><th>已收</th><th>應收</th><th>應付維持費</th></tr>` + act.map(c => { const n = c.squads.length;
+        return `<tr><td>${esc(c.title)}</td><td>${c.pay.deposit ? `訂金 $${c.pay.deposit * n}k` : ''}${c.midPaid && c.pay.mid ? `＋期中 $${c.pay.mid * n}k` : ''}</td><td>${!c.midPaid && c.pay.mid ? `期中 $${c.pay.mid * n}k＋` : ''}${c.pay.final ? `尾款池 $${c.pay.final}k<span class="mini">（依積分平分）</span>` : ''}</td><td>${c.due ? `−$${Math.round(c.due)}k` : ''}</td></tr>`; }).join('') + '</table>' : '<p class="mini muted">沒有進行中的案件。</p>') +
+        `<div class="mini" style="margin-top:10px">結案紀錄</div>` + (R.hist.length ? `<table class="rep"><tr><th>案件</th><th>服務單（勝／自動）</th><th>陣亡</th><th>收入</th></tr>` + R.hist.slice(0, 30).map(c => `<tr><td>${esc(c.title)}${c.delivered !== undefined ? ` <span class="mini">送達 ${Math.round(c.delivered * 100)}%</span>` : ''}</td><td>${c.tickets}（${c.wins}／${c.auto}）</td><td>${c.dead || ''}</td><td>${c.own ? '<span class="muted">—</span>' : money(c.income + c.upkeep)}</td></tr>`).join('') + '</table>' : '<p class="muted">還沒有結案。</p>'); },
+    // 名氣（Alan 2026-10-10）：每一筆怎麼來的
+    fame: () => { const FR = GV.retainer || {fameLog: []}, KN = {camp: '大戰役', front: '勢力戰', hunt: '據點', garrison: '駐守', route: '護送', shadow: '黑單', privateer: '私掠'};
+      return `<div class="mini">名氣 <b>${FR.fame ?? 0}</b>・世界排行第 ${FR.rank ?? '-'}／${FR.of ?? '-'} 名（產地只找前 ${FR.topN ?? '-'} 名）・成功的單子：規模 × 威脅（等級 × 實際碰到的敵人戰力）× 貢獻（自己的積分佔全案的比例）；違約、黑單曝光扣 ${60}</div>` +
+        (FR.fameLog?.length ? `<table class="rep"><tr><th>時間</th><th>案件</th><th>規模</th><th>威脅</th><th>貢獻</th><th>名氣</th></tr>` + FR.fameLog.map(e => `<tr><td>${day(e.h)}</td><td>${esc(e.title)}</td><td>${e.base != null ? `${KN[e.kind] || e.kind} ${e.base}` : ''}</td><td>${e.threat != null ? `${'●'.repeat(e.lv)}×${(e.threat / e.lv).toFixed(2)}（敵 ${e.pow}）` : ''}</td><td>${e.share != null ? Math.round(e.share * 100) + '%' : ''}</td><td>${money(e.fame).replace(/k</, '<')}</td></tr>`).join('') + '</table>' : '<p class="mini muted">還沒有。結案拿到尾款就會記上。</p>'); },
+    // 派系關係（Alan 2026-10-11）：每個勢力對你的觀感與統治者性格
+    rel: () => { if (!GV.rel) return '<p class="mini muted">沒有資料。</p>'; const TN = {好戰: '好戰', 結盟: '重盟約', 機會: '機會主義', 守成: '守成', 均衡: '均衡', 擴張: '擴張', 多疑: '多疑', 重商: '重商', 記仇: '記仇'};
+      return `<div class="mini">${GV.relRefuse} 以下不跟你往來；黑單要名氣夠、或跟雇主 ${GV.relBlack} 以上</div><table class="rep"><tr><th>勢力</th><th>統治者</th><th>關係</th></tr>` +
+        GV.rel.slice().sort((a, b) => b.v - a.v).map(r => `<tr><td>${esc(r.n)}</td><td>${TN[r.trait] || ''}</td><td>${money(r.v).replace(/k</, '<')}</td></tr>`).join('') + '</table>' +
+        (GV.relLog?.length ? `<div class="mini" style="margin-top:10px">最近的變化</div><table class="rep"><tr><th>時間</th><th>勢力</th><th>原因</th><th>變化</th></tr>` + GV.relLog.slice(0, 30).map(e => `<tr><td>${day(e.h)}</td><td>${esc(e.n)}</td><td>${esc(e.why)}</td><td>${money(e.v).replace(/k</, '<')}</td></tr>`).join('') + '</table>' : ''); },
+    people: () => { const al = GV.roster.filter(c => c.alive), byC = {}; for (const c of al) byC[c.cls] = (byC[c.cls] || 0) + 1;
+      const lv = {}; for (const c of al) lv[c.lv || 1] = (lv[c.lv || 1] || 0) + 1;
+      return `<table class="rep"><tr><th>項目</th><th>人數</th></tr>` + Object.entries(byC).map(([k, n]) => `<tr><td>${CLS[k].n}</td><td>${n}</td></tr>`).join('') +
+        `<tr><td>金冠</td><td>${al.filter(c => c.crown === 'gold').length}</td></tr><tr><td>銀冠</td><td>${al.filter(c => c.crown === 'silver').length}</td></tr><tr class="tot"><td>活著</td><td>${al.length}</td></tr><tr><td class="muted">已除名</td><td>${GV.roster.length - al.length}</td></tr></table>` +
+        `<div class="mini" style="margin-top:10px">等級分布</div><table class="rep"><tr><th>等級</th><th>人數</th></tr>` + Object.entries(lv).sort((a, b) => b[0] - a[0]).map(([k, n]) => `<tr><td>${k} 級</td><td>${n}</td></tr>`).join('') + '</table>'; },
+  };
+  el.innerHTML = `<div class="chips reptabs">${REP_TABS.map(([k, n]) => `<button class="chip${k === repTab ? ' on' : ''}" data-rtab="${k}">${n}</button>`).join('')}</div><div style="margin-top:8px">${sec[repTab]()}</div>`;
+  el.onclick = e => { const b = e.target.closest('[data-rtab]'); if (!b) return; repTab = b.dataset.rtab; try { localStorage.setItem('chimera.repTab', repTab); } catch {} renderRep(); };
 }
 function sparkSvg(D, W = 320, H = 120) {
   if (!D || D.length < 2) return '<p class="muted" style="margin:6px 0">過一天之後就會畫出來。</p>';
