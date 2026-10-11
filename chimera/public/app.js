@@ -951,7 +951,9 @@ let swipe = null;
 $('pages').addEventListener('touchstart', e => {
   if (e.touches.length !== 1) { swipe = null; return; }
   const t = e.touches[0], el = e.target;
-  if (el.closest('input,select,textarea,.tabs')) { swipe = null; return; }
+  if (el.closest('input,select,textarea,.tabs,.hscroll')) { swipe = null; return; }
+  // 在可以左右捲動的東西上（寬的報表等）滑動是捲動，不是換分頁（Alan 2026-10-11）
+  for (let n = el; n && n !== document.body; n = n.parentElement) { const ox = getComputedStyle(n).overflowX; if ((ox === 'auto' || ox === 'scroll') && n.scrollWidth > n.clientWidth + 2) { swipe = null; return; } }
   const edge = t.clientX < 28 || t.clientX > innerWidth - 28;
   if (el.closest('#map') && !edge) { swipe = null; return; }
   swipe = {x: t.clientX, y: t.clientY, at: Date.now()};
