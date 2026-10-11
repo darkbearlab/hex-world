@@ -362,6 +362,8 @@ const kindOf = o => ({short: 'route', route: 'route', exp: 'route', logging: 'ro
 export const REL = {MIN: -100, MAX: 100, REFUSE: -30, BLACK: 20, CASE: 2, EXPOSED_VICTIM: -40, EXPOSED_EMPLOYER: -10, BLACK_FAME: 20};
 export const relOf = (G, f) => (G.rel || {})[f] || 0;
 export function relAdd(G, f, v, why, h) { if (f == null || f < 0 || !v) return; G.rel ||= {}; G.rel[f] = Math.max(REL.MIN, Math.min(REL.MAX, (G.rel[f] || 0) + v)); (G.relLog ||= []).push({h, f, v: Math.round(v * 10) / 10, why}); if (G.relLog.length > 200) G.relLog.shift(); }
+// 委託板上看不看得到（Alan 2026-10-11：條件不符的黑單不該出現在板上）：等級以外的門檻都照接案的規則
+export const canSee = (G, book, w, opp) => !gate(G, book, w, opp, []);
 function gate(G, book, w, opp, pick) {
   const K = w.sim.peek(), me = K.owner[G.base];
   if (opp.fac >= 0 && relOf(G, opp.fac) <= REL.REFUSE) return `${K.fac[opp.fac]?.n || '這個勢力'}不跟你往來（派系關係太低）`;

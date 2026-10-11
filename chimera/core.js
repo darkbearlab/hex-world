@@ -61,7 +61,7 @@ export class Core {
     return {y, stamp: this.stamp, campaigns: sim.campaignView(), owner, pop, trench, bandit, biome: Uint8Array.from(K.biome), towns, fac, wars, gangs, weapons,
       blocs: (K.ARC.blocs || []).filter(B => !B.gone).map(B => ({id: B.id, n: B.n, lead: B.lead})), leagues: (K.leagues || []).map(x => ({id: x.id, n: x.n})),
       arc: {ackY: K.ARC.ackY, fallY: K.ARC.fallY, blocY: K.ARC.blocY, elevator: K.ARC.elevator, phase: K.ARC.phase},
-      opps: this.sim.opportunities(),
+      opps: this.sim.opportunities().filter(o => o.kind !== 'shadow'),   // 黑單不公開（只在符合條件的公司的委託板上）
       events: ev.map(e => ({y: e.y, type: e.type, text: e.text, tile: e.tile}))};
   }
 
@@ -200,7 +200,7 @@ export class Core {
       const n = new Set(cs.flatMap(c => c.squads.map(s => book.squads[s]?.player).filter(Boolean))).size;
       const side = Object.entries(e.cases).find(([, id]) => mine.has(id))?.[0];   // 自己接的是哪一邊（大戰役加派時沿用）
       return {...e.opp, key: e.key, start: e.start, end: e.end, closeAt: e.end - C.CFG.FREEZE, gone: !!e.gone, joined, side, n};
-    }).filter(e => h >= e.start && ((h < e.closeAt && !e.gone) || (e.joined && h < e.end)));
+    }).filter(e => h >= e.start && ((h < e.closeAt && !e.gone && (!g || G.canSee(g, book, this.w, e))) || (e.joined && h < e.end)));
   }
   // 準時出槽：時間（帶小數的遊戲小時）到了的培養槽出槽。回傳出槽了幾個
   finishDue(t) { if (!this.game) return 0; let n = C.exactTick(this.game.book, this.w, t); for (const g of Object.values(this.game.cos)) n += G.finishDue(g, t); return n; }
