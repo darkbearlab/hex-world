@@ -745,11 +745,14 @@ function renderRover() {
   const home = GV.roster.filter(c => c.alive && (c.status === 'home' && !c.keep || R.crew.includes(c.uid))), picking = roverPick || new Set(R.crew);
   P.html = `<div class="box"><h3 class="sec">Rover <span class="muted">・<a href="#" data-center="${R.tile}">${nm(R.tile)}</a></span></h3>
     <div class="mini">${st}</div>
-    <div class="mini" style="margin-top:4px">熱量 <b${R.cargo.food < crew.length * 2 ? ' class="neg"' : ''}>${R.cargo.food}</b>／${R.cap}・淨水 <b${R.cargo.water < crew.length * 2 ? ' class="neg"' : ''}>${R.cargo.water}</b>／${R.cap}・一天吃 ${crew.filter(c => c.alive).length} 份${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天</span>` : ''}</div>
+    <div class="mini" style="margin-top:4px">熱量 <b${R.cargo.food < crew.length * 2 ? ' class="neg"' : ''}>${Math.floor(R.cargo.food)}</b>／${R.cap}・淨水 <b${R.cargo.water < crew.length * 2 ? ' class="neg"' : ''}>${Math.floor(R.cargo.water)}</b>／${R.cap}・一天吃 ${+(crew.filter(c => c.alive).length * (R.daily?.food ?? 1)).toFixed(2)} 份熱量、${+(crew.filter(c => c.alive).length * (R.daily?.water ?? 1)).toFixed(2)} 份淨水${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天</span>` : ''}</div>
     ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row"><button data-act="fight" data-id="${tk.id}">親自打</button><button data-act="resolve" data-id="${tk.id}">現在自動結算</button></div></div>` : ''}
     <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="roverstop">停車</button>' : ''}${!R.atHome ? `<button data-act="rovergo" data-id="${GV.base}">開回總部</button>` : ''}<button data-act="roversearch"${R.block || R.move ? ' disabled' : ''}>搜索這一帶（4 小時）</button>
       ${R.atHome || R.town ? `<button data-act="roversupply" data-f="10" data-w="0">熱量 +10${R.atHome ? '（倉庫）' : `（$${10 * R.buy.food}k）`}</button><button data-act="roversupply" data-f="0" data-w="10">淨水 +10${R.atHome ? '（倉庫）' : `（$${10 * R.buy.water}k）`}</button>` : ''}</div>
     <p class="mini muted">要去哪裡：到戰略地圖點一格，按「Rover 開到這裡」。停在有委託的格子時，那裡的委託可以「用 Rover 接」。</p></div>
+    <div class="box"><h3 class="sec">升級 <span class="muted">要到對的地方才能升</span></h3>
+    ${R.up.map(u => `<div class="caseline" style="margin:6px 0"><div class="row"><span style="flex:1"><b>${esc(u.n)}</b> ${u.lv}／${u.max} 級<span class="mini muted">・現在：${esc(u.now)}${u.next ? `・下一級：${esc(u.next)}（$${u.cost}k）` : '・已經升到頂'}</span></span>${u.next && u.here ? `<button data-act="roverup" data-id="${u.kind}">升級（$${u.cost}k）</button>` : ''}</div>
+      ${u.next && !u.here ? `<div class="mini muted">要到${esc(u.where)}：${u.near.map(x => `<button data-act="rovergo" data-id="${x.tile}">${esc(x.name)}（${x.d} 格・約 ${fmtH(x.hours)}）</button>`).join(' ') || '附近找不到'}</div>` : ''}</div>`).join('')}</div>
     <div class="box"><h3 class="sec">車上的人 <span class="muted">${crew.length}／4</span></h3>
     <div class="chips">${crew.map(x => chip(x, false, 'person')).join('') || '<span class="mini muted">沒有人</span>'}</div>
     ${pack ? `<div class="mini" style="margin-top:6px">行李：${pack.items.map(x => esc(x.name)).join('、') || '空的'}（點人可以整補）</div>` : ''}
@@ -1115,6 +1118,7 @@ const coClick = e => {
   else if (A === 'roverbuy') { if (confirm(`買一台 Rover（$${GV.rover?.price ?? 300}k）？`)) send({type: 'buyRover'}); }
   else if (A === 'rovergo') send({type: 'roverGo', tile: +id});
   else if (A === 'roverstop') send({type: 'roverStop'});
+  else if (A === 'roverup') send({type: 'roverUpgrade', kind: id});
   else if (A === 'roversearch') send({type: 'roverSearch'});
   else if (A === 'roversupply') send({type: 'roverSupply', food: +b.dataset.f || 0, water: +b.dataset.w || 0});
   else if (A === 'roverpick') { const u = +id; roverPick = roverPick || new Set(GV.rover?.crew || []); if (roverPick.has(u)) roverPick.delete(u); else if (roverPick.size < 4) roverPick.add(u); renderRover(); }

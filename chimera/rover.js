@@ -8,6 +8,29 @@ import {BIOMES, hdist} from './sim.js';
 
 export const ROVER = {PRICE: 300, TOW: 50, CAP: 40, SEARCH_H: 4, SEARCH_CD: 24 * 7, FOOD_K: 1, WATER_K: 1, UPKEEP: 1, BUY: {food: 1, water: 1}};
 const SITE = {oil: '石油城', ammo: '彈藥農場', oasis: '綠洲', salvage: '拆解場'};
+// 升級（Alan 2026-10-12：先做食物、水、速度三項；要到對的地方才能升級，畫面上直接指出該去哪裡）
+export const UP = {
+  engine: {n: '引擎', at: 'oil', where: '石油城', k: [1, .85, .7, .55], text: v => `每格的時間 ×${v}`},
+  food: {n: '儲糧艙', at: 'big', where: '大城（人口前一成）', k: [1, .75, .5, .35], text: v => `每人每天吃 ${v} 份熱量`},
+  water: {n: '淨水器', at: 'oasis', where: '綠洲', k: [1, .75, .5, .35], text: v => `每人每天喝 ${v} 份淨水`},
+};
+const UP_COST = [60, 120, 200];
+const upLv = (R, k) => R.up?.[k] || 0, upK = (R, k) => UP[k].k[upLv(R, k)];
+// 這一格能不能做這項升級
+function upHere(w, t, kind) {
+  const K = w.sim.peek(), m = K.markets[t]; if (!m || K.owner[t] < 0) return false;
+  if (UP[kind].at === 'big') { const pops = Object.values(K.markets).map(x => x.pop || 0).sort((a, b) => b - a); return (m.pop || 0) >= pops[Math.floor(pops.length * .1)]; }
+  return m.site?.kind === UP[kind].at;
+}
+export function roverUpgrade(G, book, w, kind, h) {
+  const R = G.rover; if (!R) return '還沒有 Rover'; const U = UP[kind]; if (!U) return '沒有這項升級';
+  if (R.move) return '開車中不能升級'; const lv = upLv(R, kind); if (lv >= U.k.length - 1) return '已經升到頂了';
+  if (!upHere(w, R.tile, kind)) return `${U.n}要到${U.where}才能升級`;
+  const cost = UP_COST[lv]; if (G.cash < cost) return '錢不夠';
+  G.cash -= cost; C.pay(book, h, G.name, -cost, 'rover', `Rover 升級：${U.n} ${lv + 1} 級（${w.names[R.tile] || ''}）`);
+  (R.up ||= {})[kind] = lv + 1; say(R, h, R.tile, `在${w.names[R.tile] || ''}把${U.n}升到 ${lv + 1} 級：${U.text(U.k[lv + 1])}。`, 'find');
+  return null;
+}
 const say = (R, h, tile, text, kind = 'note') => { R.log.push({h, tile, text, kind}); if (R.log.length > 200) R.log.shift(); };
 
 function roverCase(book, G, R, h) {
@@ -147,7 +170,9 @@ function searchResult(G, book, w, t, h, sq) {
   return out;
 }
 
-const nextLeg = (w, R, h) => { const to = R.route.shift(), t = Math.max(1, Math.round(C.travelHours(w, R.tile, to, true))); R.move = {from: R.tile, to, t0: h, t1: h + t, path: [R.tile, to]}; };
+// 一格要多久：照快車，但至少一小時（探索的節奏；Alan 一直是照這個玩的），引擎再乘
+const legH = (w, R, a, b) => +(Math.max(1, C.travelHours(w, a, b, true)) * upK(R, 'engine')).toFixed(2);
+const nextLeg = (w, R, h) => { const to = R.route.shift(), t = legH(w, R, R.tile, to); R.move = {from: R.tile, to, t0: h, t1: +(h + t).toFixed(2), path: [R.tile, to]}; };   // 引擎（Alan 2026-10-12）：快車的時間再乘，可以不到一小時一格
 // 每個遊戲小時（core.js 呼叫）
 export function roverHour(cos, book, w, h) {
   for (const G of Object.values(cos)) { const R = G.rover; if (!R) continue;
@@ -163,17 +188,18 @@ export function roverHour(cos, book, w, h) {
     // 每天：吃喝、維持費（直接報帳）
     if (h % 24 === 0 && crew.length) {
       const n = crew.length; if (sq.caseId === R.caseId) C.pay(book, h, G.name, -ROVER.UPKEEP * n, 'upkeep', `Rover 的維持費（${n} 人）`);   // 接委託的時候照委託記應付帳款
-      const fOk = R.cargo.food >= n * ROVER.FOOD_K, wOk = R.cargo.water >= n * ROVER.WATER_K;
-      R.cargo.food = Math.max(0, R.cargo.food - n * ROVER.FOOD_K); R.cargo.water = Math.max(0, R.cargo.water - n * ROVER.WATER_K);
+      const fNeed = n * ROVER.FOOD_K * upK(R, 'food'), wNeed = n * ROVER.WATER_K * upK(R, 'water'), fOk = R.cargo.food >= fNeed - 1e-6, wOk = R.cargo.water >= wNeed - 1e-6;   // 儲糧艙、淨水器（Alan 2026-10-12）
+      R.cargo.food = Math.max(0, +(R.cargo.food - fNeed).toFixed(2)); R.cargo.water = Math.max(0, +(R.cargo.water - wNeed).toFixed(2));
       if (!fOk || !wOk) { R.hungry++; say(R, h, R.tile, `${!wOk ? '淨水' : '熱量'}不夠分了，大家餓著肚子（缺糧第 ${R.hungry} 天，打起來會比較弱）。`, 'danger'); } else R.hungry = 0;
       sq.gear = R.hungry ? 0 : 3; }
     // 搜索完成
     if (R.searching != null && h >= R.busyUntil) { const t = R.searching; R.searching = null; for (const s of searchResult(G, book, w, t, h, sq)) say(R, h, t, s, 'find'); }
     // 開車
-    if (R.move && h >= R.move.t1) { R.tile = R.move.to; sq.at = R.tile; R.move = null;
+    for (let legs = 0; legs < 6 && R.move && h >= R.move.t1; legs++) { const t1 = R.move.t1; R.tile = R.move.to; sq.at = R.tile; R.move = null;
       for (const s of tileStory(G, book, w, R.tile, h)) say(R, h, R.tile, s, 'story');
       if (R.tile !== G.base && roll(R.tile, h, 1) < encounterP(w, R.tile)) { const c = roverCase(book, G, R, h); C.roverEncounter(book, w, c, sq, R.tile, h); say(R, h, R.tile, `有人擋住了去路——打完才能繼續走${R.route.length ? `（打完會接著往${w.names[R.route[R.route.length - 1]] || '目的地'}開）` : ''}。`, 'danger'); }   // 路線留著：服務單處理完就接著開（Alan 2026-10-11）
-      else if (!R.route.length) say(R, h, R.tile, `到了${w.names[R.tile] || '目的地'}。`); }
+      else if (!R.route.length) say(R, h, R.tile, `到了${w.names[R.tile] || '目的地'}。`);
+      if (R.route.length && !roverBlock(book, R, h)) nextLeg(w, R, t1); }   // 同一小時裡接著開下一格
     if (!R.move && R.route.length && !roverBlock(book, R, h)) nextLeg(w, R, h);
   }
 }
@@ -183,5 +209,9 @@ export function roverView(G, book, w, h) {
   const R = G.rover; if (!R) return null; const sq = roverSquad(book, R), K = w.sim.peek(), m = K.markets[R.tile];
   return {tile: R.tile, place: w.names[R.tile] || '荒野', move: R.move, route: R.route, dest: R.route.length ? R.route[R.route.length - 1] : R.move?.to ?? null, cargo: R.cargo, cap: ROVER.CAP, hungry: R.hungry,
     crew: sq ? sq.clones.map(c => c.uid) : [], squad: R.squad, pack: (sq?.pack || []).length, block: roverBlock(book, R, h), ticket: busyTicket(book, R)?.id || null, searching: R.searching != null ? R.busyUntil : null,
-    atHome: R.tile === G.base, town: !!(m && K.owner[R.tile] >= 0), searchedAt: R.searched[R.tile] ?? null, log: R.log.slice(-80).reverse(), price: ROVER.PRICE, buy: ROVER.BUY};
+    up: Object.entries(UP).map(([k, U]) => { const lv = upLv(R, k), max = U.k.length - 1, here = upHere(w, R.tile, k);
+      const near = here ? [] : Object.keys(K.markets).map(Number).filter(t => upHere(w, t, k)).map(t => ({t, d: w.sim.pmc.dist(R.tile, t)})).filter(x => isFinite(x.d)).sort((a, b) => a.d - b.d).slice(0, 3)
+        .map(x => { const path = w.sim.pmc.route(R.tile, x.t) || []; let hrs = 0; for (let i = 1; i < path.length; i++) hrs += legH(w, R, path[i - 1], path[i]); return {tile: x.t, name: w.names[x.t] || '', d: Math.max(0, path.length - 1), hours: +hrs.toFixed(1)}; });
+      return {kind: k, n: U.n, lv, max, now: U.text(U.k[lv]), next: lv < max ? U.text(U.k[lv + 1]) : null, cost: lv < max ? UP_COST[lv] : null, where: U.where, here, near}; }),
+    daily: {food: ROVER.FOOD_K * upK(R, 'food'), water: ROVER.WATER_K * upK(R, 'water')}, atHome: R.tile === G.base, town: !!(m && K.owner[R.tile] >= 0), searchedAt: R.searched[R.tile] ?? null, log: R.log.slice(-80).reverse(), price: ROVER.PRICE, buy: ROVER.BUY};
 }

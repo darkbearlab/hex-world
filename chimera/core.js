@@ -13,7 +13,7 @@ const r1 = v => Math.round(v * 10) / 10;
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'buyRover', 'roverCrew', 'roverSupply', 'roverGo', 'roverStop', 'roverSearch', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'buyRover', 'roverCrew', 'roverSupply', 'roverGo', 'roverStop', 'roverSearch', 'roverUpgrade', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -314,6 +314,7 @@ export class Core {
     if (m.type === 'roverGo') return RV.roverGo(g, b, w, +m.tile, h);
     if (m.type === 'roverStop') return RV.roverStop(g, b, w, h);
     if (m.type === 'roverSearch') return RV.roverSearch(g, b, w, h);
+    if (m.type === 'roverUpgrade') return RV.roverUpgrade(g, b, w, String(m.kind), h);
     if (m.type === 'readReport') { for (const r of g.reports || []) if (m.id === 'all' || r.id === m.id) r.seen = true; return null; }
     if (m.type === 'fieldEquip') return G.fieldEquip(g, b, String(m.squad), +m.uid, String(m.slot), m.item || null);
     if (m.type === 'sell') return G.sellItem(g, String(m.item), w);
