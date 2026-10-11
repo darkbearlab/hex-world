@@ -361,6 +361,10 @@ export class Core {
       const byUid = new Map(co.roster.map(c => [c.uid, c]));
       sq.clones = sq.clones.map(c => (c.uid != null && byUid.get(c.uid)) || c);
     }
+    // 舊存檔（Alan 2026-10-11）：舊案件結案曾把駐軍的人拉回總部、又被派去別的案子。駐軍名單只留還在駐地的人（最後一個差事是這個駐地、人在外面）；不到兩人就撤掉這支駐軍
+    for (const [id, sq] of Object.entries(g.book.squads)) { if (sq.garrison == null || sq.caseId) continue;
+      sq.clones = sq.clones.filter(c => { const e = (c.record || []).findLast(e => e.t === 'case' || e.t === 'garrison'); return c.alive && c.status === 'away' && e?.t === 'garrison' && e.tile === sq.garrison; });
+      if (sq.clones.length < 2) { for (const c of sq.clones) c.status = 'home'; delete g.book.squads[id]; } }
     // 舊存檔：格子收集取代經驗（Alan 2026-10-10）。原本的等級換成等量的格子（每級 10 格，照 uid 擲），不降級
     for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.cells) { c.cells = [0, 0, 0, 0]; c.dup = 0; c.cellPts = 0; let s = (c.uid * 2654435761) >>> 0; const r = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
       const want = ((c.lv || 1) - 1) * 10; for (let k = 0; k < 2000 && C.cellCount(c) < want; k++) C.drawCells(c, 1, r); c.lv = C.cellLevel(c); }

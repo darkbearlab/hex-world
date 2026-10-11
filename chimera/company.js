@@ -185,7 +185,7 @@ export function build(G, recipe, tplId, slot, now = G.h) {
 export function finishDue(G, t) {
   let n = 0;
   // 走回總部的人：到了就待命
-  for (const r of G.returning.slice()) if (t >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive) c.status = 'home'; n++; }
+  for (const r of G.returning.slice()) if (t >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive && c.status === 'returning') c.status = 'home'; n++; }
   for (const q of G.queue) if (!q.ready && t >= q.done) { readyBuild(G, q, G.h); n++; }
   return n;
 }
@@ -433,11 +433,14 @@ export function hour(G, book, w, h) {
   // 遺體 7 天沒撿回來：確認戰死
   for (const c of G.roster) if (c.status === 'lost' && h >= (c.downAt ?? h) + C.CFG.BODY_H) { c.status = 'kia'; C.rec(c, {h, t: 'kia', co: G.name, confirm: true}); note(G, h, `${who(c)} 的遺體沒能收回，確認戰死。`); }
 
+  // 這個人現在的差事是不是這個案件（Alan 2026-10-11）：舊案件的小隊名單還留著已經去做別的事（下一個案件、駐軍）的人，
+  // 舊案件結案時不能把他們拉回總部（空暗原駐軍被前一張護送單結案拉回來，害長約違約）
+  const onCase = (x, id) => { const e = (x.record || []).findLast(e => e.t === 'case' || e.t === 'garrison'); return !e || (e.t === 'case' && e.case === id); };
   // 收尾就啟程（Alan 2026-10-10）：案件進入收尾（不再派服務單），自己的服務單都打完的小隊就啟程返回，不必等案件結算（結算還要等案期結束、一天緩衝、別家的單打完）
   for (const id of G.cases) {
     const c = book.cases.find(x => x.id === id); if (!c || c.settled || c.own || c.open) continue;
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.headedHome || book.tickets.some(t => t.squad === sid && !t.done)) continue;
-      const away = sq.clones.filter(x => x.alive && x.status === 'away'); sq.headedHome = h; if (!away.length) continue;
+      const away = sq.clones.filter(x => x.alive && x.status === 'away' && onCase(x, c.id)); sq.headedHome = h; if (!away.length) continue;
       if (sq.garrison != null) { sq.readyAt = Math.max(sq.readyAt, h + 6); note(G, h, `「${c.title}」收尾，${sq.name} 回到駐地。`); continue; }   // 駐軍回駐地待命（休整 6 小時）
       const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       C.payFare(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast);
@@ -450,11 +453,12 @@ export function hour(G, book, w, h) {
     const c = book.cases.find(x => x.id === id); if (!c || !c.settled || c.backHome === true || c.backHome?.[G.name]) continue; (c.backHome ||= {})[G.name] = true;
     if (c.own) {
       const got = Math.round(c.qty * (c.delivered ?? 1)); G.mats[c.mat] += got;
-      for (const sid of c.squads) for (const x of book.squads[sid].clones) if (x.alive && x.status === 'away') x.status = 'home';
+      for (const sid of c.squads) for (const x of book.squads[sid].clones) if (x.alive && x.status === 'away' && onCase(x, c.id)) x.status = 'home';
       note(G, h, `採購車隊回到總部：${MN[c.mat]} ${got}／${c.qty}${got < c.qty ? `（路上被劫走 ${c.qty - got}）` : ''}。`); continue;
     }
-    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.garrison != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
-      C.payFare(book, w, G.name, c.tile, G.base, sq.clones.filter(x => x.alive && x.status === 'away').length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast); for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
+    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.garrison != null || sq.headedHome != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
+      const away = sq.clones.filter(x => x.alive && x.status === 'away' && onCase(x, c.id)); if (!away.length) continue;
+      C.payFare(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast); for (const x of away) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
     if (got > 0) { fame(G, book); const f = fameOfCase(G, book, c); if (f.fame) G.fameLog.push({h, title: c.title, kind: c.kind, ...f}); }   // 名氣
     if (got > 0 && c.fac >= 0) relAdd(G, c.fac, REL.CASE + (c.lv || 1), `${c.title}結案`, h);   // 派系關係
@@ -465,7 +469,7 @@ export function hour(G, book, w, h) {
     if (got > 0 && rnd(G) < GCFG.ARMOR_P) rewardArmor(G, h);
   }
   if (h % 24 === 0) { G.daily.push({h, cash: Math.round(G.cash), alive: G.roster.filter(c => c.alive).length, kia: G.roster.filter(c => !c.alive).length}); if (G.daily.length > 400) G.daily.shift(); }
-  for (const r of G.returning.slice()) if (h >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive) c.status = 'home'; }
+  for (const r of G.returning.slice()) if (h >= r.at) { G.returning.splice(G.returning.indexOf(r), 1); const c = G.roster.find(x => x.uid === r.uid); if (c && c.alive && c.status === 'returning') c.status = 'home'; }
   // 補員縱隊全滅、或到的時候案件已結算：人留在現場（駐紮），MVP 先直接讓他們走回來
   // 也包括「還在已結案的舊小隊名單裡」的人（共用案件的歸建問題留下的，見上面）：只算還在案子裡的小隊、還在路上的補員縱隊
   for (const c of G.roster) if (c.alive && c.status === 'away' && !Object.values(book.squads).some(sq => sq.clones.includes(c) && (sq.caseId || sq.column || sq.garrison != null))) { c.status = 'returning'; G.returning.push({uid: c.uid, at: h + 12}); }
