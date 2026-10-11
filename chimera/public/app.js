@@ -570,11 +570,18 @@ function renderCo() {
   // 清運（Alan 2026-10-10）
   $('co-clean').html = (G.cleanJobs || []).map(j => `<div class="mini caseline">清運車在${esc(j.name)}・約 ${cd(j.done)}後回來</div>`).join('') + (G.cleanSites || []).map(s => `<div class="row caseline"><span class="mini" style="flex:1"><a href="#" data-center="${s.tile}">${esc(s.name)}</a>${s.daily ? '・總部每天一趟（免費，附基本素材）' : `・${s.dist} 格`}${s.fallen ? '・<b>有自己人倒在這裡</b>' : ''}${s.waste ? `・廢棄物 ${s.waste}` : ''}・約 ${s.hours} 小時${s.fare ? `・車資 $${s.fare}k` : ''}</span>${s.ok ? `<button data-act="clean" data-id="${s.tile}">清運</button>` : `<span class="mini muted">${s.next != null ? `${cd(s.next)}後可再跑` : '車在路上'}</span>`}</div>`).join('');
   // 長約與駐紮（Alan 2026-10-10）
+  // 駐軍合併顯示（Alan 2026-10-11）：同一個產地分批派去的駐軍併成一塊，照狀態分行列出是誰（點人名看詳細）；內部還是每批一隊，應召時一次派一隊
+  const garBlock = c => { if (!c.garrison.length) return '';
+    const st = s => s.busy ? '護送中' : s.ready ? '待命' : `${cd(s.readyAt)}後到位`, rows = {};
+    for (const s of c.garrison) for (const u of s.uids) { const x = G.roster.find(y => y.uid === u); if (x?.alive) (rows[st(s)] ||= []).push(x); }
+    const n = Object.values(rows).reduce((a, L) => a + L.length, 0), free = c.garrison.filter(s => !s.busy).map(s => s.id);
+    return `<div class="row caseline"><span class="mini" style="flex:1">${esc(G.name)}・${esc(c.name)}駐軍・共 ${n} 人</span>${free.length ? `<button data-act="ungarall" data-id="${free.join(',')}">全部撤回</button>` : ''}</div>`
+      + Object.entries(rows).map(([k, L]) => `<div class="mini caseline">${k}：${L.map(x => `<span class="chip" data-person="${x.uid}"><img src="${face(x)}" alt="">${nameShort(x)}</span>`).join(' ')}</div>`).join(''); };
   const R = G.retainer || {mine: [], fame: 0};
   $('co-ret').html = `<div class="mini muted">名氣 ${R.fame}・世界排行第 ${R.rank ?? '-'}／${R.of ?? '-'} 名（產地只找前 ${R.topN} 名、活著的人 ${R.sizeMin} 個以上的公司；明細在報表）</div>` + (R.mine.length ? R.mine.map(c => `<div class="card"><h4><a href="#" data-center="${c.site}">${esc(c.name)}${c.kn}</a><span class="mini">${c.void ? '已作廢' : c.done ? '已期滿' : `${cd(c.end)}後期滿`}</span></h4>
     <div class="mini">${c.plan === 'lump' ? '簽約金一次付清' : `簽約金分期（已收 ${c.paid} 期）`}${c.bond ? `・保證金 $${c.bond}k${c.bondLost ? '（已沒收）' : ''}` : ''}${c.breaches ? `・<span style="color:var(--war)">違約 ${c.breaches} 次</span>` : ''}</div>
-    ${c.calls.map(q => `<div class="row caseline"><span class="mini" style="flex:1;color:var(--accent)">應召：${esc(q.g)}車隊往${esc(q.to)}・<b>${cd(q.deadline)}</b>內要派人</span>${c.garrison.filter(s => s.ready && !s.busy && s.alive >= 2).map(s => `<button data-act="callgar" data-id="${q.id}" data-sq="${s.id}">派${esc(s.name.split('・').pop())}</button>`).join('')}<button data-act="callpick" data-id="${q.id}">從總部派人</button></div>`).join('')}
-    ${c.garrison.map(s => `<div class="row caseline"><span class="mini" style="flex:1">${esc(s.name)}・${s.alive} 人・${s.busy ? '護送中' : s.ready ? '待命' : `${cd(s.readyAt)}後到位`}</span>${s.busy ? '' : `<button data-act="ungar" data-id="${s.id}">撤回</button>`}</div>`).join('') || (c.void || c.done ? '' : '<div class="mini muted">沒有駐軍：應召時限到了還沒派人就是違約。</div>')}
+    ${c.calls.map(q => `<div class="row caseline"><span class="mini" style="flex:1;color:var(--accent)">應召：${esc(q.g)}車隊往${esc(q.to)}・<b>${cd(q.deadline)}</b>內要派人</span>${c.garrison.filter(s => s.ready && !s.busy && s.alive >= 2).map(s => `<button data-act="callgar" data-id="${q.id}" data-sq="${s.id}">派${s.uids.map(u => G.roster.find(x => x.uid === u)).filter(x => x?.alive).map(nameMin).join('、')}</button>`).join('')}<button data-act="callpick" data-id="${q.id}">從總部派人</button></div>`).join('')}
+    ${garBlock(c) || (c.void || c.done ? '' : '<div class="mini muted">沒有駐軍：應召時限到了還沒派人就是違約。</div>')}
     ${c.void || c.done ? '' : `<div class="row"><button data-act="garpick" data-id="${c.site}" data-nm="${esc(c.name + c.kn)}">派人駐紮</button></div>`}</div>`).join('') : '<p class="mini muted">還沒有長約。名氣排進世界前幾名，產地會在機會裡找你。</p>');
   $('co-cases').html = !G.cases.length ? '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>' : (liveC.length ? '' : '<p class="muted">沒有進行中的案件。</p>') + liveC.map(c => {
     const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}k` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? (c.kind === 'security' ? `駐守中・${cd(c.end)}後期滿` : `${cd(c.end - (c.freeze ?? 24))}後合約到期`) : `收尾中・${cd(c.end + (c.buffer ?? 24))}後結算`;
@@ -1023,6 +1030,7 @@ const coClick = e => {
   else if (A === 'clean') send({type: 'clean', tile: +id});
   else if (A === 'callgar') send({type: 'answer', call: id, squad: b.dataset.sq});
   else if (A === 'ungar') send({type: 'ungarrison', squad: id});
+  else if (A === 'ungarall') { if (confirm('撤回這個產地所有不在護送中的駐軍？')) for (const sq of id.split(',')) send({type: 'ungarrison', squad: sq}); }
   else if (A === 'callpick' || A === 'garpick') {
     const c = (GV.retainer?.mine || []).find(x => A === 'garpick' ? x.site === +id : x.calls.some(q => q.id === id)), q = c?.calls.find(x => x.id === id); if (!c) return;
     sortie = {key: 'custom', tile: c.site, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: A === 'garpick'
