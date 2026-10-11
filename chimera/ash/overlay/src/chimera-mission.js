@@ -2,7 +2,7 @@
 // 敵人照任務票擺（simulation.kind='chimera' 讓 ASH 不另外加徵召兵、巡邏小隊、詭雷箱），撤離＝勝。不存檔。
 // 小隊（四位完整的玩家角色）在子類別 SquadGame（chimera-squad.js）。
 import {Game} from './game.js';
-import {generate,makeEnemy} from './world.js';
+import {generate,makeEnemy,distance} from './world.js';
 import {isNoncombatant} from './enemy-data.js';
 import {CHARACTERS} from './characters.js';
 import {pickPortrait,validPortrait} from './portraits.js';
@@ -115,6 +115,20 @@ export class MissionGame extends Game{
     vehicleStep(pre,R);map.enemies=pre.enemies;map.props=pre.props;map.barriers=pre.barriers;outdoor.stepTurn=0;
     outdoorBuilt={...outdoor,style};return map;
    }
+   // 據點群（Alan 2026-10-11）：一隊 4～6 人照區塊放；有隊長（標定官、小隊長這類）的先一隊分一個；放不下的變成增援，整隊從集結點進來
+   if(outdoor.groups){
+    const G=outdoor.groups.filter(gr=>gr.cells.length),per=Math.max(4,Math.min(6,Math.floor(Math.min(want.length,onMap())/Math.max(1,G.length))));
+    const pool=want.map((u,i)=>({u,i}));for(let i=pool.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+    const lead=u=>u.type==='squad_leader'||u.boss,take=()=>pool.shift(),placed=[];let n=0;
+    G.forEach((gr,gi)=>{const cells=gr.cells.slice();for(let i=cells.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[cells[i],cells[j]]=[cells[j],cells[i]];}
+     const li=pool.findIndex(x=>lead(x.u)),mine=[];if(li>=0)mine.push(...pool.splice(li,1));while(mine.length<per&&pool.length)mine.push(take());
+     mine.forEach((x,k)=>{const c=cells[k%cells.length];if(k>=cells.length)return;const e=rosterEnemy(x.u,c.x,c.y,`c${++n}`,this.difficultySpec,this.facilityFaction,tk.depth||1,this.seed);e.chimeraG=gi;placed.push(e);});
+     gr.id=gi;});
+    outdoor.groups=G;map.enemies=placed;outdoor.waves=pool.map(x=>rosterEnemy(x.u,0,0,`c${++n}`,this.difficultySpec,this.facilityFaction,tk.depth||1,this.seed));outdoor.wavePer=per;
+    if(outdoor.waves.length){outdoor.rs=(tk.seed^0x7a11)>>>0||1;outdoor.waveTurn=0;}
+    objectivePoints(outdoor,map,[...map.enemies,...outdoor.waves]);
+    outdoorBuilt={...outdoor,style};return map;
+   }
    for(let i=spots.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[spots[i],spots[j]]=[spots[j],spots[i]];}
    const used=new Set(),cells=[];for(const p of spots){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
    // 增援波次（Alan 2026-10-09，大戰役：服務單規模沒有上限）：場上最多 ON_MAP 個，其餘排隊，從敵方那一側的地圖邊緣一波波湧進來（chimeraWaves）
@@ -167,13 +181,39 @@ export class MissionGame extends Game{
  meleeAccuracy(...args){this.chimeraMelee=true;try{return super.meleeAccuracy(...args);}finally{this.chimeraMelee=false;}}
  // 增援波次：場上活著的敵人少於 WAVE_BELOW 時，從敵方那一側（守點是四周，其他是北邊）的邊緣補進來，一回合最多 WAVE_MAX 個
  chimeraWaves(o){
-  const live=this.enemies.filter(e=>e.hp>0&&!isNoncombatant(e)).length,below=waveBelow();if(live>=below)return;
+  const live=this.enemies.filter(e=>e.hp>0&&!isNoncombatant(e)).length,below=waveBelow();if(!o.groups&&live>=below)return;
   const R=convoyRng(o),N=this.grid.length,busy=new Set([...this.enemies.filter(e=>e.hp>0),...(this.members||[this.player]).filter(m=>m.hp>0),...this.props].map(u=>`${u.x},${u.y}`));
   const edge=[];for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const ring=o.layout==='ring'?(x<=2||y<=2||x>=N-3||y>=N-3):o.waveFrom==='south'?y>=N-3:y<=2;if(ring&&this.grid[y][x]===1&&!busy.has(`${x},${y}`)&&!this.trenchAt(x,y))edge.push({x,y});}
+  if(o.groups){if(live<Math.max(6,Math.round(onMap()*.5))&&this.turn-(o.waveAt??-9)>=3){o.waveAt=this.turn;this.chimeraWaveGroup(o);}return;}   // 隊與隊之間至少隔 3 回合   // 據點群：場上剩一半以下才整隊補
   let n=Math.min(WAVE_MAX,below-live,o.waves.length);if(!n||!edge.length)return;
   for(let i=edge.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[edge[i],edge[j]]=[edge[j],edge[i]];}
   const p=this.player;for(let i=0;i<n&&i<edge.length;i++){const e=o.waves.shift();Object.assign(e,{x:edge[i].x,y:edge[i].y,alert:true,lastKnown:{x:p.x,y:p.y}});this.enemies.push(e);}
   this.log(`敵方增援湧上來了（還有 ${o.waves.length} 名在後面）。`,true);
+ }
+ // 據點群的增援：整隊（wavePer 人）從北邊其中一個集結點進來，一進場就朝你壓上來
+ chimeraWaveGroup(o){
+  const R=convoyRng(o),N=this.grid.length,st=o.staging[(o.waveN=(o.waveN||0)+1)%o.staging.length],busy=new Set([...this.enemies.filter(e=>e.hp>0),...(this.members||[this.player]).filter(m=>m.hp>0),...this.props].map(u=>`${u.x},${u.y}`));
+  const cells=[];for(let r=0;r<5&&cells.length<o.wavePer;r++)for(let y=Math.max(1,st.y-r);y<=Math.min(N-2,st.y+r);y++)for(let x=Math.max(1,st.x-r);x<=Math.min(N-2,st.x+r);x++)if(this.grid[y][x]===1&&!busy.has(`${x},${y}`)&&!cells.some(c=>c.x===x&&c.y===y))cells.push({x,y});
+  const gi=o.groups.length;o.groups.push({id:gi,role:'wave',name:'增援',anchor:st,cells:[],active:true});
+  const p=this.player,k=Math.min(o.wavePer,o.waves.length,cells.length);for(let i=0;i<k;i++){const e=o.waves.shift();Object.assign(e,{x:cells[i].x,y:cells[i].y,chimeraG:gi});this.enemies.push(e);}
+  if(k)this.log(`一支 ${k} 人的增援從${st.x<N/3?'西北':st.x>N*2/3?'東北':'北邊'}進場了（後面還有 ${o.waves.length} 名）。`,true);
+ }
+ // 據點群每回合（Alan 2026-10-11）：巡邏隊沿路線走；有一隊發現你，預備隊和側襲隊就動起來；遠處動起來的隊伍（ASH 的敵人 16 格外不動）這裡帶著走，進到 16 格內交還 ASH
+ chimeraGroups(o){
+  const p=this.player;if(!p||p.hp<=0)return;
+  const busy=()=>new Set([...this.enemies.filter(e=>e.hp>0),...(this.members||[this.player]).filter(m=>m.hp>0)].map(u=>`${u.x},${u.y}`));
+  const step=(e,t,B)=>{const s=this.nextStep(e,t);if(!s||B.has(`${s.x},${s.y}`))return;B.delete(`${e.x},${e.y}`);e.x=s.x;e.y=s.y;e.moved=true;B.add(`${s.x},${s.y}`);};
+  const alarm=o.groups.some(gr=>this.enemies.some(e=>e.hp>0&&e.chimeraG===gr.id&&e.alert));
+  if(alarm&&!o.alarmed){o.alarmed=true;for(const gr of o.groups)if(gr.role==='reserve'||gr.role==='flank'){gr.active=true;this.log(`敵方的${gr.name}動起來了。`,true);}}
+  const B=busy();
+  for(const gr of o.groups){const mine=this.enemies.filter(e=>e.hp>0&&e.chimeraG===gr.id);if(!mine.length)continue;
+   if(gr.role==='patrol'&&!mine.some(e=>e.alert)){const wp=gr.route[gr.leg=gr.leg||0];if(distance(mine[0],wp)<=1)gr.leg=(gr.leg+1)%gr.route.length;
+    mine.forEach((e,i)=>step(e,{x:gr.route[gr.leg].x+(i%3)-1,y:gr.route[gr.leg].y+Math.floor(i/3)},B));continue;}
+   if(!gr.active)continue;
+   // 側襲隊先繞到你的一側（離你 8 格），預備隊、增援直接朝你來
+   const side=gr.anchor.x<p.x?-1:1,t=gr.role==='flank'?{x:Math.max(1,Math.min(this.grid.length-2,p.x+side*8)),y:p.y}:{x:p.x,y:p.y};
+   for(const e of mine){if(distance(e,p)<=16||(gr.role==='flank'&&distance(e,t)<=2)){if(!e.alert){e.alert=true;e.lastKnown={x:p.x,y:p.y};}continue;}step(e,t,B);}
+  }
  }
  // 據點的計分（每回合一次）
  chimeraPoints(o){
@@ -240,6 +280,7 @@ export class MissionGame extends Game{
   const ok=super.action(type,arg),o0=this.chimeraOutdoor;
   if(o0&&o0.layout==='highway'&&this.status==='playing'&&this.turn!==o0.stepTurn){o0.stepTurn=this.turn;for(const [text,danger] of vehicleStep(this,convoyRng(o0)))this.log(text,danger);this.reveal?.();}
   if(o0?.waves?.length&&this.status==='playing'&&this.turn!==o0.waveTurn){o0.waveTurn=this.turn;this.chimeraWaves(o0);}
+  if(o0?.groups&&this.status==='playing'&&this.turn!==o0.groupTurn){o0.groupTurn=this.turn;this.chimeraGroups(o0);}
   if(this.survival&&o0?.mode&&this.status==='playing'&&this.turn!==o0.pointTurn){o0.pointTurn=this.turn;this.chimeraPoints(o0);}
   this.chimeraFalls();this.chimeraBossCheck();this.chimeraLegacyDrop();
   const o=this.chimeraOutdoor;

@@ -61,6 +61,8 @@ export function outdoorMap(tk, floor = 1) {
   const any = area(1, N - 2, 1, N - 2);
   reserve(start, 2);
   let plantAt = null;   // 目標點放哪裡（路障、炸彈在路面上）
+  // 據點群（Alan 2026-10-11：50×50 的敵人要有小隊、有攻勢）：40 格以上的戰場切成 3×3 個區塊，敵人一隊一隊守在區塊裡的據點；守點、戰壕、要走到另一頭的戰鬥照舊
+  const GM = N >= 40 && layout !== 'ring' && layout !== 'trench' && !EXIT.has(tk.type);
   if (layout === 'road' || layout === 'roadblock' || layout === 'barricade') {
     road(); reserve(end, 1);
     for (let y = 1; y < N - 1; y++) for (let x = mid - 2; x <= mid + 2; x++) taken.add(key(x, y));   // 路面保持暢通
@@ -119,7 +121,7 @@ export function outdoorMap(tk, floor = 1) {
     walls(C(6), area(1, N - 2, Y(16), N - 5)); covers(C(8), area(1, N - 2, Y(15), N - 4));
   } else {
     // 開闊地（巡邏遭遇）：零散的短牆與掩體；敵人守在幾處矮牆圍出來的陣地（開口朝北，朝我方的一面有牆擋），中段有擋視線的岩塊（Alan 2026-10-11：攻方要有壓力）
-    const nests = []; for (let i = 0; i < C(6) && nests.length < C(3) && tk.type !== 'pursuit'; i++) { const c = {x: 4 + Math.floor(R() * (N - 8)), y: Y(4) + Math.floor(R() * Y(5))}; if (nests.some(q => Math.abs(q.x - c.x) < 6)) continue; nests.push(c); }
+    const nests = []; for (let i = 0; i < C(6) && nests.length < C(3) && tk.type !== 'pursuit' && !GM; i++) { const c = {x: 4 + Math.floor(R() * (N - 8)), y: Y(4) + Math.floor(R() * Y(5))}; if (nests.some(q => Math.abs(q.x - c.x) < 6)) continue; nests.push(c); }
     for (const c of nests) { for (let x = c.x - 2; x <= c.x + 2; x++) low(x, c.y + 1, 'y'); low(c.x - 3, c.y, 'x'); low(c.x + 2, c.y, 'x'); low(c.x - 3, c.y + 1, 'x'); low(c.x + 2, c.y + 1, 'x');
       for (let y = c.y; y <= c.y + 1; y++) for (let x = c.x - 2; x <= c.x + 2; x++) { spots.push({x, y}); spots.push({x, y}); } }
     // 擋視線：中段兩排斷斷續續的岩塊（短牆），留幾個缺口
@@ -129,6 +131,24 @@ export function outdoorMap(tk, floor = 1) {
     else for (let y = 3; y < Y(13); y++) for (let x = 2; x < N - 2; x++) if (R() < .08) spots.push({x, y});
   }
   if (layout === 'ring' && tk.type === 'breakdown') for (const dx of [-1, 0, 1]) props.push({id: `${floor}-truck-${props.length}`, x: mid + dx, y: mid + 2, type: 'cover', hp: 260, maxHp: 260});   // 拋錨守車：據點中間停著壞掉的車
+  // 據點群：守備隊三處（前線主據點、後方兩翼）、預備隊在主據點後面、巡邏隊在中段兩翼之間來回、側襲隊在一翼；增援從北邊三個集結點整隊進來
+  let groups = null, staging = null;
+  if (GM) {
+    const S3 = N / 3, sc = (i, j) => ({x: Math.round(S3 * i + S3 / 2), y: Math.round(S3 * j + S3 / 2)});
+    const post = c => {   // 一處沙包陣地：朝南（我方）一道矮牆，兩側包住，北邊留口；前面兩塊掩體
+      for (let x = c.x - 3; x <= c.x + 3; x++) low(x, c.y + 1, 'y');
+      for (const dx of [-4, 3]) { low(c.x + dx, c.y, 'x'); low(c.x + dx, c.y - 1, 'x'); }
+      cover(c.x - 4, c.y + 2, 90); cover(c.x + 4, c.y + 2, 90); cover(c.x, c.y - 3, 90);
+    };
+    const front = sc(1, 1);
+    groups = [{role: 'guard', anchor: front, name: '前線據點'}, {role: 'guard', anchor: sc(0, 0), name: '左翼據點'}, {role: 'guard', anchor: sc(2, 0), name: '右翼據點'},
+      {role: 'reserve', anchor: sc(1, 0), name: '預備隊'}, {role: 'patrol', anchor: sc(0, 1), name: '巡邏隊', route: [sc(0, 1), {x: front.x, y: front.y + 5}, sc(2, 1), {x: front.x, y: front.y + 5}]},
+      {role: 'flank', anchor: sc(2, 1), name: '側襲隊'}];
+    for (const gr of groups) if (gr.role === 'guard' || gr.role === 'reserve') post(gr.anchor);
+    for (const gr of groups) { const r = gr.role === 'guard' || gr.role === 'reserve' ? 3 : 2; gr.cells = [];
+      for (let y = gr.anchor.y - r; y <= gr.anchor.y + r; y++) for (let x = gr.anchor.x - r - 1; x <= gr.anchor.x + r + 1; x++) if (free(x, y) && !trench[y]?.[x] && Math.max(Math.abs(x - start.x), Math.abs(y - start.y)) >= 8) gr.cells.push({x, y}); }
+    staging = [{x: 3, y: 2}, {x: mid, y: 2}, {x: N - 4, y: 2}];
+  }
   // 目標點＋撤離：撤離點就在出發的地方（從哪裡摸進來就從哪裡出去）
   if (PLANT[tk.type] && !CLEAR[tk.type]) { end.x = mid; end.y = N - 2; }
   // 補給：幾個彈藥、醫療包、手榴彈散在地上
@@ -144,5 +164,5 @@ export function outdoorMap(tk, floor = 1) {
   return {map: {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items, props, hazards: [], marks: [], barriers,
     cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'chimera-outdoor-v2'}, lighting: light, slots: [], lamps: [], lightModel: 2},
     spots: enemySpots, style: `chimera-${bio.wall}-${lowArt}`,
-    outdoor: {layout, biome: tk.biome || '', goal: EXIT.has(tk.type) ? 'exit' : PLANT[tk.type] ? 'plant' : layout === 'ring' ? 'hold' : 'kill', plantN: PLANT[tk.type] || 0, plantAt, clear: CLEAR[tk.type] || null, waveFrom: tk.type === 'pursuit' ? 'south' : null, holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
+    outdoor: {layout, biome: tk.biome || '', groups, staging, goal: EXIT.has(tk.type) ? 'exit' : PLANT[tk.type] ? 'plant' : layout === 'ring' ? 'hold' : 'kill', plantN: PLANT[tk.type] || 0, plantAt, clear: CLEAR[tk.type] || null, waveFrom: tk.type === 'pursuit' ? 'south' : null, holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
 }
