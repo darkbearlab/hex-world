@@ -589,3 +589,7 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .chip img,.cl img,.face img,.sprow img,.phead img,.rcard img{flex:none;object-fit:cover;max-width:none}
 .pcart img,.rart img,.sart img{max-width:100%;max-height:100%}
 @media (min-width:760px){.pcart{height:520px;min-height:0}}
+
+/* Rover 出發的卡片（Alan 2026-10-12） */
+.rvcard{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:65;width:min(92vw,420px);background:#1b1812;border:1px solid #f0964a;border-radius:10px;padding:12px 14px;box-shadow:0 6px 30px #000c;animation:rfade .2s ease}
+.rvcard b{color:#f0964a}.rvcard p{margin:6px 0 8px;font-size:13px;line-height:1.5}.rvcard .row{justify-content:flex-end;gap:8px}

@@ -528,7 +528,8 @@ function found(base) { if (WATCH) return; send({type: 'found', base}); }
 function onGame(m) {
   const first = !GV; GV = m.data; GM = m;
   if (m.campaigns?.some(c => !c.done) || $('campbar') && !$('campbar').hidden) draw();   // 大戰役每 6 小時變一次
-  if (m.err) toast(m.err);
+  if (m.err && roverToast == null) toast(m.err);
+  roverToastCheck(m.err);
   if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('mailBtn').hidden = false; $('gyd').value = m.yearDays; showPage('co'); renderAll(); send({type: 'quotes'}); }
   $('gclock').textContent = clockText(Math.max(GV.h, hourNow() ?? GV.h), m);
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
@@ -731,6 +732,21 @@ function maybeReport() {
 
 // ───── Rover（Alan 2026-10-11）：一家公司一台、最多四個人，自己開著走；日誌、搜索、補給、遭遇、接委託 ─────
 let roverPick = null;   // 編組中（在總部才能換人）
+// 下令開車之後跳一張卡片（Alan 2026-10-12：地圖上下令沒有任何提示）：伺服器回來、路線排好了才秀，開不過去就秀原因
+let roverToast = null;
+function roverToastCheck(err) {
+  if (roverToast == null) return; const to = roverToast; roverToast = null; const R = GV?.rover;
+  if (err) { roverCard('Rover 開不過去', esc(err)); return; }
+  if (!R || R.dest !== to && R.move?.to !== to) return;
+  const n = R.route.length + (R.move ? 1 : 0), hrs = R.etaH ?? null, nm = t => esc(ST.names?.[t] || '荒野');
+  roverCard(`Rover 出發：開往${nm(to)}`, `從${nm(R.tile)}出發，${n} 格${hrs != null ? `，約 ${fmtLeft(hrs)}` : ''}。路上遇到人會停下來，打完接著開。`);
+}
+function roverCard(title, body) {
+  document.querySelector('.rvcard')?.remove();
+  const el = Object.assign(document.createElement('div'), {className: 'rvcard', innerHTML: `<b>${title}</b><p>${body}</p><div class="row"><button data-x="1">知道了</button><button data-rv="1">看 Rover</button></div>`});
+  el.onclick = e => { if (e.target.closest('[data-rv]')) showPage('rover'); if (e.target.closest('button')) el.remove(); };
+  document.body.appendChild(el); setTimeout(() => el.remove(), 8000);
+}
 function renderRover() {
   const P = $('pane-rover'); if (!P) return;
   if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才能買 Rover。</p></div>'; return; }
@@ -750,9 +766,12 @@ function renderRover() {
     <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="roverstop">停車</button>' : ''}${!R.atHome ? `<button data-act="rovergo" data-id="${GV.base}">開回總部</button>` : ''}<button data-act="roversearch"${R.block || R.move ? ' disabled' : ''}>搜索這一帶（4 小時）</button>
       ${R.atHome || R.town ? `<button data-act="roversupply" data-f="10" data-w="0">熱量 +10${R.atHome ? '（倉庫）' : `（$${10 * R.buy.food}k）`}</button><button data-act="roversupply" data-f="0" data-w="10">淨水 +10${R.atHome ? '（倉庫）' : `（$${10 * R.buy.water}k）`}</button>` : ''}</div>
     <p class="mini muted">要去哪裡：到戰略地圖點一格，按「Rover 開到這裡」。停在有委託的格子時，那裡的委託可以「用 Rover 接」。</p></div>
+    <div class="box"><h3 class="sec">在地小事 <span class="muted">城裡的人直接拜託的事，最多同時接三件</span></h3>
+    ${R.jobs.map(j => `<div class="row caseline"><span class="mini" style="flex:1"><b>${esc(j.title)}</b>・$${j.reward}k・${j.state === 'found' ? `人找到了，帶回${esc(j.fromName)}` : j.state === 'fight' ? '正在打' : j.kind === 'deliver' ? `送到${esc(j.toName)}` : `去${esc(j.toName)}`}・${cd(j.expires)}後過期</span>${j.state !== 'fight' ? `<button data-act="rovergo" data-id="${j.state === 'found' ? j.from : j.to}">開過去（${j.d} 格）</button>` : ''}</div>`).join('') || '<p class="mini muted">沒有接著的小事。</p>'}
+    ${R.jobsHere.length ? `<h4 class="sec2">${nm(R.tile)}的人拜託的</h4>${R.jobsHere.map(j => `<div class="row caseline"><span class="mini" style="flex:1">${esc(j.title)}・$${j.reward}k</span><button data-act="roverjob" data-id="${j.id}">${j.kind === 'supply' ? '賣給他們' : '接下'}</button></div>`).join('')}` : R.town ? '<p class="mini muted">這座城現在沒有人拜託事情。</p>' : '<p class="mini muted">停在城裡才有人拜託事情。</p>'}</div>
     <div class="box"><h3 class="sec">升級 <span class="muted">要到對的地方才能升</span></h3>
     ${R.up.map(u => `<div class="caseline" style="margin:6px 0"><div class="row"><span style="flex:1"><b>${esc(u.n)}</b> ${u.lv}／${u.max} 級<span class="mini muted">・現在：${esc(u.now)}${u.next ? `・下一級：${esc(u.next)}（$${u.cost}k）` : '・已經升到頂'}</span></span>${u.next && u.here ? `<button data-act="roverup" data-id="${u.kind}">升級（$${u.cost}k）</button>` : ''}</div>
-      ${u.next && !u.here ? `<div class="mini muted">要到${esc(u.where)}：${u.near.map(x => `<button data-act="rovergo" data-id="${x.tile}">${esc(x.name)}（${x.d} 格・約 ${fmtH(x.hours)}）</button>`).join(' ') || '附近找不到'}</div>` : ''}</div>`).join('')}</div>
+      ${u.next && !u.here ? `<div class="mini muted">要到${esc(u.where)}：${u.near.map(x => `<button data-act="rovergo" data-id="${x.tile}">${esc(x.name)}（${x.d} 格・約 ${fmtLeft(x.hours)}）</button>`).join(' ') || '附近找不到'}</div>` : ''}</div>`).join('')}</div>
     <div class="box"><h3 class="sec">車上的人 <span class="muted">${crew.length}／4</span></h3>
     <div class="chips">${crew.map(x => chip(x, false, 'person')).join('') || '<span class="mini muted">沒有人</span>'}</div>
     ${pack ? `<div class="mini" style="margin-top:6px">行李：${pack.items.map(x => esc(x.name)).join('、') || '空的'}（點人可以整補）</div>` : ''}
@@ -1116,9 +1135,10 @@ const coClick = e => {
   else if (A === 'rethide') send({type: 'retHide', id});
   // Rover（Alan 2026-10-11）
   else if (A === 'roverbuy') { if (confirm(`買一台 Rover（$${GV.rover?.price ?? 300}k）？`)) send({type: 'buyRover'}); }
-  else if (A === 'rovergo') send({type: 'roverGo', tile: +id});
+  else if (A === 'rovergo') { roverToast = +id; send({type: 'roverGo', tile: +id}); }
   else if (A === 'roverstop') send({type: 'roverStop'});
   else if (A === 'roverup') send({type: 'roverUpgrade', kind: id});
+  else if (A === 'roverjob') send({type: 'roverJob', id});
   else if (A === 'roversearch') send({type: 'roverSearch'});
   else if (A === 'roversupply') send({type: 'roverSupply', food: +b.dataset.f || 0, water: +b.dataset.w || 0});
   else if (A === 'roverpick') { const u = +id; roverPick = roverPick || new Set(GV.rover?.crew || []); if (roverPick.has(u)) roverPick.delete(u); else if (roverPick.size < 4) roverPick.add(u); renderRover(); }
