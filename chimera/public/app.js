@@ -860,6 +860,7 @@ function renderRepPage() {
 }
 // 報表分頁（Alan 2026-10-11：越拖越長，依性質分）：收支、案件、名氣、派系、人員；記住上次看的分頁
 const REP_TABS = [['money', '收支'], ['cases', '案件'], ['fame', '名氣'], ['rel', '派系'], ['people', '人員']];
+let repPeriod = 'all';
 let repTab = (() => { try { return localStorage.getItem('chimera.repTab') || 'money'; } catch { return 'money'; } })();
 function renderRep() {
   const el = $('co-rep'); if (!el) return;
@@ -867,11 +868,22 @@ function renderRep() {
   const tot = o => FK.reduce((x, [k]) => x + (o[k] || 0), 0), day = h => `第 ${Math.floor(h / 24) + 1} 天`;
   if (!REP_TABS.some(([k]) => k === repTab)) repTab = 'money';
   const sec = {
-    // 收支：現金走勢、各項收支（兩欄都是 0 的不列）、應付帳款
-    money: () => `<div class="mini">現金走勢（每天一點）</div><div class="spark" id="co-spark">${sparkSvg(R.daily, Math.max(280, (el.clientWidth || 320) - 4), 180)}</div>` +
-      (GV.payable ? `<div class="mini" style="margin-top:8px">應付帳款（維持費，每人每天 $1k，結案時結帳）：<b class="neg">−$${Math.round(GV.payable)}k</b></div>` : '') +
-      `<table class="rep" style="margin-top:8px"><tr><th>收支</th><th>近 30 天</th><th>累計</th></tr>` + FK.filter(([k]) => Math.round(R.d30[k] || 0) || Math.round(R.all[k] || 0)).map(([k, n]) => `<tr><td>${n}</td><td>${money(R.d30[k])}</td><td>${money(R.all[k])}</td></tr>`).join('') +
-      `<tr class="tot"><td>現金合計</td><td>${money(tot(R.d30))}</td><td>${money(tot(R.all))}</td></tr><tr><td class="muted">帳面業務損失（陣亡）</td><td>${money(R.d30.loss)}</td><td>${money(R.all.loss)}</td></tr></table>`,
+    // 收支（Alan 2026-10-11：正式的會計帳）：名目｜資產（已入帳的收入）｜應收｜支出（已付）｜應支未支。
+    // 上半是各科目（照期間：累計或近 30 天）；下半是進行中的案件——資產、支出已經算在上面的科目裡（灰字），應收、應支未支另外加總
+    money: () => { const P = repPeriod === 'd30' ? R.d30 : R.all, cell = (v, cls = '') => v ? `<td class="n ${cls}">$${Math.round(v).toLocaleString()}k</td>` : '<td class="n"></td>';
+      const rows = FK.map(([k, n]) => [n, Math.round(P[k] || 0)]).filter(([, v]) => v);
+      const inc = rows.filter(([, v]) => v > 0), exp = rows.filter(([, v]) => v < 0), A = inc.reduce((t, [, v]) => t + v, 0), X = -exp.reduce((t, [, v]) => t + v, 0);
+      const act = GV.cases.filter(c => !c.settled && !c.own), recv = c => { const n = c.squads.length; return (!c.midPaid && c.pay.mid ? c.pay.mid * n : 0) + (c.pay.final && c.scoreTot > 0 ? Math.round(c.pay.final * c.score / c.scoreTot) : 0); };
+      const AR = act.reduce((t, c) => t + recv(c), 0), AP = act.reduce((t, c) => t + (c.due || 0), 0) || 0;
+      return `<div class="mini">現金走勢（每天一點）</div><div class="spark" id="co-spark">${sparkSvg(R.daily, Math.max(280, (el.clientWidth || 320) - 4), 180)}</div>` +
+        `<div class="chips reptabs" style="margin-top:8px">${[['all', '累計'], ['d30', '近 30 天']].map(([k, n]) => `<button class="chip${k === repPeriod ? ' on' : ''}" data-rper="${k}">${n}</button>`).join('')}</div>` +
+        `<div class="hscroll"><table class="rep ledger"><tr><th>名目</th><th>資產</th><th>應收</th><th>支出</th><th>應支未支</th></tr>` +
+        `<tr class="grp"><td colspan="5">收入</td></tr>` + (inc.map(([n, v]) => `<tr><td>${n}</td>${cell(v, 'pos')}<td></td><td></td><td></td></tr>`).join('') || '<tr><td class="muted" colspan="5">沒有</td></tr>') +
+        `<tr class="grp"><td colspan="5">支出</td></tr>` + (exp.map(([n, v]) => `<tr><td>${n}</td><td></td><td></td>${cell(-v, 'neg')}<td></td></tr>`).join('') || '<tr><td class="muted" colspan="5">沒有</td></tr>') +
+        (act.length ? `<tr class="grp"><td colspan="5">進行中的案件 <span class="mini">（資產、支出已記在上面的科目裡；尾款照目前的積分估）</span></td></tr>` + act.map(c => `<tr><td>${esc(c.title)}</td>${cell(c.got, 'muted')}${cell(recv(c), 'pos')}${cell(c.spent, 'muted')}${cell(c.due, 'neg')}</tr>`).join('') : '') +
+        `<tr class="tot"><td>合計</td>${cell(A, 'pos')}${cell(AR, 'pos')}${cell(X, 'neg')}${cell(AP, 'neg')}</tr>` +
+        `<tr><td>淨額</td><td class="n" colspan="2">現金 ${money(A - X)}</td><td class="n" colspan="2">含應收應付 ${money(A + AR - X - AP)}</td></tr>` +
+        `<tr><td class="muted">帳面業務損失（陣亡，不是現金）</td><td></td><td></td>${cell(-(P.loss || 0), 'muted')}<td></td></tr></table></div>`; },
     // 案件：進行中的（已收、應收、應付維持費）與結案紀錄
     cases: () => { const act = GV.cases.filter(c => !c.settled && !c.own);
       return (act.length ? `<div class="mini">進行中的案件</div><table class="rep"><tr><th>案件</th><th>已收</th><th>應收</th><th>應付維持費</th></tr>` + act.map(c => { const n = c.squads.length;
@@ -893,7 +905,7 @@ function renderRep() {
         `<div class="mini" style="margin-top:10px">等級分布</div><table class="rep"><tr><th>等級</th><th>人數</th></tr>` + Object.entries(lv).sort((a, b) => b[0] - a[0]).map(([k, n]) => `<tr><td>${k} 級</td><td>${n}</td></tr>`).join('') + '</table>'; },
   };
   el.innerHTML = `<div class="chips reptabs">${REP_TABS.map(([k, n]) => `<button class="chip${k === repTab ? ' on' : ''}" data-rtab="${k}">${n}</button>`).join('')}</div><div style="margin-top:8px">${sec[repTab]()}</div>`;
-  el.onclick = e => { const b = e.target.closest('[data-rtab]'); if (!b) return; repTab = b.dataset.rtab; try { localStorage.setItem('chimera.repTab', repTab); } catch {} renderRep(); };
+  el.onclick = e => { const pb = e.target.closest('[data-rper]'); if (pb) { repPeriod = pb.dataset.rper; renderRep(); return; } const b = e.target.closest('[data-rtab]'); if (!b) return; repTab = b.dataset.rtab; try { localStorage.setItem('chimera.repTab', repTab); } catch {} renderRep(); };
 }
 function sparkSvg(D, W = 320, H = 120) {
   if (!D || D.length < 2) return '<p class="muted" style="margin:6px 0">過一天之後就會畫出來。</p>';

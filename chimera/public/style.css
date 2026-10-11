@@ -552,3 +552,8 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .reptabs{display:flex;flex-wrap:wrap;gap:6px}
 .reptabs .chip{padding:4px 12px;cursor:pointer}
 .reptabs .chip:not(.on){background:transparent;color:var(--muted)}
+.hscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin-top:6px}
+.rep.ledger{min-width:560px}
+.rep.ledger td.n{text-align:right;white-space:nowrap}
+.rep.ledger tr.grp td{color:var(--muted);font-size:12px;padding-top:8px}
+.rep.ledger td:first-child{white-space:nowrap}
