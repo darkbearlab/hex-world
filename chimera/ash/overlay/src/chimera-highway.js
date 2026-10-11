@@ -39,13 +39,16 @@ export function rebuild(o, grid, floor) {
     for (let y = v.y0; y < v.y0 + v.w; y++) for (let x = v.x0; x <= v.x1; x++) if (inside(x, y)) o.deck[y][x] = v.id;
     if (v.kind === 'truck') for (let y = v.c0; y < v.c0 + 3; y++) for (const x of [v.x0 - 2, v.x0 - 1]) if (inside(x, y)) grid[y][x] = 0;
   }
-  const barriers = [], edges = new Set(), low = (x, y, axis) => { const b = axis === 'y' ? {axis, x, y: y + .5} : {axis, x: x + .5, y}, k = `${b.axis}:${b.x},${b.y}`; if (edges.has(k)) return; edges.add(k);
-    barriers.push({id: `${floor}-rail-${barriers.length}`, type: 'low_partition', ...b, hp: 80, maxHp: 80}); };
-  const D = o.deck;
+  const barriers = [], edges = new Set(), low = (x, y, axis, high = false) => { const b = axis === 'y' ? {axis, x, y: y + .5} : {axis, x: x + .5, y}, k = `${b.axis}:${b.x},${b.y}`; if (edges.has(k)) return; edges.add(k);
+    barriers.push(high ? {id: `${floor}-rail-${barriers.length}`, type: 'partition', ...b, hp: 90, maxHp: 90} : {id: `${floor}-rail-${barriers.length}`, type: 'low_partition', ...b, hp: 80, maxHp: 80}); };
+  const D = o.deck, byId = new Map(o.trucks.map(v => [v.id, v]));
+  // 車側的圍籬（Alan 2026-10-11：製造視覺斷點）：沿車身每 3 格一段，約四成五是高隔間（擋路、擋視線、擋子彈），其餘是翻得過去的矮欄；
+  // 花樣照那台車和段落固定，跟著車移動；車頭、車尾照舊是矮欄
+  const tall = (x, y) => { const v = byId.get(D[y][x]); if (!v) return false; const seg = Math.floor((x - v.x0) / 3), h = Math.imul(v.id * 7919 + seg * 104729 + (y > v.y0 ? 13 : 0), 2654435761) >>> 0; return h % 100 < 45; };
   for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
     if (!D[y][x]) continue;
-    if (D[y - 1][x] !== D[y][x]) low(x, y - 1, 'y');
-    if (D[y + 1][x] !== D[y][x]) low(x, y, 'y');
+    if (D[y - 1][x] !== D[y][x]) low(x, y - 1, 'y', tall(x, y));
+    if (D[y + 1][x] !== D[y][x]) low(x, y, 'y', tall(x, y));
     if (D[y][x - 1] !== D[y][x] && grid[y][x - 1] === 1) low(x - 1, y, 'x');
     if (D[y][x + 1] !== D[y][x] && x + 1 < N - 1) low(x, y, 'x');
   }
