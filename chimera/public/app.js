@@ -711,7 +711,7 @@ let gearPick = null;   // {uid, slot}：正在挑哪一格
 function gearOfC(c) { const g = c.gear || {guns: [], kits: []}; return s => s.startsWith('gun') ? g.guns?.[+s[3]] : s.startsWith('kit') ? g.kits?.[+s[3]] : g[s]; }
 function gearBox(c) {
   // 整補（Alan 2026-10-11）：出勤中的人從隨隊行李換（隊員之間交換：一個人卸下放進行李、另一個人拿起來）；在總部從倉庫換
-  const home = c.alive && c.status === 'home', fs = c.field ? GV.packs?.[c.field] : null, can = home || (fs && !fs.lock), src = home ? GV.store || [] : fs?.items || [], where = home ? '倉庫' : '行李';
+  const get = gearOfC(c), home = c.alive && c.status === 'home', fs = c.field ? GV.packs?.[c.field] : null, can = home || (fs && !fs.lock), src = home ? GV.store || [] : fs?.items || [], where = home ? '倉庫' : '行李';
   const rows = SLOTS.map(s => { const it = get(s), open = gearPick && gearPick.uid === c.uid && gearPick.slot === s;
     const pick = open ? `<div class="gpick">${src.filter(x => x.kind === slotKind(s)).map(x => `<button data-eq="${x.id}">${esc(x.name)}</button>`).join('') || `<span class="mini muted">${where}裡沒有能放進這一格的</span>`}${it ? `<button data-eq="">卸下${home ? '' : '（放進行李）'}</button>` : ''}<button data-eqx="1">取消</button></div>` : '';
     return `<tr><th>${SLOT_N[s]}</th><td>${it ? esc(itemName(it)) : '<span class="muted">—</span>'}</td><td>${can ? `<button data-gslot="${s}">換</button>` : ''}</td></tr>${pick ? `<tr><td colspan="3">${pick}</td></tr>` : ''}`; }).join('');
