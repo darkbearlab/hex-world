@@ -577,3 +577,15 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 /* Rover 的旅行日誌（Alan 2026-10-11） */
 .rvlog{max-height:60vh;overflow:auto}.rvlog p{margin:4px 0;font-size:13px;line-height:1.55}
 .rvlog .rv-story{color:#d8d0bd}.rvlog .rv-danger{color:var(--war,#e06a4a)}.rvlog .rv-find{color:#ffd27a;font-weight:600}.rvlog .rv-note{color:#9aa39a}
+
+/* 圖不要撐開排版（Alan 2026-10-12）：出擊編成在手機上用頭像（立繪比例不一，裁成小方塊會忽大忽小），寬螢幕才用立繪；
+   所有頭像固定大小、不變形；人員卡片的立繪框固定高度，圖再高也不會把卡片撐開 */
+.scard.full .sart img.sfull{display:none}
+.scard.full .sart img.sface{width:64px;height:64px;object-fit:cover;image-rendering:pixelated}
+@media (orientation:landscape) and (min-width:760px){
+  .scard.full .sart img.sface{display:none}
+  .scard.full .sart img.sfull{display:block}
+}
+.chip img,.cl img,.face img,.sprow img,.phead img,.rcard img{flex:none;object-fit:cover;max-width:none}
+.pcart img,.rart img,.sart img{max-width:100%;max-height:100%}
+@media (min-width:760px){.pcart{height:520px;min-height:0}}
