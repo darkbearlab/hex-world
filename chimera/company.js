@@ -324,6 +324,15 @@ export function gearAfterBattle(G, c, r) {
   G.store ||= []; for (const [b, n0] of Object.entries(left)) { let n = n0; while (KITS[b] && n > 0) { const k = Math.min(n, KITS[b].max); G.store.push(newItem(G, {kind: 'kit', base: b, n: k})); n -= k; } }
   c.weapon = gearLabel(g);
 }
+// 戰場回收（Alan 2026-10-11）：打贏時，戰場上留下的槍、近戰武器、補給收進倉庫（彈藥抵彈藥費，core.js 算）。回傳收了什麼（給通知）
+export function lootAfterBattle(G, loot, h) {
+  if (!loot) return ''; G.store ||= []; const got = [];
+  for (const g of loot.guns || []) if (GUNS[g.base]) { G.store.push(newItem(G, {kind: 'gun', base: g.base, affix: g.affix || null})); got.push(GUNS[g.base].n); }
+  for (const b of loot.melee || []) if (MELEES[b]) { G.store.push(newItem(G, {kind: 'melee', base: b})); got.push(MELEES[b].n); }
+  for (const [b, n0] of Object.entries(loot.kits || {})) { let n = n0; if (!KITS[b] || n <= 0) continue; got.push(`${KITS[b].n} ${n0}`); while (n > 0) { const k = Math.min(n, KITS[b].max); G.store.push(newItem(G, {kind: 'kit', base: b, n: k})); n -= k; } }
+  if (got.length) note(G, h, `戰場回收：${got.join('、')}，收進倉庫。`);
+  return got.join('、');
+}
 const avail = G => G.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
 export function accept(G, book, w, opp, side, uids, now, fast = false, contract = null) {
   const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);

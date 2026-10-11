@@ -316,9 +316,11 @@ export class Core {
       }
       // 彈藥費（Alan 2026-10-09）：接案的由雇主吸收；自費的（自己的車隊）結算時扣
       const ammo = Object.values(m.result.progress || {}).reduce((x, pr) => x + G.ammoCost(pr?.gear?.ammoUsed), 0), cs = b.cases.find(x => x.id === tk.caseId), selfPay = !!(cs?.own || cs?.selfAmmo);
-      const cap = selfPay ? 0 : C.CFG.AMMO_CAP * (cs?.lv || 1), mine = Math.max(0, ammo - cap);
+      // 戰場回收（Alan 2026-10-11）：打贏時，地上的槍、補給收進倉庫；地上的彈藥照價抵這一場的彈藥費（抵完不另外給錢）
+      const loot = m.result.win && m.result.loot ? m.result.loot : null, lootText = loot ? G.lootAfterBattle(g, loot, h) : '', credit = loot ? G.ammoCost(loot.ammo) : 0;
+      const cap = selfPay ? 0 : C.CFG.AMMO_CAP * (cs?.lv || 1), mine = Math.max(0, ammo - cap - credit);
       if (mine > 0) C.pay(b, h, name, -mine, 'ammo', `${tk.title}：彈藥費${selfPay ? '' : `（雇主吸收 $${cap}k，超過的自付）`}`, tk.caseId);
-      if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}k${selfPay ? '（自費，已扣）' : mine > 0 ? `（雇主只吸收 $${cap}k，自付 $${mine}k）` : '（雇主吸收）'}`, ref: tk.id});
+      if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}k${credit ? `，現場撿回的彈藥抵 $${Math.min(credit, Math.max(0, ammo - cap))}k` : ''}${selfPay ? `（自費${mine > 0 ? `，扣 $${mine}k` : ''}）` : mine > 0 ? `（雇主只吸收 $${cap}k，自付 $${mine}k）` : '（雇主吸收）'}${lootText ? `；戰場回收：${lootText}` : ''}`, ref: tk.id});
       // 遺產級頭目（Alan 2026-10-09）：戰場回報撤退或戰死；戰死時有人活著帶出遺產級就進倉庫
       const carrier = m.result.legacy && sq.clones.find(c => c.id === m.result.legacy && c.alive && !dead.includes(c.id));
       C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier, kills: Number.isFinite(m.result.kills) ? m.result.kills : undefined}, h);

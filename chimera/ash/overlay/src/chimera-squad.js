@@ -237,12 +237,23 @@ export class SquadGame extends MissionGame{
  descend(){if(this.status!=='playing'||this.player.hp<=0)return false;const og=this.chimeraOutdoor?.goal;if(og==='plant'&&!this.chimeraOutdoor.armed)return this.fail('炸藥還沒裝完，不能撤離');if(this.chimeraOutdoor&&og!=='exit'&&og!=='plant')return this.fail('這一場要把敵人清掉，不能撤離');if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);
   if(!this.chimeraOutdoor&&(this.ticket?.floors||1)>(this.floor||1)){this.chimeraAtExit=true;this.log('到了電梯口：往下一層，還是帶著收穫撤離？',true);return true;}   // 狩獵場：還沒到最下面一層，讓玩家選
   this.status='won';this.log('撤離完成。');return true;}
+ // 戰場上留下的東西（打贏時整批收回）：敵人掉的槍與近戰武器、彈藥、補給（醫療包、手榴彈、煙霧、震撼、電磁）。遺產級另外算（chimeraLegacy）
+ fieldLoot(){
+  const KIT={med:'meds',grenade:'grenades',smoke:'smoke',stun:'stun',emp:'emp'},AMMO={ammo:'reserve',pistol:'pistol',shell:'shell',energy:'energy'},DEF={reserve:30,pistol:24,shell:8,energy:10};
+  const L={guns:[],melee:[],kits:{},ammo:{}},p=this.player;
+  for(const it of this.items||[]){
+   if(it.type==='weapon'){const w=WEAPONS[it.weapon];if(!w)continue;if(w.melee){if(!w.locked&&!w.integrated)L.melee.push(w.id);}else L.guns.push({base:w.id,affix:(it.slot!=null?p.affixes?.[it.slot]:null)||null});}
+   else if(KIT[it.type])L.kits[KIT[it.type]]=(L.kits[KIT[it.type]]||0)+(it.amount||1);
+   else if(AMMO[it.type]){const k=AMMO[it.type];L.ammo[k]=(L.ammo[k]||0)+(it.amount||DEF[k]);}
+  }
+  return L;
+ }
  get missionResult(){
   const dead=Object.entries(this.chimera.units).filter(([,m])=>m.hp<=0).map(([id])=>id);
   const foes=this.enemies.filter(e=>!isNoncombatant(e)),kills=foes.filter(e=>e.hp<=0).length,total=foes.length;
   const progress=Object.fromEntries(Object.entries(this.chimera.units).map(([id,m])=>[id,this.progressOf(m)]));
   // 遺產級頭目：撤退或戰死；戰死時遺產級在誰（活著的隊員）身上
   const carrier=this.status==='won'?Object.entries(this.chimera.units).find(([,m])=>m.hp>0&&m.chimeraLegacy):null;
-  return {win:this.status==='won',dead,kills,total,turns:this.turn,progress,boss:this.chimeraBossOut||null,legacy:carrier?carrier[0]:null,floors:this.ticket?.floors?(this.status==='won'?this.floor:Math.max(0,(this.floor||1)-1)):undefined};   // 狩獵場：打穿了幾層
+  return {win:this.status==='won',dead,kills,total,turns:this.turn,progress,boss:this.chimeraBossOut||null,legacy:carrier?carrier[0]:null,loot:this.status==='won'?this.fieldLoot():null,floors:this.ticket?.floors?(this.status==='won'?this.floor:Math.max(0,(this.floor||1)-1)):undefined};   // 狩獵場：打穿了幾層
  }
 }
