@@ -249,10 +249,10 @@ export const LEGACY_GEAR = {光束步槍: {kind: 'gun', base: 'plasma', affix: '
   重型霰彈槍: {kind: 'gun', base: 'shotgun', affix: 'burst'}, 電漿切割刀: {kind: 'melee', base: 'chainsaw'}, 單分子刀: {kind: 'melee', base: 'sabre'},
   動力裝甲: {kind: 'armor', base: 'heavy', affix: 'steady', plates: 15}, 外骨骼護甲: {kind: 'armor', base: 'medium', affix: 'steady', plates: 10},
   戰術目鏡: {kind: 'armor', base: 'light', affix: 'nightvision', plates: 5}, 護盾產生器: {kind: 'armor', base: 'medium', affix: 'antitox', plates: 20}};
-export function gainLegacy(G, boss, h) {
+export function gainLegacy(G, boss, h, sq = null) {
   const d = LEGACY_GEAR[boss.kind] || LEGACY_GEAR.光束步槍;
   const it = newItem(G, {...d, legacy: {id: boss.legacy, name: boss.weapon, kind: boss.kind, bonus: boss.bonus}});
-  (G.store ||= []).push(it); note(G, h, `帶回遺產級「${boss.weapon}」（${boss.kind}），放進倉庫。`);
+  const bag = bagOf(G, sq); bag.push(it); note(G, h, `帶回遺產級「${boss.weapon}」（${boss.kind}），放進${bag === G.store ? '倉庫' : '隨隊行李'}。`);
   return it;
 }
 export const itemName = it => !it ? '' : it.legacy ? `遺產級「${it.legacy.name}」` : it.kind === 'gun' ? `${it.affix ? AFFIX_NAMES[it.affix] || it.affix : ''}${GUNS[it.base]?.n || it.base}` : it.kind === 'melee' ? MELEES[it.base]?.n || it.base
@@ -358,9 +358,11 @@ export function lootAfterBattle(G, loot, h, sq = null) {
   return got.join('、');
 }
 const avail = G => G.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
-export function accept(G, book, w, opp, side, uids, now, fast = false, contract = null) {
-  const pick = uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
-  if (pick.length < 2) return '至少派兩個人';
+export function accept(G, book, w, opp, side, uids, now, fast = false, contract = null, rover = null) {
+  // Rover 接委託：用車上的人，接了就當作駐紮在那裡，打完回到車上（Alan 2026-10-11）
+  const rsq = rover ? book.squads[rover.squad] : null;
+  const pick = rsq ? rsq.clones.filter(c => c.alive) : uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
+  if (pick.length < (rsq ? 1 : 2)) return rsq ? 'Rover 上沒有人' : '至少派兩個人';
   const why = gate(G, book, w, opp, pick); if (why) return why;
   const camp = opp.kind === 'camp';   // 大戰役：不限隊數，接了之後還可以再加派（Alan 2026-10-09）
   if (!camp && G.cases.some(k => { const c = book.cases.find(x => x.id === k); return c && !c.settled && c.tile === opp.tile && c.kind === kindOf(opp); })) return '這個點已經接了';
@@ -375,6 +377,9 @@ export function accept(G, book, w, opp, side, uids, now, fast = false, contract 
   const groups = []; for (let i = 0; i < pick.length; i += 4) groups.push(pick.slice(i, i + 4));
   if (groups.length > 1 && groups[groups.length - 1].length < 2) groups[groups.length - 2].push(...groups.pop());
   let n = 0;
+  if (rsq) { const home = rsq.caseId; rsq.caseId = null; delete rsq.headedHome;
+    if (C.enlist(book, c.id, rsq.id, now, w)) { n++; rsq.roverHome = home; for (const x of pick) { x.missions++; C.joinRec(x, c, G.name, now); } if (c.kind === 'hunting') C.pay(book, now, G.name, -3 * pick.length, 'venue', `${c.title}：入口守衛的場地費（${pick.length} 人）`, c.id); }
+    else rsq.caseId = home; groups.length = 0; }
   for (const g of groups) {
     const sq = C.makeSquad(book, G.name, {clones: g, gear: 3, at: G.base, name: `${G.name}・第${G.seq++}隊`}); sq.fast = !!fast;
     if (C.enlist(book, c.id, sq.id, now, w)) { n++; for (const x of g) { x.status = 'away'; x.missions++; C.joinRec(x, c, G.name, now); }
@@ -465,6 +470,7 @@ export function hour(G, book, w, h) {
     const c = book.cases.find(x => x.id === id); if (!c || c.settled || c.own || c.open) continue;
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.headedHome || book.tickets.some(t => t.squad === sid && !t.done)) continue;
       const away = sq.clones.filter(x => x.alive && x.status === 'away' && onCase(x, c.id)); sq.headedHome = h; if (!away.length) continue;
+      if (sq.rover) { roverBack(G, book, sq, c, h); note(G, h, `「${c.title}」收尾，Rover 的人回到車上。`); continue; }
       if (sq.garrison != null) { garBack(G, book, sq, c, h); sq.readyAt = Math.max(sq.readyAt, h + 6); note(G, h, `「${c.title}」收尾，${sq.name} 回到駐地。`); continue; }   // 駐軍回駐地待命（休整 6 小時）
       const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       C.payFare(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast);
@@ -481,7 +487,7 @@ export function hour(G, book, w, h) {
       for (const sid of c.squads) for (const x of book.squads[sid].clones) if (x.alive && x.status === 'away' && onCase(x, c.id)) x.status = 'home';
       note(G, h, `採購車隊回到總部：${MN[c.mat]} ${got}／${c.qty}${got < c.qty ? `（路上被劫走 ${c.qty - got}）` : ''}。`); continue;
     }
-    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.garrison != null) continue; unpack(G, sq, h); if (sq.headedHome != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
+    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq?.rover && sq.player === G.name) { roverBack(G, book, sq, c, h); continue; } if (sq.player !== G.name || sq.garrison != null) continue; unpack(G, sq, h); if (sq.headedHome != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       const away = sq.clones.filter(x => x.alive && x.status === 'away' && onCase(x, c.id)); if (!away.length) continue;
       C.payFare(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast); for (const x of away) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
@@ -566,6 +572,13 @@ export function garBack(G, book, sq, c, h) {
   for (const x of sq.clones) { const e = C.caseRec(x, c.id); if (e && e.end == null) e.end = h; }
   c.squads = c.squads.filter(id => id !== sq.id); sq.caseId = null; sq.busy = null; delete sq.headedHome;
   for (const x of sq.clones) if (x.alive) C.rec(x, {h, t: 'garrison', co: G.name, tile: sq.garrison});   // 服役紀錄：回到駐地（讀檔的修復照最後一筆差事判斷人在哪）
+}
+// Rover 的小隊打完委託回到車上（跟駐軍回駐地一樣當場脫鉤）
+export function roverBack(G, book, sq, c, h) {
+  if (sq.roverHome == null) return;
+  if (sq.due > 0) C.pay(book, h, sq.player, -sq.due, 'upkeep', `${c.title}：維持費（${sq.name}，回到車上時結帳）`, c.id); sq.due = 0;
+  for (const x of sq.clones) { const e = C.caseRec(x, c.id); if (e && e.end == null) e.end = h; }
+  c.squads = c.squads.filter(id => id !== sq.id); sq.caseId = sq.roverHome; sq.busy = null; delete sq.headedHome; delete sq.roverHome;
 }
 const garSquads = (G, book, site) => Object.values(book.squads).filter(sq => sq.player === G.name && sq.garrison === site);
 const garFree = (sq, now) => !sq.caseId && sq.readyAt <= now && sq.clones.filter(c => c.alive).length >= 2 && sq.clones.filter(c => c.alive).every(c => c.status === 'away');
@@ -887,7 +900,7 @@ function rest(move, h) { if (!move || !move.path?.length) return []; const f = M
 function unitsView(G, book, h) {
   const out = [];
   for (const sq of Object.values(book.squads)) {
-    if (sq.player !== G.name) continue;
+    if (sq.player !== G.name || sq.rover) continue;   // Rover 在地圖上另外畫
     const n = sq.clones.filter(c => c.alive).length; if (!n) continue;
     if (sq.column) {
       const a = book.amends.find(x => x.col === sq.id && !x.done); if (!a) continue;

@@ -6,13 +6,14 @@ import * as S from './sim.js';
 import * as C from './cases.js';
 import * as G from './company.js';
 import {ensureNpcs, npcHour} from './npc.js';
+import * as RV from './rover.js';
 
 const r1 = v => Math.round(v * 10) / 10;
 // 會改變遊戲狀態、要記進指令紀錄的指令（path、quotes 只是查詢）
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'buyRover', 'roverCrew', 'roverSupply', 'roverGo', 'roverStop', 'roverSearch', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -145,6 +146,7 @@ export class Core {
       this.postBoard(t);
       for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
       G.bodiesHour(game.cos, game.book, this.w, t);
+      RV.roverHour(game.cos, game.book, this.w, t);
       G.retainerHour(game.cos, game.book, this.w, t, Math.max(1, Math.round(24 * game.yearDays / 4)));
       for (const e of this.sim.campaignHour(t)) this.campaignNews(e, t);
       if (this.npcOn) npcHour(this, t);   // NPC 傭兵公司（npc.js；伺服器才開）
@@ -282,7 +284,7 @@ export class Core {
   view(name, err) {
     const game = this.game, g = this.co(name); if (!g) return null;
     return {type: 'game', err: err || null, year: this.sim.year, season: this.sim.season, campaigns: this.sim.campaignView(), speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
-      inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: G.view(g, game.book, this.w)};
+      inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: {...G.view(g, game.book, this.w), rover: RV.roverView(g, game.book, this.w, game.h)}};
   }
   // 指令（name：下指令的公司）：會改狀態的記進 log（遊戲小時＋公司＋指令），回傳錯誤訊息或 null
   command(m, name) {
@@ -305,6 +307,13 @@ export class Core {
     if (m.type === 'revive') return G.revive(g, +m.uid, m.slot == null ? null : +m.slot, this.exactNow ?? h);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
     if (m.type === 'retHide') return G.retHide(g, b, String(m.id));
+    // Rover（Alan 2026-10-11）
+    if (m.type === 'buyRover') return RV.buyRover(g, b, w, h);
+    if (m.type === 'roverCrew') return RV.roverCrew(g, b, w, (m.uids || []).map(Number), h);
+    if (m.type === 'roverSupply') return RV.roverSupply(g, b, w, +m.food || 0, +m.water || 0, h);
+    if (m.type === 'roverGo') return RV.roverGo(g, b, w, +m.tile, h);
+    if (m.type === 'roverStop') return RV.roverStop(g, b, w, h);
+    if (m.type === 'roverSearch') return RV.roverSearch(g, b, w, h);
     if (m.type === 'readReport') { for (const r of g.reports || []) if (m.id === 'all' || r.id === m.id) r.seen = true; return null; }
     if (m.type === 'fieldEquip') return G.fieldEquip(g, b, String(m.squad), +m.uid, String(m.slot), m.item || null);
     if (m.type === 'sell') return G.sellItem(g, String(m.item), w);
@@ -322,7 +331,8 @@ export class Core {
       if (!o || !e || e.gone) return '這個委託已經不在了';
       if (h < e.start) return '這個委託還沒公開';
       if (h >= e.end - (o.kind === 'camp' ? 0 : C.CFG.FREEZE)) return '這個委託已經截止';
-      return G.accept(g, b, w, o, m.side, m.uids, this.exactNow ?? h, !!m.fast, e);   // 大戰役可以一再加派
+      if (m.rover) { const why = RV.roverBlock(b, g.rover || {}, h); if (!g.rover) return '還沒有 Rover'; if (why) return why; if (g.rover.move || g.rover.tile !== o.tile) return 'Rover 要停在委託的地點才能接'; }   // Rover 接委託（Alan 2026-10-11：當作移動的駐紮地）
+      return G.accept(g, b, w, o, m.side, m.uids, this.exactNow ?? h, !!m.fast, e, m.rover ? g.rover : null);   // 大戰役可以一再加派
     }
     if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, this.exactNow ?? h, !!m.fast);
     if (m.type === 'recall') return G.recall(g, b, w, m.squad, this.exactNow ?? h);

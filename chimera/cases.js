@@ -374,6 +374,7 @@ const TYPES = {
   barricade: {n: '清除路障', night: .3, obj: [['protect', '拆掉路障', 3], ['nolose', '全員生還', 1]]},
   ied:       {n: '路邊炸彈', night: .2, obj: [['protect', '排除炸彈', 3], ['nolose', '全員生還', 1]]},
   breakdown: {n: '拋錨守車', night: .4, obj: [['protect', '守住車隊', 3], ['nolose', '全員生還', 1]]},
+  roverhit:  {n: '路上遭遇', night: .4, obj: [['repel', '擊退對方', 2], ['nolose', '全員生還', 1]]},   // Rover（Alan 2026-10-11）：一路上撞到的匪幫、原住民
   drill:     {n: '掃蕩流寇', night: .2, obj: [['clear', '擊退流寇', 3], ['nolose', '全員生還', 1]]},
   hunting:   {n: '狩獵', night: 0, obj: [['clear', '打穿這一層', 3], ['nolose', '全員生還', 1]]},
   harass:    {n: '騷擾者', night: .6, obj: [['repel', '趕走騷擾的人', 2], ['nolose', '全員生還', 1]]},
@@ -564,6 +565,20 @@ function issue(book, w, c, now) {
     objectives: T.obj.map(([k, text, pts]) => ({k, text, pts: pts * c.lv})), born: now, squad: null, player: null, issued: -1, deadline: -1, done: false};
   if (c.kind === 'route') { const left = []; for (let i = 0; i < c.convoys; i++) if (!c.lostConvoys.includes(i)) left.push(i); tk.convoy = pickOf(book, left); }
   book.tickets.push(tk); c.tickets++;
+  return tk;
+}
+
+// ===== Rover 的遭遇（Alan 2026-10-11：遭遇跟接單一樣，有服務單就不能移動）=====
+// 撞到誰照那一格：附近有原住民就是原住民，其餘是掠奪者。開好就直接交給 Rover 的小隊
+export function roverEncounter(book, w, c, sq, tile, now) {
+  const ev = eventAt({fac: -1}, w, tile), base = ev.type === 'intercept' ? 'ambush' : ev.type, T = TYPES.roverhit, K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
+  const enemy = enemyOf(book, w, c, {...ev, type: base});
+  const I = INTRO[base], intro = I ? pickOf(book, I).replaceAll('{p}', nm(tile)).replaceAll('{e}', enemy.name).replace('車隊', 'Rover') : null;
+  const tk = {id: 'T' + book.nextId++, caseId: c.id, type: 'roverhit', base, ...(intro ? {intro} : {}), title: `${T.n}：${nm(tile)}`, tile,
+    biome: BIOMES[K.biome[tile]]?.n || '', night: rng(book) < T.night, trench: +(K.trench[tile] || 0).toFixed(2), enemy,
+    objectives: T.obj.map(([k, text, pts]) => ({k, text, pts})), born: now, squad: sq.id, player: sq.player, issued: now, deadline: now + CFG.DEADLINE, done: false};
+  book.tickets.push(tk); c.tickets = (c.tickets || 0) + 1; sq.busy = tk.id;
+  notify(book, now, sq.player, 'ticket', `Rover 在${nm(tile)}遇上${enemy.name}（敵人 ${Object.values(enemy.units).reduce((x, y) => x + y, 0)} 名，戰力 ${enemy.power}）。打完才能繼續走；${CFG.DEADLINE} 小時內沒處理就自動結算。`, tk.id);
   return tk;
 }
 
@@ -793,7 +808,7 @@ function bossOutcome(book, w, tk, res, player, now) {
 // ===== 寫回沙盒 =====
 function writeBack(book, w, c, tk, win, gearLost, now) {
   const K = w.sim.peek(), P = w.sim.pmc, t = tk.tile;
-  const nb = t => NBR[t].filter(n => n >= 0), ty = ROAD.has(tk.type) ? tk.base || 'ambush' : tk.type;
+  const nb = t => NBR[t].filter(n => n >= 0), ty = ROAD.has(tk.type) || tk.type === 'roverhit' ? tk.base || 'ambush' : tk.type;
   if (ty === 'ambush' || ty === 'native' || ty === 'intercept') {
     if (win) { if (ty !== 'intercept') { K.bandit[t] = Math.max(0, K.bandit[t] - (5 + 3 * c.lv)); for (const n of nb(t)) K.bandit[n] = Math.max(0, K.bandit[n] - 2); } else P.aid(c.fac, 3); }
     else {
@@ -850,11 +865,12 @@ export function tick(book, w, now) {
 
 function hour(book, w, now) {
   // 維持費（Alan 2026-10-11）：每人每天，先記進應付帳款（小隊的 due），結案時結帳
-  if (now % 24 === 0) for (const s of Object.values(book.squads)) { if (!s.caseId || s.column || s.headedHome != null || s.wipedAt != null) continue; const c = book.cases.find(x => x.id === s.caseId); if (!c || c.settled || c.own) continue; s.due = (s.due || 0) + CFG.UPKEEP * alive(s).length; }
+  if (now % 24 === 0) for (const s of Object.values(book.squads)) { if (!s.caseId || s.column || s.headedHome != null || s.wipedAt != null) continue; const c = book.cases.find(x => x.id === s.caseId); if (!c || c.settled || c.own || c.kind === 'rover') continue; s.due = (s.due || 0) + CFG.UPKEEP * alive(s).length; }
   for (const tr of book.trips) if (!tr.done && now >= tr.at) tripAmbush(book, w, tr, now);
   for (const a of book.amends) if (!a.done && now >= a.eta) arrive(book, a, now);
   for (const c of book.cases) {
     if (c.settled) continue;
+    if (c.kind === 'rover') { for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && tk.squad && now >= tk.deadline) autoResolve(book, w, tk, now); continue; }   // Rover：遭遇的服務單逾期就自動結算，其餘不管（rover.js）
     // 1. 逾期的票：自動結算（狩獵場第二層以後沒打，就當作撤離）
     for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && tk.squad && now >= tk.deadline) {
       autoResolve(book, w, tk, now); }

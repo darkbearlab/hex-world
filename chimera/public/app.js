@@ -207,6 +207,12 @@ function drawNow() {
       if (u.n) { ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.05}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(u.n, x, y + r * .05); }
       if (u.busy) { ctx.strokeStyle = '#e05a43'; ctx.lineWidth = Math.max(1.4, 2 / k); ctx.beginPath(); ctx.arc(x, y, r * 1.35, 0, 7); ctx.stroke(); }
     }
+    // Rover：橘色圓點加 R；開車中照時間在兩格之間移動，剩下的路畫虛線
+    if (GV.rover) { const R = GV.rover, now = hourNow() ?? GV.h, f = R.move ? Math.max(0, Math.min(1, (now - R.move.t0) / Math.max(.01, R.move.t1 - R.move.t0))) : 0, a = R.move ? R.move.from : R.tile, b = R.move ? R.move.to : R.tile;
+      const x = cx(a) + (cx(b) - cx(a)) * f, y = cy(a) + (cy(b) - cy(a)) * f, r = Math.max(S0 * .8, 6 / k), rest = [b, ...R.route];
+      if (rest.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = Math.max(1, 1.6 / k); ctx.strokeStyle = 'rgba(240,150,70,.75)'; ctx.beginPath(); rest.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
+      ctx.fillStyle = '#f0964a'; ctx.strokeStyle = '#fff4e0'; ctx.lineWidth = Math.max(1.5, 2.2 / k); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.1}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('R', x, y + r * .05); }
     for (const t of GV.tickets) { const x = cx(t.tile) - S0 * .4, y = cy(t.tile) - S0 * .45, r = S0 * .42; ctx.fillStyle = t.transit ? '#b3784a' : '#e05a43'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = `700 ${r * 1.4}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y + r * .05); }
   }
   // 名字：首府一定標，放大後標城鎮
@@ -291,7 +297,8 @@ function renderFac() {
   }
   $('pane-fac').innerHTML = html;
 }
-$('pane-tile').onclick = e => { if (recallClick(e)) return; const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('trade'); send({type: 'quotes'}); } };
+$('pane-tile').onclick = e => { if (recallClick(e)) return; if (e.target.closest('[data-act^="rover"]')) { coClick(e); return; }   // Rover 開到這裡、用 Rover 接
+  const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('trade'); send({type: 'quotes'}); } };
 $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) return; const id = +r.dataset.f; hiFac = hiFac === id ? -1 : id; const f = hist[cur].fac.find(x => x.id === id); if (f && hiFac >= 0) centerOn(f.cap); draw(); };
 
 function renderTile() {
@@ -303,7 +310,9 @@ function renderTile() {
   if (s.bandit[i] > 15) html += `<dt>掠奪者</dt><dd>${Math.round(s.bandit[i] / 2.55)}%</dd>`;
   if (i === s.arc.elevator) html += `<dt>地標</dt><dd>軌道電梯</dd>`;
   html += '</dl>';
-  for (const o of curOpps(s).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}${ownWarn(o)}<br><span class="muted">${esc(o.detail)}</span></p>`; }
+  const RV = GV?.rover, rvHere = RV && !RV.move && RV.tile === i && RV.crew.length;
+  for (const o of curOpps(s).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}${ownWarn(o)}<br><span class="muted">${esc(o.detail)}</span>${rvHere && !['camp', 'route'].includes(o.kind) ? `<br><button data-act="roveraccept" data-id="${o.kind}" data-tile="${i}">用 Rover 接（車上的人，當作駐紮在這裡）</button>` : ''}</p>`; }
+  if (RV && RV.tile !== i) html += `<p><button data-act="rovergo" data-id="${i}">Rover 開到這裡</button> <span class="mini muted">照快車的速度一格一格走</span></p>`;
   if (GV) { const here = (GV.units || []).filter(u => u.pos && (u.pos.f < .5 ? u.pos.a : u.pos.b) === i);
     if (here.length) html += `<h2 style="margin-top:10px">我的人馬</h2>` + here.map(u => `<div class="card"><b>${esc(u.name)}</b>${u.n ? ` <span class="mini">${u.n} 人</span>` : ''}<div class="mini">${esc(u.status)}${u.where ? '・' + esc(u.where) : ''}</div>${recallBtn(u)}</div>`).join(''); }
   if (GV && t && i !== GV.base) html += `<p><button data-proc="${i}">派車隊來這裡採購</button></p>`;
@@ -720,10 +729,38 @@ function maybeReport() {
   const r = (GV.reports || []).find(x => !x.seen); if (r) showReport(r);
 }
 
+// ───── Rover（Alan 2026-10-11）：一家公司一台、最多四個人，自己開著走；日誌、搜索、補給、遭遇、接委託 ─────
+let roverPick = null;   // 編組中（在總部才能換人）
+function renderRover() {
+  const P = $('pane-rover'); if (!P) return;
+  if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才能買 Rover。</p></div>'; return; }
+  const R = GV.rover;
+  if (!R) { P.html = `<div class="box"><h3 class="sec">Rover</h3><p>一台可以自己開著走的車，最多載四個人。照快車的速度一格一格走，沿路寫日誌；可以搜索遺產級、遺體和廢墟，在城裡補給，也可以停在委託的地點直接接單（當作移動的駐紮地）。</p>
+    <p class="mini muted">錢直接從公司扣；熱量、淨水、撿到的東西都綁在車上。每天每人吃一份熱量、一份淨水，不夠就餓著，打起來比較弱。路上會遇到人，有服務單就不能走。全員倒下時拖車把車拖回總部。</p>
+    <div class="row"><button class="primary" data-act="roverbuy">買一台 Rover（$300k）</button></div></div>`; return; }
+  const nm = t => esc(ST.names?.[t] || '荒野'), crew = R.crew.map(u => GV.roster.find(x => x.uid === u)).filter(Boolean), pack = GV.packs?.[R.squad];
+  const st = R.ticket ? '<b style="color:var(--war)">有人擋住去路，打完才能繼續走</b>' : R.block === '正在接委託（當作駐紮在這裡）' ? '接委託中（當作駐紮在這裡），委託結束才能開走' : R.searching ? `搜索中，${cd(R.searching)}後結束`
+    : R.move ? `開往${nm(R.move.to)}，${cd(R.move.t1)}後到${R.dest != null && R.dest !== R.move.to ? `・目的地 ${nm(R.dest)}（還有 ${R.route.length + 1} 格）` : ''}` : `停在${nm(R.tile)}`;
+  const tk = R.ticket && (GV.tickets || []).find(t => t.id === R.ticket);
+  const home = GV.roster.filter(c => c.alive && (c.status === 'home' && !c.keep || R.crew.includes(c.uid))), picking = roverPick || new Set(R.crew);
+  P.html = `<div class="box"><h3 class="sec">Rover <span class="muted">・<a href="#" data-center="${R.tile}">${nm(R.tile)}</a></span></h3>
+    <div class="mini">${st}</div>
+    <div class="mini" style="margin-top:4px">熱量 <b${R.cargo.food < crew.length * 2 ? ' class="neg"' : ''}>${R.cargo.food}</b>／${R.cap}・淨水 <b${R.cargo.water < crew.length * 2 ? ' class="neg"' : ''}>${R.cargo.water}</b>／${R.cap}・一天吃 ${crew.filter(c => c.alive).length} 份${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天</span>` : ''}</div>
+    ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row"><button data-act="fight" data-id="${tk.id}">親自打</button><button data-act="resolve" data-id="${tk.id}">現在自動結算</button></div></div>` : ''}
+    <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="roverstop">停車</button>' : ''}${!R.atHome ? `<button data-act="rovergo" data-id="${GV.base}">開回總部</button>` : ''}<button data-act="roversearch"${R.block || R.move ? ' disabled' : ''}>搜索這一帶（4 小時）</button>
+      ${R.atHome || R.town ? `<button data-act="roversupply" data-f="10" data-w="0">熱量 +10${R.atHome ? '（倉庫）' : `（$${10 * R.buy.food}k）`}</button><button data-act="roversupply" data-f="0" data-w="10">淨水 +10${R.atHome ? '（倉庫）' : `（$${10 * R.buy.water}k）`}</button>` : ''}</div>
+    <p class="mini muted">要去哪裡：到戰略地圖點一格，按「Rover 開到這裡」。停在有委託的格子時，那裡的委託可以「用 Rover 接」。</p></div>
+    <div class="box"><h3 class="sec">車上的人 <span class="muted">${crew.length}／4</span></h3>
+    <div class="chips">${crew.map(x => chip(x, false, 'person')).join('') || '<span class="mini muted">沒有人</span>'}</div>
+    ${pack ? `<div class="mini" style="margin-top:6px">行李：${pack.items.map(x => esc(x.name)).join('、') || '空的'}（點人可以整補）</div>` : ''}
+    ${R.atHome && !R.move ? `<h4 class="sec2">編組（在總部才能換人，最多四個）</h4><div class="chips">${home.map(x => `<span class="chip${picking.has(x.uid) ? ' on' : ''}" data-act="roverpick" data-id="${x.uid}"><img src="${face(x)}" alt="">${nameShort(x)}</span>`).join('')}</div><div class="row"><button data-act="rovercrew">確定上車的人（${picking.size}）</button></div>` : ''}</div>
+    <div class="box"><h3 class="sec">旅行日誌</h3><div class="rvlog">${R.log.map(e => `<p class="rv-${e.kind}"><span class="mini muted">${repDay(e.h)} ${String(e.h % 24).padStart(2, '0')}:00</span> ${esc(e.text)}</p>`).join('')}</div></div>`;
+}
+
 // 人員詳細資料：獨立的一張卡片，疊在畫面上（Alan 2026-10-10：比較好控制版面）；✕、點外面、Esc 關掉
 function renderPerson() {
   const P = $('pcard'); if (!P) return;
-  const c = GV && personSel != null && (['co', 'vat', 'store', 'trade'].includes(page) || sortie) && GV.roster.find(x => x.uid === personSel);
+  const c = GV && personSel != null && (['co', 'vat', 'store', 'trade', 'rover'].includes(page) || sortie) && GV.roster.find(x => x.uid === personSel);
   P.hidden = !c; if (c) $('pcbox').html = personCard(c);
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && personSel != null && !$('pcard').hidden) { personSel = null; gearPick = null; renderRoster(); } });
@@ -980,9 +1017,9 @@ $('pane-co').addEventListener('pointerleave', () => { const b = $('co-spark'); i
 // ───── 兩頁切換：上方按鈕，或左右滑 ─────
 let page = 'map';
 // 分頁（Alan 2026-10-09）：戰略地圖｜任務管制（原「公司」）｜培養槽｜交易｜報表
-const PAGES = ['map', 'co', 'vat', 'store', 'trade', 'rep'];
+const PAGES = ['map', 'co', 'vat', 'store', 'trade', 'rover', 'rep'];
 function renderPage() {
-  if (page === 'co') renderCo(); else if (page === 'vat') renderVat(); else if (page === 'store') renderStore(); else if (page === 'trade') renderTrade(); else if (page === 'rep') renderRepPage();
+  if (page === 'co') renderCo(); else if (page === 'vat') renderVat(); else if (page === 'store') renderStore(); else if (page === 'trade') renderTrade(); else if (page === 'rover') renderRover(); else if (page === 'rep') renderRepPage();
   renderRoster();
 }
 function showPage(p) {
@@ -1021,7 +1058,7 @@ function rePicker(room) {
     <div class="row"><button class="primary" data-act="re-go">送出契約變更（${pickRe.uids.size} 人${pickRe.fast ? '・加速' : ''}）</button><button data-act="re-x">取消</button></div></div>`;
 }
 function renderOdds() { if (!$('co-odds')) return; const o = classOdds(recipe); $('co-odds').innerHTML = Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${CLS[k].n} ${Math.round(v * 100)}%</span>`).join(''); }
-const coPanes = ['pane-co', 'pane-vat', 'pane-store', 'pane-trade', 'drawer', 'pcard'].map($);
+const coPanes = ['pane-co', 'pane-vat', 'pane-store', 'pane-trade', 'pane-rover', 'drawer', 'pcard'].map($);
 for (const el of coPanes) el.addEventListener('change', e => { const f = e.target.dataset.pf; if (!f || !procSel) return; procSel[f] = f === 'qty' ? Math.max(10, +e.target.value || 0) : e.target.value; renderProc(); });
 for (const el of coPanes) el.addEventListener('input', e => { const m = e.target.dataset.rc; if (!m) return; const r = e.target.dataset.vat != null ? vatRecipe(+e.target.dataset.vat) : recipe; r[m] = Math.max(0, +e.target.value || 0); renderOdds(); });
 // 配方輸入框打完（離開焦點）才重畫培養槽，機率跟著更新
@@ -1074,6 +1111,15 @@ const coClick = e => {
   else if (A === 'callgar') send({type: 'answer', call: id, squad: b.dataset.sq});
   else if (A === 'ungar') send({type: 'ungarrison', squad: id});
   else if (A === 'rethide') send({type: 'retHide', id});
+  // Rover（Alan 2026-10-11）
+  else if (A === 'roverbuy') { if (confirm(`買一台 Rover（$${GV.rover?.price ?? 300}k）？`)) send({type: 'buyRover'}); }
+  else if (A === 'rovergo') send({type: 'roverGo', tile: +id});
+  else if (A === 'roverstop') send({type: 'roverStop'});
+  else if (A === 'roversearch') send({type: 'roverSearch'});
+  else if (A === 'roversupply') send({type: 'roverSupply', food: +b.dataset.f || 0, water: +b.dataset.w || 0});
+  else if (A === 'roverpick') { const u = +id; roverPick = roverPick || new Set(GV.rover?.crew || []); if (roverPick.has(u)) roverPick.delete(u); else if (roverPick.size < 4) roverPick.add(u); renderRover(); }
+  else if (A === 'rovercrew') { send({type: 'roverCrew', uids: [...(roverPick || [])]}); roverPick = null; }
+  else if (A === 'roveraccept') { const o = curOpps(hist[cur]).find(x => x.kind === id && x.tile === +b.dataset.tile); send({type: 'accept', kind: id, tile: +b.dataset.tile, side: o?.kind === 'drill' ? '1' : o?.kind === 'front' || o?.kind === 'camp' ? 'att' : o?.kind === 'tense' ? 'a' : '', uids: [], rover: true}); }
   else if (A === 'ungarall') { if (confirm('撤回這個產地所有不在護送中的駐軍？')) for (const sq of id.split(',')) send({type: 'ungarrison', squad: sq}); }
   else if (A === 'callpick' || A === 'garpick') {
     const c = (GV.retainer?.mine || []).find(x => A === 'garpick' ? x.site === +id : x.calls.some(q => q.id === id)), q = c?.calls.find(x => x.id === id); if (!c) return;
