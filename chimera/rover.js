@@ -143,8 +143,7 @@ function searchResult(G, book, w, t, h, sq) {
     gainLegacy(G, {kind: wp.kind, weapon: wp.name, legacy: wp.id, bonus: wp.bonus}, h, sq); out.push(`找到了遺產級「${wp.name}」（${wp.kind}），放進車上的行李。`); }
   for (const b of (book.bodies || []).filter(b => b.tile === t && !b.takenBy)) { b.takenBy = G.name; out.push(b.co === G.name ? '找到了我們自己人的遺體，帶回去還能重新培養。' : `找到一具${b.co}的人的遺體。`); }
   if (K.ruin[t]) { const r = roll(t, h, 77); if (r < .5) { G.mats.implant = (G.mats.implant || 0) + 3; G.mats.neural = (G.mats.neural || 0) + 3; out.push('在廢墟裡拆到一些還能用的植入物和神經介質（植入物 +3、神經介質 +3，算進倉庫）。'); } else out.push('廢墟裡翻了一圈，只有爛掉的電路板。'); }
-  if (!out.length) out.push(roll(t, h, 5) < .3 ? `撿到一些補給（熱量 +${Math.min(2, ROVER.CAP - R.cargo.food)}）。` : '搜了一圈，什麼也沒找到。');
-  if (out[0].startsWith('撿到一些補給')) R.cargo.food = Math.min(ROVER.CAP, R.cargo.food + 2);
+  if (!out.length) { const k = Math.min(2, ROVER.CAP - R.cargo.food); out.push(roll(t, h, 5) >= .3 ? '搜了一圈，什麼也沒找到。' : k > 0 ? `撿到一些補給（熱量 +${k}）。` : '撿到一點熱量，可是車上已經放不下了。'); if (out[0].startsWith('撿到一些補給')) R.cargo.food += k; }
   return out;
 }
 
