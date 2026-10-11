@@ -565,6 +565,7 @@ export function garBack(G, book, sq, c, h) {
   if (sq.due > 0) C.pay(book, h, sq.player, -sq.due, 'upkeep', `${c.title}：維持費（${sq.name}，回到駐地時結帳）`, c.id); sq.due = 0;
   for (const x of sq.clones) { const e = C.caseRec(x, c.id); if (e && e.end == null) e.end = h; }
   c.squads = c.squads.filter(id => id !== sq.id); sq.caseId = null; sq.busy = null; delete sq.headedHome;
+  for (const x of sq.clones) if (x.alive) C.rec(x, {h, t: 'garrison', co: G.name, tile: sq.garrison});   // 服役紀錄：回到駐地（讀檔的修復照最後一筆差事判斷人在哪）
 }
 const garSquads = (G, book, site) => Object.values(book.squads).filter(sq => sq.player === G.name && sq.garrison === site);
 const garFree = (sq, now) => !sq.caseId && sq.readyAt <= now && sq.clones.filter(c => c.alive).length >= 2 && sq.clones.filter(c => c.alive).every(c => c.status === 'away');

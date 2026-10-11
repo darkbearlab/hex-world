@@ -365,9 +365,25 @@ export class Core {
       sq.clones = sq.clones.map(c => (c.uid != null && byUid.get(c.uid)) || c);
     }
     // 舊存檔（Alan 2026-10-11）：舊案件結案曾把駐軍的人拉回總部、又被派去別的案子。駐軍名單只留還在駐地的人（最後一個差事是這個駐地、人在外面）；不到兩人就撤掉這支駐軍
+    // 「這個人現在的差事是不是駐在 site」：最後一筆是駐紮在這裡，或是這個產地長約的護送（駐軍自己接的應召，護送完回到駐地）
+    const siteOfCase = id => { const k = g.book.cases.find(x => x.id === id); return k?.contract ? (g.book.contracts || []).find(x => x.id === k.contract)?.site : undefined; };
+    const garAt = (c, site) => { const e = (c.record || []).findLast(e => e.t === 'case' || e.t === 'garrison'); return e?.t === 'garrison' ? e.tile === site : e?.t === 'case' && siteOfCase(e.case) === site; };
     for (const [id, sq] of Object.entries(g.book.squads)) { if (sq.garrison == null || sq.caseId) continue;
-      sq.clones = sq.clones.filter(c => { const e = (c.record || []).findLast(e => e.t === 'case' || e.t === 'garrison'); return c.alive && c.status === 'away' && (e?.t === 'garrison' ? e.tile === sq.garrison : !!g.book.cases.find(k => k.id === e?.case)?.squads.includes(id)); });   // 駐軍自己接的應召也算（回到駐地）
+      sq.clones = sq.clones.filter(c => c.alive && c.status === 'away' && garAt(c, sq.garrison));
       if (sq.clones.length < 2) { for (const c of sq.clones) c.status = 'home'; delete g.book.squads[id]; } }
+    // 舊存檔（Alan 2026-10-11）：上一版的修復把「護送完回到駐地」的駐軍誤拆了（人被放回總部）。合約還有效的，照原本的產地重新編回駐軍
+    for (const co of Object.values(g.cos)) {
+      const lost = {}; for (const c of co.roster) { if (!c.alive || c.status !== 'home' || (co.returning || []).some(r => r.uid === c.uid)) continue;
+        // 往回看：最後幾筆都是同一個產地長約的護送、再往前是駐紮在那裡，才算是被誤拆的駐軍（從總部臨時派去應召的人不算）
+        const J = (c.record || []).filter(e => e.t === 'case' || e.t === 'garrison'), last = J[J.length - 1];
+        let site = last?.t === 'case' && last.end != null ? siteOfCase(last.case) : undefined;
+        if (site !== undefined) { let i = J.length - 1; while (i >= 0 && J[i].t === 'case' && siteOfCase(J[i].case) === site) i--; if (!(i >= 0 && J[i].t === 'garrison' && J[i].tile === site)) site = undefined; }
+        if (site === undefined || Object.values(g.book.squads).some(sq => sq.clones.includes(c) && (sq.caseId || sq.garrison != null))) continue;
+        const k = (g.book.contracts || []).find(x => !x.done && x.site === site && x.signers.some(s => s.co === co.name && !s.void)); if (k) (lost[site] ||= []).push(c); }
+      for (const [site, L] of Object.entries(lost)) for (let i = 0; i + 1 < L.length; i += 4) { const grp = L.slice(i, i + 4);
+        const sq = C.makeSquad(g.book, co.name, {clones: grp, gear: 3, at: +site, name: `${co.name}・${this.w.names[+site] || ''}駐軍`}); sq.garrison = +site; sq.readyAt = g.h ?? 0;
+        for (const c of grp) { c.status = 'away'; C.rec(c, {h: g.h ?? 0, t: 'garrison', co: co.name, tile: +site}); } }
+    }
     // 舊存檔（Alan 2026-10-11）：已經回到駐地、還掛在護送單上的駐軍，脫鉤
     for (const sq of Object.values(g.book.squads)) if (sq.garrison != null && sq.caseId && sq.headedHome != null && g.cos[sq.player]) { const c = g.book.cases.find(x => x.id === sq.caseId); if (c) G.garBack(g.cos[sq.player], g.book, sq, c, g.h ?? 0); }
     // 舊存檔（Alan 2026-10-11）：補上錫冠、鉛冠
