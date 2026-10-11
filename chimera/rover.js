@@ -172,7 +172,7 @@ export function roverHour(cos, book, w, h) {
     // 開車
     if (R.move && h >= R.move.t1) { R.tile = R.move.to; sq.at = R.tile; R.move = null;
       for (const s of tileStory(G, book, w, R.tile, h)) say(R, h, R.tile, s, 'story');
-      if (R.tile !== G.base && roll(R.tile, h, 1) < encounterP(w, R.tile)) { const c = roverCase(book, G, R, h); C.roverEncounter(book, w, c, sq, R.tile, h); R.route = []; say(R, h, R.tile, '有人擋住了去路——打完才能繼續走。', 'danger'); }
+      if (R.tile !== G.base && roll(R.tile, h, 1) < encounterP(w, R.tile)) { const c = roverCase(book, G, R, h); C.roverEncounter(book, w, c, sq, R.tile, h); say(R, h, R.tile, `有人擋住了去路——打完才能繼續走${R.route.length ? `（打完會接著往${w.names[R.route[R.route.length - 1]] || '目的地'}開）` : ''}。`, 'danger'); }   // 路線留著：服務單處理完就接著開（Alan 2026-10-11）
       else if (!R.route.length) say(R, h, R.tile, `到了${w.names[R.tile] || '目的地'}。`); }
     if (!R.move && R.route.length && !roverBlock(book, R, h)) nextLeg(w, R, h);
   }
