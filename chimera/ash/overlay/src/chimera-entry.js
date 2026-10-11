@@ -36,7 +36,7 @@ Object.assign(E,{
   current=tk;sent=false;E.remote=null;
   const g=await build(tk.mission),log=tk.log||[];
   for(const e of log)applyEntry(g,e);
-  E.uplink=uplink(log.length);record(g,e=>E.uplink.push(e,fingerprint(g)));
+  const up=uplink(log.length,tk.id);E.uplink=up;record(g,e=>up.push(e,fingerprint(g)));   // 這一場的輸入只送這一場
   E.game=g;E.load(g);E.show();
   // 接回時這一場已經打完了（例如不同步、照伺服器的紀錄重建，伺服器那邊已經結束）：直接收尾（Alan 2026-10-11：公路戰常常停在打完的畫面）
   if(g.status!=='playing')E.finish(g);
@@ -76,8 +76,9 @@ const hydrate=st=>Object.assign(Object.create(SquadGame.prototype),relink(st),{e
 function apply(g,st){relink(st);for(const k of Object.keys(g))if(!(k in st))delete g[k];Object.assign(g,st);g.effects=[];}
 // 伺服器把 Set、Map 標記成 {$set}、{$map}（JSON 本身存不了）
 const revive=(k,v)=>v&&typeof v==='object'?(Array.isArray(v.$set)?new Set(v.$set):Array.isArray(v.$map)?new Map(v.$map):v):v;
-const battleUrl=op=>`/api/battle/${encodeURIComponent(current.id)}/${op}`;
-async function post(op,body){const r=await fetch(battleUrl(op),{method:'POST',headers:{'content-type':'application/json',...AUTH()},body:JSON.stringify(body)});const d=await r.text().then(t=>JSON.parse(t,revive)).catch(()=>null);if(!r.ok)throw new Error(d?.error||`伺服器回應 ${r.status}`);return d;}
+// 單號在開戰時就綁定（Alan 2026-10-11：前一場還在背景補送輸入時開了下一場，剩下的輸入被送進新的那場、被傳送到奇怪的位置）
+const battleUrl=(op,id=current.id)=>`/api/battle/${encodeURIComponent(id)}/${op}`;
+async function post(op,body,id){const r=await fetch(battleUrl(op,id),{method:'POST',headers:{'content-type':'application/json',...AUTH()},body:JSON.stringify(body)});const d=await r.text().then(t=>JSON.parse(t,revive)).catch(()=>null);if(!r.ok)throw new Error(d?.error||`伺服器回應 ${r.status}`);return d;}
 // 選單裡的動作（預備道具、選近戰武器、學技能、選升級、換人操作）原本是同步的，這裡也同步問伺服器（很少按，等一下下沒關係）
 function postSync(op,body){const x=new XMLHttpRequest();x.open('POST',battleUrl(op),false);x.setRequestHeader('content-type','application/json');for(const[k,v]of Object.entries(AUTH()))x.setRequestHeader(k,v);x.send(JSON.stringify(body));const d=JSON.parse(x.responseText||'null',revive);if(x.status>=400)throw new Error(d?.error||`伺服器回應 ${x.status}`);return d;}
 // 先播自己的移動（DESIGN.md 2026-10-09 提案 1）：按下去就滑過去（ASH 走一格的動畫 120 毫秒，比網路往返短），伺服器的結果晚一點到再接著播。
@@ -96,25 +97,25 @@ function predictMove(g,type,arg){
 }
 // 把輸入送給伺服器：依序、一批批送（每批最多 300 筆），不擋畫面。伺服器說它收到的筆數和這裡不一樣，就從它說的那一筆重送；
 // 伺服器重播出來的指紋和這裡不一樣（不同步），以伺服器為準：重新接回（照伺服器的紀錄重建這一場）。
-function uplink(start){
+function uplink(start,id){
  const all=[];let sent=start,fp=null,busy=false,retry=0,idle=[];
  const pending=()=>start+all.length-sent;
  async function kick(){
   if(busy)return;if(!pending()){for(const r of idle.splice(0))r();return;}
   busy=true;const from=sent,entries=all.slice(from-start,from-start+300),last=from+entries.length===start+all.length;
   try{
-   const d=await post('log',{from,entries,fp:last?fp:null});retry=0;
+   const d=await post('log',{from,entries,fp:last?fp:null},id);retry=0;
    sent=Math.min(d.next,start+all.length);
-   if(d.desync){console.warn('[戰鬥] 和伺服器不同步，以伺服器為準重新接回');reportDesync(d,from+entries.length);E.uplink=null;for(const r of idle.splice(0))r();resync();busy=false;return;}   // 等著收尾的先放行（結果以伺服器為準）
+   if(d.desync){console.warn('[戰鬥] 和伺服器不同步，以伺服器為準重新接回');reportDesync(d,from+entries.length);for(const r of idle.splice(0))r();if(current?.id===id&&E.uplink?.id===id){E.uplink=null;resync(id);}busy=false;return;}   // 已經不是畫面上這一場：只放行，不去動現在的戰鬥   // 等著收尾的先放行（結果以伺服器為準）
   }catch(e){retry++;console.warn('[戰鬥] 送不到伺服器，稍後重送',e?.message||e);await new Promise(r=>setTimeout(r,Math.min(8000,600*retry)));}
   busy=false;kick();
  }
- return {push(e,f){all.push(e);fp=f;kick();},idle:()=>pending()?new Promise(r=>{idle.push(r);kick();}):Promise.resolve(),get pending(){return pending();}};
+ return {id,push(e,f){all.push(e);fp=f;kick();},idle:()=>pending()?new Promise(r=>{idle.push(r);kick();}):Promise.resolve(),get pending(){return pending();}};
 }
 // 不同步回報到伺服器的錯誤紀錄（後台 clientErrors），查是哪一種服務單、第幾筆輸入開始對不上
 function reportDesync(d,n){try{const g=E.game;fetch('/api/clientlog',{method:'POST',headers:{'content-type':'application/json',...AUTH()},body:JSON.stringify({where:'battle-desync',msg:`${current?.mission?.type||'?'} 第 ${n} 筆輸入不同步・回合 ${g?.turn}・狀態 ${g?.status}・伺服器 ${d.fp||''}・這裡 ${g?fingerprint(g):''}`,stack:JSON.stringify(d).slice(0,800),ua:navigator.userAgent})}).catch(()=>{});}catch{}}
 function reportSlow(n){try{fetch('/api/clientlog',{method:'POST',headers:{'content-type':'application/json',...AUTH()},body:JSON.stringify({where:'battle-upload-slow',msg:`${current?.mission?.type||'?'}：打完 20 秒還有 ${n} 筆輸入沒送到伺服器`,ua:navigator.userAgent})}).catch(()=>{});}catch{}}
-async function resync(){try{const r=await fetch(battleUrl('state'),{headers:AUTH()}),d=await r.json();if(r.ok&&d.mode==='verify')await E.startVerified({...current,mission:d.mission,log:d.log});}catch(e){console.warn(e);}}
+async function resync(id){try{const r=await fetch(battleUrl('state',id),{headers:AUTH()}),d=await r.json();if(r.ok&&d.mode==='verify'&&current?.id===id)await E.startVerified({...current,mission:d.mission,log:d.log});}catch(e){console.warn(e);}}
 function mirror(state){
  const g=hydrate(state),def=(k,f)=>Object.defineProperty(g,k,{configurable:true,writable:true,enumerable:false,value:f});
  for(const k of ['stash','brains'])def(k,new Map());
