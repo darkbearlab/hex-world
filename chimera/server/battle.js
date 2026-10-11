@@ -119,7 +119,9 @@ export class Skirmish extends DurableObject {
         if (from !== this.log.length) return json({next: this.log.length, mismatch: true});
         if (this.log.length + entries.length > LOG_MAX) return bad('這場戰鬥的輸入太多了');
         const g = this.g;
-        for (const e of entries) { if (g.status !== 'playing') break; try { applyEntry(g, e); } catch (err) { this.meta.errors = (this.meta.errors || 0) + 1; } this.log.push(e); }
+        // 打完之後才到的輸入（例如結束那一步之後畫面又記了幾筆）：照樣收下、算進筆數，只是不重播。原本會停在結束那一筆，
+        // 瀏覽器以為還沒收齊、一直重送，結果畫面就一直等（Alan 2026-10-11：公路戰、破壞任務打完卡在戰場上）
+        for (const e of entries) { if (g.status === 'playing') { try { applyEntry(g, e); } catch (err) { this.meta.errors = (this.meta.errors || 0) + 1; } } this.log.push(e); }
         const fp = fingerprint(g), desync = body.fp && body.fp !== fp && this.log.length === from + entries.length;
         if (desync && this.meta.desync == null) this.meta.desync = this.log.length;
         await this.ctx.storage.put('log', this.log, {allowUnconfirmed: true}); await this.save(); await this.settle();
