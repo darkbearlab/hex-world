@@ -641,7 +641,7 @@ function breach(cos, book, w, c, q, h, SH) {
     note(G, h, `違約！${nm}的車隊在時限內沒人來護送：賠 $${pen}k${s.bond ? `，履約保證金 $${s.bond}k 沒收` : ''}。再違約一次，合約作廢、那個勢力一年不跟你往來。`);
   } else {
     const pen = Math.round(c.fee * .5); C.pay(book, h, q.co, -pen, 'breach', `${nm}長約：違約金（第二次，合約作廢）`);
-    s.void = true; (G.bans ||= {})[c.fac] = h + SH * RET.BAN_SEASONS;
+    s.void = true; s.voidAt = h; (G.bans ||= {})[c.fac] = h + SH * RET.BAN_SEASONS;
     note(G, h, `再次違約：${nm}的長約作廢，賠 $${pen}k；${w.sim.peek().fac[c.fac]?.n || '那個勢力'}一年內不跟你往來。`);
   }
 }
@@ -708,13 +708,21 @@ export function retainerHour(cos, book, w, h, SH) {
   // 駐紮費：每天
   if (h % 24 === 0) for (const sq of Object.values(book.squads)) if (sq.garrison != null && cos[sq.player]) { const n = sq.clones.filter(c => c.alive).length; if (n) C.pay(book, h, sq.player, -RET.GAR_UPKEEP * n, 'garrison', `${sq.name}：駐紮費（${n} 人）`); }
 }
+// 收起一份已結束的長約（只是不顯示成卡片，紀錄還在）
+export function retHide(G, book, id) {
+  const c = (book.contracts || []).find(x => x.id === id), s = c?.signers.find(x => x.co === G.name); if (!s) return '找不到這份長約';
+  if (!c.done && !s.void) return '還在進行中的長約不能收起';
+  (G.retHide ||= []).includes(id) || G.retHide.push(id); return null;
+}
 // 給畫面：看得到的長約、自己簽的、應召、駐軍
 export function retainerView(G, book, w) {
   const K = w.sim.peek(), nm = t => w.names[t] || '無名之地', now = G.h, L = book.contracts || [];
   const offers = L.filter(c => !canSign(G, book, w, c, now)).map(c => ({id: c.id, site: c.site, name: nm(c.site), kind: c.kind, kn: SITE_N[c.kind], fac: K.fac[c.fac]?.n || '', fee: c.fee, plan: c.plan, bond: c.bond, bonus: c.bonus,
     total: c.plan === 'lump' ? c.fee : Math.round(c.fee * RET.INSTALL * RET.SEASONS), seasons: RET.SEASONS, left: c.slots - c.signers.length, until: c.signUntil}));
-  const mine = L.filter(c => c.signers.some(s => s.co === G.name) && (!c.done || now - c.end < 72)).map(c => { const s = c.signers.find(x => x.co === G.name);
-    return {id: c.id, site: c.site, name: nm(c.site), kn: SITE_N[c.kind], end: c.end, done: !!c.done, void: !!s.void, breaches: s.breaches, plan: c.plan, paid: s.paid, bond: s.bond, bondLost: !!s.bondLost,
+  // 已結束的長約（Alan 2026-10-11）：作廢、期滿的照樣列出（紀錄不刪）；結束 3 天後或按了「收起」就收進「已結束的長約」
+  const endOf = (c, s) => s.void ? s.voidAt ?? Math.max(0, ...c.calls.filter(q => q.co === G.name && q.state === 'missed').map(q => q.deadline)) : c.done ? c.end : null;
+  const mine = L.filter(c => c.signers.some(s => s.co === G.name)).map(c => { const s = c.signers.find(x => x.co === G.name), endedAt = endOf(c, s);
+    return {id: c.id, site: c.site, name: nm(c.site), kn: SITE_N[c.kind], end: c.end, done: !!c.done, void: !!s.void, endedAt, hidden: endedAt != null && (now - endedAt >= 72 || (G.retHide || []).includes(c.id)), breaches: s.breaches, plan: c.plan, paid: s.paid, bond: s.bond, bondLost: !!s.bondLost,
       calls: c.calls.filter(q => q.co === G.name && q.state === 'open').map(q => ({id: q.id, to: nm(q.to), g: GOOD_N[q.g], deadline: q.deadline})),
       garrison: garSquads(G, book, c.site).map(sq => ({id: sq.id, name: sq.name, alive: sq.clones.filter(x => x.alive).length, uids: sq.clones.map(x => x.uid), busy: !!sq.caseId, ready: sq.readyAt <= now, readyAt: sq.readyAt}))}; });
   const rk = (book.fameRank || []).findIndex(([n]) => n === G.name);

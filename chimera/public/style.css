@@ -560,3 +560,4 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .rep.ledger td.n{text-align:right;white-space:nowrap}
 .rep.ledger tr.grp td{color:var(--muted);font-size:12px;padding-top:8px}
 .rep.ledger td:first-child{white-space:nowrap}
+.retold{margin-top:10px}.retold summary{cursor:pointer;padding:4px 0}.retrow{margin:2px 0 0 14px}.retrow summary{color:var(--muted,#9a9)}
