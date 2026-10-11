@@ -14,6 +14,9 @@ PICK = {
   'ember': (E('06'), .5, .13, 0, 0), 'onyx': (F('14'), .5, .13, 0, 0), 'silver': (E('10'), .5, .14, 0, 0), 'cedar': (E('01'), .5, .14, 0, 0),   # 原本用 ASH 頭像的四位（Alan 2026-10-12 也接上）
   'portrait-11': (F('15'), .5, .14, 0, 0), 'portrait-13': (F('16'), .5, .13, .12, 0), 'portrait-14': (F('23'), .42, .14, .08, 0),
 }
+# 眼睛（Alan 2026-10-12：兩眼連線的中點在頭像正中間，兩眼外側佔頭像寬的二分之一到三分之二）：(兩眼中點 x, y, 兩眼外眼角的距離)，原圖座標，看圖量的
+EYES = {"portrait-05": [497, 199, 100], "portrait-06": [507, 165, 82], "portrait-07": [436, 224, 99], "portrait-12": [508, 185, 98], "portrait-15": [494, 200, 96], "portrait-16": [496, 222, 100], "portrait-08": [497, 145, 89], "portrait-09": [485, 144, 81], "portrait-10": [473, 191, 87], "ember": [521, 188, 95], "onyx": [483, 179, 90], "silver": [527, 191, 104], "cedar": [514, 191, 100], "portrait-11": [503, 188, 98], "portrait-13": [524, 176, 95], "portrait-14": [500, 214, 100]}
+EYE_SPAN = .58
 def figure_box(im):
   # 人物的範圍：跟左上角的背景色差得夠多的地方
   rgb = im.convert('RGB'); bg = Image.new('RGB', rgb.size, rgb.getpixel((2, 2)))
@@ -32,6 +35,7 @@ for key, (src, hip, head, dy, dx) in PICK.items():
   cols = [x for x in range(band.width) if any(px[x, y] for y in range(0, hh, 4))]
   cx = (sum(cols) / len(cols) if cols else (x0 + x1) / 2); side = int(hh * 1.2); cx += dx * side
   ty = max(0, y0 - int(side * .06) + int(side * dy)); lx = min(max(0, int(cx - side / 2)), im.width - side)   # 不要切出圖外
+  if key in EYES: ex, ey, span = EYES[key]; side = round(span / EYE_SPAN); lx, ty = ex - side // 2, ey - side // 2   # 有量過眼睛的照眼睛對
   sq = im.crop((lx, ty, lx + side, ty + side))
   sq.resize((64, 64), Image.LANCZOS).quantize(colors=16, method=Image.MEDIANCUT).save(os.path.join(d, 'portrait.png'), optimize=True)
   print(key, os.path.basename(src)[:28], 'full', full.size, 'head', side)
