@@ -368,6 +368,8 @@ export class Core {
     for (const [id, sq] of Object.entries(g.book.squads)) { if (sq.garrison == null || sq.caseId) continue;
       sq.clones = sq.clones.filter(c => { const e = (c.record || []).findLast(e => e.t === 'case' || e.t === 'garrison'); return c.alive && c.status === 'away' && (e?.t === 'garrison' ? e.tile === sq.garrison : !!g.book.cases.find(k => k.id === e?.case)?.squads.includes(id)); });   // 駐軍自己接的應召也算（回到駐地）
       if (sq.clones.length < 2) { for (const c of sq.clones) c.status = 'home'; delete g.book.squads[id]; } }
+    // 舊存檔（Alan 2026-10-11）：已經回到駐地、還掛在護送單上的駐軍，脫鉤
+    for (const sq of Object.values(g.book.squads)) if (sq.garrison != null && sq.caseId && sq.headedHome != null && g.cos[sq.player]) { const c = g.book.cases.find(x => x.id === sq.caseId); if (c) G.garBack(g.cos[sq.player], g.book, sq, c, g.h ?? 0); }
     // 舊存檔（Alan 2026-10-11）：補上錫冠、鉛冠
     for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.crown && c.pct != null) c.crown = G.crownOf(c.pct);
     // 舊存檔：格子收集取代經驗（Alan 2026-10-10）。原本的等級換成等量的格子（每級 10 格，照 uid 擲），不降級

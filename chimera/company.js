@@ -465,7 +465,7 @@ export function hour(G, book, w, h) {
     const c = book.cases.find(x => x.id === id); if (!c || c.settled || c.own || c.open) continue;
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.headedHome || book.tickets.some(t => t.squad === sid && !t.done)) continue;
       const away = sq.clones.filter(x => x.alive && x.status === 'away' && onCase(x, c.id)); sq.headedHome = h; if (!away.length) continue;
-      if (sq.garrison != null) { sq.readyAt = Math.max(sq.readyAt, h + 6); note(G, h, `「${c.title}」收尾，${sq.name} 回到駐地。`); continue; }   // 駐軍回駐地待命（休整 6 小時）
+      if (sq.garrison != null) { garBack(G, book, sq, c, h); sq.readyAt = Math.max(sq.readyAt, h + 6); note(G, h, `「${c.title}」收尾，${sq.name} 回到駐地。`); continue; }   // 駐軍回駐地待命（休整 6 小時）
       const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       C.payFare(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast);
       for (const x of away) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); }
@@ -558,6 +558,13 @@ export function fame(G, book) {
     for (let i = 0; i < (G.breaches || 0); i++) G.fameLog.push({h: 0, title: '違約（舊紀錄）', fame: -FAME.BREACH});
   }
   return G.fameLog.reduce((s, e) => s + e.fame, 0);
+}
+// 駐軍護送完回到駐地（Alan 2026-10-11）：當場跟那張護送單脫鉤（維持費先結、服役紀錄記結束），尾款照積分等結案再分。
+// 原本要等案件結算（收尾後還有一天緩衝）才脫鉤，這段時間駐軍算「在案子裡」，下一趟應召拉不到人，被判違約
+export function garBack(G, book, sq, c, h) {
+  if (sq.due > 0) C.pay(book, h, sq.player, -sq.due, 'upkeep', `${c.title}：維持費（${sq.name}，回到駐地時結帳）`, c.id); sq.due = 0;
+  for (const x of sq.clones) { const e = C.caseRec(x, c.id); if (e && e.end == null) e.end = h; }
+  c.squads = c.squads.filter(id => id !== sq.id); sq.caseId = null; sq.busy = null; delete sq.headedHome;
 }
 const garSquads = (G, book, site) => Object.values(book.squads).filter(sq => sq.player === G.name && sq.garrison === site);
 const garFree = (sq, now) => !sq.caseId && sq.readyAt <= now && sq.clones.filter(c => c.alive).length >= 2 && sq.clones.filter(c => c.alive).every(c => c.status === 'away');
