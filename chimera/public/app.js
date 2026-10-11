@@ -564,7 +564,7 @@ function renderCo() {
       <div class="row"><button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的服務單。</p>';
   // 案件分三段（Alan 2026-10-10）：進行中的照舊整張卡；人都回來、只等結案撥款的，和已結案的，收成一行，不再列人
   const nowH = hourNow() ?? h, back = c => !c.own && !c.settled && c.squads.length && c.squads.every(sq => sq.headedHome != null && !(sq.backAt > nowH));
-  const brief = c => `<div class="mini caseline"><a href="#" data-center="${c.tile}">${esc(c.title)}</a>・${c.settled ? (c.own ? '車隊已回到總部' : `尾款 $${c.payout || 0}k`) : `${cd(c.end + 24)}後結算`}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>`;
+  const brief = c => `<div class="mini caseline"><a href="#" data-center="${c.tile}">${esc(c.title)}</a>・${c.settled ? (c.own ? '車隊已回到總部' : `尾款 $${c.payout || 0}k`) : `${cd(c.end + (c.buffer ?? 24))}後結算`}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>`;
   const waitC = G.cases.filter(back), doneC = G.cases.filter(c => c.settled), liveC = G.cases.filter(c => !c.settled && !back(c));
   const sec = (t, L) => L.length ? `<h4 class="sec2">${t}（${L.length}）</h4>${L.map(brief).join('')}` : '';
   // 清運（Alan 2026-10-10）
@@ -577,7 +577,7 @@ function renderCo() {
     ${c.garrison.map(s => `<div class="row caseline"><span class="mini" style="flex:1">${esc(s.name)}・${s.alive} 人・${s.busy ? '護送中' : s.ready ? '待命' : `${cd(s.readyAt)}後到位`}</span>${s.busy ? '' : `<button data-act="ungar" data-id="${s.id}">撤回</button>`}</div>`).join('') || (c.void || c.done ? '' : '<div class="mini muted">沒有駐軍：應召時限到了還沒派人就是違約。</div>')}
     ${c.void || c.done ? '' : `<div class="row"><button data-act="garpick" data-id="${c.site}" data-nm="${esc(c.name + c.kn)}">派人駐紮</button></div>`}</div>`).join('') : '<p class="mini muted">還沒有長約。名氣排進世界前幾名，產地會在機會裡找你。</p>');
   $('co-cases').html = !G.cases.length ? '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>' : (liveC.length ? '' : '<p class="muted">沒有進行中的案件。</p>') + liveC.map(c => {
-    const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}k` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? `${cd(c.end - 24)}後合約到期` : `收尾中・${cd(c.end + 24)}後結算`;
+    const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}k` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? (c.kind === 'security' ? `駐守中・${cd(c.end)}後期滿` : `${cd(c.end - (c.freeze ?? 24))}後合約到期`) : `收尾中・${cd(c.end + (c.buffer ?? 24))}後結算`;
     return `<div class="card"><h4><a href="#" data-center="${c.tile}">${esc(c.title)}</a><span class="mini">${c.own ? '採購' : '●'.repeat(c.lv) + '○'.repeat(3 - c.lv)}</span></h4>
       <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>
       ${c.own && !c.squads.length ? '<div class="mini">沒有護衛，路上出事由雇來的車隊守衛自己打。</div>' : ''}

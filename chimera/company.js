@@ -795,6 +795,7 @@ export function view(G, book, w) {
     id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
     ...(() => { const L = book.ledger.filter(x => x.caseId === c.id && x.player === G.name && x.kind !== 'loss'); return {got: L.filter(x => x.amount > 0).reduce((t, x) => t + x.amount, 0), spent: -L.filter(x => x.amount < 0).reduce((t, x) => t + x.amount, 0)}; })(),   // 這個案件已經入帳的收入、已經付出去的錢（報表的會計帳用）
     scoreTot: Object.values(c.score || {}).reduce((t, v) => t + v, 0),
+    freeze: c.freeze ?? C.CFG.FREEZE, buffer: c.own || C.SOLO.has(c.kind) ? 0 : C.CFG.BUFFER,   // 截止前幾小時不再出單、結束後緩衝幾小時才結算（練兵、狩獵、維安都是 0）
     payout: c.payout?.[G.name], midPaid: c.midPaid, due: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).reduce((s, sq) => s + (sq.due || 0), 0), quit: !!c.quit?.[G.name], delivered: c.delivered, convoys: c.convoys, lost: c.lostConvoys.length, pay: c.pay, tickets: c.tickets,
     squads: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).map(sq => ({id: sq.id, name: sq.name, readyAt: sq.readyAt, busy: sq.busy, headedHome: sq.headedHome,
       backAt: Math.max(-1, ...G.returning.filter(r => sq.clones.some(x => x.uid === r.uid)).map(r => r.at)),   // 收尾後啟程返回：最後一個人到總部的時刻 refused: !!sq.refused, fast: !!sq.fast,
