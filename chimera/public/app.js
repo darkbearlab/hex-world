@@ -591,7 +591,8 @@ function renderCo() {
       ${c.squads.map(sq => { const cl = sq.clones.map(u => G.roster.find(x => x.uid === u)).filter(Boolean), al = cl.filter(x => x.alive).length;
         const sts = sq.headedHome != null ? (sq.backAt > (hourNow() ?? h) ? `歸途中・約 ${cd(sq.backAt)}後回到總部` : '已回到總部') : sq.busy ? '服務單處理中' : sq.readyAt > (hourNow() ?? h) ? `ETA ${cd(sq.readyAt)}` : '待命中';
         return `<div style="margin-top:6px"><span class="mini">${c.settled ? '' : sts}${sq.pending.length ? `・補員 ${sq.pending.map(p => `${p.n} 人 ${cd(p.eta)}後到`).join('、')}` : ''}${sq.refused ? '・<span style="color:var(--war)">雇主不准再補人</span>' : ''}</span>
-        <div class="chips">${cl.map(x => chip(x, false)).join('')}</div>
+        <div class="chips">${cl.map(x => chip(x, false, 'person')).join('')}</div>
+        ${G.packs?.[sq.id] ? `<div class="mini muted">隨隊行李：${G.packs[sq.id].items.map(x => esc(x.name)).join('、') || '空的'}${G.packs[sq.id].lock ? '' : '・點人可以整補'}</div>` : ''}
         ${sq.headedHome != null ? '' : squadActions(sq, c, al)}</div>`; }).join('')}</div>`; }).join('') + sec('人都回來了，等結案撥款', waitC) + sec('已結案', doneC);
 }
 
@@ -708,11 +709,13 @@ const SLOT_N = {gun0: '槍 1', gun1: '槍 2', gun2: '槍 3', melee: '近戰', ar
 let gearPick = null;   // {uid, slot}：正在挑哪一格
 function gearOfC(c) { const g = c.gear || {guns: [], kits: []}; return s => s.startsWith('gun') ? g.guns?.[+s[3]] : s.startsWith('kit') ? g.kits?.[+s[3]] : g[s]; }
 function gearBox(c) {
-  const get = gearOfC(c), can = c.alive && c.status === 'home';
+  // 整補（Alan 2026-10-11）：出勤中的人從隨隊行李換（隊員之間交換：一個人卸下放進行李、另一個人拿起來）；在總部從倉庫換
+  const home = c.alive && c.status === 'home', fs = c.field ? GV.packs?.[c.field] : null, can = home || (fs && !fs.lock), src = home ? GV.store || [] : fs?.items || [], where = home ? '倉庫' : '行李';
   const rows = SLOTS.map(s => { const it = get(s), open = gearPick && gearPick.uid === c.uid && gearPick.slot === s;
-    const pick = open ? `<div class="gpick">${(GV.store || []).filter(x => x.kind === slotKind(s)).map(x => `<button data-eq="${x.id}">${esc(x.name)}</button>`).join('') || '<span class="mini muted">倉庫裡沒有能放進這一格的</span>'}${it ? '<button data-eq="">卸下</button>' : ''}<button data-eqx="1">取消</button></div>` : '';
+    const pick = open ? `<div class="gpick">${src.filter(x => x.kind === slotKind(s)).map(x => `<button data-eq="${x.id}">${esc(x.name)}</button>`).join('') || `<span class="mini muted">${where}裡沒有能放進這一格的</span>`}${it ? `<button data-eq="">卸下${home ? '' : '（放進行李）'}</button>` : ''}<button data-eqx="1">取消</button></div>` : '';
     return `<tr><th>${SLOT_N[s]}</th><td>${it ? esc(itemName(it)) : '<span class="muted">—</span>'}</td><td>${can ? `<button data-gslot="${s}">換</button>` : ''}</td></tr>${pick ? `<tr><td colspan="3">${pick}</td></tr>` : ''}`; }).join('');
-  return `<table class="rep gear">${rows}</table>${can ? '' : '<p class="mini muted">出勤中，回到總部才能換裝。</p>'}`;
+  const bag = fs ? `<div class="mini" style="margin-top:6px">${esc(fs.name)}的隨隊行李：${fs.items.map(x => esc(x.name)).join('、') || '空的'}${fs.lock ? '<br><span class="muted">這一隊有一場戰鬥還沒打完，打完才能整補。</span>' : ''}</div>` : '';
+  return `<table class="rep gear">${rows}</table>${bag}${can || fs ? '' : '<p class="mini muted">出勤中，回到總部才能換裝。</p>'}`;
 }
 // 服役紀錄（Alan 2026-10-10）：新的在上面
 // 格子收集（Alan 2026-10-10）：10×10，填上的亮起來；同一位原主的人可以合成（留這一位，吃掉對方，格子取聯集）
@@ -997,7 +1000,8 @@ const coClick = e => {
   const go = e.target.closest('[data-goto]'); if (go) { e.preventDefault(); drawerOpen = false; showPage(go.dataset.goto); return; }
   const gs = e.target.closest('[data-gslot]'); if (gs) { gearPick = gearPick?.slot === gs.dataset.gslot ? null : {uid: personSel, slot: gs.dataset.gslot}; renderRoster(); return; }
   if (e.target.closest('[data-eqx]')) { gearPick = null; renderRoster(); return; }
-  const eq = e.target.closest('[data-eq]'); if (eq && gearPick) { send({type: 'equip', uid: gearPick.uid, slot: gearPick.slot, item: eq.dataset.eq || null}); gearPick = null; return; }
+  const eq = e.target.closest('[data-eq]'); if (eq && gearPick) { const pc = GV.roster.find(x => x.uid === gearPick.uid);
+    send(pc?.field ? {type: 'fieldEquip', squad: pc.field, uid: gearPick.uid, slot: gearPick.slot, item: eq.dataset.eq || null} : {type: 'equip', uid: gearPick.uid, slot: gearPick.slot, item: eq.dataset.eq || null}); gearPick = null; return; }
   const sl = e.target.closest('[data-sell]'); if (sl) { send({type: 'sell', item: sl.dataset.sell}); return; }
   const mp = e.target.closest('[data-modpick]'); if (mp) { modPick = modPick === mp.dataset.modpick ? null : mp.dataset.modpick; renderStore(); return; }
   if (e.target.closest('[data-modx]')) { modPick = null; renderStore(); return; }

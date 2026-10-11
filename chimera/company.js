@@ -315,22 +315,44 @@ export function buyItem(G, kind, base) {
   return null;
 }
 // 戰後寫回：身上的槍（含撿到的）、近戰、剩下的預備品照 ASH 的結果；護甲照舊
-export function gearAfterBattle(G, c, r) {
+// 隨隊行李（Alan 2026-10-11）：出勤中撿到的、身上放不下的先進小隊的行李，回到總部才收進倉庫；單子之間可以整補（fieldEquip）
+const bagOf = (G, sq) => sq && sq.player === G.name && sq.clones.some(c => c.alive && c.status === 'away') ? (sq.pack ||= []) : (G.store ||= []);
+export function unpack(G, sq, h) {
+  if (!sq?.pack?.length) return; G.store ||= []; const n = sq.pack.length; G.store.push(...sq.pack); sq.pack = [];
+  note(G, h, `${sq.name}的隨隊行李（${n} 件）收進倉庫。`);
+}
+// 整補：小隊沒在打的時候，把行李裡的東西換到某個人身上（itemId 空的就是卸下來放進行李）。同種的預備品會補滿那一格，多的留在行李
+export function fieldEquip(G, book, squadId, uid, slot, itemId) {
+  const sq = book.squads[squadId]; if (!sq || sq.player !== G.name) return '找不到這一隊';
+  const c = sq.clones.find(x => x.uid === uid); if (!c || !c.alive || c.status !== 'away') return '這個人不在這一隊的現場';
+  if (book.tickets.some(t => t.squad === sq.id && !t.done && t.fightAt != null)) return '這一隊有一場戰鬥還沒打完，打完才能整補';
+  if (!SLOTS.includes(slot)) return '沒有這個欄位';
+  const g = gearOf(G, c), bag = (sq.pack ||= []), old = slotGet(g, slot);
+  let it = null;
+  if (itemId) { it = bag.find(x => x.id === itemId); if (!it) return '行李裡沒有這件'; if (it.kind !== slotKind(slot)) return '放不進這一格'; }
+  if (it && old && it.kind === 'kit' && old.base === it.base) {
+    const k = Math.min(it.n, (KITS[it.base]?.max || 3) - old.n); if (k <= 0) return '這一格已經滿了';
+    old.n += k; it.n -= k; if (!it.n) bag.splice(bag.indexOf(it), 1);
+  } else { if (it) bag.splice(bag.indexOf(it), 1); if (old) bag.push(old); slotSet(g, slot, it); }
+  c.weapon = gearLabel(g);
+  return null;
+}
+export function gearAfterBattle(G, c, r, sq = null) {
   if (!r) return; const g = gearOf(G, c);
   g.guns = [0, 1, 2].map(i => r.guns[i] ? newItem(G, {kind: 'gun', base: r.guns[i].base, affix: r.guns[i].affix || null, ...(r.guns[i].legacy ? {legacy: r.guns[i].legacy} : {})}) : null);
   g.melee = r.melee ? newItem(G, {kind: 'melee', base: r.melee, ...(r.meleeLegacy ? {legacy: r.meleeLegacy} : {})}) : null;
   const left = {...r.kits}; g.kits = g.kits.map(k => { if (!k) return null; const n = Math.min(left[k.base] || 0, KITS[k.base]?.max || 3); left[k.base] = (left[k.base] || 0) - n; return n > 0 ? {...k, n} : null; });
-  // 身上兩格放不下的（撿到的）進倉庫，一疊最多 max 個
-  G.store ||= []; for (const [b, n0] of Object.entries(left)) { let n = n0; while (KITS[b] && n > 0) { const k = Math.min(n, KITS[b].max); G.store.push(newItem(G, {kind: 'kit', base: b, n: k})); n -= k; } }
+  // 身上兩格放不下的（撿到的）進隨隊行李（在總部就進倉庫），一疊最多 max 個
+  const bag = bagOf(G, sq); for (const [b, n0] of Object.entries(left)) { let n = n0; while (KITS[b] && n > 0) { const k = Math.min(n, KITS[b].max); bag.push(newItem(G, {kind: 'kit', base: b, n: k})); n -= k; } }
   c.weapon = gearLabel(g);
 }
 // 戰場回收（Alan 2026-10-11）：打贏時，戰場上留下的槍、近戰武器、補給收進倉庫（彈藥抵彈藥費，core.js 算）。回傳收了什麼（給通知）
-export function lootAfterBattle(G, loot, h) {
-  if (!loot) return ''; G.store ||= []; const got = [];
-  for (const g of loot.guns || []) if (GUNS[g.base]) { G.store.push(newItem(G, {kind: 'gun', base: g.base, affix: g.affix || null})); got.push(GUNS[g.base].n); }
-  for (const b of loot.melee || []) if (MELEES[b]) { G.store.push(newItem(G, {kind: 'melee', base: b})); got.push(MELEES[b].n); }
-  for (const [b, n0] of Object.entries(loot.kits || {})) { let n = n0; if (!KITS[b] || n <= 0) continue; got.push(`${KITS[b].n} ${n0}`); while (n > 0) { const k = Math.min(n, KITS[b].max); G.store.push(newItem(G, {kind: 'kit', base: b, n: k})); n -= k; } }
-  if (got.length) note(G, h, `戰場回收：${got.join('、')}，收進倉庫。`);
+export function lootAfterBattle(G, loot, h, sq = null) {
+  if (!loot) return ''; const bag = bagOf(G, sq), where = bag === G.store ? '倉庫' : '隨隊行李', got = [];
+  for (const g of loot.guns || []) if (GUNS[g.base]) { bag.push(newItem(G, {kind: 'gun', base: g.base, affix: g.affix || null})); got.push(GUNS[g.base].n); }
+  for (const b of loot.melee || []) if (MELEES[b]) { bag.push(newItem(G, {kind: 'melee', base: b})); got.push(MELEES[b].n); }
+  for (const [b, n0] of Object.entries(loot.kits || {})) { let n = n0; if (!KITS[b] || n <= 0) continue; got.push(`${KITS[b].n} ${n0}`); while (n > 0) { const k = Math.min(n, KITS[b].max); bag.push(newItem(G, {kind: 'kit', base: b, n: k})); n -= k; } }
+  if (got.length) note(G, h, `戰場回收：${got.join('、')}，收進${where}。`);
   return got.join('、');
 }
 const avail = G => G.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
@@ -445,6 +467,7 @@ export function hour(G, book, w, h) {
       const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       C.payFare(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast);
       for (const x of away) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); }
+      unpack(G, sq, h);
       note(G, h, `「${c.title}」收尾，${sq.name} ${away.length} 人啟程返回（約 ${Math.round(t1 - h)} 小時），尾款等結案再分。`); }
   }
   // 結案：活著的人走回總部（合約到期時已經啟程的就不再重複）
@@ -456,7 +479,7 @@ export function hour(G, book, w, h) {
       for (const sid of c.squads) for (const x of book.squads[sid].clones) if (x.alive && x.status === 'away' && onCase(x, c.id)) x.status = 'home';
       note(G, h, `採購車隊回到總部：${MN[c.mat]} ${got}／${c.qty}${got < c.qty ? `（路上被劫走 ${c.qty - got}）` : ''}。`); continue;
     }
-    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.garrison != null || sq.headedHome != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
+    for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.garrison != null) continue; unpack(G, sq, h); if (sq.headedHome != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
       const away = sq.clones.filter(x => x.alive && x.status === 'away' && onCase(x, c.id)); if (!away.length) continue;
       C.payFare(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast); for (const x of away) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
@@ -574,7 +597,7 @@ export function garrison(G, book, w, site, uids, now) {
 export function ungarrison(G, book, w, squadId, now) {
   const sq = book.squads[squadId]; if (!sq || sq.player !== G.name || sq.garrison == null) return '找不到這支駐軍';
   if (sq.caseId) return '這支駐軍正在護送車隊';
-  const hrs = sendHome(G, w, sq.clones, sq.garrison, now, false, book, sq.name); delete book.squads[squadId];
+  const hrs = sendHome(G, w, sq.clones, sq.garrison, now, false, book, sq.name); unpack(G, sq, now); delete book.squads[squadId];
   note(G, now, `撤回${sq.name}，約 ${C.fmtDur(hrs)}後回到總部。`);
   return null;
 }
@@ -777,7 +800,7 @@ export function recall(G, book, w, squadId, now) {
   const sq = book.squads[squadId]; if (!sq || sq.player !== G.name) return '找不到這一隊';
   const caseId = sq.caseId, r = C.withdraw(book, w, squadId, now); if (!r.ok) return r.why;
   for (const x of sq.clones) { const e = C.caseRec(x, caseId); if (e && e.end == null) { e.end = now; e.recalled = true; } }
-  const hrs = sendHome(G, w, sq.clones, r.here, now, sq.fast, book, sq.name);
+  const hrs = sendHome(G, w, sq.clones, r.here, now, sq.fast, book, sq.name); unpack(G, sq, now);
   for (const col of r.cols) sendHome(G, w, col.clones, col.here, now, col.fast, book, `${sq.name} 的補員`);
   note(G, now, `召回${sq.name}${r.penalty ? `，付違約金 $${r.penalty}k` : ''}，約 ${C.fmtDur(hrs)}後回到總部。`);
   return null;
@@ -793,7 +816,10 @@ export function recallColumn(G, book, w, amendId, now) {
 export function view(G, book, w) {
   for (const c of G.roster) if (c.alive && !c.gear) { gearOf(G, c); c.weapon = gearLabel(c.gear); }   // 舊存檔的人補上裝備
   const nm = t => w.names[t] || '無名之地';
-  const sqOf = {}; for (const sq of Object.values(book.squads)) for (const c of sq.clones) sqOf[c.uid] = sq;
+  const sqOf = {}; for (const sq of Object.values(book.squads)) if (sq.player === G.name) for (const c of sq.clones) if (!sqOf[c.uid] || sq.caseId || sq.garrison != null || sq.column) sqOf[c.uid] = sq;
+  // 整補（Alan 2026-10-11）：出勤中的小隊的行李、能不能整補
+  const packs = {}; for (const sq of Object.values(book.squads)) if (sq.player === G.name && (sq.caseId || sq.garrison != null) && sq.clones.some(c => c.alive && c.status === 'away'))
+    packs[sq.id] = {name: sq.name, lock: book.tickets.some(t => t.squad === sq.id && !t.done && t.fightAt != null), uids: sq.clones.filter(c => c.alive && c.status === 'away').map(c => c.uid), items: (sq.pack || []).map(it => ({...it, name: itemName(it)}))};
   // 結案的案件留三天給玩家看結果；採購車隊回到總部就拿掉（Alan 2026-10-10：車隊都回家了還留在任務管制）
   const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || (!c.own && G.h - c.settledAt < 72)).map(c => ({
     id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
@@ -821,7 +847,7 @@ export function view(G, book, w) {
   const K = w.sim.peek(), rel = K.fac.map((f, i) => ({f: i, n: f.n, c: f.c, alive: f.alive !== false, v: Math.round(relOf(G, i)), trait: w.sim.pmc.trait ? w.sim.pmc.trait(i) : ''})).filter(x => x.alive);
   const payable = Object.values(book.squads).filter(sq => sq.player === G.name && sq.caseId).reduce((s, sq) => s + (sq.due || 0), 0);
   return {payable, rel, relLog: (G.relLog || []).slice(-40).reverse().map(e => ({...e, n: K.fac[e.f]?.n || ''})), relRefuse: REL.REFUSE, relBlack: REL.BLACK, deaths7: deaths7(book, G.h), retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
-    templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid), bodyPrice: c.status === 'recovered' ? bodyPrice(book, c, G.h) : null})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
+    templates: G.templates, packs, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', field: c.alive && c.status === 'away' && packs[sqOf[c.uid]?.id] ? sqOf[c.uid].id : null, record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid), bodyPrice: c.status === 'recovered' ? bodyPrice(book, c, G.h) : null})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 
 // 地圖上要標的：每一支派出去的人馬現在在哪、往哪走

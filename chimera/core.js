@@ -12,7 +12,7 @@ const r1 = v => Math.round(v * 10) / 10;
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'answer', 'equip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -261,6 +261,7 @@ export class Core {
     if (m.type === 'clean') return G.clean(g, b, w, +m.tile, h);
     if (m.type === 'revive') return G.revive(g, +m.uid, m.slot == null ? null : +m.slot, this.exactNow ?? h);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
+    if (m.type === 'fieldEquip') return G.fieldEquip(g, b, String(m.squad), +m.uid, String(m.slot), m.item || null);
     if (m.type === 'sell') return G.sellItem(g, String(m.item), w);
     if (m.type === 'mod') return G.modItem(g, String(m.item), String(m.affix));
     if (m.type === 'shop') return G.buyItem(g, String(m.kind), String(m.base));
@@ -292,6 +293,7 @@ export class Core {
       const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, name: G.donorName(c) || null, callsign: c.callsign || null, donor: c.donor ?? c.portrait, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
         lv: c.lv || 1, xp: c.xp || 0, picks: c.picks || [], skills: c.skills || [], prep: c.prep || null, gear: G.gearOf(g, c), perkPicks: c.perkPicks || 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: c.legacyPerkPicks || 0}));
       if (!squad.length) return '這一隊沒有活著的人';
+      if (tk.fightAt == null) tk.fightAt = h;   // 開打了：打完之前這一隊不能整補（戰場上的裝備是開打那一刻的）
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
       if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
       this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0,
@@ -312,12 +314,12 @@ export class Core {
         // 等級改由格子收集決定（Alan 2026-10-10）：戰場上不再用經驗升級，這裡不寫回 lv、xp
         if (false) ups.push(`${c.id} ${c.lv || 1}→${pr.lv} 級${(pr.skills || []).length > (c.skills || []).length ? `，學會了${pr.skills.filter(s => !(c.skills || []).includes(s)).map(s => G.SKILL_NAME[s] || s).join('、')}` : ''}`);
         Object.assign(c, {picks: pr.picks, skills: pr.skills, prep: pr.prep, perkPicks: pr.perkPicks, classPerkMisses: pr.classPerkMisses, legacyPerkPicks: pr.legacyPerkPicks});
-        if (pr.gear) G.gearAfterBattle(g, c, pr.gear);   // 撿到的槍、用剩的預備品
+        if (pr.gear) G.gearAfterBattle(g, c, pr.gear, sq);   // 撿到的槍、用剩的預備品
       }
       // 彈藥費（Alan 2026-10-09）：接案的由雇主吸收；自費的（自己的車隊）結算時扣
       const ammo = Object.values(m.result.progress || {}).reduce((x, pr) => x + G.ammoCost(pr?.gear?.ammoUsed), 0), cs = b.cases.find(x => x.id === tk.caseId), selfPay = !!(cs?.own || cs?.selfAmmo);
       // 戰場回收（Alan 2026-10-11）：打贏時，地上的槍、補給收進倉庫；地上的彈藥照價抵這一場的彈藥費（抵完不另外給錢）
-      const loot = m.result.win && m.result.loot ? m.result.loot : null, lootText = loot ? G.lootAfterBattle(g, loot, h) : '', credit = loot ? G.ammoCost(loot.ammo) : 0;
+      const loot = m.result.win && m.result.loot ? m.result.loot : null, lootText = loot ? G.lootAfterBattle(g, loot, h, sq) : '', credit = loot ? G.ammoCost(loot.ammo) : 0;
       const cap = selfPay ? 0 : C.CFG.AMMO_CAP * (cs?.lv || 1), mine = Math.max(0, ammo - cap - credit);
       if (mine > 0) C.pay(b, h, name, -mine, 'ammo', `${tk.title}：彈藥費${selfPay ? '' : `（雇主吸收 $${cap}k，超過的自付）`}`, tk.caseId);
       if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}k${credit ? `，現場撿回的彈藥抵 $${Math.min(credit, Math.max(0, ammo - cap))}k` : ''}${selfPay ? `（自費${mine > 0 ? `，扣 $${mine}k` : ''}）` : mine > 0 ? `（雇主只吸收 $${cap}k，自付 $${mine}k）` : '（雇主吸收）'}${lootText ? `；戰場回收：${lootText}` : ''}`, ref: tk.id});
