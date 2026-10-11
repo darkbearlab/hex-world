@@ -221,7 +221,10 @@ export function installOutdoor(renderer) {
   };
   R.exit = function (a, time) {
     const o = this.game?.chimeraOutdoor;
-    if (o) { if (o.goal !== 'exit') return; const t = this.tile, k = .5 + .5 * Math.sin(time / 300); this.glow(a.x, a.y, t * .9, `rgba(110,220,140,${.25 + .2 * k})`); this.text('撤離', a.x, a.y + 4, '#9ff0b4', 10); return; }
+    if (o) { if (o.goal !== 'exit' && o.goal !== 'plant') return; const t = this.tile, k = .5 + .5 * Math.sin(time / 300);
+      // 目標點＋撤離（Alan 2026-10-11：找不到撤離點）：炸藥還沒裝完時淡淡標出來，裝完就跟突圍一樣亮
+      if (o.goal === 'plant' && !o.armed) { this.glow(a.x, a.y, t * .7, `rgba(110,220,140,${.08 + .05 * k})`); this.text('撤離（裝完炸藥後）', a.x, a.y + 4, 'rgba(159,240,180,.6)', 9); return; }
+      this.glow(a.x, a.y, t * .9, `rgba(110,220,140,${.25 + .2 * k})`); this.text('撤離', a.x, a.y + 4, '#9ff0b4', 10); return; }
     return exit.call(this, a, time);
   };
 }
