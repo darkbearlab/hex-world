@@ -64,7 +64,7 @@ Object.assign(E,{
 const TOKEN=()=>{try{return localStorage.getItem('chimera-token')||'';}catch{return '';}};
 // 身分標頭：奇美拉的 link.js 決定（Google 工作階段或訪客代碼）
 const AUTH=()=>window.chimeraAuth?.()||{'x-chimera-token':TOKEN()};
-const {barrierBetween,edgeBlocks}=await import('./barriers.js'),{MOVE_MS}=await import('./actor-visuals.js'),{applyEntry,record,fingerprint}=await import('./chimera-log.js');
+const {barrierBetween,edgeBlocks}=await import('./barriers.js'),{MOVE_MS}=await import('./actor-visuals.js'),{applyEntry,record,fingerprint}=await import('./chimera-log.js'),{setSize}=await import('./data.js');
 // JSON 會把同一個物件拆成好幾份：玩家、操作中的隊員、隊員清單裡的那一位要接回同一個
 function relink(st){
  if(!st?.members)return st;const by=new Map(st.members.map(m=>[m.id,m]));
@@ -72,7 +72,7 @@ function relink(st){
  if(st.chimera?.units)for(const k of Object.keys(st.chimera.units)){const u=st.chimera.units[k];if(u&&typeof u==='object')st.chimera.units[k]=by.get(u.id)||u;}
  return st;
 }
-const hydrate=st=>Object.assign(Object.create(SquadGame.prototype),relink(st),{effects:[]});
+const hydrate=st=>(st?.grid&&setSize(st.grid.length),Object.assign(Object.create(SquadGame.prototype),relink(st),{effects:[]}));
 function apply(g,st){relink(st);for(const k of Object.keys(g))if(!(k in st))delete g[k];Object.assign(g,st);g.effects=[];}
 // 伺服器把 Set、Map 標記成 {$set}、{$map}（JSON 本身存不了）
 const revive=(k,v)=>v&&typeof v==='object'?(Array.isArray(v.$set)?new Set(v.$set):Array.isArray(v.$map)?new Map(v.$map):v):v;

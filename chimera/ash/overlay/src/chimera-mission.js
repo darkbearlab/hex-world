@@ -7,12 +7,12 @@ import {isNoncombatant} from './enemy-data.js';
 import {CHARACTERS} from './characters.js';
 import {pickPortrait,validPortrait} from './portraits.js';
 import {t} from './i18n.js';
-import {outdoorMap} from './chimera-outdoor.js';
+import {outdoorMap,LAYOUT} from './chimera-outdoor.js';
 import {planConvoy,vehicleStep,convoyDone} from './chimera-highway.js';
 import {skillActive} from './skills.js';
 import {applySuppression} from './suppression.js';
 import {bestCover} from './cover.js';
-import {ENEMY_TYPES} from './data.js';
+import {ENEMY_TYPES,SIZE,setSize} from './data.js';
 import {rollEnemyAffixes} from './enemy-affixes.js';
 import {rollEnemyElite} from './elite-enemies.js';
 
@@ -35,7 +35,9 @@ ENEMY_TYPES.chimera_armor={...ENEMY_TYPES.turret,fixed:false,behavior:undefined,
 ENEMY_TYPES.chimera_clone={...ENEMY_TYPES.rifleman_armored,name:'複製兵',hp:34,xp:2,color:'#8a9a8a'};
 export const RUSH_BLAST={radius:2,damage:50};
 export const HIGHWAY_SHAKE=30;
-export const ON_MAP=18,WAVE_MAX=4,WAVE_BELOW=12;   // 增援：場上活著的少於 WAVE_BELOW 就補，每回合最多 WAVE_MAX 個   // 公路戰的命中懲罰
+export const ON_MAP=18,WAVE_MAX=4,WAVE_BELOW=12;
+// 戰場比 27 大時，場上人數上限、補增援的門檻照面積加（最多 60）
+const area=()=>(SIZE/27)**2,onMap=()=>Math.min(60,Math.round(ON_MAP*area())),waveBelow=()=>Math.min(45,Math.round(WAVE_BELOW*area()));   // 增援：場上活著的少於 WAVE_BELOW 就補，每回合最多 WAVE_MAX 個   // 公路戰的命中懲罰
 // 奇美拉的職業 → ASH 的職業（同名）；沒有的退回士兵
 export const character=cls=>CHARACTERS[cls]?cls:'soldier';
 
@@ -73,8 +75,8 @@ const convoyRng=o=>()=>((o.rs=Math.imul(o.rs,1664525)+1013904223>>>0)/4294967296
 export const POINT_TAKE=3,POINT_KEEP=10,POINT_PLANT=2;
 function objectivePoints(o,map,enemies){
  const mode=o.goal==='plant'?'plant':o.layout==='fort'||o.layout==='trench'?'take':o.layout==='ring'?'keep':null;if(!mode)return;
- const N=map.grid.length,mid=Math.floor(N/2),busy=new Set([...map.props,...map.items,map.start].map(q=>`${q.x},${q.y}`));
- const want=mode==='plant'?(o.plantAt||[[mid,4],[mid-7,9],[mid+7,9]]).slice(0,o.plantN||1):o.layout==='fort'?[[mid,7],[mid-2,7],[mid+2,7]]:o.layout==='trench'?[[mid-6,5],[mid,5],[mid+6,5]]:[[mid,mid-1],[mid-2,mid],[mid+2,mid]];
+ const N=map.grid.length,mid=Math.floor(N/2),k=N/27,Y=v=>Math.round(v*k),busy=new Set([...map.props,...map.items,map.start].map(q=>`${q.x},${q.y}`));
+ const want=mode==='plant'?(o.plantAt||[[mid,Y(4)],[mid-Y(7),Y(9)],[mid+Y(7),Y(9)]]).slice(0,o.plantN||1):o.layout==='fort'?[[mid,Y(7)],[mid-2,Y(7)],[mid+2,Y(7)]]:o.layout==='trench'?[[mid-Y(6),Y(5)],[mid,Y(5)],[mid+Y(6),Y(5)]]:[[mid,mid-1],[mid-2,mid],[mid+2,mid]];
  const pts=[];
  for(const [x0,y0] of want){let best=null,bd=99;for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const d=Math.abs(x-x0)+Math.abs(y-y0);if(d<bd&&map.grid[y][x]===1&&!busy.has(`${x},${y}`)&&!pts.some(q=>q.x===x&&q.y===y)){bd=d;best={x,y}}}if(best)pts.push(best);}
  if(!pts.length)return;
@@ -90,7 +92,7 @@ export class MissionGame extends Game{
  // ticket：{seed, faction:'loyalist'|'rebel', enemy:{units,veh,boss}, squad:[{id,cls,portrait?,st:{hp,acc,eva,mel}}]}
  constructor(ticket){
   const lead=ticket.squad[0],portrait=validPortrait(lead.portrait)?lead.portrait:pickPortrait();
-  building=ticket;
+  building=ticket;setSize(ticket.facility||(ticket.layout||LAYOUT[ticket.type])==='highway'?27:Math.max(27,Math.min(100,ticket.size|0||27)));   // 戰場大小：每場開打前設定（室內設施、公路戰維持 27）
   try{super(ticket.seed,[],0,character(lead.cls),portrait,'extraction',{facilityFaction:ticket.faction||'rebel',simulation:{kind:'chimera'}});}finally{building=null;}
   this.ticket=ticket;this.chimera={members:ticket.squad.map(c=>c.id),units:{}};
   if(outdoorBuilt){this.chimeraOutdoor=outdoorBuilt;this.mapStyle=outdoorBuilt.style;outdoorBuilt=null;const o=this.chimeraOutdoor;if(o.points){if(o.mode==='take')o.goal='take';const P0=o.mode==='take'?POINT_TAKE:o.mode==='plant'?POINT_PLANT:POINT_KEEP;this.survival={integrity:o.points.length*P0,points:o.points.map((q,i)=>({id:`point-${i}`,x:q.x,y:q.y,hp:P0,pressed:false})),wave:0,nextWave:1e9,open:false,turns:o.mode==='keep'?o.holdTurns:999,incoming:[]};}
@@ -116,7 +118,7 @@ export class MissionGame extends Game{
    for(let i=spots.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[spots[i],spots[j]]=[spots[j],spots[i]];}
    const used=new Set(),cells=[];for(const p of spots){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
    // 增援波次（Alan 2026-10-09，大戰役：服務單規模沒有上限）：場上最多 ON_MAP 個，其餘排隊，從敵方那一側的地圖邊緣一波波湧進來（chimeraWaves）
-   const first=Math.min(cells.length,ON_MAP);
+   const first=Math.min(cells.length,onMap());
    map.enemies=want.slice(0,first).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction,tk.depth||1,this.seed));
    outdoor.waves=want.slice(first).map((u,i)=>rosterEnemy(u,0,0,`c${first+i+1}`,this.difficultySpec,this.facilityFaction,tk.depth||1,this.seed));
    if(outdoor.waves.length){outdoor.rs=(tk.seed^0x7a11)>>>0||1;outdoor.waveTurn=0;}
@@ -165,10 +167,10 @@ export class MissionGame extends Game{
  meleeAccuracy(...args){this.chimeraMelee=true;try{return super.meleeAccuracy(...args);}finally{this.chimeraMelee=false;}}
  // 增援波次：場上活著的敵人少於 WAVE_BELOW 時，從敵方那一側（守點是四周，其他是北邊）的邊緣補進來，一回合最多 WAVE_MAX 個
  chimeraWaves(o){
-  const live=this.enemies.filter(e=>e.hp>0&&!isNoncombatant(e)).length;if(live>=WAVE_BELOW)return;
+  const live=this.enemies.filter(e=>e.hp>0&&!isNoncombatant(e)).length,below=waveBelow();if(live>=below)return;
   const R=convoyRng(o),N=this.grid.length,busy=new Set([...this.enemies.filter(e=>e.hp>0),...(this.members||[this.player]).filter(m=>m.hp>0),...this.props].map(u=>`${u.x},${u.y}`));
   const edge=[];for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++){const ring=o.layout==='ring'?(x<=2||y<=2||x>=N-3||y>=N-3):o.waveFrom==='south'?y>=N-3:y<=2;if(ring&&this.grid[y][x]===1&&!busy.has(`${x},${y}`)&&!this.trenchAt(x,y))edge.push({x,y});}
-  let n=Math.min(WAVE_MAX,WAVE_BELOW-live,o.waves.length);if(!n||!edge.length)return;
+  let n=Math.min(WAVE_MAX,below-live,o.waves.length);if(!n||!edge.length)return;
   for(let i=edge.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[edge[i],edge[j]]=[edge[j],edge[i]];}
   const p=this.player;for(let i=0;i<n&&i<edge.length;i++){const e=o.waves.shift();Object.assign(e,{x:edge[i].x,y:edge[i].y,alert:true,lastKnown:{x:p.x,y:p.y}});this.enemies.push(e);}
   this.log(`敵方增援湧上來了（還有 ${o.waves.length} 名在後面）。`,true);

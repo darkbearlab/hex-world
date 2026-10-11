@@ -4,7 +4,9 @@
 //   {a, arg, t}：game.target=t 之後 game.action(a,arg)
 //   {perk}：game.choosePerk(id)　{ctl}：換人操作（隊員的 squadId）　{cycle:1}：換下一位
 // 隊員機器人在行動「裡面」叫的 action 不記（重播時它們會自己再做一次），所以用 depth 只記最外層。
+import {setSize} from './data.js';
 export function applyEntry(g,e){
+ setSize(g.grid.length);   // 伺服器上同一個執行環境可能輪流跑好幾場不同大小的戰鬥
  if(e.perk!==undefined)return g.choosePerk(e.perk);
  if(e.ctl!==undefined)return g.setControlled(g.members.find(m=>m.squadId===e.ctl));
  if(e.cycle)return g.cycleControlled();

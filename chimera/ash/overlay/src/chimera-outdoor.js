@@ -32,7 +32,7 @@ const lcg = seed => { let s = (Number(seed) >>> 0) || 1; return () => ((s = Math
 // 目標點＋撤離的服務單：幾個目標點（潛入竊取只有一個）
 export const PLANT = {sabotage: 2, demo: 3, well: 2, armory: 2, heist: 1, barricade: 3, ied: 3};
 export function outdoorMap(tk, floor = 1) {
-  const R = lcg((tk.seed || 1) ^ 0x5eed), pick = a => a[Math.floor(R() * a.length)], N = SIZE, mid = Math.floor(N / 2);
+  const R = lcg((tk.seed || 1) ^ 0x5eed), pick = a => a[Math.floor(R() * a.length)], N = SIZE, mid = Math.floor(N / 2), k = N / 27, Y = v => Math.round(v * k), C = n => Math.round(n * k * k);   // 27 以外的大小：位置照邊長、數量照面積（Alan 2026-10-11 測試場）
   const layout = tk.layout || LAYOUT[tk.type] || 'open', bio = BIOME[tk.biome] || BIOME[pick(Object.keys(BIOME))];
   if (layout === 'highway') return highwayMap(tk, floor, R, bio, G);
   const grid = Array.from({length: N}, (_, y) => Array.from({length: N}, (_, x) => x === 0 || y === 0 || x === N - 1 || y === N - 1 ? 0 : 1));
@@ -65,72 +65,74 @@ export function outdoorMap(tk, floor = 1) {
     road(); reserve(end, 1);
     for (let y = 1; y < N - 1; y++) for (let x = mid - 2; x <= mid + 2; x++) taken.add(key(x, y));   // 路面保持暢通
     const side = () => R() < .5 ? area(1, mid - 4, 2, N - 4)() : area(mid + 4, N - 2, 2, N - 4)();
-    walls(6, side); covers(10, side);
+    walls(C(6), side); covers(C(10), side);
     if (layout === 'barricade') {   // 刻意設下的路障（Alan 2026-10-11）：路中央一排焚毀的車殼（擋子彈）＋拒馬（矮牆），埋伏的人在兩側和後面；要站到路障前的三個點上拆除
-      for (const dx of [-2, 0, 2]) { props.push({id: `${floor}-wreck-${props.length}`, x: mid + dx, y: 8, type: 'cover', hp: 220, maxHp: 220}); }
-      for (let x = mid - 3; x <= mid + 3; x++) low(x, 8, 'y');
-      plantAt = [[mid - 1, 9], [mid + 1, 9], [mid, 10]];
-      for (let x = mid - 3; x <= mid + 3; x++) spots.push({x, y: 5}, {x, y: 6});
+      const by = Y(8);
+      for (const dx of [-2, 0, 2]) { props.push({id: `${floor}-wreck-${props.length}`, x: mid + dx, y: by, type: 'cover', hp: 220, maxHp: 220}); }
+      for (let x = mid - 3; x <= mid + 3; x++) low(x, by, 'y');
+      plantAt = [[mid - 1, by + 1], [mid + 1, by + 1], [mid, by + 2]];
+      for (let x = mid - 3; x <= mid + 3; x++) spots.push({x, y: by - 3}, {x, y: by - 2});
     }
-    if (tk.type === 'ied') plantAt = [[mid - 1, N - 8], [mid + 1, 11], [mid, 6]];   // 路邊炸彈：路面上三個可疑的點，一路往前排
+    if (tk.type === 'ied') plantAt = [[mid - 1, N - Y(8)], [mid + 1, Y(11)], [mid, Y(6)]];   // 路邊炸彈：路面上三個可疑的點，一路往前排
     if (layout === 'roadblock') {   // 路障：橫越路面的一排矮牆，敵人在後面
-      for (let x = mid - 3; x <= mid + 3; x++) low(x, 7, 'y');
-      for (let x = mid - 3; x <= mid + 3; x++) spots.push({x, y: 5}, {x, y: 6});
+      for (let x = mid - 3; x <= mid + 3; x++) low(x, Y(7), 'y');
+      for (let x = mid - 3; x <= mid + 3; x++) spots.push({x, y: Y(7) - 2}, {x, y: Y(7) - 1});
     }
     for (let y = 4; y < N - 8; y++) spots.push(area(1, mid - 5, y, y)(), area(mid + 5, N - 2, y, y)());
   } else if (layout === 'fort') {
     // 突擊：敵方陣地在上半，一圈掩體、後面幾段牆
-    const c = {x: mid, y: 7};
+    const c = {x: mid, y: Y(7)};
     for (let a = 0; a < 24; a++) { const t = a / 24 * Math.PI * 2, x = Math.round(c.x + Math.cos(t) * 4), y = Math.round(c.y + Math.sin(t) * 3); if (y > c.y && Math.abs(x - c.x) < 2) continue; cover(x, y, 90); }
     for (const dx of [-3, 2]) { wall(c.x + dx, c.y - 2); wall(c.x + dx + 1, c.y - 2); }
     for (let y = c.y - 2; y <= c.y + 2; y++) for (let x = c.x - 3; x <= c.x + 3; x++) spots.push({x, y});
-    walls(7, area(1, N - 2, 13, N - 5)); covers(10, area(1, N - 2, 12, N - 4));
+    walls(C(7), area(1, N - 2, Y(13), N - 5)); covers(C(10), area(1, N - 2, Y(12), N - 4));
   } else if (layout === 'ring') {
     // 守點：我方在中間的掩體圈，敵人從四周來
     start.y = mid + 1; end.x = mid; end.y = mid; const c = {x: mid, y: mid};
     for (let a = 0; a < 28; a++) { if (a % 7 === 0 || a % 7 === 6) continue; const t = a / 28 * Math.PI * 2; cover(Math.round(c.x + Math.cos(t) * 4), Math.round(c.y + Math.sin(t) * 4), 90); }   // 東南西北各留一個缺口：敵人要衝得進來搶據點（Alan 2026-10-09）
-    walls(9, () => { const t = R() * Math.PI * 2, r = 7 + R() * 5; return {x: Math.round(c.x + Math.cos(t) * r), y: Math.round(c.y + Math.sin(t) * r)}; });
+    walls(C(9), () => { const t = R() * Math.PI * 2, r = (7 + R() * 5) * k; return {x: Math.round(c.x + Math.cos(t) * r), y: Math.round(c.y + Math.sin(t) * r)}; });
     for (let i = 1; i < N - 1; i++) spots.push({x: i, y: 2}, {x: i, y: N - 3}, {x: 2, y: i}, {x: N - 3, y: i});
   } else if (layout === 'trench') {
     // 戰壕：上方一道敵方壕溝（兩排全身格），前後每隔幾格有半身的出入口；中間一排矮牆（鐵絲網）
-    for (let x = 1; x < N - 1; x++) for (const y of [5, 6]) { trench[y][x] = 2; ground[y][x] = G.trench; }
-    for (let x = 2; x < N - 2; x++) if (x % 6 === 2 || x % 6 === 3) { trench[4][x] = 1; trench[7][x] = 1; ground[4][x] = G.mud; ground[7][x] = G.mud; }
-    for (let x = 2; x < N - 2; x++) if (x % 5 !== 0) low(x, 12, 'y');
-    for (let x = 1; x < N - 1; x++) for (const y of [5, 6]) spots.push({x, y});
+    const ty = Y(5);
+    for (let x = 1; x < N - 1; x++) for (const y of [ty, ty + 1]) { trench[y][x] = 2; ground[y][x] = G.trench; }
+    for (let x = 2; x < N - 2; x++) if (x % 6 === 2 || x % 6 === 3) { trench[ty - 1][x] = 1; trench[ty + 2][x] = 1; ground[ty - 1][x] = G.mud; ground[ty + 2][x] = G.mud; }
+    for (let x = 2; x < N - 2; x++) if (x % 5 !== 0) low(x, Y(12), 'y');
+    for (let x = 1; x < N - 1; x++) for (const y of [ty, ty + 1]) spots.push({x, y});
     // 我方這邊也有一道淺壕（半身），可以躲
     for (let x = 3; x < N - 3; x++) if (x % 7 !== 0) { trench[N - 6][x] = 1; ground[N - 6][x] = G.mud; }
-    walls(4, area(1, N - 2, 14, N - 8));
+    walls(C(4), area(1, N - 2, Y(14), N - 8));
   } else if (layout === 'depot') {
     // 車場（夜間）：中間幾棟棚子（短牆）、油污地，巡邏散在四周
-    for (let i = 0; i < 6; i++) { const x = mid - 7 + (i % 3) * 6, y = 5 + Math.floor(i / 3) * 5; for (let dx = 0; dx < 3; dx++) wall(x + dx, y); }
-    for (let y = 4; y <= 14; y++) for (let x = mid - 8; x <= mid + 8; x++) if (R() < .45) ground[y][x] = G.oil;
-    covers(12, area(2, N - 3, 3, 16));
-    for (let y = 3; y < 16; y++) for (let x = 2; x < N - 2; x++) if (R() < .1) spots.push({x, y});
+    for (let i = 0; i < 6; i++) { const x = mid + Math.round((-7 + (i % 3) * 6) * k), y = Y(5 + Math.floor(i / 3) * 5); for (let dx = 0; dx < 3; dx++) wall(x + dx, y); }
+    for (let y = Y(4); y <= Y(14); y++) for (let x = mid - Y(8); x <= mid + Y(8); x++) if (R() < .45) ground[y][x] = G.oil;
+    covers(C(12), area(2, N - 3, Y(3), Y(16)));
+    for (let y = Y(3); y < Y(16); y++) for (let x = 2; x < N - 2; x++) if (R() < .1) spots.push({x, y});
   } else if (layout === 'camp') {
     // 據點清剿：木柵或鐵皮圍起來的營地（矮牆圍一圈，南邊留門），裡面幾段牆當棚屋，頭目在裡面
-    const c = {x: mid, y: 8}, w = 7, h = 5;
+    const c = {x: mid, y: Y(8)}, w = 7, h = 5;
     for (let x = c.x - w; x <= c.x + w; x++) { low(x, c.y - h - 1, 'y'); if (Math.abs(x - c.x) > 1) low(x, c.y + h, 'y'); }
     for (let y = c.y - h; y <= c.y + h; y++) { low(c.x - w - 1, y, 'x'); low(c.x + w, y, 'x'); }
     for (const [dx, dy] of [[-4, -3], [3, -3], [-4, 2], [3, 2]]) { wall(c.x + dx, c.y + dy); wall(c.x + dx + 1, c.y + dy); }
     cover(c.x, c.y, 200);
     for (let y = c.y - h; y <= c.y + h; y++) for (let x = c.x - w; x <= c.x + w; x++) spots.push({x, y});
-    walls(6, area(1, N - 2, 16, N - 5)); covers(8, area(1, N - 2, 15, N - 4));
+    walls(C(6), area(1, N - 2, Y(16), N - 5)); covers(C(8), area(1, N - 2, Y(15), N - 4));
   } else {
     // 開闊地（巡邏遭遇）：零散的短牆與掩體；敵人守在幾處矮牆圍出來的陣地（開口朝北，朝我方的一面有牆擋），中段有擋視線的岩塊（Alan 2026-10-11：攻方要有壓力）
-    const nests = []; for (let i = 0; i < 6 && nests.length < 3 && tk.type !== 'pursuit'; i++) { const c = {x: 4 + Math.floor(R() * (N - 8)), y: 4 + Math.floor(R() * 5)}; if (nests.some(q => Math.abs(q.x - c.x) < 6)) continue; nests.push(c); }
+    const nests = []; for (let i = 0; i < C(6) && nests.length < C(3) && tk.type !== 'pursuit'; i++) { const c = {x: 4 + Math.floor(R() * (N - 8)), y: Y(4) + Math.floor(R() * Y(5))}; if (nests.some(q => Math.abs(q.x - c.x) < 6)) continue; nests.push(c); }
     for (const c of nests) { for (let x = c.x - 2; x <= c.x + 2; x++) low(x, c.y + 1, 'y'); low(c.x - 3, c.y, 'x'); low(c.x + 2, c.y, 'x'); low(c.x - 3, c.y + 1, 'x'); low(c.x + 2, c.y + 1, 'x');
       for (let y = c.y; y <= c.y + 1; y++) for (let x = c.x - 2; x <= c.x + 2; x++) { spots.push({x, y}); spots.push({x, y}); } }
     // 擋視線：中段兩排斷斷續續的岩塊（短牆），留幾個缺口
-    for (const y of [10 + Math.floor(R() * 2), 15 + Math.floor(R() * 2)]) for (let x = 2; x < N - 2; x++) if (R() < .45 && !nests.some(c => Math.abs(c.y - y) <= 2 && Math.abs(c.x - x) <= 3)) wall(x, y);
-    walls(9, any); covers(12, any);
+    for (const y of [10, 15, 20, 25, 30, 35, 40].filter(v => v * k <= N - 8 && (k > 1 || v <= 15)).map(v => Math.round(v * (k > 1 ? k * .75 : 1)) + Math.floor(R() * 2))) for (let x = 2; x < N - 2; x++) if (R() < .45 && !nests.some(c => Math.abs(c.y - y) <= 2 && Math.abs(c.x - x) <= 3)) wall(x, y);
+    walls(C(9), any); covers(C(12), any);
     if (tk.type === 'pursuit') { for (let y = N - 9; y < N - 1; y++) for (let x = 2; x < N - 2; x++) if (R() < .12) spots.push({x, y}); }   // 撤離追兵：追兵在後面（南邊），撤離點在北邊
-    else for (let y = 3; y < 13; y++) for (let x = 2; x < N - 2; x++) if (R() < .08) spots.push({x, y});
+    else for (let y = 3; y < Y(13); y++) for (let x = 2; x < N - 2; x++) if (R() < .08) spots.push({x, y});
   }
   if (layout === 'ring' && tk.type === 'breakdown') for (const dx of [-1, 0, 1]) props.push({id: `${floor}-truck-${props.length}`, x: mid + dx, y: mid + 2, type: 'cover', hp: 260, maxHp: 260});   // 拋錨守車：據點中間停著壞掉的車
   // 目標點＋撤離：撤離點就在出發的地方（從哪裡摸進來就從哪裡出去）
   if (PLANT[tk.type] && !CLEAR[tk.type]) { end.x = mid; end.y = N - 2; }
   // 補給：幾個彈藥、醫療包、手榴彈散在地上
-  for (const [type, amount] of [['ammo', 60], ['med', 1], ['grenade', 1], ['ammo', 40]]) for (let i = 0; i < 30; i++) {
+  for (const [type, amount] of Array.from({length: Math.max(1, Math.round(k * k))}, () => [['ammo', 60], ['med', 1], ['grenade', 1], ['ammo', 40]]).flat()) for (let i = 0; i < 30; i++) {
     const x = 2 + Math.floor(R() * (N - 4)), y = 3 + Math.floor(R() * (N - 8)); if (!free(x, y) || trench[y][x]) continue; items.push({x, y, type, amount, floor}); taken.add(key(x, y)); break;
   }
   const footprint = []; for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) footprint.push({x, y});
