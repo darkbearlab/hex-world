@@ -275,15 +275,32 @@ export function gearOf(G, c) {
 }
 const gearLabel = g => g.guns.filter(Boolean).map(itemName).concat(g.melee ? [itemName(g.melee)] : []).join('、');
 // 換裝：把倉庫的一件放進某一格（itemId 為空＝卸下），原本那一件回倉庫。只有在總部待命的人可以換
+// 消耗品不當成一件一件的東西（Alan 2026-10-12）：倉庫、行李裡同名的預備品併成一疊；放上身時只拿一格放得下的數量，其餘留在那一疊
+export function stackKits(list) {
+  if (!list?.length) return list; const first = {};
+  for (let i = 0; i < list.length; i++) { const it = list[i]; if (it.kind !== 'kit' || it.legacy) continue;
+    const f = first[it.base]; if (!f) { first[it.base] = it; continue; } f.n = (f.n || 0) + (it.n || 0); list.splice(i--, 1); }
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].kind === 'kit' && !(list[i].n > 0)) list.splice(i, 1);
+  return list;
+}
+// 從一疊預備品拿出放得進一格的數量（同種的就補滿那一格）；回傳要放上去的那一份（null＝已經補在原本那一格）或錯誤訊息
+function takeKit(G, bag, it, old) {
+  const mx = KITS[it.base]?.max || 3;
+  if (old && old.kind === 'kit' && old.base === it.base) { const k = Math.min(it.n, mx - old.n); if (k <= 0) return '這一格已經滿了'; old.n += k; it.n -= k; if (!it.n) bag.splice(bag.indexOf(it), 1); return null; }
+  const k = Math.min(it.n, mx); if (k === it.n) { bag.splice(bag.indexOf(it), 1); return it; }
+  it.n -= k; return newItem(G, {kind: 'kit', base: it.base, n: k});
+}
 export function equipItem(G, uid, slot, itemId) {
   const c = G.roster.find(x => x.uid === uid); if (!c || !c.alive) return '找不到這個人';
   if (c.status !== 'home') return '出勤中不能換裝';
   if (!SLOTS.includes(slot)) return '沒有這個欄位';
   const g = gearOf(G, c); G.store ||= [];
   let it = null;
-  if (itemId) { it = G.store.find(x => x.id === itemId); if (!it) return '倉庫裡沒有這件'; if (it.kind !== slotKind(slot)) return '放不進這一格'; G.store.splice(G.store.indexOf(it), 1); }
-  const old = slotGet(g, slot); if (old) G.store.push(old);
-  slotSet(g, slot, it); c.weapon = gearLabel(g);
+  if (itemId) { it = G.store.find(x => x.id === itemId); if (!it) return '倉庫裡沒有這件'; if (it.kind !== slotKind(slot)) return '放不進這一格'; }
+  const old = slotGet(g, slot);
+  if (it?.kind === 'kit') { const piece = takeKit(G, G.store, it, old); if (typeof piece === 'string') return piece; if (piece) { if (old) G.store.push(old); slotSet(g, slot, piece); } }
+  else { if (it) G.store.splice(G.store.indexOf(it), 1); if (old) G.store.push(old); slotSet(g, slot, it); }
+  stackKits(G.store); c.weapon = gearLabel(g);
   return null;
 }
 // 變賣倉庫裡的一件（土製是 $0，等於丟掉）
@@ -332,10 +349,9 @@ export function fieldEquip(G, book, squadId, uid, slot, itemId) {
   const g = gearOf(G, c), bag = (sq.pack ||= []), old = slotGet(g, slot);
   let it = null;
   if (itemId) { it = bag.find(x => x.id === itemId); if (!it) return '行李裡沒有這件'; if (it.kind !== slotKind(slot)) return '放不進這一格'; }
-  if (it && old && it.kind === 'kit' && old.base === it.base) {
-    const k = Math.min(it.n, (KITS[it.base]?.max || 3) - old.n); if (k <= 0) return '這一格已經滿了';
-    old.n += k; it.n -= k; if (!it.n) bag.splice(bag.indexOf(it), 1);
-  } else { if (it) bag.splice(bag.indexOf(it), 1); if (old) bag.push(old); slotSet(g, slot, it); }
+  if (it?.kind === 'kit') { const piece = takeKit(G, bag, it, old); if (typeof piece === 'string') return piece; if (piece) { if (old) bag.push(old); slotSet(g, slot, piece); } }
+  else { if (it) bag.splice(bag.indexOf(it), 1); if (old) bag.push(old); slotSet(g, slot, it); }
+  stackKits(bag);
   c.weapon = gearLabel(g);
   return null;
 }
@@ -442,6 +458,7 @@ export function reinforce(G, book, w, squadId, uids, now, fast = false) {
 
 // ===== 每小時 =====
 export function hour(G, book, w, h) {
+  stackKits(G.store); for (const sq of Object.values(book.squads)) if (sq.player === G.name && sq.pack?.length) stackKits(sq.pack);   // 消耗品併成一疊
   G.h = h;
   if (book.relQ?.length) for (const q of book.relQ.splice(0)) { if (q.co === G.name) relAdd(G, q.f, q.v, q.why, h); else (book.relQ2 ||= []).push(q); }
   if (book.relQ2?.length) { book.relQ = book.relQ2; book.relQ2 = []; }
