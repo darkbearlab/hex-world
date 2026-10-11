@@ -503,7 +503,7 @@ function cleanDone(G, book, w, j, h) {
 // 義務：產地每 2～4 天發一趟車隊，輪流指派給一家簽約公司；5 小時內要決定派誰，時限到了還沒派，就從駐在那個產地的小隊隨機拉一隊；連駐軍都沒有就是違約。
 // 違約：第一次賠簽約金的四分之一、保證金沒收；第二次再賠一半、合約作廢、那個勢力一年（4 季）不跟你往來。
 export const RET = {SLOTS: 4, SEASONS: 4, WINDOW: 5, GAP0: 48, GAP1: 96, TOP_N: 4, SIZE_MIN: 8, GAR_UPKEEP: 1.5, BAN_SEASONS: 4, INSTALL: .3, BONUS: .15};
-const SITE_N = {oil: '石油城', ammo: '彈藥農場', oasis: '綠洲'}, SITE_G = {oil: 'fuel', ammo: 'ammo', oasis: 'water'}, GOOD_N = {fuel: '燃料', ammo: '彈藥', water: '淨水'};
+const SITE_N = {oil: '石油城', ammo: '彈藥農場', oasis: '綠洲', salvage: '拆解場'}, SITE_G = {oil: 'fuel', ammo: 'ammo', oasis: 'water', salvage: 'parts'}, GOOD_N = {fuel: '燃料', ammo: '彈藥', water: '淨水', parts: '零件'};   // 拆解場（2026-10-11 新世界加的產地）
 const h01 = (a, b) => (((a * 2654435761) ^ (b * 40503)) >>> 0) / 4294967296;
 // 名氣（Alan 2026-10-10）：成功的單子（拿到尾款）才加：規模（案子類型）× 威脅（案子的等級 × 實際碰到的敵人戰力）× 貢獻（自己的積分佔整個案子的比例）；違約扣 60。
 // 每一筆記在 G.fameLog（報表看得到）
