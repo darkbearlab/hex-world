@@ -252,7 +252,10 @@ function createSim(w,rand,pick){
   const mkST=()=>({tried:{},ok:{},caught:{},kills:0,kidnap:0,defect:0,hostile:0,cold:0});let ops=[],opSeq=1;const SSTAT=globalThis.SSTAT||(globalThis.SSTAT={...mkST(),secede:0,c:mkST()});
   const shTen=(a,b,v)=>{if(a===b)return;tension[Math.min(a,b)][Math.max(a,b)]+=v};
   const townsOf=b=>Object.keys(markets).map(Number).filter(x=>owner[x]===b);
-  function runOp(a,b,op,S,y,hot,src,keep=null){
+  // 破壞、斷水打哪一城（Alan 2026-10-11：要在下單時就標明，不然會燒到自己簽長約的產地）：下單時就定好（o.at），結算照這個打
+  function opTarget(b,op){const ts=townsOf(b);if(!ts.length)return null;const big=()=>[...ts].sort((p,q)=>markets[q].pop-markets[p].pop)[0];
+    if(op==='破壞')return ts.find(z=>sites[z]&&sites[z]!=='oasis')??big();if(op==='斷水')return ts.find(z=>sites[z]==='oasis')??big();return null}
+  function runOp(a,b,op,S,y,hot,src,keep=null,at=null){
       const ST=src==='黑單'?SSTAT.c:SSTAT;ST.tried[op]=(ST.tried[op]||0)+1;hot?ST.hostile++:ST.cold++;const tb=rTr(b),F=fac[a],t=rTr(a);
       const SH_CAP={'暗殺':.85,'綁架':.75,'煽動':.9,'收買':.85,'資助匪幫':.95,'破壞':.9,'嫁禍':.85,'斷水':.9},SH_K={'暗殺':12,'綁架':14,'煽動':10,'收買':8,'資助匪幫':6,'破壞':8,'嫁禍':10,'斷水':8},S_=S,pOk=SH_P0[op]+(SH_CAP[op]-SH_P0[op])*(1-Math.exp(-S_/SH_K[op]));
       const ok=rand()<pOk,cb=(.3+(ok?0:.2))*(tb==='多疑'?1.6:tb==='守成'?1.25:1),caught=rand()<(keep==null?cb:1-(1-cb*.4)*keep);const B=fac[b];let done='';
@@ -264,9 +267,9 @@ function createSim(w,rand,pick){
           if(NBR[x].some(n=>owner[n]===a)||hdist(x,F.cap)<=4){if(rand()<.35){ST.defect++;for(let q=0;q<N;q++)if(owner[q]===b&&mkt[q]===x)owner[q]=a;owner[x]=a;h.f=a;done=`${B.n}的${nm(x)}課長${h.name}收了好處，帶著整座城投向${F.n}`}}
           if(!done)done=`${B.n}的${nm(x)}課長${h.name}最近手頭忽然寬裕，對上頭的命令愛理不理`}}}
         else if(op==='資助匪幫'){let G=null,gd=5;for(const g of gangs)if(!g.gone){for(const x of ts){const d=hdist(g.lair,x);if(d<gd){gd=d;G=g}}}if(G){G.str+=60;G.patron=a;for(const x of [G.lair,...NBR[G.lair]])bandit[x]=Math.min(100,bandit[x]+15);done=`${gWho(G)}忽然多了新槍和熱量，開始專挑${B.n}的車隊下手`}}
-        else if(op==='破壞'){if(ts.length){const x=ts.find(z=>sites[z]&&sites[z]!=='oasis')??ts.sort((p,q)=>markets[q].pop-markets[p].pop)[0],m=markets[x];for(const g of ['fuel','parts','ammo'])m.stock[g]*=.5;m.sabY=y;done=sites[x]?`${nm(x)}的${SITE[sites[x]].n}夜裡起火，停工一整年`:`${nm(x)}的倉庫夜裡被人放火`}}
+        else if(op==='破壞'){if(ts.length){const x=at!=null&&ts.includes(at)?at:ts.find(z=>sites[z]&&sites[z]!=='oasis')??ts.sort((p,q)=>markets[q].pop-markets[p].pop)[0],m=markets[x];for(const g of ['fuel','parts','ammo'])m.stock[g]*=.5;m.sabY=y;done=sites[x]?`${nm(x)}的${SITE[sites[x]].n}夜裡起火，停工一整年`:`${nm(x)}的倉庫夜裡被人放火`}}
         else if(op==='嫁禍'){let c_=-1;for(let k=0;k<FMAX;k++)if(k!==a&&k!==b&&fac[k].alive&&bcx(b,k)){c_=k;break}if(c_>=0){shTen(b,c_,20);GR[b][c_]+=.5;done=`${B.n}的邊境哨站遭到襲擊，現場留下的是${fac[c_].n}的徽記`}}
-        else if(op==='斷水'){if(ts.length){const x=ts.find(z=>sites[z]==='oasis')??ts.sort((p,q)=>markets[q].pop-markets[p].pop)[0],m=markets[x];m.stock.water=0;m.waterCut=y;if(sites[x])m.sabY=y;done=`${nm(x)}的水井和抽水站被人下毒、炸毀，一整年都缺水`}}}
+        else if(op==='斷水'){if(ts.length){const x=at!=null&&ts.includes(at)?at:ts.find(z=>sites[z]==='oasis')??ts.sort((p,q)=>markets[q].pop-markets[p].pop)[0],m=markets[x];m.stock.water=0;m.waterCut=y;if(sites[x])m.sabY=y;done=`${nm(x)}的水井和抽水站被人下毒、炸毀，一整年都缺水`}}}
       if(done)say(y,'war',`${done}${caught?'。':'，沒有人知道是誰幹的。'}`,B.cap);
       if(caught){ST.caught[op]=(ST.caught[op]||0)+1;shTen(a,b,op==='暗殺'||op==='綁架'?25:15);GR[b][a]+=1;
         say(y,'war',`${B.n}抓到${F.n}派來${({'暗殺':'行刺','綁架':'擄人','嫁禍':'栽贓','煽動':'煽動叛亂','收買':'收買課長','破壞':'放火','資助匪幫':'接濟匪幫','斷水':'在水井下毒'})[op]}的密探，${rulerT(B)}當眾發誓要討回公道。`,B.cap)}
@@ -292,11 +295,12 @@ function createSim(w,rand,pick){
   const detThr=b=>.15*(rTr(b)==='多疑'?.5:rTr(b)==='守成'?.75:1);
   function detect(o,y){if(o.detected)return;o.detected=true;say(y,'war',`${fac[o.b].n}察覺有外人在${nm(o.tile)}一帶暗中活動，開出懸賞緝拿。`,o.tile)}
   function shadowDay(y,frac){if(!campOn)return;
-    for(const o of ops){if(o.state==='pending'&&frac>=o.dueF)o.state='open';else if(o.state==='open'&&!o.detected&&rand()<.06)detect(o,y)}
+    for(const o of ops){if(o.state==='pending'&&frac>=o.dueF){o.state='open';if(o.at===undefined&&fac[o.b]?.alive){o.at=opTarget(o.b,o.op);if(o.at!=null)o.tile=o.at}}   // 舊存檔的行動：公開時補上目標城（Alan 2026-10-11）
+     else if(o.state==='open'&&!o.detected&&rand()<.06)detect(o,y)}
     ops=ops.filter(o=>o.state!=='done'||!o.handled||y-o.y<2)}
   function resolveOp(id){const o=ops.find(x=>x.id===id);if(!o||o.state!=='open')return null;o.state='done';const y=histY||curY;
     if(!fac[o.a].alive||!fac[o.b].alive){o.res={ok:false,caught:false,gone:true};return o}
-    const r=runOp(o.a,o.b,o.op,Math.max(0,o.S-o.D),y,o.hot,'黑單',o.keep);o.res={...r,S:o.S,D:o.D};
+    const r=runOp(o.a,o.b,o.op,Math.max(0,o.S-o.D),y,o.hot,'黑單',o.keep,o.at??null);o.res={...r,S:o.S,D:o.D};
     // 被識破：照各家留下的證據多寡抽出被點名的公司（做得乾淨的公司不會被拖下水）
     if(r.caught){const E=Object.entries(o.ev).filter(([,v])=>v>0),tot=E.reduce((x,[,v])=>x+v,0);if(tot>0){let q=rand()*tot;for(const [co,v] of E){q-=v;if(q<=0){o.res.blame=co;break}}o.res.blame??=E[E.length-1][0]}}
     return o}
@@ -317,8 +321,8 @@ function createSim(w,rand,pick){
       const a=E_.id,t=rTr(a),tg=pickTarget(a,y);if(!tg)continue;const [b,hot]=tg;
       const kinds=Object.keys(SIZE),ws=kinds.map(o=>SIZE[o]*(SH_W[o][t]??1));let r2=rand()*ws.reduce((x,z)=>x+z,0),op=kinds[0];for(let k=0;k<kinds.length;k++){r2-=ws[k];if(r2<=0){op=kinds[k];break}}
       if(!campOn){runOp(a,b,op,0,y,hot,'黑單');continue}   // 歷史模式（沒有公司）：當場照 NPC 起點擲骰
-      const xs=townsOf(b).sort((p,q)=>markets[q].pop-markets[p].pop),tile=xs.length?xs[0]:B_cap(b);
-      ops.push({id:opSeq++,a,b,op,hot:!!hot,y,tile,dueF:rand(),state:'pending',S:0,D:0,keep:1,E:0,ev:{},detected:false,hours:72+24*Math.floor(rand()*3),closeH:null,res:null,handled:false})}
+      const xs=townsOf(b).sort((p,q)=>markets[q].pop-markets[p].pop),at=opTarget(b,op),tile=at??(xs.length?xs[0]:B_cap(b));   // 破壞、斷水就在目標城打
+      ops.push({id:opSeq++,a,b,op,hot:!!hot,y,tile,at,dueF:rand(),state:'pending',S:0,D:0,keep:1,E:0,ev:{},detected:false,hours:72+24*Math.floor(rand()*3),closeH:null,res:null,handled:false})}
   }
   // ===== 領導人性格（試驗）：性格跟著統治者走、不繼承；盟約跟著國家走，換人時新統治者重新表態 =====
   const TRAITS=['好戰','結盟','機會','守成','均衡','擴張','多疑','重商','記仇'];
@@ -1526,7 +1530,7 @@ function createSim(w,rand,pick){
     // 暗影戰爭（Alan 2026-10-11）：黑單不具名；察覺之後受害的一方開反情報單；交戰中的私掠許可
     {const seen=new Set();for(const o of ops){if(o.state!=='open'||!fac[o.a].alive||!fac[o.b].alive||seen.has(o.tile))continue;seen.add(o.tile);const od=oddsOf(o),lv=SH_LV[o.op];
       out.push({kind:'shadow',tile:o.tile,lv,risk:2,op:o.id,opName:o.op,fac:o.a,foe:o.b,minLv:lv>=3?5:3,closeH:o.closeH,hours:o.hours,odds:od,
-        title:`黑單：${SH_TITLE[o.op]}（${nm(o.tile)}）`,detail:`雇主不具名・目標是${fn(o.b)}・勝算${od.tier}${od.more?`（再成功約 ${od.more} 張升一級）`:''}・參與的人至少 ${lv>=3?5:3} 級`});
+        title:`黑單：${SH_TITLE[o.op]}（${nm(o.tile)}）`,detail:`雇主不具名・目標是${fn(o.b)}${o.at!=null?`的${nm(o.at)}${sites[o.at]?SITE[sites[o.at]].n:''}`:''}・勝算${od.tier}${od.more?`（再成功約 ${od.more} 張升一級）`:''}・參與的人至少 ${lv>=3?5:3} 級`});
       if(o.detected)out.push({kind:'counter',tile:o.tile,lv,risk:2,op:o.id,fac:o.b,foe:o.a,closeH:o.closeH,hours:o.hours,odds:od,
         title:`緝拿密探（${nm(o.tile)}）`,detail:`${fn(o.b)}察覺有外人在暗中活動・對方勝算${od.tier}${od.k>=2?'，急需人手':''}`})}}
     {const seen=new Set();for(const l of lics){if(!fac[l.by].alive||!fac[l.on].alive||!atWar(l.by,l.on))continue;const t=fac[l.by].cap;if(seen.has(t))continue;seen.add(t);
