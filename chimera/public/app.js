@@ -815,7 +815,7 @@ function renderRoster() {
     <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${face(x)}" alt=""><b>${nameMin(x)}</b><span>${x.callsign ? esc(who(x)) + '・' : ''}${x.id}・${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
 }
 // 裝備欄（Alan 2026-10-09）：槍 ×3、近戰、護甲、預備品 ×2。在總部待命時可以換：點「換」從倉庫挑，原本那件回倉庫
-const SLOT_N = {gun0: '槍 1', gun1: '槍 2', gun2: '槍 3', melee: '近戰', armor: '護甲', kit0: '預備品 1', kit1: '預備品 2'};
+const SLOT_N = {gun0: '武器 1', gun1: '武器 2', gun2: '武器 3', melee: '近戰', armor: '護甲', kit0: '預備品 1', kit1: '預備品 2'};
 let gearPick = null;   // {uid, slot}：正在挑哪一格
 function gearOfC(c) { const g = c.gear || {guns: [], kits: []}; return s => s.startsWith('gun') ? g.guns?.[+s[3]] : s.startsWith('kit') ? g.kits?.[+s[3]] : g[s]; }
 function gearBox(c) {
