@@ -645,6 +645,20 @@ function breach(cos, book, w, c, q, h, SH) {
     note(G, h, `再次違約：${nm}的長約作廢，賠 $${pen}k；${w.sim.peek().fac[c.fac]?.n || '那個勢力'}一年內不跟你往來。`);
   }
 }
+// 後台修復（Alan 2026-10-11：程式的錯誤害的違約，讓公司可以重新簽）：拿掉這家公司在這份長約的簽約紀錄、那個勢力的往來禁令、
+// 這個產地的違約名氣扣分；簽約期限過了就延長三天。賠掉的錢不退
+export function resetSigner(cos, book, w, id, co, h) {
+  const c = (book.contracts || []).find(x => x.id === id), G = cos[co]; if (!c || !G) return '找不到這份合約或公司';
+  const s = c.signers.find(x => x.co === co); if (!s) return '這家公司沒有簽這份合約';
+  c.signers.splice(c.signers.indexOf(s), 1);
+  for (const sq of Object.values(book.squads)) if (sq.player === co && sq.garrison === c.site && !sq.caseId) { for (const x of sq.clones) if (x.alive) x.status = 'home'; delete book.squads[sq.id]; }
+  if (G.bans) delete G.bans[c.fac];
+  const nm = `違約：${w.names[c.site] || ''}${SITE_N[c.kind]}`, n0 = G.fameLog?.length || 0; if (G.fameLog) G.fameLog = G.fameLog.filter(e => !e.title.startsWith(nm));
+  G.breaches = Math.max(0, (G.breaches || 0) - (n0 - (G.fameLog?.length || 0)));
+  c.signUntil = Math.max(c.signUntil, h + 72);
+  note(G, h, `後台修復：${w.names[c.site] || ''}${SITE_N[c.kind]}的長約紀錄拿掉了，可以重新簽約（三天內）。`);
+  return null;
+}
 // 每個遊戲小時（core.js 呼叫）
 export function retainerHour(cos, book, w, h, SH) {
   const K = w.sim.peek(), P = w.sim.pmc, sites = P.sites ? P.sites() : {}; book.contracts ||= [];

@@ -407,6 +407,8 @@ export class Core {
       g.book.cloneSeq = n;
     }
   }
+  // 後台修復（只給 admin/fix）
+  adminFix(b) { const g = this.game; if (!g) return '還沒有世界'; if (b.op === 'resetSigner') return G.resetSigner(g.cos, g.book, this.w, String(b.contract), String(b.co), g.h); return '不認得的修復'; }
   // 狀態指紋：比對兩個核心是不是一模一樣（帳本＋公司＋沙盒的年份與時間）
   fingerprint() {
     const K = this.sim.peek(), world = {owner: Array.from(K.owner), pop: Array.from(K.pop), bandit: Array.from(K.bandit), trench: Array.from(K.trench), stock: Object.entries(K.markets).map(([t, m]) => [t, m.stock, m.veh]), gangs: K.gangs.map(g => [g.id, g.str, g.gone])};

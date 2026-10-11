@@ -167,11 +167,12 @@ export class Planet extends DurableObject {
       return json({ok: !err, err});
     }
     // 後台的唯讀鑰匙（Alan 2026-10-10：讓 Claude 也能看後台查問題）：x-admin-token 的 SHA-256 等於 ADMIN_TOKEN_SHA256 才放行；只開 admin/world，不能下指令
-    if ((path === 'admin/world' || path === 'admin/save' || path === 'admin/forward') && !pid && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {
+    if ((path === 'admin/world' || path === 'admin/save' || path === 'admin/forward' || path === 'admin/fix') && !pid && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {
       const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(req.headers.get('x-admin-token')))), hex = [...d].map(x => x.toString(16).padStart(2, '0')).join('');
       if (hex !== this.env.ADMIN_TOKEN_SHA256) return bad('沒有權限', 403);
       // 整份存檔（Alan 2026-10-10：拉到測試環境比對改動的影響）；唯讀
       if (path === 'admin/save') return json({seed: this.meta.seed, save: this.core.save()});
+      if (path === 'admin/fix' && req.method === 'POST') { let b = {}; try { b = await req.json(); } catch {} const err = this.core.adminFix(b); if (!err) await this.persist(); return json({ok: !err, err}); }   // 後台修復（Alan 2026-10-11）
       if (path === 'admin/forward' && req.method === 'POST') { let b = {}; try { b = await req.json(); } catch {} return json(await this.forward(b.hours)); }
       const accounts = {}; for (const [p, n] of Object.entries(this.roster)) accounts[n] = p[0] === 'g' ? 'Google' : '訪客';
       return json({...this.core.adminView(accounts), clientErrors: (await this.ctx.storage.get('clientErrors')) || [], server: {started: this.meta.startedAt, hourMs: this.hourMs(), world: this.env.WORLD_VERSION || '1', colo: this.colo || ''}});
@@ -238,7 +239,9 @@ function arenaMission(b) {
   const r = crypto.getRandomValues(new Uint32Array(3)), n = Math.max(1, Math.min(4, b.size | 0 || 2));
   const type = ARENA_TYPES.includes(b.type) ? b.type : ARENA_TYPES[r[2] % ARENA_TYPES.length], biome = ARENA_BIOMES.includes(b.biome) ? b.biome : ARENA_BIOMES[(r[2] >>> 8) % ARENA_BIOMES.length];
   const side = ARENA_SIDES[b.side] ? b.side : type === 'native' ? 'native' : ['intercept', 'assault', 'hold', 'trench', 'sabotage', 'probe'].includes(type) ? 'army' : 'raider';
-  const units = Object.fromEntries(Object.entries(ARENA_SIDES[side]).map(([k, v]) => [k, Math.max(1, Math.round(v * n / 2))]));
+  // 戰場大小（Alan 2026-10-11：先做 50×50 的測試場）：地圖大了，敵人照面積加（同樣的「敵人」選項密度一樣）
+  const map = b.map === 50 ? 50 : 27, dens = (map / 27) ** 2;
+  const units = Object.fromEntries(Object.entries(ARENA_SIDES[side]).map(([k, v]) => [k, Math.max(1, Math.round(v * n / 2 * dens))]));
   const veh = {}; if (b.veh || n >= 3) { if (['raider', 'warlord'].includes(side)) veh.rush = 1; if (['army', 'free', 'works'].includes(side)) veh.armor = 1; }
   // 頭目：掠奪者、軍閥、根者是拿遺產級的（第幾次被打倒照選的；第三次起有機會戰死），巢匪是巢母，正規軍是標定官
   const kind = LEGACY_KINDS[r[1] % LEGACY_KINDS.length], defeats = Math.max(0, Math.min(4, b.defeats | 0));
@@ -246,7 +249,7 @@ function arenaMission(b) {
     : {weapon: `測試${kind}`, kind, bonus: .2, legacy: -1, chief: '測試頭目', ash: LEGACY_BOSS[kind], defeats, dies: defeats >= 2 && r[0] % 100 < [0, 0, 30, 60, 100][defeats]};
   const night = b.night === true || (b.night == null && ['trench', 'sabotage'].includes(type));
   const enemy = {name: '測試敵人', side, power: 0, units, veh, boss};
-  return {id: 'arena-' + Date.now().toString(36) + r[1].toString(36).slice(0, 4), title: '戰鬥測試場', seed: 1 + r[0] % 999999, faction: ASH_FACTION[side] || 'rebel', night, type, biome,
+  return {id: 'arena-' + Date.now().toString(36) + r[1].toString(36).slice(0, 4), title: map === 27 ? '戰鬥測試場' : `戰鬥測試場（${map}×${map}）`, size: map, seed: 1 + r[0] % 999999, faction: ASH_FACTION[side] || 'rebel', night, type, biome,
     enemy: {...enemy, roster: enemyRoster(enemy)},
     squad: ARENA_CLS.map((cls, i) => ({id: `T-${1001 + i}`, cls, portrait: ARENA_FACES[i], donor: ARENA_FACES[i], st: {hp: cls === 'berserker' ? 160 : 100}, lv: 3, xp: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0}))};
 }
