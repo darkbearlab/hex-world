@@ -17,6 +17,7 @@ PICK = {
 # 眼睛（Alan 2026-10-12：兩眼連線的中點在頭像正中間，兩眼外側佔頭像寬的二分之一到三分之二）：(兩眼中點 x, y, 兩眼外眼角的距離)，原圖座標，看圖量的
 EYES = {"portrait-05": [497, 199, 100], "portrait-06": [507, 165, 82], "portrait-07": [436, 224, 99], "portrait-12": [508, 185, 98], "portrait-15": [494, 200, 96], "portrait-16": [496, 222, 100], "portrait-08": [497, 145, 89], "portrait-09": [485, 144, 81], "portrait-10": [473, 191, 87], "ember": [521, 188, 95], "onyx": [483, 179, 90], "silver": [527, 191, 104], "cedar": [514, 191, 100], "portrait-11": [503, 188, 98], "portrait-13": [524, 176, 95], "portrait-14": [500, 214, 100]}
 EYE_SPAN = .58
+FULL_RATIO = .72   # 立繪 full.png 的寬高比（全部一樣）
 def figure_box(im):
   # 人物的範圍：跟左上角的背景色差得夠多的地方
   rgb = im.convert('RGB'); bg = Image.new('RGB', rgb.size, rgb.getpixel((2, 2)))
@@ -26,9 +27,11 @@ os.makedirs(OUT, exist_ok=True)
 for key, (src, hip, head, dy, dx) in PICK.items():
   im = Image.open(src).convert('RGB'); mask, (x0, y0, x1, y1) = figure_box(im); h = y1 - y0
   # full.png：頭頂到胯部，左右照人物寬度留一點邊，下緣就是胯部（貼底）
-  yb = y0 + int(h * hip); top = max(0, y0 - 24)
-  full = im.crop((max(0, x0 - 24), top, min(im.width, x1 + 24), yb))
-  s = 820 / full.height; full = full.resize((round(full.width * s), 820), Image.NEAREST)   # 減色圖：不要混出中間色
+  # 比例統一（Alan 2026-10-12：詳細資料裡的立繪比例不一）：寬 = 高 × FULL_RATIO，水平以兩眼中點置中；原圖不夠寬就用背景色補
+  yb = y0 + int(h * hip); top = max(0, y0 - 24); Hs = yb - top; Ws = round(Hs * FULL_RATIO)
+  cx = EYES[key][0] if key in EYES else (x0 + x1) // 2; lx = int(cx - Ws / 2)
+  full = Image.new('RGB', (Ws, Hs), im.getpixel((2, 2))); full.paste(im.crop((max(0, lx), top, min(im.width, lx + Ws), yb)), (max(0, -lx), 0))
+  full = full.resize((round(820 * FULL_RATIO), 820), Image.NEAREST)   # 減色圖：不要混出中間色
   d = os.path.join(OUT, key); os.makedirs(d, exist_ok=True); full.quantize(colors=16, method=Image.MEDIANCUT).save(os.path.join(d, 'full.png'), optimize=True)
   # portrait.png：頭的正方形，中心照頭那一段人物像素的平均位置
   hh = int(h * head); band = mask.crop((0, y0, im.width, y0 + hh)); px = band.load()
