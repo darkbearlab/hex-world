@@ -394,7 +394,7 @@ export function accept(G, book, w, opp, side, uids, now, fast = false, contract 
   if (groups.length > 1 && groups[groups.length - 1].length < 2) groups[groups.length - 2].push(...groups.pop());
   let n = 0;
   if (rsq) { const home = rsq.caseId; rsq.caseId = null; delete rsq.headedHome;
-    if (C.enlist(book, c.id, rsq.id, now, w)) { n++; rsq.roverHome = home; for (const x of pick) { x.missions++; C.joinRec(x, c, G.name, now); } if (c.kind === 'hunting') C.pay(book, now, G.name, -3 * pick.length, 'venue', `${c.title}：入口守衛的場地費（${pick.length} 人）`, c.id); }
+    if (C.enlist(book, c.id, rsq.id, now, w)) { n++; rsq.roverHome = home; rover.log.push({h: now, tile: rover.tile, kind: 'note', text: `用 Rover 接下「${c.title}」：車上 ${pick.length} 人當作駐紮在這裡，委託結束才能開走。`}); for (const x of pick) { x.missions++; C.joinRec(x, c, G.name, now); } if (c.kind === 'hunting') C.pay(book, now, G.name, -3 * pick.length, 'venue', `${c.title}：入口守衛的場地費（${pick.length} 人）`, c.id); }
     else rsq.caseId = home; groups.length = 0; }
   for (const g of groups) {
     const sq = C.makeSquad(book, G.name, {clones: g, gear: 3, at: G.base, name: `${G.name}・第${G.seq++}隊`}); sq.fast = !!fast;

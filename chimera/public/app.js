@@ -528,8 +528,8 @@ function found(base) { if (WATCH) return; send({type: 'found', base}); }
 function onGame(m) {
   const first = !GV; GV = m.data; GM = m;
   if (m.campaigns?.some(c => !c.done) || $('campbar') && !$('campbar').hidden) draw();   // 大戰役每 6 小時變一次
-  if (m.err && roverToast == null) toast(m.err);
-  roverToastCheck(m.err);
+  if (m.err && roverToast == null && roverAct == null) toast(m.err);
+  if (roverToast != null) { roverToastCheck(m.err); roverSeen = rvKey(GV?.rover?.log?.[0]); } else roverNews(m.err);
   if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('mailBtn').hidden = false; $('gyd').value = m.yearDays; showPage('co'); renderAll(); send({type: 'quotes'}); }
   $('gclock').textContent = clockText(Math.max(GV.h, hourNow() ?? GV.h), m);
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
@@ -734,6 +734,21 @@ function maybeReport() {
 let roverPick = null;   // 編組中（在總部才能換人）
 // 下令開車之後跳一張卡片（Alan 2026-10-12：地圖上下令沒有任何提示）：伺服器回來、路線排好了才秀，開不過去就秀原因
 let roverToast = null;
+// 其他 Rover 的動作（Alan 2026-10-12：接當地的案子等任何相關操作都要有提示）：送出前記下日誌最新那一筆，回來之後把新的幾筆秀成卡片；失敗就秀原因
+let roverAct = null, roverSeen = null;
+const rvKey = e => e ? e.h + '|' + e.text : '';
+function roverSend(m, title) { roverAct = {title, top: rvKey(GV?.rover?.log?.[0])}; send(m); }
+function roverNews(err) {
+  const R = GV?.rover, L = R?.log || [];
+  const fresh = top => { const out = []; for (const e of L) { if (rvKey(e) === top) break; out.push(e); } return out.reverse(); };
+  if (roverAct) { const a = roverAct; roverAct = null; roverSeen = rvKey(L[0]);
+    if (err) { roverCard(`${a.title}：沒有成功`, esc(err)); return; }
+    const lines = fresh(a.top); roverCard(a.title, lines.map(e => esc(e.text)).join('<br>') || '完成了。'); return; }
+  // 自己發生的事（搜到東西、被擋住、小事辦完）：有新的重要日誌就跳
+  if (roverSeen == null) { roverSeen = rvKey(L[0]); return; }
+  const lines = fresh(roverSeen).filter(e => e.kind === 'find' || e.kind === 'danger'); roverSeen = rvKey(L[0]);
+  if (lines.length && roverToast == null) roverCard('Rover 回報', lines.slice(-4).map(e => esc(e.text)).join('<br>'));
+}
 function roverToastCheck(err) {
   if (roverToast == null) return; const to = roverToast; roverToast = null; const R = GV?.rover;
   if (err) { roverCard('Rover 開不過去', esc(err)); return; }
@@ -1087,7 +1102,7 @@ for (const el of coPanes) el.addEventListener('input', e => { const m = e.target
 $('pane-vat').addEventListener('focusout', () => setTimeout(() => { if (page === 'vat') renderVat(); }, 0));
 // 服務單的「親自打」「現在自動結算」在按下去那一刻就送出：公司時間跑得快時清單每秒重畫好幾次，
 // 按下與放開落在不同的按鈕上就不會有 click（2026-10-08 Alan 回報：按了親自打一直沒反應）
-$('pane-co').addEventListener('pointerdown', e => {
+for (const pane of ['pane-co', 'pane-rover']) $(pane).addEventListener('pointerdown', e => {   // Rover 分頁的遭遇也是這兩顆（Alan 2026-10-12 抓到：Rover 分頁上按了沒反應）
   const b = e.target.closest('[data-act="fight"],[data-act="resolve"]'); if (!b || e.button !== 0) return;
   e.preventDefault(); const id = b.dataset.id;
   if (b.dataset.act === 'fight') { send({type: 'fight', ticket: id}); showMissionLoading(); } else send({type: 'resolve', ticket: id});
@@ -1134,16 +1149,16 @@ const coClick = e => {
   else if (A === 'ungar') send({type: 'ungarrison', squad: id});
   else if (A === 'rethide') send({type: 'retHide', id});
   // Rover（Alan 2026-10-11）
-  else if (A === 'roverbuy') { if (confirm(`買一台 Rover（$${GV.rover?.price ?? 300}k）？`)) send({type: 'buyRover'}); }
+  else if (A === 'roverbuy') { if (confirm(`買一台 Rover（$${GV.rover?.price ?? 300}k）？`)) roverSend({type: 'buyRover'}, '買了一台 Rover'); }
   else if (A === 'rovergo') { roverToast = +id; send({type: 'roverGo', tile: +id}); }
-  else if (A === 'roverstop') send({type: 'roverStop'});
-  else if (A === 'roverup') send({type: 'roverUpgrade', kind: id});
-  else if (A === 'roverjob') send({type: 'roverJob', id});
-  else if (A === 'roversearch') send({type: 'roverSearch'});
-  else if (A === 'roversupply') send({type: 'roverSupply', food: +b.dataset.f || 0, water: +b.dataset.w || 0});
+  else if (A === 'roverstop') roverSend({type: 'roverStop'}, 'Rover 停車');
+  else if (A === 'roverup') roverSend({type: 'roverUpgrade', kind: id}, 'Rover 升級');
+  else if (A === 'roverjob') roverSend({type: 'roverJob', id}, '在地小事');
+  else if (A === 'roversearch') roverSend({type: 'roverSearch'}, 'Rover 開始搜索');
+  else if (A === 'roversupply') roverSend({type: 'roverSupply', food: +b.dataset.f || 0, water: +b.dataset.w || 0}, 'Rover 補給');
   else if (A === 'roverpick') { const u = +id; roverPick = roverPick || new Set(GV.rover?.crew || []); if (roverPick.has(u)) roverPick.delete(u); else if (roverPick.size < 4) roverPick.add(u); renderRover(); }
-  else if (A === 'rovercrew') { send({type: 'roverCrew', uids: [...(roverPick || [])]}); roverPick = null; }
-  else if (A === 'roveraccept') { const o = curOpps(hist[cur]).find(x => x.kind === id && x.tile === +b.dataset.tile); send({type: 'accept', kind: id, tile: +b.dataset.tile, side: o?.kind === 'drill' ? '1' : o?.kind === 'front' || o?.kind === 'camp' ? 'att' : o?.kind === 'tense' ? 'a' : '', uids: [], rover: true}); }
+  else if (A === 'rovercrew') { roverSend({type: 'roverCrew', uids: [...(roverPick || [])]}, 'Rover 編組'); roverPick = null; }
+  else if (A === 'roveraccept') { const o = curOpps(hist[cur]).find(x => x.kind === id && x.tile === +b.dataset.tile); roverSend({type: 'accept', kind: id, tile: +b.dataset.tile, side: o?.kind === 'drill' ? '1' : o?.kind === 'front' || o?.kind === 'camp' ? 'att' : o?.kind === 'tense' ? 'a' : '', uids: [], rover: true}, '用 Rover 接委託'); }
   else if (A === 'ungarall') { if (confirm('撤回這個產地所有不在護送中的駐軍？')) for (const sq of id.split(',')) send({type: 'ungarrison', squad: sq}); }
   else if (A === 'callpick' || A === 'garpick') {
     const c = (GV.retainer?.mine || []).find(x => A === 'garpick' ? x.site === +id : x.calls.some(q => q.id === id)), q = c?.calls.find(x => x.id === id); if (!c) return;

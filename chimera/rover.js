@@ -41,7 +41,7 @@ function roverCase(book, G, R, h) {
 }
 export const roverSquad = (book, R) => R?.squad ? book.squads[R.squad] : null;
 const crewOf = (book, R) => roverSquad(book, R)?.clones.filter(c => c.alive) || [];
-const busyTicket = (book, R) => book.tickets.find(t => t.squad === R.squad && !t.done);
+const busyTicket = (book, R) => R.squad ? book.tickets.find(t => t.squad === R.squad && !t.done) : null;   // 車上沒人（沒有小隊）就沒有服務單
 // 能不能動：有人、沒有服務單、沒有在搜索、沒有在接委託
 export function roverBlock(book, R, h) {
   const sq = roverSquad(book, R);
