@@ -12,7 +12,7 @@ const r1 = v => Math.round(v * 10) / 10;
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -176,6 +176,49 @@ export class Core {
     const P = this.sim.pmc; if (!P.openOps) return;
     for (const o of P.openOps()) { if (o.closeH == null) o.closeH = t + o.hours; else if (t >= o.closeH) P.resolveOp(o.id); }
     for (const o of P.doneOps()) { o.handled = true; this.shadowOutcome(o, t); }
+    this.shadowReports(t);
+  }
+  // 黑單的結算報告（Alan 2026-10-11：行動的付出換來什麼，結算時跳一張大卡片）：行動擲骰過、自己那張案件也結案之後，每家參與的公司各一份
+  shadowReports(t) {
+    const game = this.game, b = game.book, P = this.sim.pmc, K = this.sim.peek(), w = this.w, nm = x => w.names[x] || '某地', fn = f => K.fac[f]?.n || '某勢力';
+    const SITE = {oil: '石油城', ammo: '彈藥農場', oasis: '綠洲', salvage: '拆解場'};
+    for (const c of b.cases) { if (c.kind !== 'shadow' || !c.settled) continue; const o = P.op(c.op); if (!o || o.state !== 'done' || !o.res) continue;
+      const cos = new Set([...Object.keys(c.score), ...c.squads.map(id => b.squads[id]?.player).filter(Boolean)]);
+      for (const co of cos) { const G2 = game.cos[co]; if (!G2 || c.reported?.[co]) continue; (c.reported ||= {})[co] = true;
+        const r = o.res, def = c.side === 'def', win = def ? !r.ok : !!r.ok;
+        // 實際被打到的城：新的行動記在 res.hit；舊的照「那一年被燒、被斷水」的城找回來
+        const old = r.ok && (o.op === '破壞' || o.op === '斷水') ? Object.keys(K.markets).map(Number).find(x => K.owner[x] === o.b && (o.op === '破壞' ? K.markets[x].sabY === o.y && K.markets[x].site : K.markets[x].waterCut === o.y)) : undefined;
+        const at = r.hit ?? o.at ?? old ?? o.tile, site = K.markets[at]?.site?.kind;
+        const T = b.tickets.filter(x => x.caseId === c.id && x.player === co), tot = Object.values(c.score).reduce((x, y) => x + y, 0);
+        const L = b.ledger.filter(x => x.caseId === c.id && x.player === co), money = {}; for (const x of L) money[x.kind] = (money[x.kind] || 0) + x.amount;
+        // 世界上實際發生的事
+        const world = [];
+        if (r.gone) world.push('目標勢力已經不在了，行動取消。');
+        else if (r.ok) { world.push(r.text ? r.text + '。' : '行動成功。');
+          if (o.op === '破壞') world.push(`${nm(at)}的燃料、零件、彈藥庫存各少了一半${site ? `；${SITE[site] || '產地'}到第 ${o.y} 年年底都不生產` : ''}。`);
+          if (o.op === '斷水') world.push(`${nm(at)}的存水一滴不剩，到第 ${o.y} 年年底都缺水。`);
+          if (o.op === '煽動' || o.op === '收買') world.push('那一帶的民心更不穩，之後可能脫離。');
+          if (o.op === '資助匪幫') world.push('附近的匪幫壯大，那一帶的車隊會更常出事。');
+          if (o.op === '嫁禍') world.push('被栽贓的兩個勢力之間更緊張了。'); }
+        else world.push(def ? '對方的行動被你們擋下來了，沒有造成任何損害。' : '行動的分量不夠，擲骰沒過，沒有造成影響。');
+        world.push(o.detected ? `${fn(o.b)}事前有察覺，開過懸賞緝拿。` : `${fn(o.b)}事前沒有察覺。`);
+        if (r.caught) world.push(r.blame ? `密探被抓到，${fn(o.b)}公開點名「${r.blame}」。` : '密探被抓到了。');
+        else if (r.ok) world.push('沒有人知道是誰幹的。');
+        // 對你的影響
+        const me = [];
+        if (r.caught && r.blame === co) me.push(`你被點名了：名氣 −60、與${fn(o.b)}和雇主${fn(o.a)}的關係下降，倒在現場的遺體被銷毀。`);
+        else if (!def) me.push('你沒有曝光：名聲、派系關係沒有被扣。');
+        const rel = (G2.relLog || []).filter(e => e.why.includes(c.title)); for (const e of rel) me.push(`與${fn(e.f)}的關係 ${e.v > 0 ? '+' : ''}${e.v}`);
+        const mine = (b.contracts || []).filter(k => k.site === at && k.signers.some(s => s.co === co && !s.void));
+        if (r.ok && (o.op === '破壞' || o.op === '斷水') && mine.length) me.push(`⚠ ${nm(at)}${SITE[site] || ''}是你簽了長約的產地，這次也被波及：停工期間庫存只出不進，車隊可能變少。`);
+        const rep = {id: 'RP' + b.nextId++, kind: 'shadow', h: t, seen: false, title: c.title, op: o.op, side: c.side, win, tile: at, place: nm(at) + (site ? SITE[site] || '' : ''),
+          employer: fn(def ? o.b : o.a), target: fn(def ? o.a : o.b), odds: P.oddsOf ? P.oddsOf(o)?.tier : null, alert: c.alert ?? null,
+          tickets: T.length, wins: T.filter(x => x.win).length, auto: T.filter(x => x.auto).length, dead: T.reduce((s, x) => s + (x.dead || []).length, 0),
+          share: tot > 0 ? Math.round((c.score[co] || 0) / tot * 100) : 0, others: Object.entries(c.score).filter(([k, v]) => k !== co && v > 0).map(([k, v]) => ({co: k, pct: Math.round(v / tot * 100)})),
+          money, net: L.reduce((s, x) => s + x.amount, 0), world, me};
+        (G2.reports ||= []).push(rep); if (G2.reports.length > 60) G2.reports.shift();
+      }
+    }
   }
   shadowOutcome(o, t) {
     const game = this.game, b = game.book, K = this.sim.peek(), fn = f => K.fac[f]?.n || '某勢力', nm = this.w.names[o.tile] || '某地', r = o.res || {};
@@ -262,6 +305,7 @@ export class Core {
     if (m.type === 'revive') return G.revive(g, +m.uid, m.slot == null ? null : +m.slot, this.exactNow ?? h);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
     if (m.type === 'retHide') return G.retHide(g, b, String(m.id));
+    if (m.type === 'readReport') { for (const r of g.reports || []) if (m.id === 'all' || r.id === m.id) r.seen = true; return null; }
     if (m.type === 'fieldEquip') return G.fieldEquip(g, b, String(m.squad), +m.uid, String(m.slot), m.item || null);
     if (m.type === 'sell') return G.sellItem(g, String(m.item), w);
     if (m.type === 'mod') return G.modItem(g, String(m.item), String(m.affix));

@@ -561,3 +561,15 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .rep.ledger tr.grp td{color:var(--muted);font-size:12px;padding-top:8px}
 .rep.ledger td:first-child{white-space:nowrap}
 .retold{margin-top:10px}.retold summary{cursor:pointer;padding:4px 0}.retrow{margin:2px 0 0 14px}.retrow summary{color:var(--muted,#9a9)}
+
+/* 結算報告（Alan 2026-10-11）：大卡片 */
+.reveal.rp{overflow:auto;align-items:flex-start}
+.rpc{max-width:560px;width:100%;margin:24px auto;background:#14130f;border:1px solid #4a4030;border-radius:10px;padding:18px 18px 14px;box-shadow:0 0 40px #000a;position:relative}
+.rpc.win{border-color:#8a6f3a}.rpc.lose{border-color:#4d4a44}
+.rpc-eyebrow{font:11px var(--mono,monospace);letter-spacing:.12em;color:#b89a62}
+.rpc h2{margin:6px 0 10px;font-size:20px;line-height:1.3}
+.rpc-stamp{display:inline-block;padding:3px 14px;border-radius:6px;font-weight:800;font-size:17px;transform:rotate(-3deg);background:#ffd27a;color:#1b140a;box-shadow:0 0 18px #ffd27a77;animation:rstamp .5s cubic-bezier(.2,1.6,.4,1) both}
+.rpc.lose .rpc-stamp{background:#55595e;color:#d9dde2;box-shadow:none;animation-name:rdud;animation-duration:1s}
+.rpc-sec{margin-top:14px}.rpc-sec h4{margin:0 0 4px;font-size:12px;color:#b89a62;letter-spacing:.08em}.rpc-sec p{margin:3px 0;font-size:14px;line-height:1.55}
+.rpc-sec p.warn{color:var(--war,#e06a4a);font-weight:600}.rpc .rep{margin-top:8px}
+.rpc a{color:#e8b36e}

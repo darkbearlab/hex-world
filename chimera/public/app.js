@@ -525,7 +525,7 @@ function onGame(m) {
   $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
   $('gcash').textContent = `$${GV.cash}k`; $('gcash').classList.toggle('neg', GV.cash < 0);
   $('gmats').html = MATS.map(m => `<span>${MN[m]} <b>${GV.mats[m]}</b></span>`).join('');   // 玩家的資源都在頂端（Alan 2026-10-09）
-  maybeReveal(); renderPage(); renderSortie(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
+  maybeReveal(); maybeReport(); renderPage(); renderSortie(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
   renderMail();
   draw();
 }
@@ -690,6 +690,34 @@ function maybeReveal() {
   [...line].forEach((ch, k) => timers.push(setTimeout(() => { P.textContent += ch; if (k === line.length - 1) finish(); }, (tLine + k * .09) * 1000)));
   box.onclick = () => { if (!done) finish(); else box.remove(); };
   document.body.appendChild(box);
+}
+
+// 結算報告（Alan 2026-10-11：行動的付出換來什麼）：一張大卡片，有沒看過的就跳出來（不在戰鬥中、沒有其他卡片時）；報表的「結算報告」可以回頭翻
+const repDay = h => `第 ${Math.floor(h / 24) + 1} 天`;
+function reportCard(r) {
+  const FKN = Object.fromEntries(FK), m = Object.entries(r.money || {}).filter(([, v]) => v).sort((a, b) => b[1] - a[1]);
+  const res = r.side === 'def' ? (r.win ? '緝拿成功' : '沒能擋下') : (r.win ? '行動成功' : '行動失敗');
+  return `<div class="rpc ${r.win ? 'win' : 'lose'}">
+    <div class="rpc-eyebrow">黑單結算報告・${repDay(r.h)}</div>
+    <h2>${esc(r.title)}</h2>
+    <div class="rpc-stamp">${res}</div>
+    <div class="rpc-sec"><h4>行動</h4><p>${r.side === 'def' ? `替${esc(r.employer)}緝拿${esc(r.target)}派來的密探` : `雇主${esc(r.employer)}，目標${esc(r.target)}`}・地點 <a href="#" data-center="${r.tile}" data-rpclose="1">${esc(r.place)}</a>・行動種類 ${esc(r.op)}${r.odds ? `・收單時${/勝算/.test(r.odds) ? '' : '勝算'}${esc(r.odds)}` : ''}${r.alert != null ? `・目標警戒 ${r.alert >= 60 ? '高' : r.alert >= 30 ? '中' : '低'}` : ''}</p></div>
+    <div class="rpc-sec"><h4>你的付出</h4><p>打了 ${r.tickets} 張服務單、贏 ${r.wins} 張${r.auto ? `（${r.auto} 張由雇主自動結算）` : ''}${r.dead ? `・倒下 ${r.dead} 人` : '・沒有人倒下'}・積分佔 <b>${r.share}%</b>${r.others.length ? `（${r.others.map(o => `${esc(o.co)} ${o.pct}%`).join('、')}）` : '（只有你）'}</p></div>
+    <div class="rpc-sec"><h4>世界上發生的事</h4>${r.world.map(x => `<p>${esc(x)}</p>`).join('')}</div>
+    <div class="rpc-sec"><h4>對你的影響</h4>${r.me.map(x => `<p${x.startsWith('⚠') ? ' class="warn"' : ''}>${esc(x)}</p>`).join('')}
+      <table class="rep">${m.map(([k, v]) => `<tr><td>${FKN[k] || k}</td><td class="n ${v < 0 ? 'neg' : ''}">${v < 0 ? '−' : '+'}$${Math.abs(Math.round(v))}k</td></tr>`).join('')}<tr class="tot"><td>合計</td><td class="n ${r.net < 0 ? 'neg' : ''}">${r.net < 0 ? '−' : '+'}$${Math.abs(Math.round(r.net))}k</td></tr></table></div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button data-rpclose="1">知道了</button></div></div>`;
+}
+let reportOpen = null;
+function showReport(r) {
+  document.querySelector('.reveal.rp')?.remove(); reportOpen = r.id;
+  const box = Object.assign(document.createElement('div'), {className: 'reveal rp', innerHTML: reportCard(r)});
+  box.onclick = e => { if (e.target === box || e.target.closest('[data-rpclose]')) { box.remove(); reportOpen = null; if (!r.seen) { r.seen = true; send({type: 'readReport', id: r.id}); } } };
+  document.body.appendChild(box);
+}
+function maybeReport() {
+  if (!GV || WATCH || mission || reportOpen || document.querySelector('.reveal')) return;
+  const r = (GV.reports || []).find(x => !x.seen); if (r) showReport(r);
 }
 
 // 人員詳細資料：獨立的一張卡片，疊在畫面上（Alan 2026-10-10：比較好控制版面）；✕、點外面、Esc 關掉
@@ -877,7 +905,7 @@ function renderRepPage() {
   renderRep();
 }
 // 報表分頁（Alan 2026-10-11：越拖越長，依性質分）：收支、案件、名氣、派系、人員；記住上次看的分頁
-const REP_TABS = [['money', '收支'], ['cases', '案件'], ['fame', '名氣'], ['rel', '派系'], ['people', '人員']];
+const REP_TABS = [['money', '收支'], ['reports', '結算報告'], ['cases', '案件'], ['fame', '名氣'], ['rel', '派系'], ['people', '人員']];
 let repPeriod = 'all';
 let repTab = (() => { try { return localStorage.getItem('chimera.repTab') || 'money'; } catch { return 'money'; } })();
 function renderRep() {
@@ -886,6 +914,8 @@ function renderRep() {
   const tot = o => FK.reduce((x, [k]) => x + (o[k] || 0), 0), day = h => `第 ${Math.floor(h / 24) + 1} 天`;
   if (!REP_TABS.some(([k]) => k === repTab)) repTab = 'money';
   const sec = {
+    // 結算報告（Alan 2026-10-11）：新的在上面，點一下打開那張卡片
+    reports: () => { const L = (GV.reports || []).slice().reverse(); return L.length ? `<table class="rep">${L.map(r => `<tr data-rpopen="${r.id}" style="cursor:pointer"><td>${repDay(r.h)}</td><td>${esc(r.title)}</td><td>${r.side === 'def' ? (r.win ? '緝拿成功' : '沒能擋下') : (r.win ? '成功' : '失敗')}</td><td class="n ${r.net < 0 ? 'neg' : ''}">${r.net < 0 ? '−' : '+'}$${Math.abs(Math.round(r.net))}k</td></tr>`).join('')}</table>` : '<p class="mini muted">還沒有結算報告。參與的黑單行動結算後會出現在這裡。</p>'; },
     // 收支（Alan 2026-10-11：正式的會計帳）：名目｜資產（已入帳的收入）｜應收｜支出（已付）｜應支未支。
     // 上半是各科目（照期間：累計或近 30 天）；下半是進行中的案件——資產、支出已經算在上面的科目裡（灰字），應收、應支未支另外加總
     money: () => { const P = repPeriod === 'd30' ? R.d30 : R.all, cell = (v, cls = '') => v ? `<td class="n ${cls}">$${Math.round(v).toLocaleString()}k</td>` : '<td class="n"></td>';
@@ -1016,6 +1046,7 @@ const coClick = e => {
   const md = e.target.closest('[data-mod]'); if (md) { const [item, affix] = md.dataset.mod.split(':'); send({type: 'mod', item, affix}); modPick = null; return; }
   const sh = e.target.closest('[data-shop]'); if (sh) { const [kind, base] = sh.dataset.shop.split(':'); send({type: 'shop', kind, base}); return; }
   if (e.target.id === 'pcard') { personSel = null; gearPick = null; renderRoster(); return; }   // 點卡片外面
+  const rpo = e.target.closest('[data-rpopen]'); if (rpo) { const r = (GV.reports || []).find(x => x.id === rpo.dataset.rpopen); if (r) showReport(r); return; }
   const ps = e.target.closest('[data-person]'); if (ps) { gearPick = null; personSel = ps.dataset.person === '' ? null : +ps.dataset.person; renderRoster(); return; }
   const rf2 = e.target.closest('[data-refast]'); if (rf2) { pickRe.fast = rf2.checked; renderCo(); return; }
   const st = e.target.closest('[data-rcd]'); if (st) { const r = vatRecipe(+st.dataset.vat), m = st.dataset.m; r[m] = Math.max(GCFG.MIN, Math.min(GCFG.MAX, (r[m] || 0) + +st.dataset.rcd)); renderVat(); return; }

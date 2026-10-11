@@ -258,7 +258,7 @@ function createSim(w,rand,pick){
   function runOp(a,b,op,S,y,hot,src,keep=null,at=null){
       const ST=src==='黑單'?SSTAT.c:SSTAT;ST.tried[op]=(ST.tried[op]||0)+1;hot?ST.hostile++:ST.cold++;const tb=rTr(b),F=fac[a],t=rTr(a);
       const SH_CAP={'暗殺':.85,'綁架':.75,'煽動':.9,'收買':.85,'資助匪幫':.95,'破壞':.9,'嫁禍':.85,'斷水':.9},SH_K={'暗殺':12,'綁架':14,'煽動':10,'收買':8,'資助匪幫':6,'破壞':8,'嫁禍':10,'斷水':8},S_=S,pOk=SH_P0[op]+(SH_CAP[op]-SH_P0[op])*(1-Math.exp(-S_/SH_K[op]));
-      const ok=rand()<pOk,cb=(.3+(ok?0:.2))*(tb==='多疑'?1.6:tb==='守成'?1.25:1),caught=rand()<(keep==null?cb:1-(1-cb*.4)*keep);const B=fac[b];let done='';
+      const ok=rand()<pOk,cb=(.3+(ok?0:.2))*(tb==='多疑'?1.6:tb==='守成'?1.25:1),caught=rand()<(keep==null?cb:1-(1-cb*.4)*keep);const B=fac[b];let done='',hit=null;
       if(ok){ST.ok[op]=(ST.ok[op]||0)+1;const ts=townsOf(b);
         if(op==='暗殺'){const h=B.ruler?heroById(B.ruler):null;if(h&&h.alive){ST.kills++;done=`${B.n}的${rulerT(B)}${h.name}在${nm(B.cap)}遇刺身亡`;heroDies(h,y,`在${nm(B.cap)}遇刺`)}}
         else if(op==='綁架'){const h=B.ruler?heroById(B.ruler):null;if(h&&h.alive&&!h.captive){ST.kidnap++;h.captive={by:a,y};B.crisis=y;done=`${B.n}的${rulerT(B)}${h.name}在${nm(B.cap)}被人擄走，下落不明`}}
@@ -267,13 +267,13 @@ function createSim(w,rand,pick){
           if(NBR[x].some(n=>owner[n]===a)||hdist(x,F.cap)<=4){if(rand()<.35){ST.defect++;for(let q=0;q<N;q++)if(owner[q]===b&&mkt[q]===x)owner[q]=a;owner[x]=a;h.f=a;done=`${B.n}的${nm(x)}課長${h.name}收了好處，帶著整座城投向${F.n}`}}
           if(!done)done=`${B.n}的${nm(x)}課長${h.name}最近手頭忽然寬裕，對上頭的命令愛理不理`}}}
         else if(op==='資助匪幫'){let G=null,gd=5;for(const g of gangs)if(!g.gone){for(const x of ts){const d=hdist(g.lair,x);if(d<gd){gd=d;G=g}}}if(G){G.str+=60;G.patron=a;for(const x of [G.lair,...NBR[G.lair]])bandit[x]=Math.min(100,bandit[x]+15);done=`${gWho(G)}忽然多了新槍和熱量，開始專挑${B.n}的車隊下手`}}
-        else if(op==='破壞'){if(ts.length){const x=at!=null&&ts.includes(at)?at:ts.find(z=>sites[z]&&sites[z]!=='oasis')??ts.sort((p,q)=>markets[q].pop-markets[p].pop)[0],m=markets[x];for(const g of ['fuel','parts','ammo'])m.stock[g]*=.5;m.sabY=y;done=sites[x]?`${nm(x)}的${SITE[sites[x]].n}夜裡起火，停工一整年`:`${nm(x)}的倉庫夜裡被人放火`}}
+        else if(op==='破壞'){if(ts.length){const x=at!=null&&ts.includes(at)?at:ts.find(z=>sites[z]&&sites[z]!=='oasis')??ts.sort((p,q)=>markets[q].pop-markets[p].pop)[0],m=markets[x];hit=x;for(const g of ['fuel','parts','ammo'])m.stock[g]*=.5;m.sabY=y;done=sites[x]?`${nm(x)}的${SITE[sites[x]].n}夜裡起火，停工一整年`:`${nm(x)}的倉庫夜裡被人放火`}}
         else if(op==='嫁禍'){let c_=-1;for(let k=0;k<FMAX;k++)if(k!==a&&k!==b&&fac[k].alive&&bcx(b,k)){c_=k;break}if(c_>=0){shTen(b,c_,20);GR[b][c_]+=.5;done=`${B.n}的邊境哨站遭到襲擊，現場留下的是${fac[c_].n}的徽記`}}
-        else if(op==='斷水'){if(ts.length){const x=at!=null&&ts.includes(at)?at:ts.find(z=>sites[z]==='oasis')??ts.sort((p,q)=>markets[q].pop-markets[p].pop)[0],m=markets[x];m.stock.water=0;m.waterCut=y;if(sites[x])m.sabY=y;done=`${nm(x)}的水井和抽水站被人下毒、炸毀，一整年都缺水`}}}
+        else if(op==='斷水'){if(ts.length){const x=at!=null&&ts.includes(at)?at:ts.find(z=>sites[z]==='oasis')??ts.sort((p,q)=>markets[q].pop-markets[p].pop)[0],m=markets[x];hit=x;m.stock.water=0;m.waterCut=y;if(sites[x])m.sabY=y;done=`${nm(x)}的水井和抽水站被人下毒、炸毀，一整年都缺水`}}}
       if(done)say(y,'war',`${done}${caught?'。':'，沒有人知道是誰幹的。'}`,B.cap);
       if(caught){ST.caught[op]=(ST.caught[op]||0)+1;shTen(a,b,op==='暗殺'||op==='綁架'?25:15);GR[b][a]+=1;
         say(y,'war',`${B.n}抓到${F.n}派來${({'暗殺':'行刺','綁架':'擄人','嫁禍':'栽贓','煽動':'煽動叛亂','收買':'收買課長','破壞':'放火','資助匪幫':'接濟匪幫','斷水':'在水井下毒'})[op]}的密探，${rulerT(B)}當眾發誓要討回公道。`,B.cap)}
-      return {ok,caught,text:done}
+      return {ok,caught,text:done,hit}   // hit：實際被打到的城（結算報告用）
   }
   function pickTarget(a,y){const t=rTr(a);
       const C=[];for(let k=0;k<FMAX;k++){if(k===a||!fac[k].alive||fac[k].native||pactOn(a,k))continue;const nb=bcx(a,k)>0,aw=atWar(a,k);if(!nb&&!aw)continue;
