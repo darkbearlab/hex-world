@@ -294,7 +294,8 @@ export class Core {
       if (!squad.length) return '這一隊沒有活著的人';
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
       if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
-      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome, facility: !!tk.facility, floor: tk.floor || 0}});
+      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0,
+        depth: Math.max(1, Math.min(12, 1 + Math.round((tk.enemy.power || 10) / 7) + (tk.wave ? Math.floor(tk.wave / 3) : 0)))}});   // 敵人的強度（菁英、詞條的機率照 ASH 的樓層），Alan 2026-10-11
       return null;
     }
     if (m.type === 'submit' || m.type === 'abort') {

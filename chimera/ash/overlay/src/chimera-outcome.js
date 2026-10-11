@@ -27,6 +27,15 @@ export function installGuard(E) {
       M.close?.(); const ok = E.game.action('chimeraRetreat'); if (ok) { try { (await import('./controller-hud.js')).update(); } catch {} } };
     brief.parentElement.insertBefore(b, brief.nextSibling); };
   new MutationObserver(addRetreat).observe(document.body, {childList: true, subtree: true});
+  // 狩獵場的電梯口（Alan 2026-10-11）：往下一層，還是帶著收穫撤離
+  setInterval(() => { const g = E.game; if (!E.active || !g?.chimeraAtExit || g.status !== 'playing' || document.getElementById('chimera-deeper')) return;
+    const box = document.createElement('div'); box.id = 'chimera-deeper'; box.className = 'chimera-outcome';
+    box.innerHTML = `<div class="co-card"><div class="co-eyebrow">ELEVATOR</div><h2>第 ${g.floor} 層的電梯口</h2><div class="co-sub">往下更兇，撐不住的話倒在下面的人很難帶回來；狀態不會恢復。</div>
+      <div class="modal-row"><button class="modal-button" type="button" data-c="deeper">往下一層</button> <button class="modal-button secondary" type="button" data-c="leave">帶著收穫撤離</button> <button class="modal-button secondary" type="button" data-c="stay">再想想</button></div></div>`;
+    (document.getElementById('ash-root') || document.body).appendChild(box);
+    box.onclick = async e => { const c = e.target.closest('[data-c]')?.dataset.c; if (!c) return; box.remove(); if (c === 'stay') { g.chimeraAtExit = false; return; }
+      const ok = g.action(c === 'deeper' ? 'chimeraDeeper' : 'chimeraLeave'); if (ok) { try { (await import('./controller-hud.js')).update(); } catch {} } };
+  }, 400);
   document.addEventListener('click', e => { const b = e.target instanceof Element && e.target.closest('[data-modal]'); if (b && E.active && BLOCK.includes(b.dataset.modal)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
 }
 

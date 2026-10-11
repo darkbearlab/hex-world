@@ -564,13 +564,13 @@ function directTickets(book, w, c, now) {
   const K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
   for (const id of c.squads) {
     const sq = book.squads[id]; if (!sq || sq.busy || sq.headedHome || sq.drillDone || sq.readyAt > now || alive(sq).length < 1) continue;
-    const floor = c.kind === 'hunting' ? (sq.floor || 0) + 1 : 0, type = c.kind === 'hunting' ? 'hunting' : 'drill', T = TYPES[type];
+    const floor = c.kind === 'hunting' ? 1 : 0, type = c.kind === 'hunting' ? 'hunting' : 'drill', T = TYPES[type];   // 狩獵場一場打到底（電梯口選往下或撤離，Alan 2026-10-11）
     const enemy = enemyOf(book, w, c, {type, tile: c.tile, floor});
-    const tk = {id: 'T' + book.nextId++, caseId: c.id, type, title: c.kind === 'hunting' ? `${nm(c.tile)}狩獵場第 ${floor} 層` : `${T.n}：${nm(c.tile)}`, tile: c.tile, floor, facility: c.kind === 'hunting',
+    const tk = {id: 'T' + book.nextId++, caseId: c.id, type, title: c.kind === 'hunting' ? `${nm(c.tile)}狩獵場` : `${T.n}：${nm(c.tile)}`, tile: c.tile, floor, floors: c.kind === 'hunting' ? 3 : 0, facility: c.kind === 'hunting',
       biome: BIOMES[K.biome[c.tile]]?.n || '', night: rng(book) < T.night, trench: 0, enemy, objectives: T.obj.map(([k, text, pts]) => ({k, text, pts: pts * c.lv * (floor || 1)})), born: now, squad: null, player: null, issued: -1, deadline: -1, done: false};
     book.tickets.push(tk); c.tickets++;
     sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE; sq.floor = floor;
-    notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，戰力 ${enemy.power}）。${floor > 1 ? `不想往下就召回；${CFG.DEADLINE} 小時內沒打就當作撤離。` : `若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。`}`, tk.id);
+    notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，戰力 ${enemy.power}）。${c.kind === 'hunting' ? '最多三層，每到一層的電梯口可以選往下或撤離；' : ''}若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算${c.kind === 'hunting' ? '（只算第一層）' : ''}。`, tk.id);
   }
   if (c.squads.length && c.squads.every(id => { const s = book.squads[id]; return !s || s.drillDone || s.headedHome != null || !alive(s).length; })) c.closedEarly = true;   // 打完、召回、或在路上全滅
 }
@@ -665,7 +665,7 @@ export function submit(book, w, ticketId, result, now) {
   if (!tk || tk.done || !tk.squad) return false;
   const sq = book.squads[tk.squad];
   for (const id of result.dead || []) { const c = sq.clones.find(x => x.id === id); if (c && c.alive) { c.alive = false; c.hp = 0; } }
-  settleTicket(book, w, tk, {win: !!result.win, done: result.done || [], dead: result.dead || [], auto: false, boss: result.boss || null, legacy: !!result.legacy, kills: result.kills}, now);
+  settleTicket(book, w, tk, {win: !!result.win, done: result.done || [], dead: result.dead || [], auto: false, boss: result.boss || null, legacy: !!result.legacy, kills: result.kills, floors: result.floors}, now);
   return true;
 }
 
@@ -690,7 +690,7 @@ export function settleTicket(book, w, tk, res, now) {   // export 給 stats/reco
   tk.done = true; tk.win = res.win; tk.auto = res.auto; tk.dead = res.dead; tk.doneAt = now;
   const valid = new Set(tk.objectives.map(o => o.k));
   const pts = tk.objectives.filter(o => res.done.includes(o.k) && valid.has(o.k)).reduce((x, o) => x + o.pts, 0) * (res.auto ? CFG.AUTO_PTS : 1);
-  tk.pts = Math.round(pts * 10) / 10;
+  tk.pts = Math.round(pts * (c.kind === 'hunting' && !tk.transit ? Math.max(1, res.floors || 1) : 1) * 10) / 10; if (c.kind === 'hunting') tk.floorsDone = res.floors || (res.win ? 1 : 0);   // 狩獵場：打穿幾層算幾倍
   if (c.kind === 'camp' && !tk.transit) campSettle(book, w, c, tk, res, sq, now);
   else if (!tk.transit) c.score[sq.player] = (c.score[sq.player] || 0) + tk.pts;
   // 服役紀錄：這一隊的每個人都記一場（不記殺敵數，Alan 2026-10-10）；這一場倒下的記陣亡
@@ -709,7 +709,7 @@ export function settleTicket(book, w, tk, res, now) {   // export 給 stats/reco
   const ups = [];
   const capped = (c.kind === 'drill' || c.kind === 'hunting') ? CFG.CELL_CAP_DRILL : c.kind === 'security' ? CFG.CELL_CAP_GUARD : Infinity;
   if (c.kind === 'drill' && !tk.transit) { pay(book, now, sq.player, 2 * c.lv, 'final', `${tk.title}：車馬費`, c.id); sq.drillDone = true; }
-  if (c.kind === 'hunting' && !tk.transit && (!res.win || (tk.floor || 1) >= 3 || alive(sq).length < 1)) sq.drillDone = true;
+  if (c.kind === 'hunting' && !tk.transit) sq.drillDone = true;
   if (tk.pts > 0) for (const cl of alive(sq)) { if (cellCount(cl) >= capped) continue; cl.cellPts = (cl.cellPts || 0) + tk.pts * CELL_DRAWS; const n = Math.floor(cl.cellPts); cl.cellPts -= n;
     const lv0 = cl.lv || 1; drawCells(cl, n, () => rng(book)); cl.lv = cellLevel(cl); if (cl.lv > lv0) ups.push(`${cl.id} 升到 ${cl.lv} 級`); }
   if (ups.length) notify(book, now, sq.player, 'result', `${tk.title}：${ups.join('、')}（記憶片段）`, tk.id);
@@ -814,7 +814,6 @@ function hour(book, w, now) {
     if (c.settled) continue;
     // 1. 逾期的票：自動結算（狩獵場第二層以後沒打，就當作撤離）
     for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && tk.squad && now >= tk.deadline) {
-      if (c.kind === 'hunting' && tk.floor > 1) { const s = book.squads[tk.squad]; tk.done = true; tk.skipped = true; if (s) { s.busy = null; s.drillDone = true; } notify(book, now, tk.player, 'result', `${tk.title}：沒有往下，帶著打下的收穫撤離。`, tk.id); continue; }
       autoResolve(book, w, tk, now); }
     if (c.open && (c.kind === 'drill' || c.kind === 'hunting')) directTickets(book, w, c, now);
     // 場地維安：每駐守 6 小時，記憶片段 25 格以下的人各抽一次

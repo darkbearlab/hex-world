@@ -13,6 +13,8 @@ import {skillActive} from './skills.js';
 import {applySuppression} from './suppression.js';
 import {bestCover} from './cover.js';
 import {ENEMY_TYPES} from './data.js';
+import {rollEnemyAffixes} from './enemy-affixes.js';
+import {rollEnemyElite} from './elite-enemies.js';
 
 // 奇美拉的敵人 → ASH 的兵種卡（暫定，見 warband/DESIGN.md「接上 ASH 的做法定案」）
 // 服務單上的敵人 → ASH 的兵種（Alan 2026-10-09，warband/DESIGN.md「敵人單位重新配置」）。
@@ -51,8 +53,9 @@ export const ticketUnits=ticket=>ticketRoster(ticket).map(u=>u.type);
 // 照服務單放一個敵人：名字（ASH 的 courseName 直接顯示在目標卡與紀錄上）、頭目
 // 頭目：拿遺產級的血量多 (1+bonus) 倍、傷害 1.4＋2×bonus 倍（明顯較強的武器），記下會不會戰死（服務單開出來時沙盒骰好）；
 // 沒有遺產級的幫派頭目是小隊長乘上 boss.hp 倍血量；勢力軍官、巢母照 ASH 原本的
-function rosterEnemy(u,x,y,id,spec,faction){
- const e=makeEnemy(u.type,x,y,id,1,spec,faction);
+function rosterEnemy(u,x,y,id,spec,faction,depth=1,seed=1){
+ let e=makeEnemy(u.type,x,y,id,depth,spec,faction);
+ if(!u.boss)e=rollEnemyElite(rollEnemyAffixes(e,seed,depth,spec),seed,depth,spec);   // Alan 2026-10-11：越強的服務單，菁英與詞條越多（照 ASH 樓層的機率）
  if(u.name)e.courseName=u.name;
  const b=u.boss;
  if(b){
@@ -105,7 +108,7 @@ export class MissionGame extends Game{
    // 公路戰：敵人全部先做好，照時刻表分給一台台車（chimera-highway.js）；開場只有第一台卡車上的人在場上
    if(outdoor.layout==='highway'){
     outdoor.rs=(tk.seed^0x4a11)>>>0||1;const R=convoyRng(outdoor);
-    planConvoy(outdoor,want.map((u,i)=>rosterEnemy(u,0,0,`c${i+1}`,this.difficultySpec,this.facilityFaction)),R);
+    planConvoy(outdoor,want.map((u,i)=>rosterEnemy(u,0,0,`c${i+1}`,this.difficultySpec,this.facilityFaction,tk.depth||1,this.seed)),R);
     const pre={chimeraOutdoor:outdoor,floor:1,turn:0,player:{x:map.start.x,y:map.start.y},members:[],enemies:[],props:map.props,items:map.items,grid:map.grid};
     vehicleStep(pre,R);map.enemies=pre.enemies;map.props=pre.props;map.barriers=pre.barriers;outdoor.stepTurn=0;
     outdoorBuilt={...outdoor,style};return map;
@@ -114,8 +117,8 @@ export class MissionGame extends Game{
    const used=new Set(),cells=[];for(const p of spots){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
    // 增援波次（Alan 2026-10-09，大戰役：服務單規模沒有上限）：場上最多 ON_MAP 個，其餘排隊，從敵方那一側的地圖邊緣一波波湧進來（chimeraWaves）
    const first=Math.min(cells.length,ON_MAP);
-   map.enemies=want.slice(0,first).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction));
-   outdoor.waves=want.slice(first).map((u,i)=>rosterEnemy(u,0,0,`c${first+i+1}`,this.difficultySpec,this.facilityFaction));
+   map.enemies=want.slice(0,first).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction,tk.depth||1,this.seed));
+   outdoor.waves=want.slice(first).map((u,i)=>rosterEnemy(u,0,0,`c${first+i+1}`,this.difficultySpec,this.facilityFaction,tk.depth||1,this.seed));
    if(outdoor.waves.length){outdoor.rs=(tk.seed^0x7a11)>>>0||1;outdoor.waveTurn=0;}
    objectivePoints(outdoor,map,[...map.enemies,...outdoor.waves]);
    // 守點：敵人越多撐越久（30 回合，超過 12 人的部分每人多 1 回合；NPC 實測：大單的守點撐 30 回合太輕鬆）
@@ -124,8 +127,9 @@ export class MissionGame extends Game{
    if(outdoor.layout==='ring'||outdoor.layout==='road'||outdoor.layout==='highway')for(const e of map.enemies){e.alert=true;e.lastKnown={x:map.start.x,y:map.start.y};}
    outdoorBuilt={...outdoor,style};return map;
   }
-  const map=generate(this.seed,1,[],this.difficultySpec,this.facilityFaction);
-  const want=ticketRoster(tk);if(!want.length)return map;
+  const fl=this.floor||1,map=generate(this.seed,fl,[],this.difficultySpec,this.facilityFaction),base=ticketRoster(tk);if(!base.length)return map;
+  const want=fl>1?Array.from({length:Math.round(base.length*(1+.35*(fl-1)))},(_,i)=>base[i%base.length]).filter(u=>!u.boss||fl>=(tk.floors||1)):base.filter(u=>!u.boss||fl>=(tk.floors||1));   // 頭目（巢母）只在最下面一層
+  const depth=(tk.depth||1)+2*(fl-1);
   // 位置：先用原本的敵人站位（合法的巡邏點），不夠再從離起點遠的地板格補
   const posts=map.enemies.filter(e=>!isNoncombatant(e)).map(e=>({x:e.x,y:e.y}));
   const taken=new Set([...map.props,...map.items,...(map.hazards||[]),map.start,map.end].map(p=>`${p.x},${p.y}`));
@@ -134,7 +138,7 @@ export class MissionGame extends Game{
   for(let i=spare.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[spare[i],spare[j]]=[spare[j],spare[i]];}
   const used=new Set(),cells=[];
   for(const p of [...posts,...spare]){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
-  map.enemies=[...want.slice(0,cells.length).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${i+1}`,this.difficultySpec,this.facilityFaction))];
+  map.enemies=[...want.slice(0,cells.length).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${fl}-${i+1}`,this.difficultySpec,this.facilityFaction,depth,this.seed+fl))];
   map.swarmWaves=undefined;
   return map;
  }

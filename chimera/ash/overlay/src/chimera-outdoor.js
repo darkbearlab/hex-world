@@ -102,9 +102,14 @@ export function outdoorMap(tk, floor = 1) {
     for (let y = c.y - h; y <= c.y + h; y++) for (let x = c.x - w; x <= c.x + w; x++) spots.push({x, y});
     walls(6, area(1, N - 2, 16, N - 5)); covers(8, area(1, N - 2, 15, N - 4));
   } else {
-    // 開闊地（巡邏遭遇）：零散的短牆與掩體，敵人在中段
+    // 開闊地（巡邏遭遇）：零散的短牆與掩體；敵人守在幾處矮牆圍出來的陣地（開口朝北，朝我方的一面有牆擋），中段有擋視線的岩塊（Alan 2026-10-11：攻方要有壓力）
+    const nests = []; for (let i = 0; i < 6 && nests.length < 3; i++) { const c = {x: 4 + Math.floor(R() * (N - 8)), y: 4 + Math.floor(R() * 5)}; if (nests.some(q => Math.abs(q.x - c.x) < 6)) continue; nests.push(c); }
+    for (const c of nests) { for (let x = c.x - 2; x <= c.x + 2; x++) low(x, c.y + 1, 'y'); low(c.x - 3, c.y, 'x'); low(c.x + 2, c.y, 'x'); low(c.x - 3, c.y + 1, 'x'); low(c.x + 2, c.y + 1, 'x');
+      for (let y = c.y; y <= c.y + 1; y++) for (let x = c.x - 2; x <= c.x + 2; x++) { spots.push({x, y}); spots.push({x, y}); } }
+    // 擋視線：中段兩排斷斷續續的岩塊（短牆），留幾個缺口
+    for (const y of [10 + Math.floor(R() * 2), 15 + Math.floor(R() * 2)]) for (let x = 2; x < N - 2; x++) if (R() < .45 && !nests.some(c => Math.abs(c.y - y) <= 2 && Math.abs(c.x - x) <= 3)) wall(x, y);
     walls(9, any); covers(12, any);
-    for (let y = 3; y < 13; y++) for (let x = 2; x < N - 2; x++) if (R() < .15) spots.push({x, y});
+    for (let y = 3; y < 13; y++) for (let x = 2; x < N - 2; x++) if (R() < .08) spots.push({x, y});
   }
   // 目標點＋撤離：撤離點就在出發的地方（從哪裡摸進來就從哪裡出去）
   if (PLANT[tk.type]) { end.x = mid; end.y = N - 2; }

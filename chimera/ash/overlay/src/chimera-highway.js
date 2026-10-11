@@ -1,7 +1,8 @@
 // 奇美拉：公路戰（Alan 2026-10-09，warband/DESIGN.md「公路戰」）——接舷戰，多輛大小車靠近又離開。
 // 畫面由右往左開：我方在中間一台 3×15 的大卡車上（第 12～14 排，不動）。上下各兩條車道（北 9～11、6～8 排，南 15～17、18～20 排），其餘是沙漠。
 // - 車輛：大車（卡車，3 格寬、12～14 格長，左邊 2×3 的車頭是牆格）、越野車（2×3）、機車（1×2）。
-//   照時刻表從右邊（後方）開進車道、追到並排、停幾回合、之後往右退出地圖；越野車、機車只走緊貼我方的內側車道，停兩三回合就走。
+//   照時刻表從右邊（後方）由遠而近開進車道（速度時快時慢），追到並排後前後飄移；車上還有活著的敵人就一直貼著，人打光了才慢慢落後、退出地圖（Alan 2026-10-11）。
+//   越野車、機車只走緊貼我方的內側車道。
 //   每一回合結束時移動一次（MissionGame.action → vehicleStep）：車上的人、屍體、貨箱、地上的東西跟著一起移，車欄（矮牆）重新算。
 //   一條車道一台車，不會重疊。
 // - 乘員：服務單上的敵人照時刻表分給每一台車（人數照服務單，Alan 2026-10-09）；車開進地圖時，人陸續出現在看得到的車斗上。
@@ -80,7 +81,8 @@ export function planConvoy(o, enemies, R) {
   for (let i = plan.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [plan[i], plan[j]] = [plan[j], plan[i]]; }
   let t = 2; for (const p of plan) { p.at = t; t += 3 + Math.floor(R() * 3); }
   o.schedule = plan; o.holdTurns = Math.max(24, t + 6);
-  const v = arrive(o, first, 'n1', R); v.x0 = 8 + Math.floor(R() * 3); shape(v); v.state = 'beside'; v.left = rng(KIND.truck.stay) + 2;
+  // 第一台卡車也是從後方開上來（開場在畫面右邊、還沒並排；Alan 2026-10-11：開場就接舷氣氛很差）
+  const v = arrive(o, first, 'n1', R); v.x0 = 15 + Math.floor(R() * 4); shape(v);
   return v;
 }
 function arrive(o, p, lane, R) {
@@ -104,12 +106,19 @@ export function vehicleStep(g, R) {
   for (const v of o.trucks) {
     if (v.state === 'ours') continue;
     let dx = 0;
-    if (v.state === 'enter') { dx = -Math.min(KIND[v.kind].enter, v.x0 - v.tx); if (v.x0 + dx <= v.tx) v.state = 'beside'; }
+    // 車上（還有人沒下車也算）活著的敵人
+    const crewAlive = (v.crew?.length || 0) + g.enemies.filter(e => e.hp > 0 && onVehicle(v, e.x, e.y)).length, minX = v.kind === 'truck' ? 3 : 1;
+    // 開上來：每回合 1～enter 格，時快時慢；偶爾加速衝一段
+    if (v.state === 'enter') { const sp = 1 + Math.floor(R() * KIND[v.kind].enter) + (R() < .15 ? 2 : 0); dx = -Math.min(sp, v.x0 - v.tx); if (v.x0 + dx <= v.tx) v.state = 'beside'; }
     else if (v.state === 'beside') {
+      // 並排：前後飄移（四成的回合動一格，偶爾落後兩格又追上來）
+      if (R() < .4) { let d = R() < .5 ? -1 : 1; if (R() < .1) d *= 2; const nx = Math.max(minX, Math.max(v.tx - 3, Math.min(v.tx + 3, v.x0 + d))); dx = nx - v.x0; }
       v.left--;
-      if (v.left === 2) { const ours = squad.some(m => m.hp > 0 && onVehicle(v, m.x, m.y)); logs.push([`${v.name}要拉開了${ours ? '，車上的人兩回合內要跳回來' : ''}。`, ours]); }
-      if (v.left <= 0) v.state = 'leave';
-    } else if (v.state === 'leave') dx = KIND[v.kind].leave;
+      if (crewAlive > 0 && v.left <= 0) v.left = KIND[v.kind].stay[0];   // 車上還有人：繼續貼著
+      if (crewAlive === 0 && v.left > 2) v.left = 2;
+      if (crewAlive === 0 && v.left === 2) { const ours = squad.some(m => m.hp > 0 && onVehicle(v, m.x, m.y)); logs.push([`${v.name}上的人打光了，要拉開了${ours ? '，車上的人兩回合內要跳回來' : ''}。`, ours]); }
+      if (crewAlive === 0 && v.left <= 0) v.state = 'leave';
+    } else if (v.state === 'leave') dx = 1 + Math.floor(R() * KIND[v.kind].leave);   // 慢慢落後
     if (!dx) continue;
     for (const u of units) if (onVehicle(v, u.x, u.y)) u.x += dx;
     for (const q of g.props) if (onVehicle(v, q.x, q.y)) q.x += dx;

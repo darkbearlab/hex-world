@@ -204,8 +204,18 @@ export class SquadGame extends MissionGame{
   this.log(`撤出戰場：敵人追擊 ${shots} 次、打中 ${hits} 次。`,true);
   this.status='retreated';return true;
  }
+ // 狩獵場（Alan 2026-10-11）：到了電梯口，選往下一層（狀態不恢復、整隊一起下去）或帶著收穫撤離。都是行動，照常記進紀錄、伺服器重播一樣
+ chimeraDeeper(){
+  if(this.status!=='playing'||!this.chimeraAtExit)return false;this.chimeraAtExit=false;
+  const keep=this.player;this.floor++;this.turn++;this.loadFloor();
+  for(const m of this.members||[]){if(m===keep||m.hp<=0)continue;const c=this.freeCellNear(keep);if(c)Object.assign(m,{x:c.x,y:c.y,moveDelta:[0,0]});}
+  this.reveal();this.log(`往下到第 ${this.floor} 層。這一層更深、更兇${this.floor>=(this.ticket.floors||1)?'，是最下面一層':''}。`,true);return true;
+ }
+ chimeraLeave(){if(this.status!=='playing'||!this.chimeraAtExit)return false;this.chimeraAtExit=false;this.status='won';this.log(`帶著打下的 ${this.floor} 層撤離。`,true);return true;}
  action(type,arg){
   if(type==='chimeraRetreat')return this.chimeraRetreat();
+  if(type==='chimeraDeeper')return this.chimeraDeeper();
+  if(type==='chimeraLeave')return this.chimeraLeave();
   const up=this.members?new Set(this.members.filter(m=>m.hp>0&&m!==this.controlled).map(m=>m.id)):null;
   const r=super.action(type,arg);
   // 沒在操作的隊員倒下：寫一行戰報（演出由 presentation.js 補丁照玩家戰死的做）
@@ -224,13 +234,15 @@ export class SquadGame extends MissionGame{
  presentView(v){const c=v.members?.find(m=>m.id===this.controlled?.id);if(c&&v.player!==c)v.player=c;if(v.members)v.squadMembers=v.members.filter(m=>m!==v.player).map(m=>({id:m.id,x:m.x,y:m.y,hp:m.hp,character:m.character}));return v;}
  setControlled(m){if(!this.members.includes(m)||m.hp<=0||this.soloTurn)return false;this.swap(m);this.controlled=m;return true;}
  cycleControlled(){const L=this.living;if(L.length<2)return false;return this.setControlled(L[(L.indexOf(this.player)+1)%L.length]);}
- descend(){if(this.status!=='playing'||this.player.hp<=0)return false;const og=this.chimeraOutdoor?.goal;if(og==='plant'&&!this.chimeraOutdoor.armed)return this.fail('炸藥還沒裝完，不能撤離');if(this.chimeraOutdoor&&og!=='exit'&&og!=='plant')return this.fail('這一場要把敵人清掉，不能撤離');if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);this.status='won';this.log('撤離完成。');return true;}
+ descend(){if(this.status!=='playing'||this.player.hp<=0)return false;const og=this.chimeraOutdoor?.goal;if(og==='plant'&&!this.chimeraOutdoor.armed)return this.fail('炸藥還沒裝完，不能撤離');if(this.chimeraOutdoor&&og!=='exit'&&og!=='plant')return this.fail('這一場要把敵人清掉，不能撤離');if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);
+  if(!this.chimeraOutdoor&&(this.ticket?.floors||1)>(this.floor||1)){this.chimeraAtExit=true;this.log('到了電梯口：往下一層，還是帶著收穫撤離？',true);return true;}   // 狩獵場：還沒到最下面一層，讓玩家選
+  this.status='won';this.log('撤離完成。');return true;}
  get missionResult(){
   const dead=Object.entries(this.chimera.units).filter(([,m])=>m.hp<=0).map(([id])=>id);
   const foes=this.enemies.filter(e=>!isNoncombatant(e)),kills=foes.filter(e=>e.hp<=0).length,total=foes.length;
   const progress=Object.fromEntries(Object.entries(this.chimera.units).map(([id,m])=>[id,this.progressOf(m)]));
   // 遺產級頭目：撤退或戰死；戰死時遺產級在誰（活著的隊員）身上
   const carrier=this.status==='won'?Object.entries(this.chimera.units).find(([,m])=>m.hp>0&&m.chimeraLegacy):null;
-  return {win:this.status==='won',dead,kills,total,turns:this.turn,progress,boss:this.chimeraBossOut||null,legacy:carrier?carrier[0]:null};
+  return {win:this.status==='won',dead,kills,total,turns:this.turn,progress,boss:this.chimeraBossOut||null,legacy:carrier?carrier[0]:null,floors:this.ticket?.floors?(this.status==='won'?this.floor:Math.max(0,(this.floor||1)-1)):undefined};   // 狩獵場：打穿了幾層
  }
 }
