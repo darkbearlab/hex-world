@@ -170,8 +170,8 @@ function searchResult(G, book, w, t, h, sq) {
   return out;
 }
 
-// 一格要多久：照快車，但至少一小時（探索的節奏；Alan 一直是照這個玩的），引擎再乘
-const legH = (w, R, a, b) => +(Math.max(1, C.travelHours(w, a, b, true)) * upK(R, 'engine')).toFixed(2);
+// 一格要多久：照快車（Alan 2026-10-12：基本速度就是快車，一路刷過去沒關係，會被服務單攔下來），引擎再乘
+const legH = (w, R, a, b) => Math.max(.01, +(C.travelHours(w, a, b, true) * upK(R, 'engine')).toFixed(3));
 const nextLeg = (w, R, h) => { const to = R.route.shift(), t = legH(w, R, R.tile, to); R.move = {from: R.tile, to, t0: h, t1: +(h + t).toFixed(2), path: [R.tile, to]}; };   // 引擎（Alan 2026-10-12）：快車的時間再乘，可以不到一小時一格
 // 每個遊戲小時（core.js 呼叫）
 export function roverHour(cos, book, w, h) {
@@ -195,7 +195,7 @@ export function roverHour(cos, book, w, h) {
     // 搜索完成
     if (R.searching != null && h >= R.busyUntil) { const t = R.searching; R.searching = null; for (const s of searchResult(G, book, w, t, h, sq)) say(R, h, t, s, 'find'); }
     // 開車
-    for (let legs = 0; legs < 6 && R.move && h >= R.move.t1; legs++) { const t1 = R.move.t1; R.tile = R.move.to; sq.at = R.tile; R.move = null;
+    for (let legs = 0; legs < 200 && R.move && h >= R.move.t1; legs++) { const t1 = R.move.t1; R.tile = R.move.to; sq.at = R.tile; R.move = null;
       for (const s of tileStory(G, book, w, R.tile, h)) say(R, h, R.tile, s, 'story');
       if (R.tile !== G.base && roll(R.tile, h, 1) < encounterP(w, R.tile)) { const c = roverCase(book, G, R, h); C.roverEncounter(book, w, c, sq, R.tile, h); say(R, h, R.tile, `有人擋住了去路——打完才能繼續走${R.route.length ? `（打完會接著往${w.names[R.route[R.route.length - 1]] || '目的地'}開）` : ''}。`, 'danger'); }   // 路線留著：服務單處理完就接著開（Alan 2026-10-11）
       else if (!R.route.length) say(R, h, R.tile, `到了${w.names[R.tile] || '目的地'}。`);
