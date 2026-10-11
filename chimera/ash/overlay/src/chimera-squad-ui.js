@@ -15,13 +15,24 @@ export function installSquadUI(){
  Renderer.prototype.drawActors=function(time){
   const hidden=draw.call(this,time),g=this.game;
   if(!g.members)return hidden;
+  // 「YOU」只標正在操作的那位（Alan 2026-10-11）：畫其他隊員時把 ASH 的 YOU 字樣略掉
+  const text=this.text;
   for(const m of g.members){
-   if(!g.seen[m.y]?.[m.x])continue;
+   if(!g.seen[m.y]?.[m.x]||m===g.player)continue;
    const a=this.projectActor(m);
-   if(m!==g.player){if(m.hp<=0){const k=this.chimeraUnit;this.chimeraUnit=m;try{this.corpse(a,'player',m.character);}finally{this.chimeraUnit=k;}}else this.actor(a,'player',time,m);}
-   if(m.hp>0)this.text(m.callName||m.squadId,a.x,a.y-this.tile*.62,m===g.player?'#ffd27a':'#9fe8d5',9);
+   if(m.hp<=0){const k=this.chimeraUnit;this.chimeraUnit=m;try{this.corpse(a,'player',m.character);}finally{this.chimeraUnit=k;}}
+   else{this.text=function(s,...r){if(s==='YOU')return;return text.call(this,s,...r);};try{this.actor(a,'player',time,m);}finally{this.text=text;}}
   }
   return hidden;
+ };
+ // 代號最後才標（Alan 2026-10-11：下面那位的名字被上面的隊友蓋住）：疊在所有東西上面
+ const overlays=Renderer.prototype.drawOverlays;
+ Renderer.prototype.drawOverlays=function(...args){
+  const r=overlays.apply(this,args),g=this.game;
+  if(g?.members)for(const m of g.members){if(m.hp<=0||!g.seen[m.y]?.[m.x])continue;const a=this.projectActor(m),s=m.callName||m.squadId,y=a.y-this.tile*.62,c=this.ctx;
+   c.save();c.font='9px monospace';const w=c.measureText(s).width+6;c.fillStyle='rgba(8,12,10,.72)';c.fillRect(Math.round(a.x-w/2),Math.round(y-7),Math.round(w),12);c.restore();   // 底下墊一塊暗底，疊在隊友身上也看得清楚
+   this.text(s,a.x,y,m===g.player?'#ffd27a':'#9fe8d5',9);}
+  return r;
  };
 
  const bar=document.createElement('div');bar.id='chimera-squad';
