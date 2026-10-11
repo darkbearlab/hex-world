@@ -373,6 +373,7 @@ const TYPES = {
 // 每種暗影行動的服務單組合（DESIGN 定案）；守方是搜捕與護衛
 const SHADOW_TICKETS = {暗殺: ['scout', 'post', 'heist'], 綁架: ['scout', 'post', 'heist', 'smuggle'], 煽動: ['smuggle', 'rally', 'armory'], 收買: ['smuggle', 'scout'],
   資助匪幫: ['gunrun'], 破壞: ['scout', 'demo'], 嫁禍: ['flag'], 斷水: ['scout', 'well']};
+export const SOLO = new Set(['drill', 'hunting', 'security']);   // 各公司各開各的、打完就結算的案件
 export const SHADOW_TYPES = new Set(['scout', 'post', 'heist', 'smuggle', 'rally', 'armory', 'gunrun', 'demo', 'flag', 'well', 'sweep', 'guard']);
 
 // 路上某一格會碰到誰：交戰勢力的地盤是攔截，附近有原住民是原住民，其餘是掠奪者
@@ -571,7 +572,7 @@ function directTickets(book, w, c, now) {
     sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE; sq.floor = floor;
     notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，戰力 ${enemy.power}）。${floor > 1 ? `不想往下就召回；${CFG.DEADLINE} 小時內沒打就當作撤離。` : `若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。`}`, tk.id);
   }
-  if (c.squads.length && c.squads.every(id => { const s = book.squads[id]; return !s || s.drillDone || s.headedHome; })) c.closedEarly = true;
+  if (c.squads.length && c.squads.every(id => { const s = book.squads[id]; return !s || s.drillDone || s.headedHome != null || !alive(s).length; })) c.closedEarly = true;   // 打完、召回、或在路上全滅
 }
 // ===== 行軍途中遇襲 =====
 // 出發時就沿實際道路算好這一趟的風險（跟沙盒裡商隊被劫的算法同一套），決定會不會、在哪一格、第幾小時出事
@@ -831,7 +832,7 @@ function hour(book, w, now) {
     if (c.open && c.kind === 'camp') campTickets(book, w, c, now);
     else if (c.open && rng(book) < Math.min(.9, hazard(c, w) * CFG.TICKET_RATE)) { const tk = issue(book, w, c, now); if (tk) assign(book, c, tk, now); }
     // 5. 結算：結束（或提早收尾）後再留一段緩衝
-    const FZ = c.freeze ?? CFG.FREEZE, endAt = Math.min(c.end, (c.closedAt ?? c.end) + FZ) + (c.own ? 0 : CFG.BUFFER);
+    const FZ = c.freeze ?? CFG.FREEZE, endAt = Math.min(c.end, (c.closedAt ?? c.end) + FZ) + (c.own || SOLO.has(c.kind) ? 0 : CFG.BUFFER);   // 練兵單、狩獵場、場地維安：打完（或駐守期滿）就直接結算，不等緩衝（Alan 2026-10-11）
     if (now >= endAt && !book.tickets.some(tk => tk.caseId === c.id && !tk.done)) settleCase(book, w, c, now);
   }
 }
