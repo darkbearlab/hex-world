@@ -60,6 +60,8 @@ export function classOdds(r) {
 
 // 四項數值各擲一個 0～1；總和的百分位（Irwin–Hall，n=4）決定評級
 function ihCdf(x) { let t = 0; const C4 = [1, 4, 6, 4, 1]; for (let k = 0; k <= Math.floor(x) && k <= 4; k++) t += (k % 2 ? -1 : 1) * C4[k] * (x - k) ** 4; return Math.min(1, Math.max(0, t / 24)); }
+// 評級：銀冠前 10%、金冠前 1%；反過來的（Alan 2026-10-11：紀念素質這麼差的）錫冠後 10%、鉛冠後 1%
+export const crownOf = pct => pct >= .99 ? 'gold' : pct >= .9 ? 'silver' : pct <= .01 ? 'lead' : pct <= .1 ? 'tin' : '';
 export function makeClone(G, rng, cls, portrait, u, o = {}) {
   const B = CLS[cls].base, sum = u.reduce((x, y) => x + y, 0), pct = ihCdf(sum);
   const st = {hp: Math.round(B.hp * (.9 + .2 * u[0])), acc: B.acc + Math.round(-8 + 16 * u[1]), eva: B.eva + Math.round(-8 + 16 * u[2]), mel: B.mel + Math.round(-8 + 16 * u[3])};
@@ -67,7 +69,7 @@ export function makeClone(G, rng, cls, portrait, u, o = {}) {
   // 編號（Alan 2026-10-10）：uid 是全星球的流水號（帳本 book.cloneSeq 發號），之後易主、回收不會撞號；顯示的編號也照流水號（五位數，跟舊的四位數亂數分得開）
   const n = Math.floor(rng() * 10000);
   return {id: o.uid != null ? `${L}-${String(o.uid).padStart(5, '0')}` : `${L}-${String(n).padStart(4, '0')}`, uid: o.uid ?? G.seq++, cls, portrait, st, u, pct: +pct.toFixed(4),
-    crown: pct >= .99 ? 'gold' : pct >= .9 ? 'silver' : '', pow: +(6 * CLS[cls].k * (.85 + .075 * sum)).toFixed(2), weapon: CLS[cls].weapon,
+    crown: crownOf(pct), pow: +(6 * CLS[cls].k * (.85 + .075 * sum)).toFixed(2), weapon: CLS[cls].weapon,
     hp: 20, alive: true, status: 'home', keep: false, born: o.born || 0, template: !!o.template, kills: 0, missions: 0, donor: portrait, record: [], lv: 1, cells: [0, 0, 0, 0], dup: 0, cellPts: 0};
 }
 
@@ -211,7 +213,7 @@ function finishBuild(G, q, h, book = null) {
     : (cls => makeClone(G, r, cls, pickPortrait(r, cls), [r(), r(), r(), r()], {born: h, uid: nextUid(book)}))(pickW(r, classOdds(q.recipe)));
   C.rec(c, {h, t: 'born', co: G.name, tile: G.base});
   gearOf(G, c); c.weapon = gearLabel(c.gear); G.roster.push(c); G.fresh = c.uid;
-  note(G, h, `培養槽出槽：${CLS[c.cls].n} ${label(c)}${c.crown === 'gold' ? '（金冠！）' : c.crown === 'silver' ? '（銀冠）' : ''}${c.template ? '（模板）' : ''}，配發${c.weapon}。`);
+  note(G, h, `培養槽出槽：${CLS[c.cls].n} ${label(c)}${c.crown === 'gold' ? '（金冠！）' : c.crown === 'silver' ? '（銀冠）' : c.crown === 'lead' ? '（鉛冠……）' : c.crown === 'tin' ? '（錫冠）' : ''}${c.template ? '（模板）' : ''}，配發${c.weapon}。`);
 }
 
 // ===== 接案、派兵、補員 =====

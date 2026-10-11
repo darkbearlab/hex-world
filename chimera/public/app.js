@@ -480,7 +480,9 @@ const csq = c => c.callsign ? `“${esc(c.callsign)}”` : '';
 const nameFull = c => `${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''} ${c.id}`;
 const nameShort = c => c.callsign ? `${esc(who(c))} ${csq(c)}` : `${esc(who(c))} ${c.id}`;
 const nameMin = c => c.callsign ? csq(c) : esc(who(c));
-const crownTag = c => c.crown === 'gold' ? '<span class="crown gold">金冠</span>' : c.crown === 'silver' ? '<span class="crown silver">銀冠</span>' : c.template ? '<span class="crown tpl">模板</span>' : '';
+const CROWN_N = {gold: '金冠', silver: '銀冠', tin: '錫冠', lead: '鉛冠'};   // 錫冠後 10%、鉛冠後 1%（Alan 2026-10-11）
+const pctText = c => c.pct >= .5 ? `前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%` : `後 ${Math.max(1, Math.round(c.pct * 100))}%`;
+const crownTag = c => CROWN_N[c.crown] ? `<span class="crown ${c.crown}">${CROWN_N[c.crown]}</span>` : c.template ? '<span class="crown tpl">模板</span>' : '';
 const chip = (c, on, key) => `<span class="chip${on ? ' on' : ''}${c.alive ? '' : ' dead'}${key ? '' : ' static'}"${key && c.alive ? ` data-${key}="${c.uid}"` : ''}><img src="${face(c)}" alt="">${nameShort(c)}</span>`;   // 金冠、銀冠只在詳細資料裡顯示（Alan 2026-10-09）
 const fmtH = x => x <= 0 ? '0 小時' : x < 48 ? `${Math.round(x)} 小時` : `${Math.floor(x / 24)} 天 ${Math.round(x % 24)} 小時`;
 // 倒數在本機跑（每秒更新；到點之後的結果仍以伺服器為準，伺服器結算完下一次拉資料才會出現）。單人測試模式的時鐘是加速的，照舊只顯示小時
@@ -663,8 +665,8 @@ let revealAfter;
 function maybeReveal() {
   if (revealAfter === undefined || !GV || GV.fresh == null || GV.fresh === revealAfter) return;
   revealAfter = undefined; const c = GV.roster.find(x => x.uid === GV.fresh); if (!c) return;
-  const rank = c.crown === 'gold' ? 'gold' : c.crown === 'silver' ? 'silver' : c.template ? 'tpl' : '';
-  const rows = [['生命', c.st.hp], ['命中', sg(c.st.acc)], ['閃避', sg(c.st.eva)], ['近戰', sg(c.st.mel)], ['素質', `前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%`]];
+  const rank = CROWN_N[c.crown] ? c.crown : c.template ? 'tpl' : '';
+  const rows = [['生命', c.st.hp], ['命中', sg(c.st.acc)], ['閃避', sg(c.st.eva)], ['近戰', sg(c.st.mel)], ['素質', pctText(c)]];
   const STEP = .32, t0 = .6, tRank = t0 + rows.length * STEP + .2, tLine = tRank + (rank ? .7 : 0), line = `${who(c)}、入伍。`;
   const box = Object.assign(document.createElement('div'), {className: `reveal r2 ${rank}`, innerHTML: `
     <div class="rart"><img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"></div>
@@ -674,7 +676,7 @@ function maybeReveal() {
       <div class="rname2">${esc(who(c))}${c.callsign ? ` <span>${csq(c)}</span>` : ''}</div>
       <div class="rid">${c.id}</div>
       <div class="rstats">${rows.map(([k, v], i) => `<div class="rs" style="animation-delay:${(t0 + i * STEP).toFixed(2)}s"><span>${k}</span><b>${v}</b></div>`).join('')}</div>
-      ${rank ? `<div class="rstamp ${rank}" style="animation-delay:${tRank.toFixed(2)}s">${rank === 'gold' ? '金冠' : rank === 'silver' ? '銀冠' : '模板'}</div>` : ''}
+      ${rank ? `<div class="rstamp ${rank}" style="animation-delay:${tRank.toFixed(2)}s">${CROWN_N[rank] || '模板'}</div>` : ''}
     </div>
     <div class="rdlg" style="animation-delay:${(tLine - .25).toFixed(2)}s"><b>${esc(who(c))}</b><p class="rline"></p><span class="rhint">點一下繼續</span></div>`});
   const P = box.querySelector('.rline'), timers = [];
@@ -751,7 +753,7 @@ function personCard(c) {
     <div class="pcart"><img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"><span class="pcart-cap">${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}${crownTag(c)}</span></div>
     <div class="pcmain">
     <div class="phead"><div><div class="pname">${nameFull(c)}${crownTag(c)} <button class="csbtn" data-act="callsign" data-id="${c.uid}" title="取綽號">✎ 綽號</button></div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・記憶片段 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
-    <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%</td></tr></table>
+    <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>${pctText(c)}</td></tr></table>
     ${gearBox(c)}
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
     <div class="mini" style="margin-top:8px">分類（可以多選；「不出擊」的人不會被派出去）</div>
@@ -912,7 +914,7 @@ function renderRep() {
     people: () => { const al = GV.roster.filter(c => c.alive), byC = {}; for (const c of al) byC[c.cls] = (byC[c.cls] || 0) + 1;
       const lv = {}; for (const c of al) lv[c.lv || 1] = (lv[c.lv || 1] || 0) + 1;
       return `<table class="rep"><tr><th>項目</th><th>人數</th></tr>` + Object.entries(byC).map(([k, n]) => `<tr><td>${CLS[k].n}</td><td>${n}</td></tr>`).join('') +
-        `<tr><td>金冠</td><td>${al.filter(c => c.crown === 'gold').length}</td></tr><tr><td>銀冠</td><td>${al.filter(c => c.crown === 'silver').length}</td></tr><tr class="tot"><td>活著</td><td>${al.length}</td></tr><tr><td class="muted">已除名</td><td>${GV.roster.length - al.length}</td></tr></table>` +
+        `<tr><td>金冠</td><td>${al.filter(c => c.crown === 'gold').length}</td></tr><tr><td>銀冠</td><td>${al.filter(c => c.crown === 'silver').length}</td></tr><tr><td>錫冠</td><td>${al.filter(c => c.crown === 'tin').length}</td></tr><tr><td>鉛冠</td><td>${al.filter(c => c.crown === 'lead').length}</td></tr><tr class="tot"><td>活著</td><td>${al.length}</td></tr><tr><td class="muted">已除名</td><td>${GV.roster.length - al.length}</td></tr></table>` +
         `<div class="mini" style="margin-top:10px">等級分布</div><table class="rep"><tr><th>等級</th><th>人數</th></tr>` + Object.entries(lv).sort((a, b) => b[0] - a[0]).map(([k, n]) => `<tr><td>${k} 級</td><td>${n}</td></tr>`).join('') + '</table>'; },
   };
   el.innerHTML = `<div class="chips reptabs">${REP_TABS.map(([k, n]) => `<button class="chip${k === repTab ? ' on' : ''}" data-rtab="${k}">${n}</button>`).join('')}</div><div style="margin-top:8px">${sec[repTab]()}</div>`;

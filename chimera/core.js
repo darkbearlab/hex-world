@@ -368,6 +368,8 @@ export class Core {
     for (const [id, sq] of Object.entries(g.book.squads)) { if (sq.garrison == null || sq.caseId) continue;
       sq.clones = sq.clones.filter(c => { const e = (c.record || []).findLast(e => e.t === 'case' || e.t === 'garrison'); return c.alive && c.status === 'away' && (e?.t === 'garrison' ? e.tile === sq.garrison : !!g.book.cases.find(k => k.id === e?.case)?.squads.includes(id)); });   // 駐軍自己接的應召也算（回到駐地）
       if (sq.clones.length < 2) { for (const c of sq.clones) c.status = 'home'; delete g.book.squads[id]; } }
+    // 舊存檔（Alan 2026-10-11）：補上錫冠、鉛冠
+    for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.crown && c.pct != null) c.crown = G.crownOf(c.pct);
     // 舊存檔：格子收集取代經驗（Alan 2026-10-10）。原本的等級換成等量的格子（每級 10 格，照 uid 擲），不降級
     for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.cells) { c.cells = [0, 0, 0, 0]; c.dup = 0; c.cellPts = 0; let s = (c.uid * 2654435761) >>> 0; const r = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
       const want = ((c.lv || 1) - 1) * 10; for (let k = 0; k < 2000 && C.cellCount(c) < want; k++) C.drawCells(c, 1, r); c.lv = C.cellLevel(c); }

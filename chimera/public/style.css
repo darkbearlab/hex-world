@@ -118,7 +118,7 @@ body.game .play,body.game .timeline{display:none}
 .chip.dead{opacity:.45;text-decoration:line-through;cursor:default}
 .chip.static{cursor:default}
 .crown{font-size:10px;padding:0 5px;border-radius:8px;margin-left:2px}
-.crown.gold{background:#e0a64a;color:#1b140a}.crown.silver{background:#9aa3a8;color:#111}.crown.tpl{background:#2d5b5f;color:#cdeff2}
+.crown.gold{background:#e0a64a;color:#1b140a}.crown.silver{background:#9aa3a8;color:#111}.crown.tin{background:#5d6a6e;color:#d6dde0}.crown.lead{background:#3a3e44;color:#9aa0a8;border:1px solid #555b63}.crown.tpl{background:#2d5b5f;color:#cdeff2}
 .roster{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .cl{display:grid;grid-template-columns:48px 1fr;gap:2px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px;position:relative}
 .cl img{width:48px;height:48px;grid-row:1/4}
@@ -536,6 +536,9 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .r2 .rs{display:flex;justify-content:space-between;gap:16px;padding:3px 10px;background:linear-gradient(90deg,#000a,#0000);border-left:2px solid var(--accent);opacity:0;animation:rslide .4s ease both}
 .r2 .rs span{color:var(--muted)}
 .r2 .rstamp{display:inline-block;margin-top:12px;padding:3px 14px;font-weight:800;font-size:18px;color:#1b140a;background:#ffd27a;border-radius:6px;opacity:0;animation:rstamp .5s cubic-bezier(.2,1.6,.4,1) both;box-shadow:0 0 22px #ffd27a99}
+/* 錫冠、鉛冠（Alan 2026-10-11）：反過來的印章，不是彈進來，是沒力地掉下來歪掉 */
+.r2 .rstamp.tin{background:#7d8a8e;color:#1b1f22;box-shadow:none;animation-name:rdud}.r2 .rstamp.lead{background:#3a3e44;color:#a4aab2;box-shadow:none;border:1px solid #5a6068;animation-name:rdud;animation-duration:1.1s}
+@keyframes rdud{0%{opacity:0;transform:translateY(-40px) rotate(0)}55%{opacity:1;transform:translateY(4px) rotate(4deg)}75%{transform:translateY(0) rotate(9deg)}100%{opacity:1;transform:translateY(2px) rotate(11deg)}}
 .r2 .rstamp.silver{background:#cfd8e0;box-shadow:0 0 18px #cfd8e099}.r2 .rstamp.tpl{background:var(--cyan);box-shadow:0 0 16px #6fd0d899}
 .r2 .rdlg{position:absolute;left:50%;bottom:max(16px,4vh);transform:translateX(-50%);width:min(760px,calc(100% - 32px));background:#0b0a08e6;border:1px solid var(--line);border-top:2px solid var(--accent);border-radius:10px;padding:12px 16px 14px;opacity:0;animation:rfade .35s ease both}
 .r2 .rdlg b{color:var(--accent);font-size:14px}
