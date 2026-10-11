@@ -27,7 +27,7 @@ Object.assign(E,{
  // 打完：本機算的把戰果交給奇美拉；伺服器上的戰鬥由伺服器自己結算，這裡只通知畫面去更新
  // 瀏覽器跑、伺服器驗證的戰鬥：等最後幾筆輸入送到伺服器（伺服器重播到結束就會自己結算），再通知畫面更新
  // 2026-10-10：不再直接跳走——先跑演出鉤子（E.outcomeHooks）、出勝利／失敗的提示（chimera-outcome.js），玩家按了才關掉；伺服器那邊的上傳同時在背景等
- finish(g){if(sent||!current.id)return;sent=true;const id=current.id,tk=current,server=Boolean(E.remote||E.uplink);const wait=E.uplink?E.uplink.idle():Promise.resolve();
+ finish(g){if(sent||!current.id)return;sent=true;const id=current.id,tk=current,server=Boolean(E.remote||E.uplink);const up=E.uplink,wait=up?Promise.race([up.idle(),new Promise(r=>setTimeout(()=>{if(up.pending){reportSlow(up.pending);}r();},20000))]):Promise.resolve();   // 伺服器 20 秒內還沒收齊輸入就先出結果畫面（輸入照樣在背景補送，結果以伺服器為準）
   Promise.all([wait,new Promise(r=>setTimeout(r,900)).then(()=>runOutcome(E,g,tk))]).then(()=>{E.hide();E.onresult?.(id,server?{server:true}:g.missionResult);});},
  async start(tk){current=tk;sent=false;E.remote=null;E.uplink=null;const g=await build(tk);E.game=g;E.load(g);E.show();},
  // 伺服器驗證的戰鬥（DESIGN.md 2026-10-09 方案 A）：tk={id,title,mode:'verify',mission,log}。用伺服器給的任務（含種子）在這裡建遊戲，
@@ -38,6 +38,8 @@ Object.assign(E,{
   for(const e of log)applyEntry(g,e);
   E.uplink=uplink(log.length);record(g,e=>E.uplink.push(e,fingerprint(g)));
   E.game=g;E.load(g);E.show();
+  // 接回時這一場已經打完了（例如不同步、照伺服器的紀錄重建，伺服器那邊已經結束）：直接收尾（Alan 2026-10-11：公路戰常常停在打完的畫面）
+  if(g.status!=='playing')E.finish(g);
  },
  // 開戰時的狀態是經星球轉來的，Set／Map 的標記還在，先還原
  startRemote(tk,state){current=tk;sent=false;E.uplink=null;const g=mirror(JSON.parse(JSON.stringify(state),revive));E.game=g;E.load(g);
@@ -103,12 +105,15 @@ function uplink(start){
   try{
    const d=await post('log',{from,entries,fp:last?fp:null});retry=0;
    sent=Math.min(d.next,start+all.length);
-   if(d.desync){console.warn('[戰鬥] 和伺服器不同步，以伺服器為準重新接回');E.uplink=null;resync();busy=false;return;}
+   if(d.desync){console.warn('[戰鬥] 和伺服器不同步，以伺服器為準重新接回');reportDesync(d,from+entries.length);E.uplink=null;for(const r of idle.splice(0))r();resync();busy=false;return;}   // 等著收尾的先放行（結果以伺服器為準）
   }catch(e){retry++;console.warn('[戰鬥] 送不到伺服器，稍後重送',e?.message||e);await new Promise(r=>setTimeout(r,Math.min(8000,600*retry)));}
   busy=false;kick();
  }
  return {push(e,f){all.push(e);fp=f;kick();},idle:()=>pending()?new Promise(r=>{idle.push(r);kick();}):Promise.resolve(),get pending(){return pending();}};
 }
+// 不同步回報到伺服器的錯誤紀錄（後台 clientErrors），查是哪一種服務單、第幾筆輸入開始對不上
+function reportDesync(d,n){try{const g=E.game;fetch('/api/clientlog',{method:'POST',headers:{'content-type':'application/json',...AUTH()},body:JSON.stringify({where:'battle-desync',msg:`${current?.mission?.type||'?'} 第 ${n} 筆輸入不同步・回合 ${g?.turn}・狀態 ${g?.status}・伺服器 ${d.fp||''}・這裡 ${g?fingerprint(g):''}`,stack:JSON.stringify(d).slice(0,800),ua:navigator.userAgent})}).catch(()=>{});}catch{}}
+function reportSlow(n){try{fetch('/api/clientlog',{method:'POST',headers:{'content-type':'application/json',...AUTH()},body:JSON.stringify({where:'battle-upload-slow',msg:`${current?.mission?.type||'?'}：打完 20 秒還有 ${n} 筆輸入沒送到伺服器`,ua:navigator.userAgent})}).catch(()=>{});}catch{}}
 async function resync(){try{const r=await fetch(battleUrl('state'),{headers:AUTH()}),d=await r.json();if(r.ok&&d.mode==='verify')await E.startVerified({...current,mission:d.mission,log:d.log});}catch(e){console.warn(e);}}
 function mirror(state){
  const g=hydrate(state),def=(k,f)=>Object.defineProperty(g,k,{configurable:true,writable:true,enumerable:false,value:f});
