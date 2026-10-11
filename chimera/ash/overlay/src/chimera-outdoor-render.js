@@ -2,7 +2,7 @@
 //   - 地圖風格：在 ASH 的 MAP_STYLES 註冊「chimera-<牆>-<矮牆>」幾種風格，牆照 ASH 原本的「牆面＋牆頂」組合畫，矮牆（木柵、鐵皮）照
 //     ASH 的矮隔板畫，用的是 /ash-outdoor/walls.png（chimera/art/outdoor-v1）。掩體、補給箱等先照 ASH 原本的圖。
 //   - 地面：terrain('floor') 照 game.chimeraOutdoor.ground 畫地面圖集（每格不同的花樣）；戰壕格加暗邊。
-//   - 地圖邊緣：外圈的牆格畫成塵霧地面（不是牆、不是石頭；Alan 2026-10-09）。
+//   - 地圖邊緣：外圈的牆格畫成跟一般地板一樣的地面（Alan 2026-10-11；原本是塵霧）。
 //   - 撤離點：綠色的信號（行軍遇襲才用得到）。
 import './chimera-donor-art.js';   // 原主各自的戰場 sprite：要裝在戰壕裁切的裡面（先 import）
 import {Renderer} from './renderer.js';
@@ -138,7 +138,8 @@ export function installOutdoor(renderer) {
     const t = Math.round(this.tile);
     if (this.game.chimeraOutdoor.deck && !edge(x, y) && ready(ATLAS.truck)) { cab(this, this.game.chimeraOutdoor, x, y, a, t); return null; }
     if (this.game.chimeraOutdoor.deck && edge(x, y) && ready(ATLAS.truck)) { road(this, this.game.chimeraOutdoor, {x, y}, a, t); darkWall(this, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t}); return null; }
-    if (edge(x, y) && ready(ATLAS.walls)) { blit(this.ctx, ATLAS.walls, HAZE, a.x, a.y, t); darkWall(this, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t}); return null; }
+    if (edge(x, y) && ready(ATLAS.ground)) { blit(this.ctx, ATLAS.ground, this.game.chimeraOutdoor.ground?.[y]?.[x] ?? 0, a.x, a.y, t);   // 地圖邊緣跟一般地板同一種材質（Alan 2026-10-11）
+      darkWall(this, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t}); return null; }
     const q = wall.call(this, a, x, y);
     if (q) darkWall(this, x, y, {left: q.left, top: q.capTop, width: q.width, height: q.bottom - q.capTop});
     return q;

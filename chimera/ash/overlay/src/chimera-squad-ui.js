@@ -31,16 +31,31 @@ export function installSquadUI(){
  let last='';
  const render=()=>{
   if(globalThis.ASH_EMBED&&!globalThis.ASH_EMBED.active)return;
+  bar.style.display=document.getElementById('ash-root')?.classList.contains('wide')===false?'none':'flex';   // 手機（直向）改用生命護甲旁的 ⟳ 和隊員列（Alan 2026-10-11）
   const game=cur();if(!game?.members||game.members.length<2){if(last!==''){bar.innerHTML='';last='';}return;}
   const key=game.members.map(m=>`${m.squadId}:${m.hp}:${m===game.player}`).join('|')+game.status;
   if(key===last)return;last=key;
   bar.innerHTML=game.members.map((m,i)=>`<button data-m="${i}" ${m.hp<=0?'disabled':''} style="padding:3px 7px;border-radius:4px;border:1px solid ${m===game.player?'#e8b36e':'#4a5a55'};background:${m===game.player?'#3a2e1a':'#1b211f'};color:${m.hp<=0?'#666':'#e8e2d0'};text-align:center">${label(m)}</button>`).join('')+
    `<button data-cycle style="padding:3px 9px;border-radius:4px;border:1px solid #4a5a55;background:#1b211f;color:#e8e2d0" title="切換（X）">⟳</button>`;
  };
- const switched=ok=>{if(ok){last='';render();update();}};
+ // 手機（Alan 2026-10-11）：上方那排隊員按鈕太佔空間，改成生命護甲右邊一顆 ⟳，其他隊員的生命、護甲小小的列在下面（點一下切換）
+ let mates=null,cyc=null,lastM='';
+ const renderMates=()=>{
+  const game=cur(),host=document.querySelector('#ash-root .vitals-bar .mobile-health');
+  if(!host||!game?.members||game.members.length<2){if(mates){mates.innerHTML='';lastM='';}if(cyc)cyc.hidden=true;return;}
+  if(!cyc||!cyc.isConnected){cyc=document.createElement('button');cyc.id='chimera-cycle';cyc.textContent='⟳';cyc.title='切換（X）';host.appendChild(cyc);}
+  if(!mates||!mates.isConnected){mates=document.createElement('div');mates.id='chimera-mates';host.after(mates);}
+  cyc.hidden=false;const capOf=m=>CHARACTERS[m.character]?.plateCapacity??game.plateCapacity??0;
+  const key=game.members.map(m=>`${m.squadId}:${m.hp}:${m.plates||0}:${m===game.player}`).join('|');if(key===lastM)return;lastM=key;
+  mates.innerHTML=game.members.map((m,i)=>m===game.player?'':`<button data-m="${i}" class="${m.hp<=0?'down':''}"${m.hp<=0?' disabled':''}><b>${m.callName||m.squadId}</b> ${Math.max(0,m.hp)}/${m.maxHp}${capOf(m)?` · ${m.plates||0}/${capOf(m)}`:''}</button>`).join('');
+ };
+ const switched=ok=>{if(ok){last='';lastM='';render();renderMates();update();}};
+ document.addEventListener('click',e=>{const game=cur();if(!game?.members)return;
+  if(e.target.closest('#chimera-cycle')){e.preventDefault();switched(game.cycleControlled());return;}
+  const r=e.target.closest('#chimera-mates [data-m]');if(r){const m=game.members[+r.dataset.m];if(m&&m.hp>0)switched(game.setControlled(m));}});
  bar.addEventListener('click',e=>{const b=e.target.closest('button'),game=cur();if(!b||!game?.members)return;
   if(b.dataset.cycle!==undefined)switched(game.cycleControlled());else switched(game.setControlled(game.members[+b.dataset.m]));});
  // X：ASH 的 Tab 已經是「切換目標」，數字鍵留給橫向提案的換武器（docs/LANDSCAPE_UI.md）
  window.addEventListener('keydown',e=>{if((e.key==='x'||e.key==='X')&&globalThis.ASH_EMBED?.active!==false&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&!e.target.closest?.('input,textarea,dialog')){e.preventDefault();const game=cur();if(game?.members)switched(game.cycleControlled());}});
- const tick=()=>{render();requestAnimationFrame(tick);};tick();
+ const tick=()=>{render();if(!globalThis.ASH_EMBED||globalThis.ASH_EMBED.active)renderMates();requestAnimationFrame(tick);};tick();
 }

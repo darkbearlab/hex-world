@@ -71,3 +71,13 @@
 #ash-root #chimera-hover b{font:600 13px 'Noto Sans TC',sans-serif;color:#c7fff0}
 #ash-root #chimera-hover span{color:#ecd18f}
 #ash-root #chimera-hover small{font-size:11px;color:#a9c8c0}
+
+/* 手機的戰鬥畫面（Alan 2026-10-11）：上方的隊員按鈕列拿掉，改成生命護甲右邊的 ⟳ 和下面的其他隊員；樓層、等級那塊拿掉；
+   安靜時訊息列顯示的「01 / 核心撤離」拿掉（橫向、直向都是） */
+#ash-root:not(.wide) #chimera-squad,#ash-root:not(.wide) #level{display:none}
+#ash-root .battle-notice.resting{display:none}
+#ash-root .vitals-bar .mobile-health{position:relative}
+#chimera-cycle{position:absolute;left:calc(100% + 6px);top:0;width:30px;height:30px;padding:0;border-radius:4px;border:1px solid #4a5a55;background:#1b211f;color:#e8e2d0;font-size:15px;pointer-events:auto}
+#chimera-mates{pointer-events:auto;font:9px/1.35 var(--mono,monospace);color:#9fb39a;margin-top:2px}
+#chimera-mates button{display:block;padding:1px 0;margin:0;border:0;background:none;font:inherit;color:inherit;text-align:left;cursor:pointer}#chimera-mates b{color:#c9d6c0;font-weight:600}#chimera-mates .down{color:#5c645c;text-decoration:line-through}
+#ash-root.wide #chimera-mates,#ash-root.wide #chimera-cycle{display:none}
