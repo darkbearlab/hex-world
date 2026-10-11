@@ -334,16 +334,20 @@ export function accept(G, book, w, opp, side, uids, now, fast = false, contract 
   C.registerCompany(book, G.name, G.base);
   // 委託板上的委託：同一邊已經有人開了案件就加入；沒有就開一個，案期照委託的公開時刻算（晚接的人能打的時間就少）
   const sideKey = side || '';
-  let c = contract ? book.cases.find(x => x.id === contract.cases[sideKey] && !x.settled) : null, created = false;
+  const solo = ['drill', 'hunting', 'security'].includes(opp.kind);   // 練兵單、狩獵場、場地維安：各開各的
+  let c = contract && !solo ? book.cases.find(x => x.id === contract.cases[sideKey] && !x.settled) : null, created = false;
   if (c && G.cases.includes(c.id) && !camp) return '這個委託已經接了';
   if (camp && contract && Object.entries(contract.cases).some(([k, id]) => k !== sideKey && G.cases.includes(id))) return '已經替另一邊打了';
-  if (!c) { c = C.caseFromOpp(book, w, opp, contract ? contract.start : now, {side, hours: contract ? contract.end - contract.start : undefined}); if (!c) return '這個案子開不起來'; created = true; if (contract) contract.cases[sideKey] = c.id; }
+  if (!c) { c = C.caseFromOpp(book, w, opp, solo ? now : contract ? contract.start : now, {side, hours: solo ? (opp.hours || (opp.kind === 'hunting' ? 72 : 48)) : contract ? contract.end - contract.start : undefined}); if (!c) return '這個案子開不起來'; created = true; if (contract && !solo) contract.cases[sideKey] = c.id; }
   const groups = []; for (let i = 0; i < pick.length; i += 4) groups.push(pick.slice(i, i + 4));
   if (groups.length > 1 && groups[groups.length - 1].length < 2) groups[groups.length - 2].push(...groups.pop());
   let n = 0;
   for (const g of groups) {
     const sq = C.makeSquad(book, G.name, {clones: g, gear: 3, at: G.base, name: `${G.name}・第${G.seq++}隊`}); sq.fast = !!fast;
-    if (C.enlist(book, c.id, sq.id, now, w)) { n++; for (const x of g) { x.status = 'away'; x.missions++; C.joinRec(x, c, G.name, now); } }
+    if (C.enlist(book, c.id, sq.id, now, w)) { n++; for (const x of g) { x.status = 'away'; x.missions++; C.joinRec(x, c, G.name, now); }
+      if (c.kind === 'hunting') C.pay(book, now, G.name, -3 * g.length, 'venue', `${c.title}：入口守衛的場地費（${g.length} 人）`, c.id);
+      // 場地維安：報酬約打平來回的交通費和維持費，再多一點點
+      if (c.kind === 'security') sq.secPay = Math.round(C.fareCost(w, G.base, c.tile, g.length, !!fast) * 2 + C.CFG.UPKEEP * g.length * Math.ceil((c.end - now) / 24) + 2); }
     else delete book.squads[sq.id];
   }
   if (!n) {
@@ -354,7 +358,7 @@ export function accept(G, book, w, opp, side, uids, now, fast = false, contract 
   note(G, now, again ? `「${c.title}」加派 ${n} 隊${fast ? '（加速）' : ''}。` : `接下「${c.title}」，${fast ? '加速' : ''}派出 ${n} 隊。`);
   return null;
 }
-const kindOf = o => ({short: 'route', route: 'route', exp: 'route', logging: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp', shadow: 'shadow', counter: 'shadow', privateer: 'privateer'})[o.kind];
+const kindOf = o => ({short: 'route', route: 'route', exp: 'route', logging: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp', shadow: 'shadow', counter: 'shadow', privateer: 'privateer', drill: 'drill', hunting: 'hunting', security: 'security'})[o.kind];
 
 // ===== 派系關係（Alan 2026-10-11）=====
 // 每家公司對每個勢力一個關係值（−100～100）。一般委託做得好就上升；暗影行動曝光、替人私掠就下降。
@@ -427,7 +431,7 @@ export function hour(G, book, w, h) {
       const away = sq.clones.filter(x => x.alive && x.status === 'away'); sq.headedHome = h; if (!away.length) continue;
       if (sq.garrison != null) { sq.readyAt = Math.max(sq.readyAt, h + 6); note(G, h, `「${c.title}」收尾，${sq.name} 回到駐地。`); continue; }   // 駐軍回駐地待命（休整 6 小時）
       const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
-      if (sq.fast) C.paySpeed(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id);
+      C.payFare(book, w, G.name, c.tile, G.base, away.length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast);
       for (const x of away) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); }
       note(G, h, `「${c.title}」收尾，${sq.name} ${away.length} 人啟程返回（約 ${Math.round(t1 - h)} 小時），尾款等結案再分。`); }
   }
@@ -441,7 +445,7 @@ export function hour(G, book, w, h) {
       note(G, h, `採購車隊回到總部：${MN[c.mat]} ${got}／${c.qty}${got < c.qty ? `（路上被劫走 ${c.qty - got}）` : ''}。`); continue;
     }
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.garrison != null) continue; const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
-      if (sq.fast) C.paySpeed(book, w, G.name, c.tile, G.base, sq.clones.filter(x => x.alive && x.status === 'away').length, h, `${c.title}（${sq.name}）回程`, c.id); for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
+      C.payFare(book, w, G.name, c.tile, G.base, sq.clones.filter(x => x.alive && x.status === 'away').length, h, `${c.title}（${sq.name}）回程`, c.id, !!sq.fast); for (const x of sq.clones) if (x.alive && x.status === 'away') { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); } }
     const got = c.payout?.[G.name] || 0;
     if (got > 0) { fame(G, book); const f = fameOfCase(G, book, c); if (f.fame) G.fameLog.push({h, title: c.title, kind: c.kind, ...f}); }   // 名氣
     if (got > 0 && c.fac >= 0) relAdd(G, c.fac, REL.CASE + (c.lv || 1), `${c.title}結案`, h);   // 派系關係
@@ -549,7 +553,7 @@ export function garrison(G, book, w, site, uids, now) {
   let n = 0;
   for (let i = 0; i < pick.length; i += 4) { const g = pick.slice(i, i + 4); if (g.length < 2) break;
     const sq = C.makeSquad(book, G.name, {clones: g, gear: 3, at: site, name: `${G.name}・${w.names[site] || ''}駐軍`}); sq.garrison = site;
-    const t = C.travelHours(w, G.base, site), eta = now + (isFinite(t) ? t : 24); sq.readyAt = eta; sq.move = {path: w.sim.pmc.route(G.base, site), t0: now, t1: eta};
+    const t = C.travelHours(w, G.base, site), eta = now + (isFinite(t) ? t : 24); sq.readyAt = eta; sq.move = {path: w.sim.pmc.route(G.base, site), t0: now, t1: eta}; C.payFare(book, w, G.name, G.base, site, g.length, now, `${sq.name}去程`);
     for (const x of g) { x.status = 'away'; C.rec(x, {h: now, t: 'garrison', co: G.name, tile: site}); } n++; }
   note(G, now, `派 ${n} 隊去${w.names[site] || ''}駐紮，約 ${Math.round(C.travelHours(w, G.base, site))} 小時後到位。`);
   return null;
@@ -752,7 +756,7 @@ export function revive(G, uid, slot, now = G.h) {
 // ===== 召回：派出去的小隊（合約算毀約）、還在路上的補員 =====
 function sendHome(G, w, clones, from, h, fast = false, book = null, what = '召回') {
   const back = C.travelHours(w, from, G.base, fast), t1 = h + (isFinite(back) ? back : 24), path = w.sim.pmc.route(from, G.base);
-  if (fast && book) C.paySpeed(book, w, G.name, from, G.base, clones.filter(x => x.alive).length, h, `${what}回程`);
+  if (book) C.payFare(book, w, G.name, from, G.base, clones.filter(x => x.alive).length, h, `${what}回程`, undefined, !!fast);
   for (const x of clones) if (x.alive) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); }
   return t1 - h;
 }
@@ -780,7 +784,7 @@ export function view(G, book, w) {
   // 結案的案件留三天給玩家看結果；採購車隊回到總部就拿掉（Alan 2026-10-10：車隊都回家了還留在任務管制）
   const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || (!c.own && G.h - c.settledAt < 72)).map(c => ({
     id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
-    payout: c.payout?.[G.name], midPaid: c.midPaid, quit: !!c.quit?.[G.name], delivered: c.delivered, convoys: c.convoys, lost: c.lostConvoys.length, pay: c.pay, tickets: c.tickets,
+    payout: c.payout?.[G.name], midPaid: c.midPaid, due: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).reduce((s, sq) => s + (sq.due || 0), 0), quit: !!c.quit?.[G.name], delivered: c.delivered, convoys: c.convoys, lost: c.lostConvoys.length, pay: c.pay, tickets: c.tickets,
     squads: c.squads.map(id => book.squads[id]).filter(sq => sq && sq.player === G.name).map(sq => ({id: sq.id, name: sq.name, readyAt: sq.readyAt, busy: sq.busy, headedHome: sq.headedHome,
       backAt: Math.max(-1, ...G.returning.filter(r => sq.clones.some(x => x.uid === r.uid)).map(r => r.at)),   // 收尾後啟程返回：最後一個人到總部的時刻 refused: !!sq.refused, fast: !!sq.fast,
       clones: sq.clones.map(x => x.uid), pending: book.amends.filter(a => a.squad === sq.id && !a.done).map(a => ({id: a.id, n: a.n, eta: a.eta}))}))}));
@@ -799,7 +803,8 @@ export function view(G, book, w) {
   const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
   const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
   const K = w.sim.peek(), rel = K.fac.map((f, i) => ({f: i, n: f.n, c: f.c, alive: f.alive !== false, v: Math.round(relOf(G, i)), trait: w.sim.pmc.trait ? w.sim.pmc.trait(i) : ''})).filter(x => x.alive);
-  return {rel, relLog: (G.relLog || []).slice(-40).reverse().map(e => ({...e, n: K.fac[e.f]?.n || ''})), relRefuse: REL.REFUSE, relBlack: REL.BLACK, deaths7: deaths7(book, G.h), retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
+  const payable = Object.values(book.squads).filter(sq => sq.player === G.name && sq.caseId).reduce((s, sq) => s + (sq.due || 0), 0);
+  return {payable, rel, relLog: (G.relLog || []).slice(-40).reverse().map(e => ({...e, n: K.fac[e.f]?.n || ''})), relRefuse: REL.REFUSE, relBlack: REL.BLACK, deaths7: deaths7(book, G.h), retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
     templates: G.templates, roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid), bodyPrice: c.status === 'recovered' ? bodyPrice(book, c, G.h) : null})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 

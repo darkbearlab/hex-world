@@ -24,7 +24,8 @@ let sel = -1, hover = -1, hiFac = -1, mouse = {x: 0, y: 0};
 const layers = {fac: true, pop: false, bandit: false, trench: false, opp: true};
 let oppKind = 'all';
 const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}, clean: {n: '清運', ch: '收', c: '#b49ad8'}, retainer: {n: '長約', ch: '約', c: '#e8c35a'},
-  shadow: {n: '黑單', ch: '暗', c: '#a070e0'}, counter: {n: '反情報', ch: '緝', c: '#60a0d0'}, privateer: {n: '私掠', ch: '掠', c: '#d0603a'}};   // 暗影戰爭、私掠（Alan 2026-10-11）
+  shadow: {n: '黑單', ch: '暗', c: '#a070e0'}, counter: {n: '反情報', ch: '緝', c: '#60a0d0'}, privateer: {n: '私掠', ch: '掠', c: '#d0603a'},
+  drill: {n: '練兵', ch: '練', c: '#8fbf8f'}, hunting: {n: '狩獵場', ch: '獵', c: '#7ad0b0'}, security: {n: '場地維安', ch: '安', c: '#c0b0e0'}};   // 練兵單、狩獵場、場地維安（Alan 2026-10-11）   // 暗影戰爭、私掠（Alan 2026-10-11）
 let logFilter = 'legend';
 let worker = null;
 
@@ -326,7 +327,7 @@ function pickGroups(av) {
 // 手機直向是四張橫長卡片，只露出頭和往右延伸的名字，裝備收在卡片下面、點開才展開。按「確認出擊」才真的派出去。
 let sortie = null;   // {key, tile, side, fast, sq: [[uid|null ×4]…], pick: [i, j] | null, open: Set}
 function openSortie(o) {
-  sortie = {key: o.kind + ':' + o.tile, tile: o.tile, side: o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' ? 'a' : '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set()};
+  sortie = {key: o.kind + ':' + o.tile, tile: o.tile, side: o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' ? 'a' : o.kind === 'drill' ? '1' : '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set()};
   if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile});
   renderSortie();
 }
@@ -349,7 +350,7 @@ function renderSortie() {
   const o = sortie && GV && (sortie.custom || curOpps().find(x => x.kind + ':' + x.tile === sortie.key));
   P.hidden = !o; if (!o) { $('spick').hidden = true; if (sortie && GV) sortie = null; return; }
   const K = OK[o.kind], s = hist[cur], fn = id => s?.fac?.find(f => f.id === id)?.n || '';
-  const sides = o.joined || sortie.custom ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : [];
+  const sides = o.joined || sortie.custom ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
   const chosen = new Set(sortieUids()), n = chosen.size, bad = sortie.sq.some(q => q.filter(u => u != null).length === 1);
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid));
   const groups = [...Object.entries(TAGS).map(([k, nm]) => [nm, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
@@ -405,7 +406,7 @@ function accPicker(o) {
   const camp = o.kind === 'camp', campNote = camp ? '<div class="mini">大戰役：派幾隊都可以，服務單一張接一張、越來越大；撤軍不算違約，已打下的貢獻照算。</div>' : '';
   if (!pickOpp || pickOpp.key !== key) return `${camp && !o.joined ? campNote : ''}<div class="row" style="margin-top:4px"><button data-acc="${key}">${o.joined ? '加派' : '接案'}</button></div>`;
   const s = hist[cur], fn = id => s.fac.find(f => f.id === id)?.n || '';
-  const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : [];
+  const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
   return `<div class="picker">${campNote}${sides.length ? `<div class="row">${sides.map(([v, n]) => `<button data-side="${v}" class="${pickOpp.side === v ? 'on' : ''}">${esc(n)}</button>`).join('')}</div>` : ''}
     <div class="mini" style="margin-top:6px">選要派的人（四人一隊，最少兩人${camp ? '；全部派上去也可以' : ''}）：</div>${pickGroups(av)}
@@ -415,8 +416,9 @@ function accPicker(o) {
 // 加速（Alan 2026-10-09）：路程時間減半，每人每省一小時 $1；來回同一套，回程時再扣一次。費用要等路線查好（selPath）才算得出來
 function speedRow(tile, n, on) {
   const p = selPath && selPath.to === tile && selPath.hours > 0 ? selPath : null;
-  const info = p ? `${fmtH(p.hours)} → ${fmtH(p.fastHours)}・去程 $${p.fastPer * Math.max(1, n)}k，回程時再扣一次${n ? '' : '（每人）'}` : '路程時間減半，每人每省一小時 $1k，回程時再扣一次';
-  return `<label class="speed${on ? ' on' : ''}"><input type="checkbox" data-fast="1"${on ? ' checked' : ''}> 加速 <span class="mini">${info}</span></label>`;
+  // 交通費（Alan 2026-10-11）：慢車照格數、人數收；勾「快車」費用三倍、路程時間減半；回程另外再收一次
+  const k = Math.max(1, n), info = p ? `慢車 ${fmtH(p.hours)}・去程 $${Math.round(p.farePer * k * 10) / 10}k｜快車 ${fmtH(p.fastHours)}・去程 $${Math.round(p.fareFastPer * k * 10) / 10}k${n ? '' : '（每人）'}；回程另計` : '慢車每人每格 $0.2k；快車三倍、路程時間減半；回程另計';
+  return `<label class="speed${on ? ' on' : ''}"><input type="checkbox" data-fast="1"${on ? ' checked' : ''}> 快車 <span class="mini">${info}</span></label>`;
 }
 // 開了公司之後，機會就是伺服器上的委託板（跟著伺服器時間：公開三天，截止前一天不能再接；Alan 2026-10-09）；沒開公司時是沙盒的機會
 // 清運也列進機會（Alan 2026-10-10）：不用派人，按了就出車；自己人倒下的地方程度最高
@@ -848,7 +850,7 @@ function renderProc() {
 }
 
 // ───── 報表 ─────
-const FK = [['shadow', '黑單報酬'], ['loot', '私掠分貨'], ['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費'], ['retainer', '長約'], ['bond', '履約保證金'], ['breach', '違約金'], ['garrison', '駐紮費'], ['clean', '清運'], ['body', '賣遺體']];
+const FK = [['fare', '交通費'], ['venue', '場地費'], ['shadow', '黑單報酬'], ['loot', '私掠分貨'], ['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費'], ['retainer', '長約'], ['bond', '履約保證金'], ['breach', '違約金'], ['garrison', '駐紮費'], ['clean', '清運'], ['body', '賣遺體']];
 function renderRepPage() {
   const P = $('pane-rep');
   if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }
@@ -863,10 +865,12 @@ function renderRep() {
   let html = `<div class="mini">現金走勢（每天一點）</div><div class="spark" id="co-spark">${sparkSvg(R.daily, Math.max(280, (el.clientWidth || 320) - 4), 180)}</div>`;
   html += `<table class="rep" style="margin-top:8px"><tr><th>收支</th><th>近 30 天</th><th>累計</th></tr>` + FK.map(([k, n]) => `<tr><td>${n}</td><td>${money(R.d30[k])}</td><td>${money(R.all[k])}</td></tr>`).join('') +
     `<tr class="tot"><td>現金合計</td><td>${money(tot(R.d30))}</td><td>${money(tot(R.all))}</td></tr><tr><td class="muted">帳面業務損失（陣亡）</td><td>${money(R.d30.loss)}</td><td>${money(R.all.loss)}</td></tr></table>`;
+  // 應付帳款（Alan 2026-10-11）：維持費每人每天先記在這裡，結案時才結帳
+  if (GV.payable) html += `<div class="mini" style="margin-top:8px">應付帳款（維持費，每人每天 $1k，結案時結帳）：<b class="neg">−$${Math.round(GV.payable)}k</b></div>`;
   // 進行中的案件：已收（訂金、期中款）與應收（還沒付的期中款、尾款池）（Alan 2026-10-09：從任務管制的案件卡搬過來）
   const act = GV.cases.filter(c => !c.settled && !c.own);
-  if (act.length) html += `<div class="mini" style="margin-top:10px">進行中的案件</div><table class="rep"><tr><th>案件</th><th>已收</th><th>應收</th></tr>` + act.map(c => { const n = c.squads.length;
-    return `<tr><td>${esc(c.title)}</td><td>訂金 $${c.pay.deposit * n}k${c.midPaid ? `＋期中 $${c.pay.mid * n}k` : ''}</td><td>${c.midPaid ? '' : `期中 $${c.pay.mid * n}k＋`}尾款池 $${c.pay.final}k<span class="mini">（依積分平分）</span></td></tr>`; }).join('') + '</table>';
+  if (act.length) html += `<div class="mini" style="margin-top:10px">進行中的案件</div><table class="rep"><tr><th>案件</th><th>已收</th><th>應收</th><th>應付維持費</th></tr>` + act.map(c => { const n = c.squads.length;
+    return `<tr><td>${esc(c.title)}</td><td>訂金 $${c.pay.deposit * n}k${c.midPaid ? `＋期中 $${c.pay.mid * n}k` : ''}</td><td>${c.midPaid ? '' : `期中 $${c.pay.mid * n}k＋`}尾款池 $${c.pay.final}k<span class="mini">（依積分平分）</span></td><td>${c.due ? `−$${Math.round(c.due)}k` : ''}</td></tr>`; }).join('') + '</table>';
   html += `<div class="mini" style="margin-top:10px">結案紀錄</div>` + (R.hist.length ? `<table class="rep"><tr><th>案件</th><th>服務單（勝／自動）</th><th>陣亡</th><th>收入</th></tr>` + R.hist.slice(0, 15).map(c => `<tr><td>${esc(c.title)}${c.delivered !== undefined ? ` <span class="mini">送達 ${Math.round(c.delivered * 100)}%</span>` : ''}</td><td>${c.tickets}（${c.wins}／${c.auto}）</td><td>${c.dead || ''}</td><td>${c.own ? '<span class="muted">—</span>' : money(c.income + c.upkeep)}</td></tr>`).join('') + '</table>' : '<p class="muted">還沒有結案。</p>');
   // 名氣（Alan 2026-10-10）：每一筆怎麼來的
   const FR = GV.retainer || {fameLog: []}, KN = {camp: '大戰役', front: '勢力戰', hunt: '據點', garrison: '駐守', route: '護送', shadow: '黑單', privateer: '私掠'};

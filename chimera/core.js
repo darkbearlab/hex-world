@@ -158,14 +158,14 @@ export class Core {
   // 結束後冷卻一天，沙盒的問題還在就再公開；問題不在了：還沒公開的拿掉，進行中的標記 gone（不能再接，已經接的照常打完）。
   postBoard(h) {
     const book = this.game.book, first = !book.board, B = book.board ||= {}, seen = new Set();
-    for (const o of this.sim.opportunities()) {
+    for (const o of this.allOpps()) {
       const key = o.kind + ':' + o.tile, e = B[key]; seen.add(key);
       // 公開時刻依地點錯開。第一批（星球剛開）往前錯開 0～47 小時，當作開服前就公開了：一開服就有委託可接，而且進度各不相同
       // 大戰役的委託：一開打就公開，開到戰役結束（opportunities 不再列出時就收掉）
       if (!e && o.kind === 'camp') { B[key] = {key, opp: o, start: h, end: h + 24 * 14, cases: {}}; continue; }
       // 黑單與反情報：跟著那件行動的期限（反情報是察覺之後才開，開到同一個期限）
       if ((o.kind === 'shadow' || o.kind === 'counter') && o.closeH != null) { if (!e || e.opp.op !== o.op) B[key] = {key, opp: o, start: h, end: o.closeH + C.CFG.FREEZE, cases: {}}; else { e.opp = o; e.gone = false; } continue; }
-      if (!e) { let s = 7; for (const ch of key) s = (s * 31 + ch.charCodeAt(0)) >>> 0; const st = first ? h - s % 48 : h + s % 24; B[key] = {key, opp: o, start: st, end: st + C.CFG.CASE_HOURS, cases: {}}; continue; }
+      if (!e) { let s = 7; for (const ch of key) s = (s * 31 + ch.charCodeAt(0)) >>> 0; const st = first ? h - s % 48 : h + s % 24; B[key] = {key, opp: o, start: st, end: st + (o.board || C.CFG.CASE_HOURS), cases: {}}; continue; }
       e.opp = o; e.gone = false;
       if (h >= e.end + BOARD_COOL) { e.start = h; e.end = h + C.CFG.CASE_HOURS; e.cases = {}; }
     }
@@ -190,6 +190,26 @@ export class Core {
       G.exposed(game.cos[r.blame], b, this.w, o, ids, t);
       for (const name of Object.keys(game.cos)) b.inbox.push({t, player: name, kind: 'war', text: `${fn(o.b)}公開了在${nm}抓到的密探：是傭兵公司「${r.blame}」的人。`, ref: 'op' + o.id});
     }
+  }
+  // 練兵單、狩獵場、場地維安（Alan 2026-10-11）：不是沙盒的事件，委託板自己開（公司模式才有）
+  allOpps() { return [...this.sim.opportunities(), ...this.workOpps()]; }
+  workOpps() {
+    const K = this.sim.peek(), w = this.w, nm = t => w.names[t] || '無名之地', fn = f => K.fac[f]?.n || '', out = [];
+    const towns = Object.keys(K.markets).map(Number).filter(t => K.owner[t] >= 0), hash = t => ((t * 2654435761) >>> 0) % 1000;
+    const banditNear = t => { let m = 0; for (let i = 0; i < K.bandit.length; i++) if (S.hdist(i, t) <= 2) m = Math.max(m, K.bandit[i]); return m; };
+    // 掃蕩流寇：附近匪患最重的 8 座城
+    for (const t of towns.map(t => [t, banditNear(t)]).filter(([, b]) => b > 8).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([t]) => t))
+      out.push({kind: 'drill', tile: t, lv: 2, risk: 1, fac: K.owner[t], board: 72, title: `掃蕩${nm(t)}附近的流寇`, detail: `練兵單・${fn(K.owner[t])}・到點立刻開打、打完就回家・車馬費 $2k×難度・彈藥雇主吸收到 $5k×難度為止・記憶片段 40 格以上不再抽`});
+    // 狩獵場：離城不遠的幾處舊設施（廢墟、舊礦坑），入口由最近那座城的勢力派守衛（開服時挑一次，記在帳本）
+    const b = this.game.book;
+    if (!b.huntSites) { const c = []; for (let i = 0; i < K.owner.length; i++) { if (!(K.ruin[i] || K.vein[i] > 0)) continue; const d = Math.min(...towns.map(t => S.hdist(i, t))); if (d >= 2 && d <= 6) c.push([i, d]); }
+      c.sort((p, q) => hash(p[0]) - hash(q[0])); const pick = []; for (const [i] of c) { if (pick.length >= 4) break; if (pick.some(j => S.hdist(i, j) < 8)) continue; pick.push(i); } b.huntSites = pick; }
+    for (const t of b.huntSites) { const near = towns.slice().sort((p, q) => S.hdist(p, t) - S.hdist(q, t))[0]; if (near === undefined) continue;
+      out.push({kind: 'hunting', tile: t, lv: 3, risk: 3, fac: K.owner[near], board: 72, title: `${nm(t)}的狩獵場`, detail: `舊時代的設施，被幾乎絕種的外星生物佔據，生命力極強、怎麼清都清不完・入口由${fn(K.owner[near])}的守衛看著，場地費每人 $3k・最多三層，越深越兇・彈藥自費・記憶片段 40 格以上不再抽`}); }
+    // 場地維安：人口最多的 8 座城，駐守 24～72 小時
+    for (const t of towns.slice().sort((p, q) => (K.markets[q].pop || 0) - (K.markets[p].pop || 0)).slice(0, 8)) { const hours = 24 * (1 + hash(t) % 3);
+      out.push({kind: 'security', tile: t, lv: 1, risk: 0, fac: K.owner[t], hours, board: hours + 48, title: `${nm(t)}的場地維安`, detail: `駐守 ${hours} 小時・報酬約打平交通費與維持費・每駐守 6 小時抽一次記憶片段（25 格以上不再抽）・偶爾有人來騷擾・彈藥自費`}); }
+    return out;
   }
   // 一家公司看得到的委託：已經公開、還能接的；加上自己接了、還沒結束的
   boardView(name) {
@@ -252,7 +272,7 @@ export class Core {
     if (m.type === 'sellbody') return G.sellBody(g, b, +m.uid, h);
     if (m.type === 'callsign') return G.setCallsign(g, +m.uid, m.name);
     if (m.type === 'accept') {
-      const o = sim.opportunities().find(x => x.kind === m.kind && x.tile === m.tile), e = b.board?.[m.kind + ':' + m.tile];
+      const o = this.allOpps().find(x => x.kind === m.kind && x.tile === m.tile), e = b.board?.[m.kind + ':' + m.tile];
       if (!o || !e || e.gone) return '這個委託已經不在了';
       if (h < e.start) return '這個委託還沒公開';
       if (h >= e.end - (o.kind === 'camp' ? 0 : C.CFG.FREEZE)) return '這個委託已經截止';
@@ -261,7 +281,7 @@ export class Core {
     if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, this.exactNow ?? h, !!m.fast);
     if (m.type === 'recall') return G.recall(g, b, w, m.squad, this.exactNow ?? h);
     if (m.type === 'recallCol') return G.recallColumn(g, b, w, m.amend, this.exactNow ?? h);
-    if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to), ok = path.length > 0; this.emit({type: 'path', to: m.to, path, hours: ok ? C.travelHours(w, g.base, m.to) : -1, fastHours: ok ? C.travelHours(w, g.base, m.to, true) : -1, fastPer: ok ? C.speedCost(w, g.base, m.to, 1) : 0}); return null; }
+    if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to), ok = path.length > 0; this.emit({type: 'path', to: m.to, path, hours: ok ? C.travelHours(w, g.base, m.to) : -1, fastHours: ok ? C.travelHours(w, g.base, m.to, true) : -1, fastPer: ok ? C.speedCost(w, g.base, m.to, 1) : 0, farePer: ok ? C.fareCost(w, g.base, m.to, 1) : 0, fareFastPer: ok ? C.fareCost(w, g.base, m.to, 1, true) : 0}); return null; }
     if (m.type === 'procure') return G.procure(g, b, w, m.town, m.mat, m.qty, m.uids || [], h);
     if (m.type === 'quotes') { this.emit({type: 'quotes', data: G.quotes(g, w)}); return null; }
     if (m.type === 'resolve') { const tk = b.tickets.find(x => x.id === m.ticket); if (!tk || tk.player !== name) return '這張服務單不是你的'; C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
@@ -274,7 +294,7 @@ export class Core {
       if (!squad.length) return '這一隊沒有活著的人';
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
       if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
-      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome}});
+      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome, facility: !!tk.facility, floor: tk.floor || 0}});
       return null;
     }
     if (m.type === 'submit' || m.type === 'abort') {
@@ -295,8 +315,9 @@ export class Core {
       }
       // 彈藥費（Alan 2026-10-09）：接案的由雇主吸收；自費的（自己的車隊）結算時扣
       const ammo = Object.values(m.result.progress || {}).reduce((x, pr) => x + G.ammoCost(pr?.gear?.ammoUsed), 0), cs = b.cases.find(x => x.id === tk.caseId), selfPay = !!(cs?.own || cs?.selfAmmo);
-      if (ammo > 0 && selfPay) C.pay(b, h, name, -ammo, 'ammo', `${tk.title}：彈藥費`, tk.caseId);
-      if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}k${selfPay ? '（自費，已扣）' : '（雇主吸收）'}`, ref: tk.id});
+      const cap = selfPay ? 0 : C.CFG.AMMO_CAP * (cs?.lv || 1), mine = Math.max(0, ammo - cap);
+      if (mine > 0) C.pay(b, h, name, -mine, 'ammo', `${tk.title}：彈藥費${selfPay ? '' : `（雇主吸收 $${cap}k，超過的自付）`}`, tk.caseId);
+      if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}k${selfPay ? '（自費，已扣）' : mine > 0 ? `（雇主只吸收 $${cap}k，自付 $${mine}k）` : '（雇主吸收）'}`, ref: tk.id});
       // 遺產級頭目（Alan 2026-10-09）：戰場回報撤退或戰死；戰死時有人活著帶出遺產級就進倉庫
       const carrier = m.result.legacy && sq.clones.find(c => c.id === m.result.legacy && c.alive && !dead.includes(c.id));
       C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier, kills: Number.isFinite(m.result.kills) ? m.result.kills : undefined}, h);

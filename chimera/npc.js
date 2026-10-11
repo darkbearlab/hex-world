@@ -92,7 +92,7 @@ function act(core, g, N, h) {
   const open = g.cases.map(id => b.cases.find(c => c.id === id)).filter(c => c && !c.settled).length;
   if (open >= N.cases || home().length < 4) return;
   const fav = e => N.style === 'shadow' ? (e.kind === 'shadow' || e.kind === 'counter' ? 0 : 1) : N.style === 'privateer' ? (e.kind === 'privateer' ? 0 : 1) : 0;
-  const cands = board.filter(e => e.kind !== 'camp' && !e.joined && h >= e.start && h < e.closeAt && !e.gone)
+  const cands = board.filter(e => !['camp', 'drill', 'hunting', 'security'].includes(e.kind) && !e.joined && h >= e.start && h < e.closeAt && !e.gone)
     .sort((a, b2) => fav(a) - fav(b2) || (N.style === 'allin' ? b2.lv - a.lv : N.style === 'careful' ? a.lv - b2.lv : 0) || hash(N.name + a.key + h) - hash(N.name + b2.key + h));
   for (const e of cands.slice(0, 3)) {
     const side = e.kind === 'front' ? (hash(N.name + e.key) < .5 ? 'att' : 'def') : e.kind === 'tense' ? (hash(N.name + e.key) < .5 ? 'a' : 'b') : '';

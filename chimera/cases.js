@@ -18,7 +18,11 @@ export const CFG = {
   AUTO_PTS: .8,     // 自動結算：積分打折
   BODY_H: 168,      // 打輸留在戰場的遺體，幾小時內還撿得回來（Alan 2026-10-10：7 天），過了就確認戰死
   CLONE_VALUE: 30,  // 一名複製人的成本（死了就是業務損失）
-  UPKEEP: 4,        // 每小隊每天的維持費（糧水、零件）
+  UPKEEP: 1,        // 維持費：每人每天（Alan 2026-10-11：原本每小隊每天 4、結案才一次算；改成每天記進應付帳款 sq.due，結案時結帳）
+  FARE: .2,         // 交通費（Alan 2026-10-11）：慢車每人每格；快車三倍、速度兩倍（FAST）
+  FARE_FAST: .6,
+  AMMO_CAP: 5,      // 雇主吸收彈藥費的上限：每張服務單 5 × 案件等級，超過的自己付
+  CELL_CAP_DRILL: 40, CELL_CAP_GUARD: 25,   // 練兵單、狩獵場：記憶片段 40 格以上不再抽；場地維安 25 格
   ROUNDS: 6,        // 自動結算的交火回合
   CASE_HOURS: 72,   // 案件長度（現實時間一比一後改成三天，原本 168；Alan 2026-10-08）
   TRAVEL: .15,      // 行軍：每一點路程成本要幾小時（沿實際道路）。測試用：原本 1.5，2026-10-08 Alan 要求縮成十分之一；伺服器化 S1 時重新平衡
@@ -91,7 +95,7 @@ export function openCase(book, w, spec, now) {
     c.convoys = Math.max(4, Math.min(12, Math.round(c.path.length * .6)));
   }
   const L = c.lv, H = (c.end - c.start) / 168;
-  c.pay = {deposit: 5 * L, mid: 5 * L, final: Math.round(160 * L * H * (c.kind === 'front' ? 1.4 : c.kind === 'hunt' ? 1.2 : c.kind === 'route' ? 1.2 : c.kind === 'shadow' ? 1.6 : c.kind === 'privateer' ? .6 : 1))};
+  c.pay = {deposit: 5 * L, mid: 5 * L, final: Math.round(160 * L * H * (c.kind === 'front' ? 1.4 : c.kind === 'hunt' ? 2.6 : c.kind === 'route' ? 1.2 : c.kind === 'shadow' ? 1.6 : c.kind === 'privateer' ? .6 : 1))};
   if (c.kind === 'shadow' && c.side === 'att') { c.pay.deposit = 10 * L; c.pay.mid = 10 * L; }   // 黑單：訂金高、尾款更高（Alan 2026-10-11）
   if (spec.own) { c.own = spec.own; c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.basePow = spec.guard ?? c.basePow; }
   // 大戰役：沒有訂金、期中款；每張服務單照當下的傭兵行情付報酬，戰役結束時再照貢獻分一筆（settleCase）
@@ -154,6 +158,13 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
     const t = towns.filter(x => K.owner[x] === opp.foe).sort((a, b) => hdist(a, opp.tile) - hdist(b, opp.tile))[0]; if (t === undefined) return null;
     return openCase(book, w, {kind: 'privateer', title: `${K.fac[opp.fac].n}的私掠：攔截${K.fac[opp.foe].n}的商隊`, tile: t, fac: opp.fac, foe: opp.foe, lic: opp.lic, lv, hours}, now);
   }
+  // 練兵單（Alan 2026-10-11）：掃蕩城附近的流寇，難度 1～3（side）；到點立刻開打、打完就回家；車馬費很少，記憶片段 40 格以上不再抽
+  if (opp.kind === 'drill') { const L = Math.max(1, Math.min(3, +o.side || 1));
+    const c = openCase(book, w, {kind: 'drill', title: `掃蕩${nm(opp.tile)}附近的流寇（難度 ${L}）`, tile: opp.tile, fac: opp.fac, lv: L, hours: 48}, now); c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; return c; }
+  // 狩獵場：舊時代的設施，被幾乎絕種的外星生物佔據；入口的守衛收場地費；最多三層，彈藥自費
+  if (opp.kind === 'hunting') { const c = openCase(book, w, {kind: 'hunting', title: opp.title, tile: opp.tile, fac: opp.fac, lv: 2, hours: 72}, now); c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.selfAmmo = true; return c; }
+  // 場地維安：駐守一段時間，報酬約打平交通費與維持費；照駐守時數抽記憶片段，偶爾有騷擾者；彈藥自費
+  if (opp.kind === 'security') { const c = openCase(book, w, {kind: 'security', title: opp.title, tile: opp.tile, fac: opp.fac, lv: 1, hours}, now); c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.selfAmmo = true; return c; }
   if (opp.kind === 'lair') {
     const [home] = nearTowns(opp.tile);
     return openCase(book, w, {kind: 'hunt', title: `清剿${opp.title}`, tile: opp.tile, fac: home !== undefined ? K.owner[home] : -1, gang: opp.gang, lv, hours}, now);
@@ -172,6 +183,9 @@ export function travelHours(w, from, to, fast = false) { if (from < 0 || from ==
 export const fmtDur = h => { const m = Math.max(0, Math.round(h * 60)); return m >= 60 ? `${Math.floor(m / 60)} 小時${m % 60 ? ` ${m % 60} 分` : ''}` : `${m} 分鐘`; };
 // 加速的費用：n 個人、從 from 到 to，比一般走法省下的小時數 × 單價
 export function speedCost(w, from, to, n) { const a = travelHours(w, from, to), b = travelHours(w, from, to, true); return isFinite(a) && isFinite(b) ? Math.round(Math.max(0, a - b) * n * CFG.FAST_PRICE) : 0; }
+// 交通費（Alan 2026-10-11）：不是用走的，有慢車和快車；照路程格數、人數算，快車三倍
+export function fareCost(w, from, to, n, fast = false) { if (from < 0 || from === to) return 0; const tiles = Math.max(0, w.sim.pmc.route(from, to).length - 1); return Math.round(tiles * n * (fast ? CFG.FARE_FAST : CFG.FARE) * 10) / 10; }
+export function payFare(book, w, player, from, to, n, now, what, caseId, fast = false) { const cost = fareCost(w, from, to, n, fast); if (cost > 0) pay(book, now, player, -cost, 'fare', `${what}：${fast ? '快車' : '慢車'}交通費（${n} 人，$${cost}k）`, caseId); return cost; }
 // 這一趟用加速：扣錢、記帳（kind 'speed'）
 export function paySpeed(book, w, player, from, to, n, now, what, caseId) { const cost = speedCost(w, from, to, n); if (cost > 0) pay(book, now, player, -cost, 'speed', `${what}：加速（${n} 人，$${cost}k）`, caseId); return cost; }
 
@@ -182,7 +196,7 @@ export function enlist(book, caseId, squadId, now, w) {
   const eta = now + (w ? travelHours(w, sq.at, c.tile, sq.fast) : 0);
   if (eta >= c.end - (c.freeze ?? CFG.FREEZE)) return false;   // 趕不上：到的時候已經不再派服務單了
   const from = sq.at;
-  if (sq.fast && w) paySpeed(book, w, sq.player, from, c.tile, alive(sq).length, now, `${c.title}（${sq.name}）去程`, c.id);
+  if (w && !c.own) payFare(book, w, sq.player, from, c.tile, alive(sq).length, now, `${c.title}（${sq.name}）去程`, c.id, !!sq.fast);
   sq.caseId = c.id; sq.readyAt = eta; sq.joinedAt = now; c.squads.push(sq.id); sq.at = c.tile;
   if (w && eta > now) sq.move = {path: w.sim.pmc.route(from, c.tile), t0: now, t1: eta};
   if (w) planTrip(book, w, c, sq.id, from, now, eta);
@@ -219,7 +233,7 @@ export function amend(book, w, squadId, n, from, now, o = {}) {
   else if (!o.clones) pay(book, now, sq.player, -CFG.CLONE_VALUE * n, 'reinforce', `${c.title}：契約變更，從總部培養槽調 ${n} 人補${sq.name}`, c.id);
   // 調來的人編成一支行軍縱隊，路上一樣可能被劫
   const col = makeSquad(book, sq.player, {size: n, clones: o.clones, at: from, gear: sq.gear, name: `${sq.name} 的補員`}); col.column = true; col.caseId = null; col.fast = !!o.fast;
-  if (col.fast) paySpeed(book, w, sq.player, from, c.tile, n, now, `${c.title}（${sq.name} 的補員）`, c.id);
+  payFare(book, w, sq.player, from, c.tile, n, now, `${c.title}（${sq.name} 的補員）`, c.id, !!col.fast);
   col.move = {path: w.sim.pmc.route(from, c.tile), t0: now, t1: eta};
   const a = {id: 'A' + book.nextId++, squad: sq.id, col: col.id, caseId: c.id, n, from, at: now, eta, done: false};
   book.amends.push(a);
@@ -309,6 +323,7 @@ function hazard(c, w) {
   }
   if (c.kind === 'shadow') { const o = P.op(c.op); return o && o.state === 'open' ? (c.side === 'def' ? .12 : .14) : 0; }
   if (c.kind === 'privateer') return P.atWar(c.fac, c.foe) && P.lic(c.lic) ? .14 : 0;
+  if (c.kind === 'security') return .004;   // 騷擾者：一天大約一成
   return 0;
 }
 
@@ -321,6 +336,7 @@ function stillValid(c, w) {
   if (c.kind === 'camp') { const v = w.sim.campaignOf(c.camp); return !!v && !v.done; }
   if (c.kind === 'shadow') return P.op(c.op)?.state === 'open';
   if (c.kind === 'privateer') return !!P.lic(c.lic) && P.atWar(c.fac, c.foe);
+  if (c.kind === 'drill' || c.kind === 'hunting' || c.kind === 'security') return true;
   return K.fac[c.fac]?.alive && K.fac[c.foe]?.alive;
 }
 
@@ -350,6 +366,9 @@ const TYPES = {
   sweep:     {n: '搜捕密探', night: .5, obj: [['clear', '抓到密探', 3], ['nolose', '全員生還', 1]]},
   guard:     {n: '護衛要地', night: .6, obj: [['hold', '守住目標', 3], ['nolose', '全員生還', 1]]},
   raidcv:    {n: '攔截商隊', night: .3, obj: [['take', '攔下商隊', 3], ['nolose', '全員生還', 1]]},
+  drill:     {n: '掃蕩流寇', night: .2, obj: [['clear', '擊退流寇', 3], ['nolose', '全員生還', 1]]},
+  hunting:   {n: '狩獵', night: 0, obj: [['clear', '打穿這一層', 3], ['nolose', '全員生還', 1]]},
+  harass:    {n: '騷擾者', night: .6, obj: [['repel', '趕走騷擾的人', 2], ['nolose', '全員生還', 1]]},
 };
 // 每種暗影行動的服務單組合（DESIGN 定案）；守方是搜捕與護衛
 const SHADOW_TICKETS = {暗殺: ['scout', 'post', 'heist'], 綁架: ['scout', 'post', 'heist', 'smuggle'], 煽動: ['smuggle', 'rally', 'armory'], 收買: ['smuggle', 'scout'],
@@ -381,6 +400,7 @@ function drawType(book, c, w) {
   if (c.kind === 'garrison') return {type: 'probe', tile: c.tile, foe: c.foe};
   if (c.kind === 'shadow') return {type: pickOf(book, c.side === 'def' ? ['sweep', 'sweep', 'guard'] : SHADOW_TICKETS[c.opName] || ['scout']), tile: c.tile, foe: c.foe};
   if (c.kind === 'privateer') return {type: 'raidcv', tile: c.tile, foe: c.foe};
+  if (c.kind === 'security') return {type: 'harass', tile: c.tile};
   if (c.kind === 'hunt') return {type: 'clear', tile: c.tile, gang: c.gang};
 }
 
@@ -447,6 +467,10 @@ export function enemyRoster(e) {
 // 敵人：從沙盒裡真正在那裡的東西算出來
 function enemyOf(book, w, c, ev, o = {}) {
   const K = w.sim.peek(), t = ev.tile, L = c.lv;
+  if (ev.type === 'drill' || ev.type === 'harass') { const power = ev.type === 'drill' ? 4 + 4 * L : 4 + 2 * L;
+    return {side: 'raider', name: ev.type === 'drill' ? '流寇' : '騷擾的人', fac: -1, gang: null, power, units: unitsOf(book, 'raider', power, null, ev.type, ev.type === 'harass' ? 4 : 10), veh: {}, boss: null}; }
+  if (ev.type === 'hunting') { const power = 10 + 8 * (ev.floor || 1);   // 越深越強
+    return {side: 'hive', name: `第 ${ev.floor || 1} 層的異形`, fac: -1, gang: null, power, units: unitsOf(book, 'hive', power, null, 'clear', 14), veh: {}, boss: ev.floor >= 3 ? {ash: 'hive_beast', name: '巢母'} : null}; }
   if (ev.type === 'ambush' || ev.type === 'native' || ev.type === 'clear') {
     const g = ev.gang ? K.gangs.find(x => x.id === ev.gang) : K.gangs.filter(x => !x.gone && hdist(x.lair, t) <= 3).sort((a, b) => hdist(a.lair, t) - hdist(b.lair, t))[0];
     const leg = g ? K.weapons.find(x => x.gang === g.id) : null, side = gangSide(K, g);
@@ -534,6 +558,21 @@ function campSettle(book, w, c, tk, res, sq, now) {
   if (reward > 0) pay(book, now, sq.player, reward, 'camp', `${tk.title}：戰役報酬（打倒 ${kills}、行情 ×${mul}）`, c.id);
 }
 
+// ===== 練兵單、狩獵場（Alan 2026-10-11）：小隊到點就直接開一張，打完就回家；狩獵打贏可以往下一層（最多三層），不想打就召回 =====
+function directTickets(book, w, c, now) {
+  const K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
+  for (const id of c.squads) {
+    const sq = book.squads[id]; if (!sq || sq.busy || sq.headedHome || sq.drillDone || sq.readyAt > now || alive(sq).length < 1) continue;
+    const floor = c.kind === 'hunting' ? (sq.floor || 0) + 1 : 0, type = c.kind === 'hunting' ? 'hunting' : 'drill', T = TYPES[type];
+    const enemy = enemyOf(book, w, c, {type, tile: c.tile, floor});
+    const tk = {id: 'T' + book.nextId++, caseId: c.id, type, title: c.kind === 'hunting' ? `${nm(c.tile)}狩獵場第 ${floor} 層` : `${T.n}：${nm(c.tile)}`, tile: c.tile, floor, facility: c.kind === 'hunting',
+      biome: BIOMES[K.biome[c.tile]]?.n || '', night: rng(book) < T.night, trench: 0, enemy, objectives: T.obj.map(([k, text, pts]) => ({k, text, pts: pts * c.lv * (floor || 1)})), born: now, squad: null, player: null, issued: -1, deadline: -1, done: false};
+    book.tickets.push(tk); c.tickets++;
+    sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE; sq.floor = floor;
+    notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，戰力 ${enemy.power}）。${floor > 1 ? `不想往下就召回；${CFG.DEADLINE} 小時內沒打就當作撤離。` : `若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。`}`, tk.id);
+  }
+  if (c.squads.length && c.squads.every(id => { const s = book.squads[id]; return !s || s.drillDone || s.headedHome; })) c.closedEarly = true;
+}
 // ===== 行軍途中遇襲 =====
 // 出發時就沿實際道路算好這一趟的風險（跟沙盒裡商隊被劫的算法同一套），決定會不會、在哪一格、第幾小時出事
 function planTrip(book, w, c, unitId, from, now, eta) {
@@ -667,7 +706,10 @@ export function settleTicket(book, w, tk, res, now) {   // export 給 stats/reco
     (book.bodies ||= []).push({uid: cl.uid, co: sq.player, tile: tk.tile, at: now, value: CFG.CLONE_VALUE + sq.gear, caseId: c.id}); }
   // 格子收集：這一場的積分換成抽格子的次數，這一隊活下來的人各抽各的；升級的人寫進通知
   const ups = [];
-  if (tk.pts > 0) for (const cl of alive(sq)) { cl.cellPts = (cl.cellPts || 0) + tk.pts * CELL_DRAWS; const n = Math.floor(cl.cellPts); cl.cellPts -= n;
+  const capped = (c.kind === 'drill' || c.kind === 'hunting') ? CFG.CELL_CAP_DRILL : c.kind === 'security' ? CFG.CELL_CAP_GUARD : Infinity;
+  if (c.kind === 'drill' && !tk.transit) { pay(book, now, sq.player, 2 * c.lv, 'final', `${tk.title}：車馬費`, c.id); sq.drillDone = true; }
+  if (c.kind === 'hunting' && !tk.transit && (!res.win || (tk.floor || 1) >= 3 || alive(sq).length < 1)) sq.drillDone = true;
+  if (tk.pts > 0) for (const cl of alive(sq)) { if (cellCount(cl) >= capped) continue; cl.cellPts = (cl.cellPts || 0) + tk.pts * CELL_DRAWS; const n = Math.floor(cl.cellPts); cl.cellPts -= n;
     const lv0 = cl.lv || 1; drawCells(cl, n, () => rng(book)); cl.lv = cellLevel(cl); if (cl.lv > lv0) ups.push(`${cl.id} 升到 ${cl.lv} 級`); }
   if (ups.length) notify(book, now, sq.player, 'result', `${tk.title}：${ups.join('、')}（記憶片段）`, tk.id);
   // 生物廢棄物（清運案的來源）：這一場倒下的敵人（打贏全算、打輸算三成）加上我方倒下的人
@@ -747,6 +789,7 @@ function writeBack(book, w, c, tk, win, gearLost, now) {
       const o = P.op(c.op), od = o ? P.oddsOf(o) : {more: null};
       if (win) pay(book, now, tk.player, 4 * c.lv * (od.more != null && od.more <= 3 ? 1.5 : 1), 'shadow', `${tk.title}：黑單報酬`, c.id);
     }
+  } else if (tk.type === 'drill') { if (win) for (const n of [t, ...nb(t)]) K.bandit[n] = Math.max(0, K.bandit[n] - 1);
   } else if (tk.type === 'raidcv') {
     if (win) { P.privAid(c.lic, 1 + .2 * c.lv);
       if (tk.player) { pay(book, now, tk.player, 6 * c.lv, 'loot', `${tk.title}：攔下的貨分六成`, c.id); (book.relQ ||= []).push({co: tk.player, f: c.foe, v: -1, why: `替${K.fac[c.fac]?.n || ''}私掠`}); }
@@ -762,18 +805,27 @@ export function tick(book, w, now) {
 }
 
 function hour(book, w, now) {
+  // 維持費（Alan 2026-10-11）：每人每天，先記進應付帳款（小隊的 due），結案時結帳
+  if (now % 24 === 0) for (const s of Object.values(book.squads)) { if (!s.caseId || s.column || s.headedHome != null || s.wipedAt != null) continue; const c = book.cases.find(x => x.id === s.caseId); if (!c || c.settled || c.own) continue; s.due = (s.due || 0) + CFG.UPKEEP * alive(s).length; }
   for (const tr of book.trips) if (!tr.done && now >= tr.at) tripAmbush(book, w, tr, now);
   for (const a of book.amends) if (!a.done && now >= a.eta) arrive(book, a, now);
   for (const c of book.cases) {
     if (c.settled) continue;
-    // 1. 逾期的票：自動結算
-    for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && tk.squad && now >= tk.deadline) autoResolve(book, w, tk, now);
+    // 1. 逾期的票：自動結算（狩獵場第二層以後沒打，就當作撤離）
+    for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && tk.squad && now >= tk.deadline) {
+      if (c.kind === 'hunting' && tk.floor > 1) { const s = book.squads[tk.squad]; tk.done = true; tk.skipped = true; if (s) { s.busy = null; s.drillDone = true; } notify(book, now, tk.player, 'result', `${tk.title}：沒有往下，帶著打下的收穫撤離。`, tk.id); continue; }
+      autoResolve(book, w, tk, now); }
+    if (c.open && (c.kind === 'drill' || c.kind === 'hunting')) directTickets(book, w, c, now);
+    // 場地維安：每駐守 6 小時，記憶片段 25 格以下的人各抽一次
+    if (c.kind === 'security' && now % 6 === 0) for (const id of c.squads) { const s = book.squads[id]; if (!s || s.busy || s.headedHome || s.readyAt > now) continue; const ups = [];
+      for (const cl of alive(s)) if (cellCount(cl) < CFG.CELL_CAP_GUARD) { const lv0 = cl.lv || 1; drawCells(cl, 1, () => rng(book)); cl.lv = cellLevel(cl); if (cl.lv > lv0) ups.push(`${cl.id} 升到 ${cl.lv} 級`); }
+      if (ups.length) notify(book, now, s.player, 'result', `${c.title}：${ups.join('、')}（記憶片段）`, c.id); }
     // 2. 等人接的事件：有小隊空出來就給它；等太久就讓護衛自己打
     for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && !tk.squad) {
       if (!assign(book, c, tk, now) && now - tk.born >= CFG.PENDING) npcResolve(book, w, c, tk, now);
     }
     // 3. 期中款
-    if (!c.midPaid && now >= (c.start + c.end) / 2) { c.midPaid = true; for (const id of c.squads) { const s = book.squads[id]; if (alive(s).length) pay(book, now, s.player, c.pay.mid, 'mid', `${c.title}：期中款（${s.name}）`, c.id); } }
+    if (!c.midPaid && now >= (c.start + c.end) / 2) { c.midPaid = true; for (const id of c.squads) { const s = book.squads[id]; if (alive(s).length && c.pay.mid) pay(book, now, s.player, c.pay.mid, 'mid', `${c.title}：期中款（${s.name}）`, c.id); } }
     // 4. 抽事件：結束前一段時間不再出票；案件已經不成立也不出
     if (c.open && (now >= c.end - (c.freeze ?? CFG.FREEZE) || c.closedEarly || !stillValid(c, w))) { c.open = false; c.closedAt = now; }
     if (c.open && c.kind === 'camp') campTickets(book, w, c, now);
@@ -800,7 +852,9 @@ function settleCase(book, w, c, now) {
   c.payout = {};
   if (tot > 0 && pool > 0) for (const p in c.score) { if (!c.score[p] || c.quit?.[p]) continue; const v = pool * c.score[p] / tot; c.payout[p] = Math.round(v); pay(book, now, p, v, 'final', `${c.title}：尾款（積分 ${Math.round(c.score[p])}／${Math.round(tot)}）`, c.id); notify(book, now, p, 'pay', `${c.title} 結案，分到尾款 $${Math.round(v)}k。`, c.id); }
   // 維持費（從這一隊加入時算：委託共用案件，晚加入的不多付）、小隊歸建
-  for (const id of c.squads) { const s = book.squads[id]; const days = Math.max(0, Math.min(now, c.end, s.wipedAt ?? Infinity, s.headedHome ?? Infinity) - Math.max(c.start, s.joinedAt ?? c.start)) / 24; pay(book, now, s.player, -CFG.UPKEEP * days, 'upkeep', `${c.title}：維持費（${s.name}）`, c.id); s.caseId = null; s.busy = null; }
+  for (const id of c.squads) { const s = book.squads[id]; if (s.due > 0) pay(book, now, s.player, -s.due, 'upkeep', `${c.title}：維持費（${s.name}，應付帳款結帳）`, c.id); s.due = 0;
+    if (c.kind === 'security' && s.secPay) pay(book, now, s.player, s.secPay, 'final', `${c.title}：維安報酬（${s.name}）`, c.id);
+    s.caseId = null; s.busy = null; }
   // 編年史：只記值得記的
   const top = Object.entries(c.score).sort((a, b) => b[1] - a[1])[0];
   if (top && tot >= 10 * c.lv && !c.own) {
