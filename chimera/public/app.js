@@ -559,6 +559,7 @@ function renderCo() {
     return `<div class="card tk${t.transit ? ' transit' : ''}"><h4><a href="#" data-center="${t.tile}">${esc(t.title)}</a><span class="due${left > 12 ? ' ok' : ''}">剩 ${cd(t.deadline)}</span></h4>
       <div class="mini">${esc(t.caseTitle || '')}・${esc(t.squad || '')}・${esc(t.biome)}${t.night ? '・夜間' : ''}${t.trench >= .3 ? `・戰壕 ${t.trench} 級` : ''}</div>
       <div>敵人：<b>${esc(t.enemy.name)}</b>（戰力 ${t.enemy.power}）${U ? '・' + U : ''}${V ? '・' + V : ''}${t.enemy.boss ? t.enemy.boss.weapon ? `・頭目${esc(t.enemy.boss.chief || '')}帶著遺產級「${esc(t.enemy.boss.weapon)}」${t.enemy.boss.defeats ? `（被打倒過 ${t.enemy.boss.defeats} 次）` : ''}` : `・${esc(t.enemy.boss.name || '頭目')}帶隊` : ''}</div>
+      ${t.intro ? `<div class="mini" style="font-style:italic;opacity:.85">${esc(t.intro)}</div>` : ''}
       ${t.transit ? '<div class="mini">行軍遇襲，不算案件積分</div>' : `<div class="mini">目標：${t.objectives.map(o => `${esc(o.text)}（${o.pts}）`).join('、')}</div>`}
       ${t.est ? `<div class="mini">小隊戰力 ${t.est.pow}・自動結算勝算約 <span class="odds-est ${t.est.p < .4 ? 'bad' : t.est.p < .75 ? 'mid' : 'good'}">${Math.round(t.est.p * 100)}%</span>・預估陣亡 ${t.est.dead.toFixed(1)} 人</div>` : ''}
       <div class="row"><button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的服務單。</p>';
@@ -586,7 +587,7 @@ function renderCo() {
   $('co-cases').html = !G.cases.length ? '<p class="muted">還沒接案。到戰略地圖的「機會」分頁挑一個點，按「接案」。</p>' : (liveC.length ? '' : '<p class="muted">沒有進行中的案件。</p>') + liveC.map(c => {
     const st = c.settled ? (c.own ? '車隊已回到總部' : `已結案${c.payout ? `・尾款 $${c.payout}k` : ''}`) : c.own ? `來回中・約 ${cd(c.end)}後回到總部` : c.open ? (c.kind === 'security' ? `駐守中・${cd(c.end)}後期滿` : `${cd(c.end - (c.freeze ?? 24))}後合約到期`) : `收尾中・${cd(c.end + (c.buffer ?? 24))}後結算`;
     return `<div class="card"><h4><a href="#" data-center="${c.tile}">${esc(c.title)}</a><span class="mini">${c.own ? '採購' : '●'.repeat(c.lv) + '○'.repeat(3 - c.lv)}</span></h4>
-      <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>
+      <div class="mini">${st}${c.own ? '' : `・積分 ${c.score}`}${c.alert != null && !c.settled ? `・目標警戒 <b style="color:${c.alert >= 60 ? 'var(--war)' : c.alert >= 30 ? 'var(--accent)' : 'inherit'}">${c.alert >= 60 ? '高' : c.alert >= 30 ? '中' : '低'}</b>` : ''}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>
       ${c.own && !c.squads.length ? '<div class="mini">沒有護衛，路上出事由雇來的車隊守衛自己打。</div>' : ''}
       ${c.squads.map(sq => { const cl = sq.clones.map(u => G.roster.find(x => x.uid === u)).filter(Boolean), al = cl.filter(x => x.alive).length;
         const sts = sq.headedHome != null ? (sq.backAt > (hourNow() ?? h) ? `歸途中・約 ${cd(sq.backAt)}後回到總部` : '已回到總部') : sq.busy ? '服務單處理中' : sq.readyAt > (hourNow() ?? h) ? `ETA ${cd(sq.readyAt)}` : '待命中';

@@ -617,7 +617,7 @@ export function answer(G, book, w, callId, how, now) {
   delete sq.headedHome;
   if (!C.enlist(book, cs.id, sq.id, now, w)) { book.cases.splice(book.cases.indexOf(cs), 1); if (!sq.garrison) delete book.squads[sq.id]; return '趕不上'; }
   for (const x of sq.clones) if (x.alive) { if (x.status === 'home') { x.status = 'away'; } x.missions++; C.joinRec(x, cs, G.name, now); }
-  G.cases.push(cs.id); q.state = 'answered'; q.case = cs.id; q.auto = !!how.auto;
+  G.cases.push(cs.id); q.state = 'answered'; q.case = cs.id; q.auto = !!how.auto; c.runs = (c.runs || 0) + 1;   // 跑了幾趟：同一條路跑越多趟越容易被針對（cases.js drawType）
   note(G, now, `${how.auto ? '時限到了，駐軍' : ''}${sq.name}接下${nm(c.site)}的車隊應召（往${nm(q.to)}）。`);
   return null;
 }
@@ -822,7 +822,7 @@ export function view(G, book, w) {
     packs[sq.id] = {name: sq.name, lock: book.tickets.some(t => t.squad === sq.id && !t.done && t.fightAt != null), uids: sq.clones.filter(c => c.alive && c.status === 'away').map(c => c.uid), items: (sq.pack || []).map(it => ({...it, name: itemName(it)}))};
   // 結案的案件留三天給玩家看結果；採購車隊回到總部就拿掉（Alan 2026-10-10：車隊都回家了還留在任務管制）
   const cases = G.cases.map(id => book.cases.find(x => x.id === id)).filter(Boolean).filter(c => !c.settled || (!c.own && G.h - c.settledAt < 72)).map(c => ({
-    id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
+    id: c.id, own: !!c.own, title: c.title, kind: c.kind, tile: c.tile, lv: c.lv, alert: c.kind === 'shadow' && c.side === 'att' ? c.alert || 0 : null, start: c.start, end: c.end, open: c.open, settled: c.settled, score: Math.round(c.score[G.name] || 0),
     ...(() => { const L = book.ledger.filter(x => x.caseId === c.id && x.player === G.name && x.kind !== 'loss'); return {got: L.filter(x => x.amount > 0).reduce((t, x) => t + x.amount, 0), spent: -L.filter(x => x.amount < 0).reduce((t, x) => t + x.amount, 0)}; })(),   // 這個案件已經入帳的收入、已經付出去的錢（報表的會計帳用）
     scoreTot: Object.values(c.score || {}).reduce((t, v) => t + v, 0),
     freeze: c.freeze ?? C.CFG.FREEZE, buffer: c.own || C.SOLO.has(c.kind) ? 0 : C.CFG.BUFFER,   // 截止前幾小時不再出單、結束後緩衝幾小時才結算（練兵、狩獵、維安都是 0）
@@ -832,7 +832,7 @@ export function view(G, book, w) {
       clones: sq.clones.map(x => x.uid), pending: book.amends.filter(a => a.squad === sq.id && !a.done).map(a => ({id: a.id, n: a.n, eta: a.eta}))}))}));
   const units = unitsView(G, book, G.h);
   const tickets = book.tickets.filter(t => t.player === G.name && !t.done).map(t => ({id: t.id, title: t.title, type: t.type, transit: !!t.transit, deadline: t.deadline, issued: t.issued, tile: t.tile,
-    biome: t.biome, night: t.night, trench: t.trench, enemy: {name: t.enemy.name, power: t.enemy.power, side: t.enemy.side, units: t.enemy.units, boss: t.enemy.boss, veh: t.enemy.veh},
+    biome: t.biome, night: t.night, trench: t.trench, intro: t.intro || null, enemy: {name: t.enemy.name, power: t.enemy.power, side: t.enemy.side, units: t.enemy.units, boss: t.enemy.boss, veh: t.enemy.veh},
     objectives: t.objectives, squad: book.squads[t.squad]?.name, est: book.squads[t.squad] ? C.estimate(book.squads[t.squad], t.enemy) : null, caseTitle: book.cases.find(c => c.id === t.caseId)?.title}));
   const done = book.tickets.filter(t => t.player === G.name && t.done).slice(-12).reverse().map(t => ({id: t.id, title: t.title, win: t.win, auto: t.auto, pts: t.pts, dead: (t.dead || []).length, at: t.doneAt}));
   // 報表

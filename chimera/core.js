@@ -296,7 +296,7 @@ export class Core {
       if (tk.fightAt == null) tk.fightAt = h;   // 開打了：打完之前這一隊不能整補（戰場上的裝備是開打那一刻的）
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
       if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
-      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0,
+      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, intro: tk.transit ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0,
         depth: Math.max(1, Math.min(12, 1 + Math.round((tk.enemy.power || 10) / 7) + (tk.wave ? Math.floor(tk.wave / 3) : 0)))}});   // 敵人的強度（菁英、詞條的機率照 ASH 的樓層），Alan 2026-10-11
       return null;
     }
@@ -327,6 +327,7 @@ export class Core {
       const carrier = m.result.legacy && sq.clones.find(c => c.id === m.result.legacy && c.alive && !dead.includes(c.id));
       C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier, kills: Number.isFinite(m.result.kills) ? m.result.kills : undefined}, h);
       if (tk.bossOut === 'taken') G.gainLegacy(g, tk.enemy.boss, h);
+      if (win && C.OUTRO[tk.type] && !tk.transit) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：${C.OUTRO[tk.type]}`, ref: tk.id});
       if (ups.length) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：升級　${ups.join('；')}`, ref: tk.id});
       G.hour(g, b, w, h); return null;
     }

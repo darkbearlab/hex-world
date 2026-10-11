@@ -20,11 +20,17 @@ const BIOME = {
 // 護送、採購車隊遇襲與行軍途中被纏上的（ambush、native、intercept、transit）是公路戰（Alan 2026-10-09；舊的 road／roadblock 布局留著）
 export const LAYOUT = {ambush: 'highway', native: 'highway', intercept: 'highway', transit: 'highway', assault: 'fort', hold: 'ring', trench: 'trench', sabotage: 'depot', probe: 'open', clear: 'camp',
   // 暗影戰爭與私掠（Alan 2026-10-11）：先借現有的戰場
-  scout: 'open', post: 'fort', heist: 'depot', smuggle: 'road', rally: 'ring', armory: 'depot', gunrun: 'highway', demo: 'depot', flag: 'fort', well: 'depot', sweep: 'open', guard: 'ring', raidcv: 'roadblock'};
+  scout: 'open', post: 'fort', heist: 'depot', smuggle: 'road', rally: 'ring', armory: 'depot', gunrun: 'highway', demo: 'depot', flag: 'fort', well: 'depot', sweep: 'open', guard: 'ring', raidcv: 'roadblock',
+  // 服務單的多樣性（Alan 2026-10-11）：黑單的接近、撤離兩段；護送的路障、路邊炸彈、拋錨守車
+  patrol: 'open', checkpoint: 'roadblock', pursuit: 'open', cordon: 'roadblock', barricade: 'barricade', ied: 'road', breakdown: 'ring'};
+// 走到另一頭撤離就贏的：行軍遇襲、撤離追兵、突破封鎖線
+const EXIT = new Set(['transit', 'pursuit', 'cordon']);
+// 站上點、推完就贏（不用撤離）的：拆路障、排炸彈。verb 是畫面上的說法
+export const CLEAR = {barricade: {verb: '拆除', what: '路障'}, ied: {verb: '排除', what: '炸彈'}};
 const lcg = seed => { let s = (Number(seed) >>> 0) || 1; return () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296); };
 
 // 目標點＋撤離的服務單：幾個目標點（潛入竊取只有一個）
-export const PLANT = {sabotage: 2, demo: 3, well: 2, armory: 2, heist: 1};
+export const PLANT = {sabotage: 2, demo: 3, well: 2, armory: 2, heist: 1, barricade: 3, ied: 3};
 export function outdoorMap(tk, floor = 1) {
   const R = lcg((tk.seed || 1) ^ 0x5eed), pick = a => a[Math.floor(R() * a.length)], N = SIZE, mid = Math.floor(N / 2);
   const layout = tk.layout || LAYOUT[tk.type] || 'open', bio = BIOME[tk.biome] || BIOME[pick(Object.keys(BIOME))];
@@ -54,11 +60,19 @@ export function outdoorMap(tk, floor = 1) {
   const covers = (n, at) => { for (let i = 0; i < n * 3 && n > 0; i++) { const p = at(); if (!free(p.x, p.y)) continue; cover(p.x, p.y); n--; } };
   const any = area(1, N - 2, 1, N - 2);
   reserve(start, 2);
-  if (layout === 'road' || layout === 'roadblock') {
+  let plantAt = null;   // 目標點放哪裡（路障、炸彈在路面上）
+  if (layout === 'road' || layout === 'roadblock' || layout === 'barricade') {
     road(); reserve(end, 1);
     for (let y = 1; y < N - 1; y++) for (let x = mid - 2; x <= mid + 2; x++) taken.add(key(x, y));   // 路面保持暢通
     const side = () => R() < .5 ? area(1, mid - 4, 2, N - 4)() : area(mid + 4, N - 2, 2, N - 4)();
     walls(6, side); covers(10, side);
+    if (layout === 'barricade') {   // 刻意設下的路障（Alan 2026-10-11）：路中央一排焚毀的車殼（擋子彈）＋拒馬（矮牆），埋伏的人在兩側和後面；要站到路障前的三個點上拆除
+      for (const dx of [-2, 0, 2]) { props.push({id: `${floor}-wreck-${props.length}`, x: mid + dx, y: 8, type: 'cover', hp: 220, maxHp: 220}); }
+      for (let x = mid - 3; x <= mid + 3; x++) low(x, 8, 'y');
+      plantAt = [[mid - 1, 9], [mid + 1, 9], [mid, 10]];
+      for (let x = mid - 3; x <= mid + 3; x++) spots.push({x, y: 5}, {x, y: 6});
+    }
+    if (tk.type === 'ied') plantAt = [[mid - 1, N - 8], [mid + 1, 11], [mid, 6]];   // 路邊炸彈：路面上三個可疑的點，一路往前排
     if (layout === 'roadblock') {   // 路障：橫越路面的一排矮牆，敵人在後面
       for (let x = mid - 3; x <= mid + 3; x++) low(x, 7, 'y');
       for (let x = mid - 3; x <= mid + 3; x++) spots.push({x, y: 5}, {x, y: 6});
@@ -103,16 +117,18 @@ export function outdoorMap(tk, floor = 1) {
     walls(6, area(1, N - 2, 16, N - 5)); covers(8, area(1, N - 2, 15, N - 4));
   } else {
     // 開闊地（巡邏遭遇）：零散的短牆與掩體；敵人守在幾處矮牆圍出來的陣地（開口朝北，朝我方的一面有牆擋），中段有擋視線的岩塊（Alan 2026-10-11：攻方要有壓力）
-    const nests = []; for (let i = 0; i < 6 && nests.length < 3; i++) { const c = {x: 4 + Math.floor(R() * (N - 8)), y: 4 + Math.floor(R() * 5)}; if (nests.some(q => Math.abs(q.x - c.x) < 6)) continue; nests.push(c); }
+    const nests = []; for (let i = 0; i < 6 && nests.length < 3 && tk.type !== 'pursuit'; i++) { const c = {x: 4 + Math.floor(R() * (N - 8)), y: 4 + Math.floor(R() * 5)}; if (nests.some(q => Math.abs(q.x - c.x) < 6)) continue; nests.push(c); }
     for (const c of nests) { for (let x = c.x - 2; x <= c.x + 2; x++) low(x, c.y + 1, 'y'); low(c.x - 3, c.y, 'x'); low(c.x + 2, c.y, 'x'); low(c.x - 3, c.y + 1, 'x'); low(c.x + 2, c.y + 1, 'x');
       for (let y = c.y; y <= c.y + 1; y++) for (let x = c.x - 2; x <= c.x + 2; x++) { spots.push({x, y}); spots.push({x, y}); } }
     // 擋視線：中段兩排斷斷續續的岩塊（短牆），留幾個缺口
     for (const y of [10 + Math.floor(R() * 2), 15 + Math.floor(R() * 2)]) for (let x = 2; x < N - 2; x++) if (R() < .45 && !nests.some(c => Math.abs(c.y - y) <= 2 && Math.abs(c.x - x) <= 3)) wall(x, y);
     walls(9, any); covers(12, any);
-    for (let y = 3; y < 13; y++) for (let x = 2; x < N - 2; x++) if (R() < .08) spots.push({x, y});
+    if (tk.type === 'pursuit') { for (let y = N - 9; y < N - 1; y++) for (let x = 2; x < N - 2; x++) if (R() < .12) spots.push({x, y}); }   // 撤離追兵：追兵在後面（南邊），撤離點在北邊
+    else for (let y = 3; y < 13; y++) for (let x = 2; x < N - 2; x++) if (R() < .08) spots.push({x, y});
   }
+  if (layout === 'ring' && tk.type === 'breakdown') for (const dx of [-1, 0, 1]) props.push({id: `${floor}-truck-${props.length}`, x: mid + dx, y: mid + 2, type: 'cover', hp: 260, maxHp: 260});   // 拋錨守車：據點中間停著壞掉的車
   // 目標點＋撤離：撤離點就在出發的地方（從哪裡摸進來就從哪裡出去）
-  if (PLANT[tk.type]) { end.x = mid; end.y = N - 2; }
+  if (PLANT[tk.type] && !CLEAR[tk.type]) { end.x = mid; end.y = N - 2; }
   // 補給：幾個彈藥、醫療包、手榴彈散在地上
   for (const [type, amount] of [['ammo', 60], ['med', 1], ['grenade', 1], ['ammo', 40]]) for (let i = 0; i < 30; i++) {
     const x = 2 + Math.floor(R() * (N - 4)), y = 3 + Math.floor(R() * (N - 8)); if (!free(x, y) || trench[y][x]) continue; items.push({x, y, type, amount, floor}); taken.add(key(x, y)); break;
@@ -126,5 +142,5 @@ export function outdoorMap(tk, floor = 1) {
   return {map: {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items, props, hazards: [], marks: [], barriers,
     cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'chimera-outdoor-v2'}, lighting: light, slots: [], lamps: [], lightModel: 2},
     spots: enemySpots, style: `chimera-${bio.wall}-${lowArt}`,
-    outdoor: {layout, biome: tk.biome || '', goal: tk.type === 'transit' ? 'exit' : PLANT[tk.type] ? 'plant' : layout === 'ring' ? 'hold' : 'kill', plantN: PLANT[tk.type] || 0, holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
+    outdoor: {layout, biome: tk.biome || '', goal: EXIT.has(tk.type) ? 'exit' : PLANT[tk.type] ? 'plant' : layout === 'ring' ? 'hold' : 'kill', plantN: PLANT[tk.type] || 0, plantAt, clear: CLEAR[tk.type] || null, waveFrom: tk.type === 'pursuit' ? 'south' : null, holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
 }

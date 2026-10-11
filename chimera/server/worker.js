@@ -229,7 +229,7 @@ export class Planet extends DurableObject {
 // 測試場的任務：隨機種子、四名 3 級隊員（學會兵種技能）、一隊混編的敵人；夜間、頭目可選
 const ARENA_CLS = ['soldier', 'recon', 'bulwark', 'berserker'], ARENA_FACES = ['ember', 'onyx', 'silver', 'cedar'];
 // 戰鬥類型（cases.js 的服務單類型）與生態（sim.js 的 BIOMES）：測試場可以選，戶外地圖照這兩個產生（chimera-outdoor.js）
-const ARENA_TYPES = ['ambush', 'native', 'intercept', 'transit', 'assault', 'hold', 'trench', 'sabotage', 'probe', 'clear'];
+const ARENA_TYPES = ['ambush', 'native', 'intercept', 'transit', 'assault', 'hold', 'trench', 'sabotage', 'probe', 'clear', 'barricade', 'ied', 'breakdown', 'patrol', 'checkpoint', 'pursuit', 'cordon', 'demo'];
 const ARENA_BIOMES = ['鹼灘', '斷崖', '岩山', '礫丘', '寒漠', '油棘林', '旱原', '沙海', '鹽沼', '總督府'];
 // 敵方（Alan 2026-10-09，cases.js 的兵種表）：不選就照類型（原住民襲擊→根者、勢力戰→正規軍、其餘→掠奪者）
 const ARENA_SIDES = {raider: {scav: 4, shotgun: 1, thug: 1}, hive: {infected: 2, infected_rifle: 1, hound: 2, larva: 2, spitter: 1}, native: {warrior: 4, hunter: 1, dog: 2},

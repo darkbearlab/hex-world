@@ -366,6 +366,14 @@ const TYPES = {
   sweep:     {n: '搜捕密探', night: .5, obj: [['clear', '抓到密探', 3], ['nolose', '全員生還', 1]]},
   guard:     {n: '護衛要地', night: .6, obj: [['hold', '守住目標', 3], ['nolose', '全員生還', 1]]},
   raidcv:    {n: '攔截商隊', night: .3, obj: [['take', '攔下商隊', 3], ['nolose', '全員生還', 1]]},
+  // 服務單的多樣性（Alan 2026-10-11）：黑單的接近（巡邏、檢查哨）與撤離（追兵、封鎖線）；護送的路障、路邊炸彈、拋錨守車
+  patrol:    {n: '巡邏遭遇', night: .6, obj: [['repel', '打退巡邏隊', 2], ['out', '全身而退', 2]]},
+  checkpoint:{n: '檢查哨', night: .5, obj: [['break', '拔掉檢查哨', 2], ['nolose', '不留下自己人', 2]]},
+  pursuit:   {n: '撤離追兵', night: .6, obj: [['through', '撤到撤離點', 3], ['nolose', '不留下自己人', 2]]},
+  cordon:    {n: '突破封鎖線', night: .4, obj: [['through', '衝過封鎖線', 3], ['nolose', '不留下自己人', 2]]},
+  barricade: {n: '清除路障', night: .3, obj: [['protect', '拆掉路障', 3], ['nolose', '全員生還', 1]]},
+  ied:       {n: '路邊炸彈', night: .2, obj: [['protect', '排除炸彈', 3], ['nolose', '全員生還', 1]]},
+  breakdown: {n: '拋錨守車', night: .4, obj: [['protect', '守住車隊', 3], ['nolose', '全員生還', 1]]},
   drill:     {n: '掃蕩流寇', night: .2, obj: [['clear', '擊退流寇', 3], ['nolose', '全員生還', 1]]},
   hunting:   {n: '狩獵', night: 0, obj: [['clear', '打穿這一層', 3], ['nolose', '全員生還', 1]]},
   harass:    {n: '騷擾者', night: .6, obj: [['repel', '趕走騷擾的人', 2], ['nolose', '全員生還', 1]]},
@@ -374,7 +382,26 @@ const TYPES = {
 const SHADOW_TICKETS = {暗殺: ['scout', 'post', 'heist'], 綁架: ['scout', 'post', 'heist', 'smuggle'], 煽動: ['smuggle', 'rally', 'armory'], 收買: ['smuggle', 'scout'],
   資助匪幫: ['gunrun'], 破壞: ['scout', 'demo'], 嫁禍: ['flag'], 斷水: ['scout', 'well']};
 export const SOLO = new Set(['drill', 'hunting', 'security']);   // 各公司各開各的、打完就結算的案件
-export const SHADOW_TYPES = new Set(['scout', 'post', 'heist', 'smuggle', 'rally', 'armory', 'gunrun', 'demo', 'flag', 'well', 'sweep', 'guard']);
+export const SHADOW_TYPES = new Set(['scout', 'post', 'heist', 'smuggle', 'rally', 'armory', 'gunrun', 'demo', 'flag', 'well', 'sweep', 'guard', 'patrol', 'checkpoint', 'pursuit', 'cordon']);
+// 黑單分三段（Alan 2026-10-11）：案期前三成是接近、最後兩成是撤離，中間動手。PHASE 是接近、撤離的單（成功只算一部分，主要影響警戒度）
+const PHASE = new Set(['patrol', 'checkpoint', 'pursuit', 'cordon']);
+// 護送的特殊遭遇：base 是原本會碰到的（掠奪者、原住民、攔截），敵人照 base 產生
+const ROAD = new Set(['barricade', 'ied', 'breakdown']);
+// 開打前的情境（兩三句）。{p} 地名、{e} 敵人
+const INTRO = {
+  ambush: ['車隊在{p}放慢速度，路邊的廢車後面有人影晃動。', '{p}的彎道視線很差。前車的駕駛剛喊出聲，槍聲就響了。'],
+  native: ['{p}的岩縫裡傳出哨音，一聲接一聲。{e}從高處衝下來了。', '車隊經過{p}時，路上插滿了骨飾。這是警告，也是宣戰。'],
+  intercept: ['{e}的部隊在{p}攔路，要車隊停車受檢。沒有人打算停。', '無線電裡傳來{e}的口令：「前方車隊，原地停下。」'],
+  barricade: ['前車急煞。{p}的路中央橫著幾台還在冒煙的車殼，後面拉了拒馬。這不是意外，是有人在等你們。', '{p}的路被堵死了：焚毀的卡車、鐵絲、拒馬。兩側的坡上有反光。'],
+  ied: ['前導車的駕駛停下來，指著{p}路面上一塊新翻過的土。「不只一個。」', '{p}的路肩上有不該出現的電線。有人在這條路上埋了東西，而且知道車隊會經過。'],
+  breakdown: ['{p}，主車的引擎冒出黑煙，整個車隊停在路中央。修好之前哪裡都去不了。', '車軸在{p}斷了。修車的人說要一段時間，遠處已經揚起了塵土。'],
+  patrol: ['摸向{p}的路上，前面傳來腳步聲和閒聊。{e}的巡邏隊，比預期的早。', '{p}外圍。一隊{e}的巡邏兵正朝這邊走過來。'],
+  checkpoint: ['通往{p}的路上，{e}設了一道檢查哨。繞不過去，只能拔掉。', '{p}前的檢查哨亮著燈，哨兵比情報說的多。'],
+  pursuit: ['任務完成了，但{p}的警報響徹整片地。{e}的追兵從後面湧上來，撤離點在前方。', '身後的{p}一片火光。{e}的人一路追了上來。'],
+  cordon: ['{e}在{p}一帶拉起了封鎖線。要回去，就得衝過去。', '撤離路線被{e}堵住了。{p}的封鎖線後面是唯一的出路。'],
+};
+// 打贏後的一句收尾（通知裡）
+export const OUTRO = {barricade: '路障拆了，車隊重新上路。', ied: '炸彈都排除了，車隊慢慢通過。', breakdown: '車修好了，車隊重新上路。', pursuit: '甩掉了追兵，全員撤出。', cordon: '衝過了封鎖線。', checkpoint: '檢查哨拔掉了，路通了。', patrol: '巡邏隊打退了，沒有驚動更多人。'};
 
 // 路上某一格會碰到誰：交戰勢力的地盤是攔截，附近有原住民是原住民，其餘是掠奪者
 function eventAt(c, w, t) {
@@ -384,13 +411,18 @@ function eventAt(c, w, t) {
   return g ? {type: 'native', tile: t, gang: g.id} : {type: 'ambush', tile: t};
 }
 
-function drawType(book, c, w) {
+function drawType(book, c, w, now) {
   const K = w.sim.peek(), P = w.sim.pmc;
   if (c.kind === 'route') {
     // 在路上挑一格：掠奪者越多越容易出事；碰到交戰勢力的地盤就是攔截
     const tw = c.path.map(t => K.bandit[t] + 4 + (c.fac >= 0 && K.owner[t] >= 0 && P.atWar(K.owner[t], c.fac) ? 40 : 0));
     let r = rng(book) * tw.reduce((x, y) => x + y, 0), i = 0; for (; i < tw.length - 1 && r > tw[i]; i++) r -= tw[i];
-    return eventAt(c, w, c.path[i]);
+    const ev = eventAt(c, w, c.path[i]);
+    // 特殊遭遇（Alan 2026-10-11）：偶爾是路障、路邊炸彈、拋錨守車；長約跑同一條路越多趟，越常被刻意針對（路障、炸彈、伏擊變強）
+    const runs = c.contract ? ((book.contracts || []).find(k => k.id === c.contract)?.runs || 0) : 0, tgt = Math.min(.45, Math.max(0, runs - 2) * .06);
+    if (rng(book) < .12 + tgt) { ev.base = ev.type; ev.type = pickOf(book, ['barricade', 'barricade', 'ied', 'breakdown']); }
+    if (tgt && rng(book) < tgt) ev.targeted = true;
+    return ev;
   }
   if (c.kind === 'front') {
     const W = P.war(c.fac, c.foe), atk = W && W.att === c.fac, tr = K.trench[c.tile] || 0;
@@ -399,7 +431,13 @@ function drawType(book, c, w) {
     return {type: opts[k][0], tile: c.tile, foe: c.foe};
   }
   if (c.kind === 'garrison') return {type: 'probe', tile: c.tile, foe: c.foe};
-  if (c.kind === 'shadow') return {type: pickOf(book, c.side === 'def' ? ['sweep', 'sweep', 'guard'] : SHADOW_TICKETS[c.opName] || ['scout']), tile: c.tile, foe: c.foe};
+  if (c.kind === 'shadow') {
+    if (c.side === 'def') return {type: pickOf(book, ['sweep', 'sweep', 'guard']), tile: c.tile, foe: c.foe};
+    // 三段＋警戒度：警戒越高，動手階段也越常撞上巡邏
+    const f = (now - c.start) / Math.max(1, c.end - c.start), a = c.alert || 0;
+    const type = f < .3 ? pickOf(book, ['patrol', 'patrol', 'checkpoint']) : f > .8 ? pickOf(book, ['pursuit', 'pursuit', 'cordon']) : rng(book) < a / 250 ? 'patrol' : pickOf(book, SHADOW_TICKETS[c.opName] || ['scout']);
+    return {type, tile: c.tile, foe: c.foe};
+  }
   if (c.kind === 'privateer') return {type: 'raidcv', tile: c.tile, foe: c.foe};
   if (c.kind === 'security') return {type: 'harass', tile: c.tile};
   if (c.kind === 'hunt') return {type: 'clear', tile: c.tile, gang: c.gang};
@@ -516,10 +554,12 @@ function unitsOf(book, side, power, cloneShare, type, cap = 14) {
 }
 
 function issue(book, w, c, now) {
-  const ev = drawType(book, c, w); if (!ev) return null;
+  const ev = drawType(book, c, w, now); if (!ev) return null;
   const T = TYPES[ev.type], K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
-  const enemy = enemyOf(book, w, c, ev);
-  const tk = {id: 'T' + book.nextId++, caseId: c.id, type: ev.type, title: `${T.n}：${nm(ev.tile)}`, tile: ev.tile,
+  const scale = (c.kind === 'shadow' && c.side === 'att' ? 1 + (c.alert || 0) / 250 : 1) * (ev.targeted ? 1.25 : 1) * (ev.type === 'ied' ? .7 : ev.type === 'breakdown' ? 1.2 : 1);
+  const enemy = enemyOf(book, w, c, ev.base ? {...ev, type: ev.base} : ev, scale !== 1 ? {scale} : {});
+  const I = INTRO[ev.type] || INTRO[ev.base], intro = I ? pickOf(book, I).replaceAll('{p}', nm(ev.tile)).replaceAll('{e}', enemy.name) + (ev.targeted ? '對方像是早就摸清了車隊的路線。' : '') : null;
+  const tk = {id: 'T' + book.nextId++, caseId: c.id, type: ev.type, ...(ev.base ? {base: ev.base} : {}), ...(ev.targeted ? {targeted: true} : {}), ...(intro ? {intro} : {}), title: `${T.n}${ev.targeted ? '（埋伏）' : ''}：${nm(ev.tile)}`, tile: ev.tile,
     biome: BIOMES[K.biome[ev.tile]]?.n || '', night: rng(book) < T.night, trench: +(K.trench[ev.tile] || 0).toFixed(2), enemy,
     objectives: T.obj.map(([k, text, pts]) => ({k, text, pts: pts * c.lv})), born: now, squad: null, player: null, issued: -1, deadline: -1, done: false};
   if (c.kind === 'route') { const left = []; for (let i = 0; i < c.convoys; i++) if (!c.lostConvoys.includes(i)) left.push(i); tk.convoy = pickOf(book, left); }
@@ -753,15 +793,15 @@ function bossOutcome(book, w, tk, res, player, now) {
 // ===== 寫回沙盒 =====
 function writeBack(book, w, c, tk, win, gearLost, now) {
   const K = w.sim.peek(), P = w.sim.pmc, t = tk.tile;
-  const nb = t => NBR[t].filter(n => n >= 0);
-  if (tk.type === 'ambush' || tk.type === 'native' || tk.type === 'intercept') {
-    if (win) { if (tk.type !== 'intercept') { K.bandit[t] = Math.max(0, K.bandit[t] - (5 + 3 * c.lv)); for (const n of nb(t)) K.bandit[n] = Math.max(0, K.bandit[n] - 2); } else P.aid(c.fac, 3); }
+  const nb = t => NBR[t].filter(n => n >= 0), ty = ROAD.has(tk.type) ? tk.base || 'ambush' : tk.type;
+  if (ty === 'ambush' || ty === 'native' || ty === 'intercept') {
+    if (win) { if (ty !== 'intercept') { K.bandit[t] = Math.max(0, K.bandit[t] - (5 + 3 * c.lv)); for (const n of nb(t)) K.bandit[n] = Math.max(0, K.bandit[n] - 2); } else P.aid(c.fac, 3); }
     else {
       K.bandit[t] = Math.min(100, K.bandit[t] + 3);
       if (c.cargo && tk.convoy !== undefined && !c.lostConvoys.includes(tk.convoy)) {
         c.lostConvoys.push(tk.convoy);
         const v = c.cargo.amt / c.convoys * (c.cargo.val ?? BASEP[c.cargo.g] ?? 1);
-        if (tk.type === 'intercept') { const m = K.markets[Object.keys(K.markets).map(Number).filter(x => K.owner[x] === tk.enemy.fac).sort((a, b) => hdist(a, t) - hdist(b, t))[0]]; if (m && m.stock[c.cargo.g] !== undefined) m.stock[c.cargo.g] += c.cargo.amt / c.convoys; }
+        if (ty === 'intercept') { const m = K.markets[Object.keys(K.markets).map(Number).filter(x => K.owner[x] === tk.enemy.fac).sort((a, b) => hdist(a, t) - hdist(b, t))[0]]; if (m && m.stock[c.cargo.g] !== undefined) m.stock[c.cargo.g] += c.cargo.amt / c.convoys; }
         else P.drop(t, v);   // 被搶走的貨：附近的人馬撿去坐大
       }
     }
@@ -781,7 +821,10 @@ function writeBack(book, w, c, tk, win, gearLost, now) {
   else if (c.kind === 'shadow' && SHADOW_TYPES.has(tk.type)) {
     // 成功一張＝難度（案件等級）×等級加成；曝光：警報（輸）、留下屍體、派太多人、放著讓雇主自動結算（Alan 2026-10-11 DESIGN）
     const sq = book.squads[tk.squad], L = sq ? sq.clones.filter(x => x.alive || (tk.dead || []).includes(x.id)) : [], lvA = L.length ? L.reduce((s, x) => s + (x.lv || 1), 0) / L.length : 1;
-    const s = win ? (.6 + .2 * c.lv) * (1 + (lvA - 1) * .08) : 0;
+    const nd = (tk.dead || []).length, ph = PHASE.has(tk.type);
+    // 警戒度（0～100，所有接案的人共用）：接近、撤離打得難看就升高、乾淨就降低；動手失手也會升高。警戒越高，成功的分量越少
+    if (c.side === 'att') { const d = ph ? (win && !nd ? -6 : 8 + 4 * nd) : !win ? 6 + 3 * nd : nd ? 3 : -3; c.alert = Math.max(0, Math.min(100, (c.alert || 0) + d)); }
+    const s = win ? (.6 + .2 * c.lv) * (1 + (lvA - 1) * .08) * (ph ? .4 : 1) * (c.side === 'att' ? 1 - (c.alert || 0) / 400 : 1) : 0;
     if (c.side === 'def') { if (win) { P.shadowAid(c.op, 'def', s, 0, tk.player); if (tk.player) pay(book, now, tk.player, 4 * c.lv, 'shadow', `${tk.title}：緝拿報酬`, c.id); } }
     else if (tk.player) {
       const left = win ? 0 : (tk.dead || []).length, e = (.005 + (win ? 0 : .025) + .015 * left + .003 * Math.max(0, L.length - 2) + (tk.auto ? .005 : 0)) * (tk.night ? .8 : 1);
