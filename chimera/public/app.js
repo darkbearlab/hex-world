@@ -349,8 +349,8 @@ function sortieCard(u, i, j) {
   return `<div class="scard full${open ? ' gopen' : ''}">
     <div class="sart" data-smenu="${i}:${j}" title="點一下：換人、編輯裝備"><img class="sface" src="${face(c)}" alt=""><img class="sfull" src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"></div>
     ${sortie.menu?.[0] === i && sortie.menu?.[1] === j ? `<div class="smenu"><button data-slot="${i}:${j}">換人</button><button data-sgear="${u}">編輯裝備</button><button data-sinfo="${u}">看資料</button></div>` : ''}
-    <div class="sname"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b> <span class="mini">${c.id}・${CLS[c.cls].n}・${c.lv || 1} 級</span></div>
-    <div class="sgear">${gear}</div>
+    <div class="sinfo"><div class="sname"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b> <span class="mini">${c.id}・${CLS[c.cls].n}・${c.lv || 1} 級</span></div>
+    <div class="sgear">${gear}</div></div>
     <button class="sgtog" data-sg="${u}">${open ? '收起裝備 ▴' : '裝備 ▾'}</button>
     <button class="sx" data-sx="${i}:${j}" aria-label="拿掉">✕</button></div>`;
 }
