@@ -78,7 +78,7 @@ export class Core {
   open() {
     if (this.game) return;
     let seed = 7; for (const ch of String(this.seed)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: SEASONAL_YEAR_DAYS, seasonal: true};
+    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: SEASONAL_YEAR_DAYS, seasonal: true, mig: {gar1011: true, hq1012: true, east1012: true}};   // 新開的星球：舊存檔的轉換、東方謠言都不用補跑
     this.log = [{h: 0, year: this.sim.year, cmd: {type: 'open'}}];
     this.sim.setCampaigns(true);   // 大戰役只在照小時推進時開
   }
@@ -323,6 +323,7 @@ export class Core {
     return {sites: (b.sites || []).map(s => ({tile: s.tile, kind: s.kind, lv: s.lv, title: s.title, hint: s.hint, taken: (t => t && h - t.h < G.SITE_CD ? t.co : null)(b.siteTaken?.[s.tile])})),
       events: (b.events || []).filter(e => h >= e.start && h < e.end && !e.taken).map(e => ({id: e.id, tile: e.tile, kind: e.kind, title: e.title, hint: e.hint, end: e.end})),
       // 此地（Alan 2026-10-12：改在戰略地圖的地點分頁看）：每一格的留言、停在哪一格的公司，點哪一格就看哪一格
+      rumor: (R => R ? {tile: R.tile, place: w.names[R.tile] || '', y: R.y} : null)(this.sim.rumor),   // 東方謠言：傳聞中的舊星艦維修站（地圖上的紅★）
       notes: (b.notes || []).slice(-200), bases: Object.values(this.game.cos).filter(x => x !== g).map(x => ({name: x.name, tile: x.base, npc: !!x.npc, n: x.roster.filter(c => c.alive).length})),
       deals: (b.deals || []).map(d => ({id: d.id, tile: d.tile, kind: d.kind, title: d.title, cost: d.cost, open: d.open, close: d.close, left: d.slots - d.buyers.length, mine: d.buyers.includes(g.name), place: w.names[d.tile] || ''}))};
   }
@@ -438,6 +439,24 @@ export class Core {
     return '不認得的指令';
   }
 
+  // ===== 東方謠言（Alan 2026-10-12，warband/DESIGN.md「東邊有沒有救」）=====
+  // 這顆星球（種子 奇美拉-1、60×48）專用：東邊低地一條從北往南流進東南海的大河，從西南沿南邊到東北每 5～6 格一個綠洲當跳板；
+  // 大河中段傳出有一座舊星艦維修站。被吸引的勢力（35 格內有城）當場各派兩支遠征隊沿跳板立前哨，之後每年 30% 的機會繼續往東。只發生一次（g.mig.east1012）
+  eastRumor() {
+    const w = this.w, W = S.W, H = S.H, game = this.game; if (this.seed !== '奇美拉-1' || W !== 60 || H !== 48 || !game) return null;
+    const at = (q, r) => r * W + q, NB = i => { const r = Math.floor(i / W), q = i % W, d = (r & 1) ? [[1, 0], [1, -1], [0, -1], [-1, 0], [0, 1], [1, 1]] : [[1, 0], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1]], o = []; for (const [dq, dr] of d) { const a = q + dq, b = r + dr; if (a >= 0 && a < W && b >= 0 && b < H) o.push(b * W + a); } return o; };
+    // 大河：從東北的高處沿最低的谷地（成本＝1＋高度×4）走到東南第一格海
+    const src = at(52, 7), isMouth = t => !w.land[t] && Math.floor(t / W) >= 32 && t % W >= 46, dist = new Map([[src, 0]]), prev = new Map(), Q = [[0, src]]; let dst = -1;
+    while (Q.length) { Q.sort((a, b) => a[0] - b[0]); const [d0, u] = Q.shift(); if (isMouth(u)) { dst = u; break; } if (d0 > dist.get(u)) continue; for (const n of NB(u)) { if (!w.land[n] && !isMouth(n)) continue; const nd = d0 + 1 + w.elev[n] * 4; if (nd < (dist.get(n) ?? 1e9)) { dist.set(n, nd); prev.set(n, u); Q.push([nd, n]); } } }
+    const big = [dst]; while (prev.has(big[0])) big.unshift(prev.get(big[0]));
+    const stones = [[17, 38], [23, 40], [29, 41], [34, 40], [40, 39], [45, 37], [49, 34], [51, 29], [53, 24], [54, 18]].map(([q, r]) => at(q, r)).filter(t => w.land[t]).map(t => { const n = NB(t).find(x => w.land[x] && !w.river[x]); return n != null ? [t, n] : [t]; });
+    this.sim.addRivers([big, ...stones]);
+    const tile = at(54, 22), nm = t => w.names[t] || '荒野', K = this.sim.peek();
+    const made = this.sim.rumorStart({tile, reach: 35, opr: .3, pull: .5, first: 2, text: `沙暴過後，東邊的舊河道又有水流出來，南邊一路冒出好幾口泉眼。走過東邊的行商說，大河中段的${nm(tile)}一帶露出了舊時代的鋼骨，像是一座舊星艦的維修站——對廢土的人來說，那是能改變一切的東西。`}, this.sim.year);
+    const fn = f => K.fac[f]?.n || '某勢力', text = `傳聞：東邊大河中段的${nm(tile)}一帶，可能有一座舊星艦的維修站。南邊冒出一串泉眼，東邊的舊河道復流了；${made.length ? `${[...new Set(made.map(x => fn(x.f)))].join('、')}已經派出遠征隊，在${made.map(x => nm(x.t)).join('、')}立起前哨` : '還沒有勢力動身'}。地圖上的紅★是傳聞的地點。`;
+    for (const name of Object.keys(game.cos)) game.book.inbox.push({t: game.h, player: name, kind: 'war', text, ref: null});
+    return {river: big.length, stones: stones.length, made};
+  }
   // 搶購（2026-10-12）：基地停在那座城、開賣時間內、名額還有、還沒買過
   deal(g, id) {
     const b = this.game.book, h = this.game.h, d = (b.deals || []).find(x => x.id === id); if (!d) return '這筆已經結束了';
@@ -528,6 +547,8 @@ export class Core {
           delete co.rover;
           (co.log ||= []).push({h: g.h ?? 0, text: '移動基地上線：整家公司跟著基地走，原本的 Rover 併進基地（升級留著），多送一台運兵車（共 3 台）。'}); } }
       for (const sq of Object.values(g.book.squads)) { const co = g.cos[sq.player]; if (!co) continue; sq.meet ??= co.base; if (sq.van == null && (sq.caseId || sq.column) && sq.garrison == null) sq.van = true; } }   // 舊規則派出去的駐軍不佔車（照舊駐著；撤回時也不收油錢）
+    // 東方謠言（2026-10-12）：上線後第一次讀檔時發生一次
+    if (!mig.east1012) { mig.east1012 = true; this.eastRumor(); }
     // 舊存檔（2026-10-12）：易主遺體帶來的裝備跟倉庫撞號的，重新發號
     for (const co of Object.values(g.cos)) G.reidItems(co, g.book);
     // 舊存檔（Alan 2026-10-11）：補上錫冠、鉛冠

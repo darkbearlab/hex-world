@@ -40,7 +40,7 @@ ok(g.base === parkAt && G.parked(g), `基地到了（${c.w.names[g.base]}）`);
 const e2 = c.boardView(N).find(e => e.tile === spot.tile && e.kind === spot.kind);
 ok(e2?.here, '委託板標示基地在現場');
 ok(cmd({type: 'accept', kind: spot.kind, tile: spot.tile, side: '', uids: home().slice(0, 8)}) === null, '基地在現場：一次派八個人（兩隊）');
-const sqs = Object.values(c.game.book.squads).filter(s => s.player === N && s.caseId && c.game.book.cases.find(k => k.id === s.caseId)?.tile === spot.tile);
+const spotCase = g.cases.at(-1), sqs = Object.values(c.game.book.squads).filter(s => s.player === N && s.caseId === spotCase);   // 剛接下的案件（案件的地點不一定是委託那一格，例如私掠許可）
 ok(sqs.length === 2 && sqs.every(s => !s.van), `兩隊、都不佔車（${sqs.map(s => s.van).join(',')}）`);
 
 // 4. 集合點：基地開走，回來的人在集合點等；基地回來就上車

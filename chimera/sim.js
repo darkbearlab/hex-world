@@ -298,6 +298,26 @@ function createSim(w,rand,pick){
     for(const o of ops){if(o.state==='pending'&&frac>=o.dueF){o.state='open';if(o.at===undefined&&fac[o.b]?.alive){o.at=opTarget(o.b,o.op);if(o.at!=null)o.tile=o.at}}   // 舊存檔的行動：公開時補上目標城（Alan 2026-10-11）
      else if(o.state==='open'&&!o.detected&&rand()<.06)detect(o,y)}
     ops=ops.filter(o=>o.state!=='done'||!o.handled||y-o.y<2)}
+  // ===== 東方謠言、後來冒出的河（Alan 2026-10-12，warband/DESIGN.md「東邊有沒有救」）=====
+  // rumor：{tile,reach,opr,pull,y,text}（存檔）；globalThis.RUMOR 是實驗用的（stats/river-exp.mjs）。有城在謠言地點 reach 格內的勢力被吸引：
+  // 遠行的機率變成 opr，而且只往謠言的方向立村（新聚落要比自己最近的城更靠近那裡），越近分數越高。都沒有就跟原本一模一樣（亂數的順序也一樣）
+  // extraRivers：開服之後才冒出來的河（存檔；地形不存，讀檔時照這份補回 river、產水，肥沃度本來就有存）
+  let rumor=null,extraRivers=[];
+  function rumorPull(f){const RM=rumor||globalThis.RUMOR||null;let dR0=99;if(RM)for(const k in markets)if(owner[+k]===f.id)dR0=Math.min(dR0,hdist(+k,RM.tile));return {RM,dR0,pull:!!RM&&dR0<=(RM.reach??35)}}
+  // 一次遠行：照原本的規則挑一格（有河或靠海、離自己的城 5～9 格、離任何城至少 3 格），挑到就立村；lead＝謠言事件當下派出的第一波遠征
+  function pioneerPick(f,y,P,lead){const {RM,dR0,pull}=P;const own=Object.keys(markets).map(Number).filter(t=>owner[t]===f.id);if(!own.length)return -1;
+    let best=-1,bs=0;for(let i=0;i<N;i++){if(!land[i]||owner[i]>=0||bandit[i]>=30||!(river[i]||w.coast[i]))continue;if(pull&&hdist(i,RM.tile)>=dR0)continue;let d=99;for(const t of own)d=Math.min(d,hdist(i,t));if(d<(globalThis.OPD??5)||d>(globalThis.OPD??5)+4)continue;let dm=99;for(const t in markets)dm=Math.min(dm,hdist(i,+t));if(dm<(globalThis.TSP??3))continue;
+      const sc=fert[i]+(river[i]?.3:0)-d*.03+rand()*.2+(pull?(RM.pull??.5)*(dR0-hdist(i,RM.tile))/5:0);if(sc>bs){bs=sc;best=i}}
+    if(best>=0&&bs>.7){owner[best]=f.id;pop[best]=30*(globalThis.WSCALE??1e4);peak[best]=30*(globalThis.WSCALE??1e4);town[best]=1;markets[best]=newMarket();
+      say(y,'found',lead?`${f.n}聽了東邊的傳聞，派出遠征隊沿著新冒出來的水源往東走，在${nm(best)}打了井，立起前哨。`:`${f.n}的拓荒者走得很遠，在${nm(best)}打了井，立起新的聚落。`,best);return best}
+    return -1}
+  function riverOn(p,fresh){for(const t of p){if(!land[t]||river[t])continue;river[t]=1;if(fresh)fert[t]=Math.min(1.3,fert[t]+.35);w.water[t]=Math.min(1.2,w.water[t]+.4);waterK[t]=Math.min(1.3,waterK[t]+.6)}}
+  function addRivers(paths){for(const p of paths){extraRivers.push(p.slice());riverOn(p,true)}refreshCE()}
+  // 謠言出現：記下來（之後每年照 rumorPull 走），被吸引的勢力當場各派 R.first 支遠征隊（近的先）；回傳立起來的前哨
+  function rumorStart(R,y0){rumor={tile:R.tile,reach:R.reach??35,opr:R.opr??.3,pull:R.pull??.5,y:y0,text:R.text||''};if(R.text)sagaSay(y0,R.text,R.tile);
+    const F=fac.filter(f=>f.alive&&f.pop>=300*(globalThis.WSCALE??1e4)).map(f=>[f,rumorPull(f)]).filter(([,P])=>P.pull).sort((a,b)=>a[1].dR0-b[1].dR0),made=[];
+    for(const [f] of F)for(let k=0;k<(R.first??2);k++){const t=pioneerPick(f,y0,rumorPull(f),true);if(t<0)break;made.push({t,f:f.id})}
+    return made}
   function resolveOp(id){const o=ops.find(x=>x.id===id);if(!o||o.state!=='open')return null;o.state='done';const y=histY||curY;
     if(!fac[o.a].alive||!fac[o.b].alive){o.res={ok:false,caught:false,gone:true};return o}
     const r=runOp(o.a,o.b,o.op,Math.max(0,o.S-o.D),y,o.hot,'黑單',o.keep,o.at??null);o.res={...r,S:o.S,D:o.D};
@@ -1135,13 +1155,8 @@ function createSim(w,rand,pick){
         if(best>=0){owner[best]=owner[i];yf[best]=yf[i];pop[best]=12*(globalThis.WSCALE??1e4);pop[i]-=10*(globalThis.WSCALE??1e4);
           if(ruin[best]){ruin[best]=0;say(y,'found',`${fac[owner[i]].n}的拓荒者回到${nm(best)}的廢墟。`,best)}}}}
     // 拓殖限制開啟時：偶爾有人遠行，在 4–7 格外有水的地方另立一座新市鎮（新的綠洲）
-    // 謠言（實驗用，Alan 2026-10-12：東邊有舊星艦維修站的謠言）：globalThis.RUMOR={tile,reach,opr,pull} 才有作用，沒設就跟原本一模一樣（亂數的順序也一樣）。
-    // 有城在謠言地點 reach 格內的勢力被吸引：遠行的機率變成 opr，而且只往謠言的方向立村（新聚落要比自己最近的城更靠近那裡），越近分數越高
-    if(COLR<99)for(const f of fac){if(!f.alive||f.pop<300*(globalThis.WSCALE??1e4))continue;const RM=globalThis.RUMOR;let dR0=99;if(RM)for(const k in markets)if(owner[+k]===f.id)dR0=Math.min(dR0,hdist(+k,RM.tile));const pull=!!RM&&dR0<=(RM.reach??35);
-      if(rand()>(pull?RM.opr??.3:(globalThis.OPR??.06)))continue;const own=Object.keys(markets).map(Number).filter(t=>owner[t]===f.id);if(!own.length)continue;
-      let best=-1,bs=0;for(let i=0;i<N;i++){if(!land[i]||owner[i]>=0||bandit[i]>=30||!(river[i]||w.coast[i]))continue;if(pull&&hdist(i,RM.tile)>=dR0)continue;let d=99;for(const t of own)d=Math.min(d,hdist(i,t));if(d<(globalThis.OPD??5)||d>(globalThis.OPD??5)+4)continue;let dm=99;for(const t in markets)dm=Math.min(dm,hdist(i,+t));if(dm<(globalThis.TSP??3))continue;
-        const sc=fert[i]+(river[i]?.3:0)-d*.03+rand()*.2+(pull?(RM.pull??.5)*(dR0-hdist(i,RM.tile))/5:0);if(sc>bs){bs=sc;best=i}}
-      if(best>=0&&bs>.7){owner[best]=f.id;pop[best]=30*(globalThis.WSCALE??1e4);peak[best]=30*(globalThis.WSCALE??1e4);town[best]=1;markets[best]=newMarket();say(y,'found',`${f.n}的拓荒者走得很遠，在${nm(best)}打了井，立起新的聚落。`,best)}}
+    // 遠行立村（拓殖限制開啟時）：偶爾有人遠行，在 4–7 格外有水的地方另立一座新市鎮。東方謠言（rumorPull）會讓被吸引的勢力更常出發、只往謠言的方向走
+    if(COLR<99)for(const f of fac){if(!f.alive||f.pop<300*(globalThis.WSCALE??1e4))continue;const P=rumorPull(f);if(rand()>(P.pull?P.RM.opr??.3:(globalThis.OPR??.06)))continue;pioneerPick(f,y,P,false)}
     for(let i=0;i<N;i++){if(owner[i]<0||vein[i]>0||(biome[i]!==3&&biome[i]!==4)||rand()>.0006)continue;
       vein[i]=vcap[i]=(120+rand()*280)*(globalThis.WSCALE??1e4);vex[i]=1;known[i]=1;say(y,'econ',`${fac[owner[i]].n}的人在${nm(i)}挖開一座被沙埋住的舊設施，裡面能拆的東西不少。`,i)}
     for(let i=0;i<N;i++){if(owner[i]<0)continue;for(const n of [i,...NBR[i]])if(vein[n]>0&&!known[n]){known[n]=1;say(y,'econ',`${fac[owner[i]].n}的探子在${nm(n)}找到一座舊礦坑。`,n)}}
@@ -1467,13 +1482,14 @@ function createSim(w,rand,pick){
   // ===== 存檔：把整個世界的可變狀態匯出成一個物件，之後原樣讀回 =====
   const MUT={yf,drops,pmcAid,biome,fert,timberK,gameK,timber,game,vein,known,deforest,wall,trench,vcap,vex,owner,pop,bandit,ruin,peak,lastT,town,traffic,famineH};   // traffic、famineH：奇美拉的委託板要（機會層的商路看 traffic），原本沒存，讀檔後歸零
   function exportState(){const o={};for(const k in MUT)o[k]=MUT[k];
-    return {...o,sites,histY,qs,campaigns,campSeq,qd,pact,GR,ops,opSeq,lics,licSeq,fac,events:ev.slice(-20000),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
+    return {...o,sites,histY,qs,campaigns,campSeq,qd,pact,GR,ops,opSeq,lics,licSeq,fac,events:ev.slice(-20000),graves,heroes,battles,nextHero,routeSeen,tension,war,routes,T,curY,live,story,actors,nextId,rng:rand.state(),ownerHist,lastComputed,rumor,extraRivers,markets,carts,caravans,flows,routeTiles:[...routeTiles],robTold,robSeen,stats,bc,front,covet,townNet,gangs,nextGang,legend:{ARC,weapons,saga,aff,houseAff,leagues}}}
   // 奇美拉（伺服器存檔）：JSON 存過的型別陣列會變成普通物件，先轉回陣列再 set；推演到第幾年（histY）也要接上
   function importState(S){for(const k in MUT)if(S[k])MUT[k].set(Array.isArray(S[k])||ArrayBuffer.isView(S[k])?S[k]:Object.values(S[k]));if(S.histY!=null)histY=S.histY;qs=S.qs||0;qd=S.qd||0;if(S.pact)pact=S.pact;if(S.GR)for(let a=0;a<FMAX;a++)if(S.GR[a])GR[a]=Array.from(S.GR[a]);ops=S.ops||[];opSeq=S.opSeq||1;lics=S.lics||[];licSeq=S.licSeq||1;campaigns=S.campaigns||[];for(const k of Object.keys(sites))delete sites[k];Object.assign(sites,S.sites||{});campSeq=S.campSeq||1;
     fac.splice(0,fac.length,...S.fac);ev.splice(0,ev.length,...S.events);graves.splice(0,graves.length,...S.graves);heroes.splice(0,heroes.length,...S.heroes);
     for(const k of Object.keys(routeSeen))delete routeSeen[k];Object.assign(routeSeen,S.routeSeen);
     for(let a=0;a<FMAX;a++){tension[a]=S.tension[a].slice();war[a]=S.war[a].slice()}
     routes=S.routes;T=S.T;curY=S.curY;live=S.live;story=S.story;actors=S.actors;nextId=S.nextId;ownerHist=S.ownerHist||[];lastComputed=S.lastComputed||0;rand.setState(S.rng);
+    rumor=S.rumor||null;extraRivers=S.extraRivers||[];for(const p of extraRivers)riverOn(p,false);   // 後來冒出的河：地形不存，照這份補回
     markets=S.markets||{};if(!S.sites)pickSites();carts=S.carts||[];caravans=S.caravans||[];flows=S.flows||[];routeTiles=new Set(S.routeTiles||[]);robTold=S.robTold??-1;robSeen=S.robSeen||{};Object.assign(stats,S.stats||{});gangs=S.gangs||[];nextGang=S.nextGang||1;battles=S.battles||[];nextHero=S.nextHero||1;
     if(S.legend){const L=S.legend;for(const k of Object.keys(ARC))delete ARC[k];Object.assign(ARC,L.ARC);weapons.splice(0,weapons.length,...L.weapons);saga.splice(0,saga.length,...L.saga);
       for(const o of [aff,houseAff])for(const k of Object.keys(o))delete o[k];Object.assign(aff,L.aff);Object.assign(houseAff,L.houseAff);leagues.splice(0,leagues.length,...(L.leagues||[]))}
@@ -1587,7 +1603,7 @@ function createSim(w,rand,pick){
     trait(f){return rTr(f)},
     drops,pmcAid};
   return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},campaignHour,campaignView,campaignHit,setCampaigns(v){campOn=!!v},
-    campaignOf(id){const c=campaigns.find(x=>x.id===id);return c?{id:c.id,done:!!c.done,win:c.win,att:c.att,def:c.def,tile:c.n,round:c.round,mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),fa:c.FA/c.FA0,fd:c.FD/c.FD0}:null},get year(){return histY},startLive,periodTick,act,exportState,importState,stepDay,get day(){return qd},view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+    campaignOf(id){const c=campaigns.find(x=>x.id===id);return c?{id:c.id,done:!!c.done,win:c.win,att:c.att,def:c.def,tile:c.n,round:c.round,mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),fa:c.FA/c.FA0,fd:c.FD/c.FD0}:null},get year(){return histY},startLive,periodTick,act,exportState,importState,stepDay,addRivers,rumorStart,get rumor(){return rumor},get extraRivers(){return extraRivers},get day(){return qd},view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 

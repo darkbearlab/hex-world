@@ -198,7 +198,7 @@ export class Planet extends DurableObject {
     // 本機開發（DEV=1）才有：讀一份存檔進來，並把這個瀏覽器的身分接到指定的公司（拿線上存檔重現問題用；線上不會有這條）
     if (this.env.DEV === '1' && path === 'dev/import' && req.method === 'POST') {
       this.core.load(body.seed || this.meta.seed, body.save);
-      this.meta.startedAt = Date.now() - this.core.hour * this.hourMs();   // 時鐘對齊存檔的時間（不然會以為落後了很多小時，一次補算好幾分鐘）
+      this.meta.startedAt = Date.now() - this.core.hour * this.hourMs(); this.staticMsg = null; this.ysnap = null;   // 地形（含後來冒出的河）重新送   // 時鐘對齊存檔的時間（不然會以為落後了很多小時，一次補算好幾分鐘）
       if (body.as) { this.roster[pid] = body.as; await this.ctx.storage.put('roster', this.roster); }
       await this.persist(); return json({ok: true, hour: this.core.hour});
     }
