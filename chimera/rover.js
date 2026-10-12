@@ -266,7 +266,11 @@ export function hqView(G, book, w, h) {
     jobs: (R.jobs || []).filter(j => j.state !== 'done' && j.state !== 'failed').map(j => ({...j, toName: nm(j.to), fromName: nm(j.from), d: Math.round(w.sim.pmc.dist(G.base, j.state === 'found' ? j.from : j.to)) || 0})),
     etaH: (() => { const t = R.move ? Math.max(0, R.move.t1 - h) : 0; return +(t + legHours(R.move ? R.move.to : G.base, R.route)).toFixed(2); })(),
     // 之後要開回集合點的人（出勤中的小隊、回程中、在集合點等的）；駐軍不算（撤回時照當下基地的位置）
-    out: Object.values(book.squads).filter(sq => sq.player === G.name && sq.headedHome == null && sq.garrison == null && !sq.guard && (sq.caseId || sq.column)).reduce((n, sq) => n + sq.clones.filter(x => x.alive && x.status === 'away').length, 0) + (G.returning || []).length,
+    // here：集合點就是基地現在這一格（基地不動就會自己回來）；far：集合點在別的地方（要把基地開過去接）
+    out: (() => { const o = {here: 0, far: 0, farAt: []}, add = (to, n) => { if (!n) return; if (hdist(to ?? G.base, G.base) <= 1) o.here += n; else { o.far += n; if (!o.farAt.includes(to)) o.farAt.push(to); } };
+      for (const sq of Object.values(book.squads)) if (sq.player === G.name && sq.headedHome == null && sq.garrison == null && !sq.guard && (sq.caseId || sq.column)) add(sq.meet ?? G.base, sq.clones.filter(x => x.alive && x.status === 'away').length);
+      for (const r of G.returning || []) add(r.to ?? G.base, 1);
+      return {...o, farAt: o.farAt.map(t => ({tile: t, name: nm(t)}))}; })(),
     fuel: HQ.FUEL, daily: {food: HQ.FOOD_K * upK(R, 'food'), water: HQ.WATER_K * upK(R, 'water')}, hungry: R.hungry || 0,
     home: G.home ?? G.base, homeName: nm(G.home ?? G.base), homeFac: K.fac[K.owner[G.home ?? G.base]]?.n || '', regCost: HQ.REG_COST, regAt: G.homeAt ?? null,
     site: (s => s && {title: s.title, hint: s.hint, taken: s.taken || null, kind: s.kind})(nearSite(book, w, G.base, h)), log: R.log.slice(-80).reverse()};

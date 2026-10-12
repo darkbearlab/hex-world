@@ -790,7 +790,7 @@ function roverCard(title, body) {
   document.body.appendChild(el); setTimeout(() => el.remove(), 8000);
 }
 // 在外面的人（出勤、回程、在集合點等）：基地開走前要提醒
-const outside = () => GV?.hq?.out ?? 0;   // 要開回集合點的人（駐軍不算）
+const outside = () => GV?.hq?.out?.here ?? 0;   // 集合點就是基地現在這一格的人（基地開走就接不到；駐軍不算）
 function baseGoAsk(tile) {
   const nm = t => ST.names?.[t] || '荒野', p = selPath && selPath.to === tile ? selPath.base : null, n = outside();
   const msg = `基地開到${nm(tile)}？\n\n${p ? `${p.tiles} 格，約 ${fmtLeft(p.hours)}，油錢 $${p.fuel}k（每格 $${GV.hq?.fuel ?? 3}k）。` : `油錢每格 $${GV.hq?.fuel ?? 3}k。`}路上可能被攔，在家的人會上場守住基地。${n ? `\n\n⚠ 現在有 ${n} 個人在外面：他們會開回出發時的集合點；基地不在那裡（也不在他們回程的路上），就只能在那裡等 48 小時，等不到會倒下。` : ''}`;
@@ -830,7 +830,8 @@ function renderRover() {
     <div class="mini" style="margin-top:4px">登記在 <b>${esc(R.homeName)}</b>（${esc(R.homeFac || '無主')}，勢力照這裡算）${R.inTown && R.home !== R.tile ? ` <button data-act="baseregister">換登記到${nm(R.tile)}（$${R.regCost}k，一季一次）</button>` : ''}</div>
     <div class="mini">運兵車 <b>${Math.max(0, V.cap - V.used)}</b>／${V.cap} 台空著${V.used > V.cap ? '（舊規則派出去的隊伍還沒回來）' : ''}${R.inTown && V.cap < 4 ? ` <button data-act="basevan">買第 ${V.cap + 1} 台（$${vanPrice}k）</button>` : ''}・一台載一隊四人；基地在現場就直接派、不用車</div>
     <div class="mini">${R.inTown ? '停在城裡：吃喝照城裡的' : `在城外每天：熱量 ${+(homeN * R.daily.food).toFixed(1)}、淨水 ${+(homeN * R.daily.water).toFixed(1)}（在家 ${homeN} 人，從倉庫扣）`}${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天（培養槽停擺）</span>` : ''}</div>
-    ${out ? `<div class="mini" style="color:var(--war)">有 ${out} 個人在外面：他們會開回出發時的集合點，基地不在就只能等 48 小時。</div>` : ''}
+    ${out ? `<div class="mini">有 ${out} 個人在外面，集合點就是這裡：基地不要開走，他們回來就會自己上車。</div>` : ''}
+    ${R.out?.far ? `<div class="mini" style="color:var(--war)">有 ${R.out.far} 個人的集合點在別的地方：${R.out.farAt.map(x => `<button data-act="basego" data-id="${x.tile}">${esc(x.name)}</button>`).join(' ')}——把基地開過去接（到了集合點基地不在，只能等 48 小時）。</div>` : ''}
     ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）・守衛：${R.guard.map(u => esc(nameShort(GV.roster.find(x => x.uid === u) || {}))).join('、')}</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row"><button data-act="fight" data-id="${tk.id}">親自打</button><button data-act="resolve" data-id="${tk.id}">現在自動結算</button></div></div>` : ''}
     <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="basestop">停下</button>' : ''}<button data-act="basesearch"${R.block || !R.parked ? ' disabled' : ''}>搜索這一帶（4 小時）${R.site && !R.site.taken ? `：${esc(R.site.title)}` : ''}</button></div>
     ${R.site ? `<p class="mini">${esc(R.site.title)}：${esc(R.site.hint)}${R.site.taken ? `（最近被${esc(R.site.taken)}搜過了）` : ''}</p>` : ''}
