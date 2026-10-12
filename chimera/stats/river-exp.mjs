@@ -8,7 +8,10 @@ import * as S from '../sim.js';
 
 const [file, mode, years = '40', out, nRiv = '3'] = process.argv.slice(2);
 if (process.env.OPR) globalThis.OPR = +process.env.OPR;   // 拓荒者遠行的機率（每個勢力每年，預設 0.06）
-const raw = JSON.parse(fs.readFileSync(file, 'utf8')), c = new Core(() => {}); c.load(raw.seed, raw.save); const w = c.w, W = S.W, N = S.N;
+// 謠言（RUMOR=1）：東邊大河中段（欄 54、列 22）有舊星艦維修站的謠言；SEED=n 換沙盒的亂數種子（同一份存檔跑出不同的未來）
+if (process.env.RUMOR) globalThis.RUMOR = {tile: 22 * 60 + 54, reach: +(process.env.REACH || 35), opr: +(process.env.ROPR || .3), pull: .5};
+const raw = JSON.parse(fs.readFileSync(file, 'utf8')); if (process.env.SEED) raw.save.sim.rng = (raw.save.sim.rng ^ Math.imul(+process.env.SEED, 2654435761)) | 0;
+const c = new Core(() => {}); c.load(raw.seed, raw.save); const w = c.w, W = S.W, N = S.N;
 const east = i => i % W >= Math.floor(W * .66), K0 = c.sim.peek();
 const rivers = [];
 if (mode === 'rivers' || mode === 'near') {   // near：源頭挑離東邊現有的城 2～6 格的高地（河流過有人的地方附近）

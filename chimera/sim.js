@@ -1135,9 +1135,12 @@ function createSim(w,rand,pick){
         if(best>=0){owner[best]=owner[i];yf[best]=yf[i];pop[best]=12*(globalThis.WSCALE??1e4);pop[i]-=10*(globalThis.WSCALE??1e4);
           if(ruin[best]){ruin[best]=0;say(y,'found',`${fac[owner[i]].n}的拓荒者回到${nm(best)}的廢墟。`,best)}}}}
     // 拓殖限制開啟時：偶爾有人遠行，在 4–7 格外有水的地方另立一座新市鎮（新的綠洲）
-    if(COLR<99)for(const f of fac){if(!f.alive||f.pop<300*(globalThis.WSCALE??1e4)||rand()>(globalThis.OPR??.06))continue;const own=Object.keys(markets).map(Number).filter(t=>owner[t]===f.id);if(!own.length)continue;
-      let best=-1,bs=0;for(let i=0;i<N;i++){if(!land[i]||owner[i]>=0||bandit[i]>=30||!(river[i]||w.coast[i]))continue;let d=99;for(const t of own)d=Math.min(d,hdist(i,t));if(d<(globalThis.OPD??5)||d>(globalThis.OPD??5)+4)continue;let dm=99;for(const t in markets)dm=Math.min(dm,hdist(i,+t));if(dm<(globalThis.TSP??3))continue;
-        const sc=fert[i]+(river[i]?.3:0)-d*.03+rand()*.2;if(sc>bs){bs=sc;best=i}}
+    // 謠言（實驗用，Alan 2026-10-12：東邊有舊星艦維修站的謠言）：globalThis.RUMOR={tile,reach,opr,pull} 才有作用，沒設就跟原本一模一樣（亂數的順序也一樣）。
+    // 有城在謠言地點 reach 格內的勢力被吸引：遠行的機率變成 opr，而且只往謠言的方向立村（新聚落要比自己最近的城更靠近那裡），越近分數越高
+    if(COLR<99)for(const f of fac){if(!f.alive||f.pop<300*(globalThis.WSCALE??1e4))continue;const RM=globalThis.RUMOR;let dR0=99;if(RM)for(const k in markets)if(owner[+k]===f.id)dR0=Math.min(dR0,hdist(+k,RM.tile));const pull=!!RM&&dR0<=(RM.reach??35);
+      if(rand()>(pull?RM.opr??.3:(globalThis.OPR??.06)))continue;const own=Object.keys(markets).map(Number).filter(t=>owner[t]===f.id);if(!own.length)continue;
+      let best=-1,bs=0;for(let i=0;i<N;i++){if(!land[i]||owner[i]>=0||bandit[i]>=30||!(river[i]||w.coast[i]))continue;if(pull&&hdist(i,RM.tile)>=dR0)continue;let d=99;for(const t of own)d=Math.min(d,hdist(i,t));if(d<(globalThis.OPD??5)||d>(globalThis.OPD??5)+4)continue;let dm=99;for(const t in markets)dm=Math.min(dm,hdist(i,+t));if(dm<(globalThis.TSP??3))continue;
+        const sc=fert[i]+(river[i]?.3:0)-d*.03+rand()*.2+(pull?(RM.pull??.5)*(dR0-hdist(i,RM.tile))/5:0);if(sc>bs){bs=sc;best=i}}
       if(best>=0&&bs>.7){owner[best]=f.id;pop[best]=30*(globalThis.WSCALE??1e4);peak[best]=30*(globalThis.WSCALE??1e4);town[best]=1;markets[best]=newMarket();say(y,'found',`${f.n}的拓荒者走得很遠，在${nm(best)}打了井，立起新的聚落。`,best)}}
     for(let i=0;i<N;i++){if(owner[i]<0||vein[i]>0||(biome[i]!==3&&biome[i]!==4)||rand()>.0006)continue;
       vein[i]=vcap[i]=(120+rand()*280)*(globalThis.WSCALE??1e4);vex[i]=1;known[i]=1;say(y,'econ',`${fac[owner[i]].n}的人在${nm(i)}挖開一座被沙埋住的舊設施，裡面能拆的東西不少。`,i)}
