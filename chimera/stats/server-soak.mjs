@@ -84,7 +84,7 @@ async function turn(bot) {
     const B = v.board.filter(e => !e.joined && h >= e.start && h < e.closeAt && !e.gone && !['drill', 'hunting', 'security'].includes(e.kind));
     // 同一個委託大家搶著接（測同時接案）：一半的機會挑板上的第一個
     const e = B.length && (r() < .5 ? B[0] : pick(r, B));
-    if (e) await send({type: 'accept', kind: e.kind, tile: e.tile, side: e.kind === 'front' || e.kind === 'camp' ? pick(r, ['att', 'def']) : e.kind === 'tense' ? pick(r, ['a', 'b']) : '', uids: home().slice(0, 4).map(x => x.uid)});
+    if (e) await send({type: 'accept', kind: e.kind, tile: e.tile, side: e.kind === 'front' || e.kind === 'camp' ? pick(r, ['att', 'def']) : e.kind === 'tense' ? pick(r, ['a', 'b']) : '', uids: home().slice(0, e.here ? 8 : 4).map(x => x.uid)});
   }
   const sqs = D.cases.filter(k => !k.settled).flatMap(k => k.squads);
   if (r() < (bot.style === 'chaos' ? .15 : .03) && sqs.length) await send({type: 'recall', squad: pick(r, sqs).id});
@@ -97,14 +97,14 @@ async function turn(bot) {
       if (!(k.garrison || []).length && home().length >= 2 && r() < .3) await send({type: 'garrison', site: k.site, uids: home().slice(0, 4).map(x => x.uid)});
       for (const q of k.calls || []) if (q.state === 'open' && r() < .4) await send({type: 'answer', call: q.id, uids: home().slice(0, 4).map(x => x.uid)}); }
   }
-  // Rover
-  const R = D.rover;
-  if (bot.style === 'rover' || bot.style === 'chaos') {
-    if (!R) { if (D.cash > 600) await send({type: 'buyRover'}); }
-    else {
-      if (!R.crew.length && R.atHome && home().length) await send({type: 'roverCrew', uids: home().slice(0, 4).map(x => x.uid)});
-      if (R.atHome && r() < .4) await send({type: 'roverSupply', food: 30, water: 30});
-      if (!R.move && !R.route.length && !R.block && r() < .4) { const y = r(); await send(y < .5 ? {type: 'roverGo', tile: pick(r, towns)} : y < .7 ? {type: 'roverSearch'} : y < .85 && R.jobsHere.length ? {type: 'roverJob', id: R.jobsHere[0].id} : {type: 'roverGo', tile: D.base}); }
+  // 移動基地（2026-10-12）
+  const R = D.hq, W = D.world || {};
+  if ((bot.style === 'rover' || bot.style === 'chaos') && R) {
+    if (R.parked && !R.block) {
+      if (R.site && !R.site.taken && r() < .6) await send({type: 'baseSearch'});
+      if (R.inTown) { if (R.jobsHere.length && r() < .3) await send({type: 'baseJob', id: R.jobsHere[0].id}); for (const d of (W.deals || []).filter(d => d.tile === R.tile && !d.mine)) await send({type: 'deal', id: d.id}); if (r() < .05) await send({type: 'buyVan'}); }
+      if (r() < .1) await send({type: r() < .5 ? 'note' : 'say', text: `${bot.name} 經過 ${h}`});
+      if (r() < .3) { const y = r(), t = y < .3 && W.events?.length ? pick(r, W.events).tile : y < .5 && W.sites?.length ? pick(r, W.sites).tile : pick(r, towns); await send({type: 'baseGo', tile: t}); }
     }
   }
   // 倉庫、整補

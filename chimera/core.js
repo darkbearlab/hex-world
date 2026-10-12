@@ -13,7 +13,7 @@ const r1 = v => Math.round(v * 10) / 10;
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'buyRover', 'roverCrew', 'roverSupply', 'roverGo', 'roverStop', 'roverSearch', 'roverUpgrade', 'roverJob', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -146,11 +146,12 @@ export class Core {
       this.postBoard(t);
       for (const g of Object.values(game.cos)) G.hour(g, game.book, this.w, t);
       G.bodiesHour(game.cos, game.book, this.w, t);
-      RV.roverHour(game.cos, game.book, this.w, t);
+      RV.hqHour(game.cos, game.book, this.w, t);   // 移動基地（原本的 Rover）
       G.retainerHour(game.cos, game.book, this.w, t, Math.max(1, Math.round(24 * game.yearDays / 4)));
       for (const e of this.sim.campaignHour(t)) this.campaignNews(e, t);
       if (this.npcOn) npcHour(this, t);   // NPC 傭兵公司（npc.js；伺服器才開）
       if (t % 24 === 0) G.pruneSquads(game.cos, game.book, t);   // 用完的小隊每天清一次
+      if (t % 6 === 0 || !game.book.sites) this.worldBits(t);   // 遠征點、突發事件、搶購、留言（移動基地，2026-10-12）
       if (t % 24 === 0) { const r = this.sim.stepDay(Math.max(1, Math.round(game.yearDays / 4))); if (r) yearDone = true; }
     }
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});
@@ -238,7 +239,35 @@ export class Core {
     }
   }
   // 練兵單、狩獵場、場地維安（Alan 2026-10-11）：不是沙盒的事件，委託板自己開（公司模式才有）
-  allOpps() { return [...this.sim.opportunities(), ...this.workOpps()]; }
+  allOpps() { return [...this.sim.opportunities().filter(o => o.kind !== 'exp'), ...this.workOpps()]; }   // 遠征改成基地到場搜索（book.sites），不上委託板（Alan 2026-10-12）
+  // ---- 移動基地的世界小東西（Alan 2026-10-12，DESIGN.md「移動基地」）：每 6 小時整理一次 ----
+  // - 遠征點（沙盒的遺產級舊戰場、無主的舊礦坑、燃料林、廢墟）：基地開過去搜索才拿得到，先搜到的先拿（之後冷卻一週）
+  // - 突發事件：墜毀的補給艙、走私者的藏貨、沙暴後露出的車隊殘骸。只在三天內、基地到場搜索才拿得到，誰先搜到就是誰的
+  // - 搶購：某座城便宜賣一批素材或裝備，先預告 6 小時、開賣 24 小時、名額先搶先贏；基地要停在那座城才能買（NPC 公司不搶）
+  // - 留言（三天）、對話（一天）：同一格的公司看得到
+  worldBits(t) {
+    const b = this.game.book, K = this.sim.peek(), w = this.w, nm = x => w.names[x] || '荒野', hsh = (...a) => { let x = 0x9e3779b9; for (const v of a) { x = Math.imul(x ^ (v + 0x7f4a7c15), 0x85ebca6b); x ^= x >>> 13; x = Math.imul(x, 0xc2b2ae35); x ^= x >>> 16; } return (x >>> 0) / 4294967296; };
+    b.sites = this.sim.opportunities().filter(o => o.kind === 'exp').map(o => ({tile: o.tile, lv: o.lv, title: o.title, hint: o.detail,
+      kind: /遺產級/.test(o.detail) ? 'legacy' : /礦坑/.test(o.title) ? 'mine' : /油棘林/.test(o.title) ? 'fuel' : 'ruin'}));
+    const towns = Object.keys(K.markets).map(Number).filter(x => K.owner[x] >= 0); if (!towns.length) return;
+    b.events = (b.events || []).filter(e => t < e.end && !e.taken);
+    if (t % 24 === 12 && b.events.length < 6 && hsh(t, 1) < .7) {
+      const town = towns[Math.floor(hsh(t, 2) * towns.length)], near = []; for (let i = 0; i < K.owner.length; i++) { const d = S.hdist(i, town); if (d >= 3 && d <= 8 && w.land[i] && !K.markets[i]) near.push(i); }
+      if (near.length) { const tile = near[Math.floor(hsh(t, 3) * near.length)], k = ['pod', 'cache', 'wreck'][Math.floor(hsh(t, 4) * 3)];
+        const E = {pod: ['墜毀的補給艙', '天上掉下來的舊時代補給艙，還冒著煙；熱量、淨水、植入物、神經介質'], cache: ['走私者的藏貨', '走私者埋在沙裡的貨，聽說有帶詞條的槍'], wreck: ['沙暴後露出的車隊殘骸', '沙暴把一整列舊車隊吹了出來；值錢的貨、護甲']}[k];
+        b.events.push({id: 'E' + t, kind: k, tile, start: t, end: t + 72, title: `${nm(tile)}：${E[0]}`, hint: E[1], lv: 3}); } }
+    b.deals = (b.deals || []).filter(d => t < d.close);
+    if (t % 24 === 6) for (let i = 0; i < 2; i++) {
+      const tile = towns[Math.floor(hsh(t, 10 + i) * towns.length)], m = K.markets[tile], x = hsh(t, 20 + i), id = `D${t}-${i}`;
+      if (b.deals.some(d => d.tile === tile)) continue;   // 同一座城同時只有一筆
+      if (x < .6) { const mat = ['food', 'water', 'implant', 'neural'][Math.floor(hsh(t, 30 + i) * 4)], g = {food: 'food', water: 'water', implant: 'parts', neural: 'parts'}[mat], base = {food: .2, water: .24, implant: .25, neural: .8}[mat], price = +(base * (m?.price?.[g] ?? 1) * .55).toFixed(2);
+        b.deals.push({id, tile, kind: 'mat', mat, qty: 100, price, cost: Math.round(price * 100), slots: 3, buyers: [], open: t + 6, close: t + 30, title: `${nm(tile)}便宜賣${G.MN?.[mat] || mat} 100 份（$${Math.round(price * 100)}k，約五五折）`}); }
+      else { const kind = x < .85 ? 'gun' : 'armor', T = kind === 'gun' ? G.GUNS : G.ARMORS, keys = Object.keys(T), bs = keys[Math.floor(hsh(t, 40 + i) * keys.length)], af = Object.keys(kind === 'gun' ? G.AFFIX_NAMES : G.ARMOR_AFFIXES || {}).filter(a => a !== 'homemade'), affix = af.length ? af[Math.floor(hsh(t, 50 + i) * af.length)] : null;
+        const cost = Math.round((T[bs]?.v || 40) * 1.2);
+        b.deals.push({id, tile, kind, base: bs, affix, cost, slots: 1, buyers: [], open: t + 6, close: t + 30, title: `${nm(tile)}有人出清${G.itemName({kind, base: bs, affix})}（$${cost}k，只有一件）`}); } }
+    b.notes = (b.notes || []).filter(n => t - n.h < 72);
+    for (const k of Object.keys(b.chat || {})) { b.chat[k] = b.chat[k].filter(c => t - c.h < 24); if (!b.chat[k].length) delete b.chat[k]; }
+  }
   workOpps() {
     const K = this.sim.peek(), w = this.w, nm = t => w.names[t] || '無名之地', fn = f => K.fac[f]?.n || '', out = [];
     const towns = Object.keys(K.markets).map(Number).filter(t => K.owner[t] >= 0), hash = t => ((t * 2654435761) >>> 0) % 1000;
@@ -265,7 +294,7 @@ export class Core {
       const ids = Object.values(e.cases), joined = ids.some(id => mine.has(id)), cs = ids.map(id => book.cases.find(c => c.id === id)).filter(Boolean);
       const n = new Set(cs.flatMap(c => c.squads.map(s => book.squads[s]?.player).filter(Boolean))).size;
       const side = Object.entries(e.cases).find(([, id]) => mine.has(id))?.[0];   // 自己接的是哪一邊（大戰役加派時沿用）
-      return {...e.opp, key: e.key, start: e.start, end: e.end, closeAt: e.end - C.CFG.FREEZE, gone: !!e.gone, joined, side, n};
+      return {...e.opp, key: e.key, start: e.start, end: e.end, closeAt: e.end - C.CFG.FREEZE, gone: !!e.gone, joined, side, n, here: g ? G.onSite(g, e.opp.tile) : false};   // here：基地在現場（直接派、不用車、不限隊數）
     }).filter(e => h >= e.start && ((h < e.closeAt && !e.gone && (!g || G.canSee(g, book, this.w, e))) || (e.joined && h < e.end)));
   }
   // 準時出槽：時間（帶小數的遊戲小時）到了的培養槽出槽。回傳出槽了幾個
@@ -285,7 +314,21 @@ export class Core {
   view(name, err) {
     const game = this.game, g = this.co(name); if (!g) return null;
     return {type: 'game', err: err || null, year: this.sim.year, season: this.sim.season, campaigns: this.sim.campaignView(), speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
-      inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: {...G.view(g, game.book, this.w), rover: RV.roverView(g, game.book, this.w, game.h)}};
+      inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: {...G.view(g, game.book, this.w), hq: RV.hqView(g, game.book, this.w, game.h),
+        vans: {cap: G.vanCap(g), used: G.vansUsed(g, game.book)}, depot: g.depot || {}, world: this.worldView(g), here: this.hereView(g)}};
+  }
+  // 地圖上的遠征點、突發事件、搶購（每家看到的都一樣，加上自己買過沒有）
+  worldView(g) {
+    const b = this.game.book, h = this.game.h, w = this.w;
+    return {sites: (b.sites || []).map(s => ({tile: s.tile, kind: s.kind, lv: s.lv, title: s.title, hint: s.hint, taken: (t => t && h - t.h < G.SITE_CD ? t.co : null)(b.siteTaken?.[s.tile])})),
+      events: (b.events || []).filter(e => h >= e.start && h < e.end && !e.taken).map(e => ({id: e.id, tile: e.tile, kind: e.kind, title: e.title, hint: e.hint, end: e.end})),
+      deals: (b.deals || []).map(d => ({id: d.id, tile: d.tile, kind: d.kind, title: d.title, cost: d.cost, open: d.open, close: d.close, left: d.slots - d.buyers.length, mine: d.buyers.includes(g.name), place: w.names[d.tile] || ''}))};
+  }
+  // 此地（Alan 2026-10-12，照 warband 的「此地」）：基地同一格的其他公司、留在這一格的留言（三天）、對話（一天）
+  hereView(g) {
+    const b = this.game.book, t = g.base;
+    return {tile: t, cos: Object.values(this.game.cos).filter(x => x !== g && x.base === t).map(x => ({name: x.name, npc: !!x.npc, n: x.roster.filter(c => c.alive).length})),
+      notes: (b.notes || []).filter(n => n.tile === t).slice(-20).reverse(), chat: (b.chat?.[t] || []).slice(-30)};
   }
   // 指令（name：下指令的公司）：會改狀態的記進 log（遊戲小時＋公司＋指令），回傳錯誤訊息或 null
   command(m, name) {
@@ -308,17 +351,19 @@ export class Core {
     if (m.type === 'revive') return G.revive(g, +m.uid, m.slot == null ? null : +m.slot, this.exactNow ?? h);
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
     if (m.type === 'retHide') return G.retHide(g, b, String(m.id));
-    // Rover（Alan 2026-10-11）
-    if (m.type === 'buyRover') return RV.buyRover(g, b, w, h);
-    if (m.type === 'roverCrew') return RV.roverCrew(g, b, w, (m.uids || []).map(Number), h);
-    if (m.type === 'roverSupply') return RV.roverSupply(g, b, w, +m.food || 0, +m.water || 0, h);
-    if (m.type === 'roverGo') return RV.roverGo(g, b, w, +m.tile, h);
-    if (m.type === 'roverStop') return RV.roverStop(g, b, w, h);
-    if (m.type === 'roverSearch') return RV.roverSearch(g, b, w, h);
-    if (m.type === 'roverUpgrade') return RV.roverUpgrade(g, b, w, String(m.kind), h);
-    if (m.type === 'roverJob') return RV.roverJob(g, b, w, String(m.id), h);
+    // 移動基地（Alan 2026-10-12；原本的 Rover）
+    if (m.type === 'baseGo') return RV.baseGo(g, b, w, +m.tile, h);
+    if (m.type === 'baseStop') return RV.baseStop(g, b, w, h);
+    if (m.type === 'baseSearch') return RV.baseSearch(g, b, w, h);
+    if (m.type === 'baseUpgrade') return RV.baseUpgrade(g, b, w, String(m.kind), h);
+    if (m.type === 'baseJob') return RV.baseJob(g, b, w, String(m.id), h);
+    if (m.type === 'buyVan') return RV.buyVan(g, b, w, h);
+    if (m.type === 'register') return RV.register(g, b, w, h, Math.max(1, Math.round(24 * game.yearDays / 4)));
+    if (m.type === 'deal') return this.deal(g, String(m.id));
+    if (m.type === 'note' || m.type === 'say') return this.post(g, m.type, m.text);
     if (m.type === 'readReport') { for (const r of g.reports || []) if (m.id === 'all' || r.id === m.id) r.seen = true; return null; }
     if (m.type === 'fieldEquip') return G.fieldEquip(g, b, String(m.squad), +m.uid, String(m.slot), m.item || null);
+    if ((m.type === 'sell' || m.type === 'mod' || m.type === 'shop') && !G.inTown(g, w)) return '基地要停在城裡才能買賣裝備';
     if (m.type === 'sell') return G.sellItem(g, String(m.item), w);
     if (m.type === 'mod') return G.modItem(g, String(m.item), String(m.affix));
     if (m.type === 'shop') return G.buyItem(g, String(m.kind), String(m.base));
@@ -334,13 +379,12 @@ export class Core {
       if (!o || !e || e.gone) return '這個委託已經不在了';
       if (h < e.start) return '這個委託還沒公開';
       if (h >= e.end - (o.kind === 'camp' ? 0 : C.CFG.FREEZE)) return '這個委託已經截止';
-      if (m.rover) { const why = RV.roverBlock(b, g.rover || {}, h); if (!g.rover) return '還沒有 Rover'; if (why) return why; if (g.rover.move || g.rover.tile !== o.tile) return 'Rover 要停在委託的地點才能接'; }   // Rover 接委託（Alan 2026-10-11：當作移動的駐紮地）
-      return G.accept(g, b, w, o, m.side, m.uids, this.exactNow ?? h, !!m.fast, e, m.rover ? g.rover : null);   // 大戰役可以一再加派
+      return G.accept(g, b, w, o, m.side, m.uids || [], this.exactNow ?? h, false, e);   // 大戰役可以一再加派
     }
-    if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids, this.exactNow ?? h, !!m.fast);
+    if (m.type === 'reinforce') return G.reinforce(g, b, w, m.squad, m.uids || [], this.exactNow ?? h);
     if (m.type === 'recall') return G.recall(g, b, w, m.squad, this.exactNow ?? h);
     if (m.type === 'recallCol') return G.recallColumn(g, b, w, m.amend, this.exactNow ?? h);
-    if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to), ok = path.length > 0; this.emit({type: 'path', to: m.to, path, hours: ok ? C.travelHours(w, g.base, m.to) : -1, fastHours: ok ? C.travelHours(w, g.base, m.to, true) : -1, fastPer: ok ? C.speedCost(w, g.base, m.to, 1) : 0, farePer: ok ? C.fareCost(w, g.base, m.to, 1) : 0, fareFastPer: ok ? C.fareCost(w, g.base, m.to, 1, true) : 0}); return null; }
+    if (m.type === 'path') { const path = w.sim.pmc.route(g.base, m.to), ok = path.length > 0; this.emit({type: 'path', to: m.to, path, hours: ok ? C.travelHours(w, g.base, m.to) : -1, fare: ok ? C.fareCost(w, g.base, m.to, 1) : 0, base: ok ? RV.hqTrip(g, w, m.to) : null}); return null; }   // 運兵車要多久、油錢；基地開過去要多久、油錢
     if (m.type === 'procure') return G.procure(g, b, w, m.town, m.mat, m.qty, m.uids || [], h);
     if (m.type === 'quotes') { this.emit({type: 'quotes', data: G.quotes(g, w)}); return null; }
     if (m.type === 'resolve') { const tk = b.tickets.find(x => x.id === m.ticket); if (!tk || tk.player !== name) return '這張服務單不是你的'; C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
@@ -392,6 +436,25 @@ export class Core {
     return '不認得的指令';
   }
 
+  // 搶購（2026-10-12）：基地停在那座城、開賣時間內、名額還有、還沒買過
+  deal(g, id) {
+    const b = this.game.book, h = this.game.h, d = (b.deals || []).find(x => x.id === id); if (!d) return '這筆已經結束了';
+    if (g.npc) return 'NPC 公司不搶購';
+    if (h < d.open) return `還沒開賣（${Math.ceil(d.open - h)} 小時後）`; if (h >= d.close) return '已經賣完了';
+    if (d.buyers.includes(g.name)) return '已經買過了'; if (d.buyers.length >= d.slots) return '名額被搶光了';
+    if (!G.inTown(g, this.w) || g.base !== d.tile) return `基地要停在${this.w.names[d.tile] || '那座城'}才能買`;
+    if (g.cash < d.cost) return '錢不夠';
+    d.buyers.push(g.name); C.pay(b, h, g.name, -d.cost, 'deal', `搶購：${d.title}`);
+    if (d.kind === 'mat') g.mats[d.mat] = (g.mats[d.mat] || 0) + d.qty; else G.giveItem(g, {kind: d.kind, base: d.base, affix: d.affix});
+    return null;
+  }
+  // 留言（三天）、對話（一天）：留在基地現在這一格
+  post(g, kind, text) {
+    const b = this.game.book, h = this.game.h, t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 120); if (!t) return '沒有內容';
+    if (kind === 'note') { if ((b.notes ||= []).some(n => n.co === g.name && n.tile === g.base && h - n.h < 6)) return '同一格六小時內只能留一則';
+      b.notes.push({id: 'N' + b.nextId++, tile: g.base, co: g.name, text: t, h}); return null; }
+    const L = (b.chat ||= {})[g.base] ||= []; L.push({co: g.name, text: t, h}); if (L.length > 40) L.splice(0, L.length - 40); return null;
+  }
   // 重播：在全新的核心上，照「發生的遊戲小時」重新下同樣的指令（第一筆記著開第一家公司那一年）
   replay(seed, log, untilHour = null) {
     this.start(seed);
@@ -447,6 +510,22 @@ export class Core {
     // 舊存檔（Alan 2026-10-11）：已經回到駐地、還掛在護送單上的駐軍，脫鉤
     if (!mig.gar1011) for (const sq of Object.values(g.book.squads)) if (sq.garrison != null && sq.caseId && sq.headedHome != null && g.cos[sq.player]) { const c = g.book.cases.find(x => x.id === sq.caseId); if (c) G.garBack(g.cos[sq.player], g.book, sq, c, g.h ?? 0); }
     mig.gar1011 = true;
+    // 舊存檔（2026-10-12）：移動基地。登記地＝原本的總部；兩台運兵車；Rover 併進基地（升級、日誌留著；車上的人回基地、車上的熱量淨水收進倉庫、多送一台運兵車）；
+    // 出勤中的小隊都算坐車出去的、集合點是原本的總部（基地還沒動過，回來照舊）
+    if (!mig.hq1012) { mig.hq1012 = true;
+      for (const co of Object.values(g.cos)) { co.home ??= co.base; co.vans ??= G.VAN.START;
+        for (const r of co.returning || []) r.to ??= co.base;
+        const R = co.rover; if (R) { const hq = G.ensureHq(co); Object.assign(hq, {up: R.up || {}, log: R.log || [], searched: R.searched || {}, seen: R.seen || [], jobs: R.jobs || []}); co.vans += 1;
+          co.mats.food = (co.mats.food || 0) + (R.cargo?.food || 0); co.mats.water = (co.mats.water || 0) + (R.cargo?.water || 0);
+          const sq = R.squad && g.book.squads[R.squad];
+          if (sq) { for (const tk of g.book.tickets) if (tk.squad === sq.id && !tk.done) { tk.done = true; tk.abandoned = true; }
+            for (const c of g.book.cases) c.squads = c.squads.filter(id => id !== sq.id);
+            const far = R.tile !== co.base, back = far ? C.travelHours(this.w, R.tile, co.base) : 0;
+            for (const x of sq.clones) if (x.alive) { if (far) { x.status = 'returning'; co.returning.push({uid: x.uid, at: (g.h ?? 0) + (isFinite(back) ? back : 24), move: {path: this.w.sim.pmc.route(R.tile, co.base), t0: g.h ?? 0, t1: (g.h ?? 0) + (isFinite(back) ? back : 24)}, to: co.base}); } else x.status = 'home'; }
+            if (sq.pack?.length) (co.store ||= []).push(...sq.pack); delete g.book.squads[sq.id]; }
+          delete co.rover;
+          (co.log ||= []).push({h: g.h ?? 0, text: '移動基地上線：整家公司跟著基地走，原本的 Rover 併進基地（升級留著），多送一台運兵車（共 3 台）。'}); } }
+      for (const sq of Object.values(g.book.squads)) { const co = g.cos[sq.player]; if (!co) continue; sq.meet ??= co.base; if (sq.van == null && (sq.caseId || sq.column) && sq.garrison == null) sq.van = true; } }   // 舊規則派出去的駐軍不佔車（照舊駐著；撤回時也不收油錢）
     // 舊存檔（2026-10-12）：易主遺體帶來的裝備跟倉庫撞號的，重新發號
     for (const co of Object.values(g.cos)) G.reidItems(co, g.book);
     // 舊存檔（Alan 2026-10-11）：補上錫冠、鉛冠

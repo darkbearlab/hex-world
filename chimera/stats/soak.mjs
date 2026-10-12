@@ -74,9 +74,9 @@ function botHour(bot, h) {
   const open = g.cases.map(id => b.cases.find(k => k.id === id)).filter(k => k && !k.settled).length;
   if (open < (bot.style === 'chaos' ? 5 : 3) && home().length >= 2 && r() < .25) {
     const board = c.boardView(bot.name).filter(e => !e.joined && h >= e.start && h < e.closeAt && !e.gone && !['drill', 'hunting', 'security'].includes(e.kind));
-    const e = board.length && pick(r, board);
+    const e = board.length && pick(r, board.some(x => x.here) && r() < .5 ? board.filter(x => x.here) : board);
     if (e) { const side = e.kind === 'front' || e.kind === 'camp' ? pick(r, ['att', 'def']) : e.kind === 'tense' ? pick(r, ['a', 'b']) : '';
-      cmd(bot, {type: 'accept', kind: e.kind, tile: e.tile, side, uids: home().slice(0, 2 + Math.floor(r() * 5)).map(x => x.uid), fast: r() < .3}); }
+      cmd(bot, {type: 'accept', kind: e.kind, tile: e.tile, side, uids: home().slice(0, e.here ? 2 + Math.floor(r() * 7) : 2 + Math.floor(r() * 4)).map(x => x.uid)}); }
   }
   // 撤軍、增援、整補
   const mySq = Object.values(b.squads).filter(sq => sq.player === bot.name);
@@ -93,18 +93,19 @@ function botHour(bot, h) {
       for (const q of (k.calls || []).filter(q => q.co === bot.name && q.state === 'open')) { const y = r(); if (y < .1) cmd(bot, {type: 'answer', call: q.id, uids: home().slice(0, 4).map(x => x.uid)}); else if (y < .15 && gar.length) cmd(bot, {type: 'answer', call: q.id, squad: gar[0].id}); }
     }
   }
-  // Rover
-  if (bot.style === 'rover' || bot.style === 'chaos') {
-    const R = g.rover;
-    if (!R) { if (g.cash > 500) cmd(bot, {type: 'buyRover'}); }
-    else {
-      const v = c.view(bot.name).data.rover;
-      if (!v.crew.length && v.atHome && home().length) cmd(bot, {type: 'roverCrew', uids: home().slice(0, 4).map(x => x.uid)});
-      if (v.atHome && r() < .3) cmd(bot, {type: 'roverSupply', food: 20 + Math.floor(r() * 40), water: 20 + Math.floor(r() * 40)});
-      if (!v.move && !v.route.length && !v.block && r() < .2) { const y = r(); if (y < .4) cmd(bot, {type: 'roverGo', tile: pick(r, towns)}); else if (y < .6) cmd(bot, {type: 'roverSearch'}); else if (y < .8 && v.jobsHere.length) cmd(bot, {type: 'roverJob', id: pick(r, v.jobsHere).id}); else if (v.up.some(u => u.here && u.cost)) cmd(bot, {type: 'roverUpgrade', kind: v.up.find(u => u.here && u.cost).kind}); else cmd(bot, {type: 'roverGo', tile: g.base}); }
-      if (v.move && r() < .01) cmd(bot, {type: 'roverStop'});
-      if (!v.move && !v.block && r() < .05) { const e = c.boardView(bot.name).find(e => e.tile === v.tile && !e.joined && h >= e.start && h < e.closeAt && !e.gone); if (e) cmd(bot, {type: 'accept', kind: e.kind, tile: e.tile, side: e.kind === 'front' ? 'att' : e.kind === 'tense' ? 'a' : '', uids: v.crew, rover: true}); }
+  // 移動基地（2026-10-12）：開到城、遠征點、突發事件、搶購的城；到了就搜索、接小事、升級、買車、換登記、搶購、留言
+  if (bot.style === 'rover' || bot.style === 'chaos' || r() < .05) {
+    const V = c.view(bot.name).data, v = V.hq, W = V.world;
+    if (v.parked && !v.block) {
+      if (v.site && !v.site.taken && r() < .7) cmd(bot, {type: 'baseSearch'});
+      if (v.inTown) { if (v.jobsHere.length && r() < .3) cmd(bot, {type: 'baseJob', id: pick(r, v.jobsHere).id});
+        const u = v.up.find(u => u.here && u.cost); if (u && r() < .3) cmd(bot, {type: 'baseUpgrade', kind: u.kind});
+        if (r() < .05) cmd(bot, {type: 'buyVan'}); if (r() < .02) cmd(bot, {type: 'register'});
+        for (const d of W.deals.filter(d => d.tile === v.tile && !d.mine)) cmd(bot, {type: 'deal', id: d.id}); }
+      if (r() < .05) cmd(bot, {type: r() < .5 ? 'note' : 'say', text: `機器人 ${bot.name} 到此一遊 ${h}`});
+      if (r() < .15) { const y = r(), tgt = y < .3 && W.events.length ? pick(r, W.events).tile : y < .5 && W.sites.length ? pick(r, W.sites).tile : y < .7 && W.deals.length ? pick(r, W.deals).tile : pick(r, towns); cmd(bot, {type: 'baseGo', tile: tgt}); }
     }
+    if (!v.parked && r() < .01) cmd(bot, {type: 'baseStop'});
   }
   // 倉庫、市場
   if (bot.style === 'merchant' || bot.style === 'chaos' || r() < .05) {
@@ -157,7 +158,9 @@ for (let d = 1; d <= days; d++) {
 // ───── 報告 ─────
 const b = c.game.book;
 console.log(`\n跑完 ${days} 天，${((Date.now() - t0) / 1000).toFixed(0)} 秒；存檔 ${Math.round(size / 1024)} KB`);
-console.table(Object.fromEntries([...bots.map(x => x.name), 'DarkBearLab'].filter(n => c.co(n)).map(n => { const g = c.co(n); return [n, {風格: bots.find(x => x.name === n)?.style || '玩家', 現金: Math.round(g.cash), 活著: g.roster.filter(x => x.alive).length, 陣亡: g.roster.filter(x => !x.alive).length, 結案: b.cases.filter(k => k.settled && g.cases.includes(k.id)).length, Rover: g.rover ? '有' : ''}]; })));
+console.table(Object.fromEntries([...bots.map(x => x.name), 'DarkBearLab'].filter(n => c.co(n)).map(n => { const g = c.co(n); return [n, {風格: bots.find(x => x.name === n)?.style || '玩家', 現金: Math.round(g.cash), 活著: g.roster.filter(x => x.alive).length, 陣亡: g.roster.filter(x => !x.alive).length, 結案: b.cases.filter(k => k.settled && g.cases.includes(k.id)).length, 車: `${G.vansUsed(g, b)}/${G.vanCap(g)}`, 基地: c.w.names[g.base] || g.base}]; })));
+{ const why = {}; for (const bot of bots) for (const x of c.co(bot.name)?.roster || []) { if (x.alive) continue; const e = (x.record || []).findLast(e => e.t === 'down' || e.t === 'kia'); const k = e?.t === 'down' ? (e.title || '').replace(/：.*/, '') : e ? '陣亡' : '其他'; why[k] = (why[k] || 0) + 1; }
+  console.log('機器人公司的人怎麼倒下的：', Object.entries(why).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([k, v]) => `${k} ${v}`).join('、')); }
 { const S = Object.values(b.squads); console.log(`帳本裡的小隊 ${S.length} 支，其中已經在回程（headedHome）的 ${S.filter(s => s.headedHome != null).length} 支、佔存檔 ${Math.round(JSON.stringify(b.squads).length / 1024)} KB`); }
 console.log('指令用了幾次：', Object.entries(used).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join('、'));
 console.log('最常被拒絕的：'); for (const [k, v] of Object.entries(refusals).sort((a, b) => b[1] - a[1]).slice(0, 12)) console.log(`  ${v}×  ${k}`);

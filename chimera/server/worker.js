@@ -213,6 +213,7 @@ export class Planet extends DurableObject {
     if (path === 'cmd') {
       if (!name) return bad('還沒開公司');
       if (!ALLOWED.includes(body.type) && !QUERIES.includes(body.type)) return bad('不認得的指令');
+      if ((body.type === 'note' || body.type === 'say') && pid[0] !== 'g' && this.env.DEV !== '1') return bad('訪客不能留言，用 Google 帳號登入才行');   // 同一格的留言、對話（照 warband）
       const err = this.core.command(body, name), msgs = this.out.splice(0);
       // 親自打：在伺服器上開（或接回）這場戰鬥；種子留在伺服器，瀏覽器只拿到畫面
       for (const m of msgs) if (m.type === 'mission') {

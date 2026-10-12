@@ -184,10 +184,19 @@ function drawNow() {
   }
   // 公司：總部、接下的案件、服務單
   if (GV) {
-    const bx = cx(GV.base), by = cy(GV.base);
+    // 遠征點（基地到場搜索）、突發事件、搶購（Alan 2026-10-12 移動基地）
+    const W = GV.world || {};
+    for (const x of W.sites || []) { if (x.taken) continue; const px = cx(x.tile), py = cy(x.tile), r = S0 * .38; ctx.fillStyle = '#2a2116'; ctx.strokeStyle = '#c49a5a'; ctx.lineWidth = Math.max(1, 1.4 / k); ctx.beginPath(); ctx.rect(px - r, py - r, r * 2, r * 2); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#e0c08a'; ctx.font = `700 ${r * 1.3}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('搜', px, py + r * .05); }
+    for (const x of W.events || []) { const px = cx(x.tile), py = cy(x.tile), r = S0 * .55; ctx.fillStyle = '#f2c94c'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.5 / k); ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = q * Math.PI / 5 - Math.PI / 2, rr = q % 2 ? r * .5 : r; ctx.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    for (const x of W.deals || []) { if (x.left <= 0) continue; const px = cx(x.tile) + S0 * .45, py = cy(x.tile) - S0 * .45, r = S0 * .36; ctx.fillStyle = x.mine ? '#5b6b55' : '#8fd18b'; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill(); ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.4}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('$', px, py + r * .05); }
+    // 基地：開動中照時間在兩格之間移動，剩下的路畫虛線（原本的 Rover）
+    const H = GV.hq || {tile: GV.base, route: []}, hnow = hourNow() ?? GV.h, hf = H.move ? Math.max(0, Math.min(1, (hnow - H.move.t0) / Math.max(.01, H.move.t1 - H.move.t0))) : 0, ha = H.move ? H.move.from : GV.base, hb = H.move ? H.move.to : GV.base;
+    const bx = cx(ha) + (cx(hb) - cx(ha)) * hf, by = cy(ha) + (cy(hb) - cy(ha)) * hf, hrest = [hb, ...(H.route || [])];
+    if (hrest.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = Math.max(1, 1.8 / k); ctx.strokeStyle = 'rgba(111,208,216,.8)'; ctx.beginPath(); ctx.moveTo(bx, by); hrest.forEach(t => ctx.lineTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
     ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1.5, 2.4 / k); ctx.beginPath(); ctx.arc(bx, by, S0 * .9, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, S0 * 1.15, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#6fd0d8'; ctx.font = `700 ${S0 * .8}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('H', bx, by + S0 * .04);
     for (const c of GV.cases) { if (c.settled) continue; const x = cx(c.tile), y = cy(c.tile), r = S0 * .85; ctx.strokeStyle = '#f1e6cf'; ctx.lineWidth = Math.max(1.4, 2 / k); ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.stroke(); }
-    // 選取的點：從總部沿實際道路拉一條虛線
+    // 選取的點：從基地沿實際道路拉一條虛線
     if (selPath && selPath.to === sel && selPath.path.length > 1) {
       ctx.save(); ctx.setLineDash([S0 * .5, S0 * .35]); ctx.lineWidth = Math.max(1.6, 2.6 / k); ctx.strokeStyle = 'rgba(255,240,210,.95)'; ctx.lineJoin = 'round';
       ctx.beginPath(); selPath.path.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore();
@@ -200,19 +209,13 @@ function drawNow() {
     }
     for (const u of GV.units || []) {
       if (!u.pos) continue; const x = cx(u.pos.a) + (cx(u.pos.b) - cx(u.pos.a)) * u.pos.f, y = cy(u.pos.a) + (cy(u.pos.b) - cy(u.pos.a)) * u.pos.f, r = S0 * .42;
-      const col = u.kind === 'returning' ? '#a0c8aa' : u.kind === 'convoy' ? '#e0a64a' : u.kind === 'column' ? '#9fe3ea' : '#6fd0d8';
+      const col = u.kind === 'waiting' ? '#f2c94c' : u.kind === 'returning' ? '#a0c8aa' : u.kind === 'convoy' ? '#e0a64a' : u.kind === 'column' ? '#9fe3ea' : '#6fd0d8';
       ctx.fillStyle = col; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.5 / k);
       if (u.kind === 'convoy') { ctx.beginPath(); ctx.rect(x - r * .8, y - r * .6, r * 1.6, r * 1.2); ctx.fill(); ctx.stroke(); }
       else { ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill(); ctx.stroke(); }
       if (u.n) { ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.05}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(u.n, x, y + r * .05); }
       if (u.busy) { ctx.strokeStyle = '#e05a43'; ctx.lineWidth = Math.max(1.4, 2 / k); ctx.beginPath(); ctx.arc(x, y, r * 1.35, 0, 7); ctx.stroke(); }
     }
-    // Rover：橘色圓點加 R；開車中照時間在兩格之間移動，剩下的路畫虛線
-    if (GV.rover) { const R = GV.rover, now = hourNow() ?? GV.h, f = R.move ? Math.max(0, Math.min(1, (now - R.move.t0) / Math.max(.01, R.move.t1 - R.move.t0))) : 0, a = R.move ? R.move.from : R.tile, b = R.move ? R.move.to : R.tile;
-      const x = cx(a) + (cx(b) - cx(a)) * f, y = cy(a) + (cy(b) - cy(a)) * f, r = Math.max(S0 * .8, 6 / k), rest = [b, ...R.route];
-      if (rest.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = Math.max(1, 1.6 / k); ctx.strokeStyle = 'rgba(240,150,70,.75)'; ctx.beginPath(); rest.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
-      ctx.fillStyle = '#f0964a'; ctx.strokeStyle = '#fff4e0'; ctx.lineWidth = Math.max(1.5, 2.2 / k); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.1}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('R', x, y + r * .05); }
     for (const t of GV.tickets) { const x = cx(t.tile) - S0 * .4, y = cy(t.tile) - S0 * .45, r = S0 * .42; ctx.fillStyle = t.transit ? '#b3784a' : '#e05a43'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = `700 ${r * 1.4}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y + r * .05); }
   }
   // 名字：首府一定標，放大後標城鎮
@@ -297,7 +300,7 @@ function renderFac() {
   }
   $('pane-fac').innerHTML = html;
 }
-$('pane-tile').onclick = e => { if (recallClick(e)) return; if (e.target.closest('[data-act^="rover"]')) { coClick(e); return; }   // Rover 開到這裡、用 Rover 接
+$('pane-tile').onclick = e => { if (recallClick(e)) return; if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
   const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('trade'); send({type: 'quotes'}); } };
 $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) return; const id = +r.dataset.f; hiFac = hiFac === id ? -1 : id; const f = hist[cur].fac.find(x => x.id === id); if (f && hiFac >= 0) centerOn(f.cap); draw(); };
 
@@ -310,12 +313,11 @@ function renderTile() {
   if (s.bandit[i] > 15) html += `<dt>掠奪者</dt><dd>${Math.round(s.bandit[i] / 2.55)}%</dd>`;
   if (i === s.arc.elevator) html += `<dt>地標</dt><dd>軌道電梯</dd>`;
   html += '</dl>';
-  const RV = GV?.rover, rvHere = RV && !RV.move && RV.tile === i && RV.crew.length;
-  for (const o of curOpps(s).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}${ownWarn(o)}<br><span class="muted">${esc(o.detail)}</span>${rvHere && !['camp', 'route'].includes(o.kind) ? `<br><button data-act="roveraccept" data-id="${o.kind}" data-tile="${i}">用 Rover 接（車上的人，當作駐紮在這裡）</button>` : ''}</p>`; }
-  if (RV && RV.tile !== i) html += `<p><button data-act="rovergo" data-id="${i}">Rover 開到這裡</button> <span class="mini muted">照快車的速度一格一格走</span></p>`;
+  for (const o of curOpps(s).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}${ownWarn(o)}<br><span class="muted">${esc(o.detail)}</span></p>`; }
+  if (GV) html += baseTileHtml(i);
   if (GV) { const here = (GV.units || []).filter(u => u.pos && (u.pos.f < .5 ? u.pos.a : u.pos.b) === i);
     if (here.length) html += `<h2 style="margin-top:10px">我的人馬</h2>` + here.map(u => `<div class="card"><b>${esc(u.name)}</b>${u.n ? ` <span class="mini">${u.n} 人</span>` : ''}<div class="mini">${esc(u.status)}${u.where ? '・' + esc(u.where) : ''}</div>${recallBtn(u)}</div>`).join(''); }
-  if (GV && t && i !== GV.base) html += `<p><button data-proc="${i}">派車隊來這裡採購</button></p>`;
+  if (GV && t && i !== GV.base) html += `<p><button data-proc="${i}">向這座城訂貨</button> <span class="mini muted">對方派車隊送到基地現在停的城</span></p>`;
   if (!GV && s.fac.some(f => f.cap === i)) html += `<p><button class="primary" data-found="${i}">在這裡開公司</button> <span class="muted">總部設在這座主城，從這一年開始經營。</span></p>`;
   for (const x of g) html += `<p>${x.native ? '原住民' : x.hive ? '巢匪據點' : '掠奪者據點'}：<b>${esc(x.name)}</b>（勢力 ${x.str}${x.legacy ? '，手上有遺產級' : ''}）</p>`;
   if (t) {
@@ -371,14 +373,14 @@ function renderSortie() {
   $('sbox').html = `<div class="shead"><div style="flex:1"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}${ownWarn(o)}<div class="mini muted">${esc(o.detail || '')}</div></div><button data-scancel="1" aria-label="關閉">✕</button></div>
     ${sides.length ? `<div class="row">${sides.map(([v, nm]) => `<button data-side="${v}" class="${sortie.side === v ? 'on' : ''}">${esc(nm)}</button>`).join('')}</div>` : ''}
     ${sortie.sq.map((q, i) => `<div class="sqlabel mini">第 ${i + 1} 隊（${q.filter(u => u != null).length}／4）${sortie.sq.length > 1 && !q.some(u => u != null) ? ` <button data-sqx="${i}">拿掉這一隊</button>` : ''}</div><div class="srow">${q.map((u, j) => sortieCard(u, i, j)).join('')}</div>`).join('')}
-    <div class="row"><button data-addsq="1">＋ 再編一隊</button></div>
+    <div class="row">${o.here || sortie.custom ? '<button data-addsq="1">＋ 再編一隊</button>' : '<span class="mini muted">一台運兵車載一隊（四人）；要派更多隊，把基地開到這裡</span>'}</div>
     ${picker}
-    ${sortie.custom ? '' : speedRow(o.tile, n, sortie.fast)}
-    <div class="row sfoot">${bad ? '<span class="mini" style="color:var(--war)">每一隊至少兩個人</span>' : ''}<button class="primary" data-sgo="1"${n < 2 || bad ? ' disabled' : ''}>${sortie.fast ? '加速' : ''}確認出擊（${n} 人）</button><button data-scancel="1">取消</button></div>`;
+    ${sortie.custom ? '' : vanRow(o, sortie.sq.filter(q => q.some(u => u != null)).length)}
+    <div class="row sfoot">${bad ? '<span class="mini" style="color:var(--war)">每一隊至少兩個人</span>' : ''}<button class="primary" data-sgo="1"${n < 2 || bad || (!sortie.custom && vanBlock(o, sortie.sq.filter(q => q.some(u => u != null)).length)) ? ' disabled' : ''}>確認出擊（${n} 人）</button><button data-scancel="1">取消</button></div>`;
 }
 $('sortie').onclick = e => {
   if (e.target.id === 'sortie') { sortie = null; renderSortie(); return; }
-  const a = e.target.closest('[data-smenu],[data-sgear],[data-sinfo],[data-slot],[data-sp],[data-sx],[data-sg],[data-addsq],[data-sqx],[data-side],[data-fast],[data-sgo],[data-scancel],[data-pickx]');
+  const a = e.target.closest('[data-smenu],[data-sgear],[data-sinfo],[data-slot],[data-sp],[data-sx],[data-sg],[data-addsq],[data-sqx],[data-side],[data-sgo],[data-scancel],[data-pickx]');
   if (!sortie) return;
   // 點大頭照：卡片上面跳出小選單（換人、編輯裝備、看資料）；點別的地方就收起來
   const menu0 = sortie.menu; sortie.menu = null;
@@ -393,10 +395,9 @@ $('sortie').onclick = e => {
   else if (d.addsq) sortie.sq.push([null, null, null, null]);
   else if (d.sqx) sortie.sq.splice(+d.sqx, 1);
   else if (d.side) sortie.side = d.side;
-  else if (d.fast) sortie.fast = a.checked;
   else if (d.pickx) sortie.pick = null;
   else if (d.sgo && sortie.custom) { sortie.custom.go(sortie.sq.flatMap(q => q.filter(u => u != null))); sortie = null; }
-  else if (d.sgo) { const [kind, tile] = sortie.key.split(':'); send({type: 'accept', kind, tile: +tile, side: sortie.side, uids: sortie.sq.flatMap(q => q.filter(u => u != null)), fast: sortie.fast}); sortie = null; }
+  else if (d.sgo) { const [kind, tile] = sortie.key.split(':'); send({type: 'accept', kind, tile: +tile, side: sortie.side, uids: sortie.sq.flatMap(q => q.filter(u => u != null))}); sortie = null; }
   else if (d.scancel) sortie = null;
   renderSortie();
 };
@@ -419,15 +420,22 @@ function accPicker(o) {
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
   return `<div class="picker">${campNote}${sides.length ? `<div class="row">${sides.map(([v, n]) => `<button data-side="${v}" class="${pickOpp.side === v ? 'on' : ''}">${esc(n)}</button>`).join('')}</div>` : ''}
     <div class="mini" style="margin-top:6px">選要派的人（四人一隊，最少兩人${camp ? '；全部派上去也可以' : ''}）：</div>${pickGroups(av)}
-    ${speedRow(o.tile, pickOpp.uids.size, pickOpp.fast)}
-    <div class="row"><button class="primary" data-go="1">${pickOpp.fast ? '加速' : ''}出發（${pickOpp.uids.size} 人）</button><button data-cancel="1">取消</button></div></div>`;
+    ${vanRow(o, Math.ceil(pickOpp.uids.size / 4))}
+    <div class="row"><button class="primary" data-go="1">出發（${pickOpp.uids.size} 人）</button><button data-cancel="1">取消</button></div></div>`;
 }
-// 加速（Alan 2026-10-09）：路程時間減半，每人每省一小時 $1；來回同一套，回程時再扣一次。費用要等路線查好（selPath）才算得出來
-function speedRow(tile, n, on) {
-  const p = selPath && selPath.to === tile && selPath.hours > 0 ? selPath : null;
-  // 交通費（Alan 2026-10-11）：慢車照格數、人數收；勾「快車」費用三倍、路程時間減半；回程另外再收一次
-  const k = Math.max(1, n), info = p ? `慢車 ${fmtH(p.hours)}・去程 $${Math.round(p.farePer * k * 10) / 10}k｜快車 ${fmtH(p.fastHours)}・去程 $${Math.round(p.fareFastPer * k * 10) / 10}k${n ? '' : '（每人）'}；回程另計` : '慢車每人每格 $0.2k；快車三倍、路程時間減半；回程另計';
-  return `<label class="speed${on ? ' on' : ''}"><input type="checkbox" data-fast="1"${on ? ' checked' : ''}> 快車 <span class="mini">${info}</span></label>`;
+// 運兵車（Alan 2026-10-12，取代快車／行軍）：一台車載一隊四個人、油錢每格 $0.6k；基地在現場（旁邊一格以內、停著）就直接派、不用車、不限隊數。大戰役、勢力戰要基地到場
+const vanFree = () => GV?.vans ? GV.vans.cap - GV.vans.used : 0;
+function vanBlock(o, nsq) {
+  if (o.here) return '';
+  if (o.kind === 'camp' || o.kind === 'front') return `${o.kind === 'camp' ? '大戰役' : '勢力戰'}要把基地開過去（停在旁邊一格以內）才能接`;
+  if (nsq > 1) return '一台運兵車只能載一隊；要派更多隊，把基地開過去';
+  if (vanFree() < 1) return '運兵車都派出去了（等車回來，或把基地開過去直接派）';
+  return '';
+}
+function vanRow(o, nsq) {
+  const p = selPath && selPath.to === o.tile && selPath.hours >= 0 ? selPath : null, why = vanBlock(o, nsq);
+  const info = o.here ? '<b>基地在現場</b>：直接派，不用運兵車、不限隊數' : `坐運兵車：剩 <b>${Math.max(0, vanFree())}</b>／${GV.vans?.cap ?? 2} 台${p ? `・單程 ${fmtLeft(p.hours)}・去程油錢 $${p.fare}k（回程另計）` : '・油錢每格 $0.6k（回程另計）'}`;
+  return `<div class="mini" style="margin:6px 0">${info}・集合點：${esc(GV.hq?.place || GV.baseName)}（基地現在的位置；回來時基地不在，只能在那裡等 48 小時）</div>${why ? `<div class="mini" style="color:var(--war)">${esc(why)}</div>` : ''}`;
 }
 // 開了公司之後，機會就是伺服器上的委託板（跟著伺服器時間：公開三天，截止前一天不能再接；Alan 2026-10-09）；沒開公司時是沙盒的機會
 // 清運也列進機會（Alan 2026-10-10）：不用派人，按了就出車；自己人倒下的地方程度最高
@@ -447,15 +455,14 @@ function renderOpp() {
   $('pane-opp').html = html || '';
 }
 $('pane-opp').onclick = e => {
-  const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-fast],[data-clean],[data-ret]');
+  const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-clean],[data-ret]');
   if (a?.dataset.clean) { send({type: 'clean', tile: +a.dataset.clean}); return; }
   if (a?.dataset.ret) { const r = (GV?.retainer?.offers || []).find(x => x.id === a.dataset.ret); if (r && confirm(`簽下${r.name}${r.kn}的長期護衛約？\n\n期限 ${r.seasons} 季。產地發車隊時要在 5 小時內派人；沒派就從駐在那裡的小隊隨機拉一隊，連駐軍都沒有就是違約。\n違約第一次賠簽約金的四分之一${r.bond ? '、保證金沒收' : ''}；第二次合約作廢、那個勢力一年不跟你往來。`)) send({type: 'sign', id: r.id}); return; }
   if (a) {
     if (a.dataset.acc) { const o = curOpps().find(x => x.kind + ':' + x.tile === a.dataset.acc); if (o) openSortie(o); return; }
-    else if (a.dataset.fast) pickOpp.fast = a.checked;
     else if (a.dataset.side) pickOpp.side = a.dataset.side;
     else if (a.dataset.pk) { const u = +a.dataset.pk; pickOpp.uids.has(u) ? pickOpp.uids.delete(u) : pickOpp.uids.add(u); }
-    else if (a.dataset.go) { const [kind, tile] = pickOpp.key.split(':'); send({type: 'accept', kind, tile: +tile, side: pickOpp.side, uids: [...pickOpp.uids], fast: pickOpp.fast}); pickOpp = null; }
+    else if (a.dataset.go) { const [kind, tile] = pickOpp.key.split(':'); send({type: 'accept', kind, tile: +tile, side: pickOpp.side, uids: [...pickOpp.uids]}); pickOpp = null; }
     else pickOpp = null;
     renderOpp(); return;
   }
@@ -529,10 +536,10 @@ function onGame(m) {
   const first = !GV; GV = m.data; GM = m;
   if (m.campaigns?.some(c => !c.done) || $('campbar') && !$('campbar').hidden) draw();   // 大戰役每 6 小時變一次
   if (m.err && roverToast == null && roverAct == null) toast(m.err);
-  if (roverToast != null) { roverToastCheck(m.err); roverSeen = rvKey(GV?.rover?.log?.[0]); } else roverNews(m.err);
+  if (roverToast != null) { roverToastCheck(m.err); roverSeen = rvKey(GV?.hq?.log?.[0]); } else roverNews(m.err);
   if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('mailBtn').hidden = false; $('gyd').value = m.yearDays; showPage('co'); renderAll(); send({type: 'quotes'}); }
   $('gclock').textContent = clockText(Math.max(GV.h, hourNow() ?? GV.h), m);
-  $('gsub').textContent = `${GV.name}・總部 ${GV.baseName}`;
+  $('gsub').textContent = `${GV.name}・基地 ${GV.hq?.place || GV.baseName}${GV.hq && !GV.hq.parked ? '（開動中）' : ''}・運兵車 ${GV.vans ? `${Math.max(0, GV.vans.cap - GV.vans.used)}／${GV.vans.cap}` : ''}`;
   $('gcash').textContent = `$${GV.cash}k`; $('gcash').classList.toggle('neg', GV.cash < 0);
   $('gmats').html = MATS.map(m => `<span>${MN[m]} <b>${GV.mats[m]}</b></span>`).join('');   // 玩家的資源都在頂端（Alan 2026-10-09）
   maybeReveal(); maybeReport(); renderPage(); renderSortie(); if (page === 'map') { if (curTab() === 'tile' && sel >= 0) renderTile(); else if (curTab() === 'opp') renderOpp(); }
@@ -660,12 +667,13 @@ function renderTrade() {
   const P = $('pane-trade'); if (!P) return;
   if (!GV) { P.innerHTML = '<div class="box"><p class="muted">開了公司之後才能交易。</p></div>'; return; }
   if (!$('co-mats')) P.innerHTML = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">素材</h3><div id="co-mats"></div></div></div>
-    <div class="cocol"><div class="box"><h3 class="sec">採購路線 <span class="muted">派車隊去別座城買料，來回都可能被劫</span></h3><div id="co-proc"></div></div></div></div>
-    <div class="box"><h3 class="sec">裝備 <span class="muted">在總部的市場買，買了放進倉庫</span></h3><div id="co-shop"></div></div>`;
+    <div class="cocol"><div class="box"><h3 class="sec">向別座城訂貨 <span class="muted">對方派車隊送到基地現在停的城，路上可能被劫</span></h3><div id="co-proc"></div></div></div></div>
+    <div class="box"><h3 class="sec">裝備 <span class="muted">在基地停的那座城的市場買，買了放進倉庫</span></h3><div id="co-shop"></div></div>`;
   const G = GV;
   const shopRow = (kind, T) => Object.keys(T).map(b => { const it = {kind, base: b, ...(kind === 'kit' ? {n: KITS[b].max} : {})}; return `<button data-shop="${kind}:${b}">${esc(itemName(it))}　$${shopPrice(it)}k</button>`; }).join('');
-  $('co-shop').html = [['槍', 'gun', GUNS], ['近戰', 'melee', MELEES], ['護甲', 'armor', ARMORS], ['預備品', 'kit', KITS]].map(([n, k, T]) => `<div class="shoprow"><b>${n}</b>${shopRow(k, T)}</div>`).join('');
-  $('co-mats').html = `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">本地單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}k</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}k）</button></td></tr>`).join('') + '</table>';
+  const away = GV.hq && !GV.hq.inTown ? `<p class="mini" style="color:var(--war)">基地${GV.hq.parked ? '停在荒野' : '在路上'}：停進城裡才能買素材、買賣裝備、下訂單。</p>` : '';
+  $('co-shop').html = away + [['槍', 'gun', GUNS], ['近戰', 'melee', MELEES], ['護甲', 'armor', ARMORS], ['預備品', 'kit', KITS]].map(([n, k, T]) => `<div class="shoprow"><b>${n}</b>${shopRow(k, T)}</div>`).join('');
+  $('co-mats').html = away + `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">本地單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}k</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}k）</button></td></tr>`).join('') + '</table>';
   renderProc();
 }
 
@@ -750,68 +758,96 @@ function maybeReport() {
   const r = (GV.reports || []).find(x => !x.seen); if (r) showReport(r);
 }
 
-// ───── Rover（Alan 2026-10-11）：一家公司一台、最多四個人，自己開著走；日誌、搜索、補給、遭遇、接委託 ─────
-let roverPick = null;   // 編組中（在總部才能換人）
-// 下令開車之後跳一張卡片（Alan 2026-10-12：地圖上下令沒有任何提示）：伺服器回來、路線排好了才秀，開不過去就秀原因
+// ───── 基地（Alan 2026-10-12：移動基地，原本的 Rover 併進來）：開動、搜索、遭遇、運兵車、登記地、搶購、突發事件、在地小事、升級、日誌 ─────
+let roverPick = null;
+// 下令開動之後跳一張卡片：伺服器回來、路線排好了才秀，開不過去就秀原因
 let roverToast = null;
-// 其他 Rover 的動作（Alan 2026-10-12：接當地的案子等任何相關操作都要有提示）：送出前記下日誌最新那一筆，回來之後把新的幾筆秀成卡片；失敗就秀原因
+// 其他基地的動作：送出前記下日誌最新那一筆，回來之後把新的幾筆秀成卡片；失敗就秀原因
 let roverAct = null, roverSeen = null;
 const rvKey = e => e ? e.h + '|' + e.text : '';
-function roverSend(m, title) { roverAct = {title, top: rvKey(GV?.rover?.log?.[0])}; send(m); }
+function roverSend(m, title) { roverAct = {title, top: rvKey(GV?.hq?.log?.[0])}; send(m); }
 function roverNews(err) {
-  const R = GV?.rover, L = R?.log || [];
+  const R = GV?.hq, L = R?.log || [];
   const fresh = top => { const out = []; for (const e of L) { if (rvKey(e) === top) break; out.push(e); } return out.reverse(); };
   if (roverAct) { const a = roverAct; roverAct = null; roverSeen = rvKey(L[0]);
     if (err) { roverCard(`${a.title}：沒有成功`, esc(err)); return; }
     const lines = fresh(a.top); roverCard(a.title, lines.map(e => esc(e.text)).join('<br>') || '完成了。'); return; }
-  // 自己發生的事（搜到東西、被擋住、小事辦完）：有新的重要日誌就跳
   if (roverSeen == null) { roverSeen = rvKey(L[0]); return; }
   const lines = fresh(roverSeen).filter(e => e.kind === 'find' || e.kind === 'danger'); roverSeen = rvKey(L[0]);
-  if (lines.length && roverToast == null) roverCard('Rover 回報', lines.slice(-4).map(e => esc(e.text)).join('<br>'));
+  if (lines.length && roverToast == null) roverCard('基地回報', lines.slice(-4).map(e => esc(e.text)).join('<br>'));
 }
 function roverToastCheck(err) {
-  if (roverToast == null) return; const to = roverToast; roverToast = null; const R = GV?.rover;
-  if (err) { roverCard('Rover 開不過去', esc(err)); return; }
+  if (roverToast == null) return; const to = roverToast; roverToast = null; const R = GV?.hq;
+  if (err) { roverCard('基地開不過去', esc(err)); return; }
   if (!R || R.dest !== to && R.move?.to !== to) return;
-  const n = R.route.length + (R.move ? 1 : 0), hrs = R.etaH ?? null, nm = t => esc(ST.names?.[t] || '荒野');
-  roverCard(`Rover 出發：開往${nm(to)}`, `從${nm(R.tile)}出發，${n} 格${hrs != null ? `，約 ${fmtLeft(hrs)}` : ''}。路上遇到人會停下來，打完接著開。`);
+  const n = R.route.length + (R.move ? 1 : 0), nm = t => esc(ST.names?.[t] || '荒野');
+  roverCard(`基地出發：開往${nm(to)}`, `${n} 格，約 ${fmtLeft(R.etaH)}，油錢每格 $${R.fuel}k。路上遇到人會停下來，在家的人上場守住基地，打完接著開。`);
 }
 function roverCard(title, body) {
   document.querySelector('.rvcard')?.remove();
-  const el = Object.assign(document.createElement('div'), {className: 'rvcard', innerHTML: `<b>${title}</b><p>${body}</p><div class="row"><button data-x="1">知道了</button><button data-rv="1">看 Rover</button></div>`});
+  const el = Object.assign(document.createElement('div'), {className: 'rvcard', innerHTML: `<b>${title}</b><p>${body}</p><div class="row"><button data-x="1">知道了</button><button data-rv="1">看基地</button></div>`});
   el.onclick = e => { if (e.target.closest('[data-rv]')) showPage('rover'); if (e.target.closest('button')) el.remove(); };
   document.body.appendChild(el); setTimeout(() => el.remove(), 8000);
 }
+// 在外面的人（出勤、回程、在集合點等）：基地開走前要提醒
+const outside = () => GV?.hq?.out ?? 0;   // 要開回集合點的人（駐軍不算）
+function baseGoAsk(tile) {
+  const nm = t => ST.names?.[t] || '荒野', p = selPath && selPath.to === tile ? selPath.base : null, n = outside();
+  const msg = `基地開到${nm(tile)}？\n\n${p ? `${p.tiles} 格，約 ${fmtLeft(p.hours)}，油錢 $${p.fuel}k（每格 $${GV.hq?.fuel ?? 3}k）。` : `油錢每格 $${GV.hq?.fuel ?? 3}k。`}路上可能被攔，在家的人會上場守住基地。${n ? `\n\n⚠ 現在有 ${n} 個人在外面：他們會開回出發時的集合點；基地不在那裡（也不在他們回程的路上），就只能在那裡等 48 小時，等不到會倒下。` : ''}`;
+  if (confirm(msg)) { roverToast = tile; send({type: 'baseGo', tile}); }
+}
+// 地圖上一格：基地開到這裡、這裡的遠征點／突發事件／搶購、此地（同一格的公司、留言、對話）
+function baseTileHtml(i) {
+  const H = GV.hq || {}, W = GV.world || {}, nm = t => esc(ST.names?.[t] || '荒野'); let html = '';
+  for (const x of (W.events || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #f2c94c;padding-left:8px"><b style="color:#f2c94c">突發事件</b>　${esc(x.title)}<br><span class="muted">${esc(x.hint)}・${cd(x.end)}後消失・基地開過來搜索，先搜到的先拿</span></p>`;
+  for (const x of (W.sites || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #c49a5a;padding-left:8px"><b style="color:#c49a5a">遠征點 ${'●'.repeat(x.lv)}${'○'.repeat(3 - x.lv)}</b>　${esc(x.title)}<br><span class="muted">${esc(x.hint)}・${x.taken ? `最近被${esc(x.taken)}搜過了` : '基地開過來搜索才拿得到，先搜到的先拿'}</span></p>`;
+  for (const d of (W.deals || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #8fd18b;padding-left:8px"><b style="color:#8fd18b">搶購</b>　${esc(d.title)}<br><span class="muted">${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}・剩 ${d.left} 個名額${d.mine ? '・你買過了' : ''}・基地要停在這座城才能買</span>${H.tile === i && H.inTown && !d.mine && d.left > 0 && hourNow() >= d.open ? `<br><button data-act="deal" data-id="${d.id}">買（$${d.cost}k）</button>` : ''}</p>`;
+  if (i !== H.tile || !H.parked) html += `<p><button data-act="basego" data-id="${i}">基地開到這裡</button> <span class="mini muted">${selPath?.to === i && selPath.base ? `${selPath.base.tiles} 格・約 ${fmtLeft(selPath.base.hours)}・油錢 $${selPath.base.fuel}k` : '基地照原本慢車的速度一格一格走'}</span></p>`;
+  if (i === H.tile && GV.here) html += hereHtml();
+  return html;
+}
+function hereHtml() {
+  const X = GV.here, rel = h => `${repDay(h)} ${String(Math.floor(h) % 24).padStart(2, '0')}:00`;
+  return `<div class="box" style="margin-top:8px"><h3 class="sec">此地 <span class="muted">基地同一格的人；留言留三天，對話留一天</span></h3>
+    <div class="mini">${X.cos.length ? X.cos.map(c => `<b>${esc(c.name)}</b>${c.npc ? '（NPC）' : ''} ${c.n} 人`).join('・') : '這一格沒有別家公司的基地。'}</div>
+    <h4 class="sec2">留言</h4>${X.notes.map(n => `<p class="mini"><span class="muted">${rel(n.h)}</span> <b>${esc(n.co)}</b>：${esc(n.text)}</p>`).join('') || '<p class="mini muted">沒有留言。</p>'}
+    <div class="row"><input id="noteIn" maxlength="120" placeholder="留一句話給之後經過的人（120 字以內）" style="flex:1"><button data-act="note">留言</button></div>
+    <h4 class="sec2">對話</h4>${X.chat.map(n => `<p class="mini"><span class="muted">${rel(n.h)}</span> <b>${esc(n.co)}</b>：${esc(n.text)}</p>`).join('') || '<p class="mini muted">還沒有人說話。</p>'}
+    <div class="row"><input id="sayIn" maxlength="120" placeholder="跟這一格的人說話" style="flex:1"><button data-act="say">說</button></div></div>`;
+}
 function renderRover() {
   const P = $('pane-rover'); if (!P) return;
-  if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才能買 Rover。</p></div>'; return; }
-  const R = GV.rover;
-  if (!R) { P.html = `<div class="box"><h3 class="sec">Rover</h3><p>一台可以自己開著走的車，最多載四個人。照快車的速度一格一格走，沿路寫日誌；可以搜索遺產級、遺體和廢墟，在城裡補給，也可以停在委託的地點直接接單（當作移動的駐紮地）。</p>
-    <p class="mini muted">錢直接從公司扣；熱量、淨水、撿到的東西都綁在車上。每天每人吃一份熱量、一份淨水，不夠就餓著，打起來比較弱。路上會遇到人，有服務單就不能走。全員倒下時拖車把車拖回總部。</p>
-    <div class="row"><button class="primary" data-act="roverbuy">買一台 Rover（$300k）</button></div></div>`; return; }
-  const nm = t => esc(ST.names?.[t] || '荒野'), crew = R.crew.map(u => GV.roster.find(x => x.uid === u)).filter(Boolean), pack = GV.packs?.[R.squad];
-  const st = R.ticket ? '<b style="color:var(--war)">有人擋住去路，打完才能繼續走</b>' : R.block === '正在接委託（當作駐紮在這裡）' ? '接委託中（當作駐紮在這裡），委託結束才能開走' : R.searching ? `搜索中，${cd(R.searching)}後結束`
-    : R.move ? `開往${nm(R.move.to)}，${cd(R.move.t1)}後到${R.dest != null && R.dest !== R.move.to ? `・目的地 ${nm(R.dest)}（還有 ${R.route.length + 1} 格）` : ''}` : `停在${nm(R.tile)}`;
-  const tk = R.ticket && (GV.tickets || []).find(t => t.id === R.ticket);
-  const home = GV.roster.filter(c => c.alive && (c.status === 'home' && !c.keep || R.crew.includes(c.uid))), picking = roverPick || new Set(R.crew);
-  P.html = `<div class="box"><h3 class="sec">Rover <span class="muted">・<a href="#" data-center="${R.tile}">${nm(R.tile)}</a></span></h3>
+  if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才有基地。</p></div>'; return; }
+  if (P.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;   // 正在打字，先不重畫
+  const R = GV.hq, W = GV.world || {}, nm = t => esc(ST.names?.[t] || '荒野'), V = GV.vans || {cap: 2, used: 0};
+  const st = R.ticket ? '<b style="color:var(--war)">基地被攔住了，打完才能繼續走</b>' : R.searching ? `搜索中，${cd(R.searching)}後結束`
+    : R.move ? `開往${nm(R.move.to)}，${cd(R.move.t1)}後到${R.dest != null && R.dest !== R.move.to ? `・目的地 ${nm(R.dest)}（還有 ${R.route.length + 1} 格、約 ${fmtLeft(R.etaH)}）` : ''}` : `停在${nm(R.tile)}${R.inTown ? '（城裡）' : '（荒野）'}`;
+  const tk = R.ticket && (GV.tickets || []).find(t => t.id === R.ticket), homeN = GV.roster.filter(c => c.alive && c.status === 'home').length, out = outside();
+  const vanPrice = [150, 250][V.cap - 2];
+  const deals = (W.deals || []).filter(d => d.left > 0 && !d.mine), here = (W.deals || []).filter(d => d.tile === R.tile);
+  P.html = `<div class="box"><h3 class="sec">基地 <span class="muted">・<a href="#" data-center="${R.tile}">${nm(R.tile)}</a></span></h3>
     <div class="mini">${st}</div>
-    <div class="mini" style="margin-top:4px">熱量 <b${R.cargo.food < crew.length * 2 ? ' class="neg"' : ''}>${Math.floor(R.cargo.food)}</b>／${R.cap}・淨水 <b${R.cargo.water < crew.length * 2 ? ' class="neg"' : ''}>${Math.floor(R.cargo.water)}</b>／${R.cap}・一天吃 ${+(crew.filter(c => c.alive).length * (R.daily?.food ?? 1)).toFixed(2)} 份熱量、${+(crew.filter(c => c.alive).length * (R.daily?.water ?? 1)).toFixed(2)} 份淨水${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天</span>` : ''}</div>
-    ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row"><button data-act="fight" data-id="${tk.id}">親自打</button><button data-act="resolve" data-id="${tk.id}">現在自動結算</button></div></div>` : ''}
-    <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="roverstop">停車</button>' : ''}${!R.atHome ? `<button data-act="rovergo" data-id="${GV.base}">開回總部</button>` : ''}<button data-act="roversearch"${R.block || R.move ? ' disabled' : ''}>搜索這一帶（4 小時）</button>
-      ${R.atHome || R.town ? `<button data-act="roversupply" data-f="10" data-w="0">熱量 +10${R.atHome ? '（倉庫）' : `（$${10 * R.buy.food}k）`}</button><button data-act="roversupply" data-f="0" data-w="10">淨水 +10${R.atHome ? '（倉庫）' : `（$${10 * R.buy.water}k）`}</button>` : ''}</div>
-    <p class="mini muted">要去哪裡：到戰略地圖點一格，按「Rover 開到這裡」。停在有委託的格子時，那裡的委託可以「用 Rover 接」。</p></div>
-    <div class="box"><h3 class="sec">在地小事 <span class="muted">城裡的人直接拜託的事，最多同時接三件</span></h3>
-    ${R.jobs.map(j => `<div class="row caseline"><span class="mini" style="flex:1"><b>${esc(j.title)}</b>・$${j.reward}k・${j.state === 'found' ? `人找到了，帶回${esc(j.fromName)}` : j.state === 'fight' ? '正在打' : j.kind === 'deliver' ? `送到${esc(j.toName)}` : `去${esc(j.toName)}`}・${cd(j.expires)}後過期</span>${j.state !== 'fight' ? `<button data-act="rovergo" data-id="${j.state === 'found' ? j.from : j.to}">開過去（${j.d} 格）</button>` : ''}</div>`).join('') || '<p class="mini muted">沒有接著的小事。</p>'}
-    ${R.jobsHere.length ? `<h4 class="sec2">${nm(R.tile)}的人拜託的</h4>${R.jobsHere.map(j => `<div class="row caseline"><span class="mini" style="flex:1">${esc(j.title)}・$${j.reward}k</span><button data-act="roverjob" data-id="${j.id}">${j.kind === 'supply' ? '賣給他們' : '接下'}</button></div>`).join('')}` : R.town ? '<p class="mini muted">這座城現在沒有人拜託事情。</p>' : '<p class="mini muted">停在城裡才有人拜託事情。</p>'}</div>
+    <div class="mini" style="margin-top:4px">登記在 <b>${esc(R.homeName)}</b>（${esc(R.homeFac || '無主')}，勢力照這裡算）${R.inTown && R.home !== R.tile ? ` <button data-act="baseregister">換登記到${nm(R.tile)}（$${R.regCost}k，一季一次）</button>` : ''}</div>
+    <div class="mini">運兵車 <b>${Math.max(0, V.cap - V.used)}</b>／${V.cap} 台空著${V.used > V.cap ? '（舊規則派出去的隊伍還沒回來）' : ''}${R.inTown && V.cap < 4 ? ` <button data-act="basevan">買第 ${V.cap + 1} 台（$${vanPrice}k）</button>` : ''}・一台載一隊四人；基地在現場就直接派、不用車</div>
+    <div class="mini">${R.inTown ? '停在城裡：吃喝照城裡的' : `在城外每天：熱量 ${+(homeN * R.daily.food).toFixed(1)}、淨水 ${+(homeN * R.daily.water).toFixed(1)}（在家 ${homeN} 人，從倉庫扣）`}${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天（培養槽停擺）</span>` : ''}</div>
+    ${out ? `<div class="mini" style="color:var(--war)">有 ${out} 個人在外面：他們會開回出發時的集合點，基地不在就只能等 48 小時。</div>` : ''}
+    ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）・守衛：${R.guard.map(u => esc(nameShort(GV.roster.find(x => x.uid === u) || {}))).join('、')}</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row"><button data-act="fight" data-id="${tk.id}">親自打</button><button data-act="resolve" data-id="${tk.id}">現在自動結算</button></div></div>` : ''}
+    <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="basestop">停下</button>' : ''}<button data-act="basesearch"${R.block || !R.parked ? ' disabled' : ''}>搜索這一帶（4 小時）${R.site && !R.site.taken ? `：${esc(R.site.title)}` : ''}</button></div>
+    ${R.site ? `<p class="mini">${esc(R.site.title)}：${esc(R.site.hint)}${R.site.taken ? `（最近被${esc(R.site.taken)}搜過了）` : ''}</p>` : ''}
+    <p class="mini muted">要去哪裡：到戰略地圖點一格，按「基地開到這裡」。基地照原本慢車的速度走，每格油錢 $${R.fuel}k；停在委託旁邊一格以內，那個委託就能直接派人（不用車、不限隊數）。</p></div>
+    ${here.length ? `<div class="box"><h3 class="sec">這座城的搶購</h3>${here.map(d => `<div class="row caseline"><span class="mini" style="flex:1">${esc(d.title)}・剩 ${d.left} 個名額・${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}</span>${R.inTown && !d.mine && d.left > 0 && hourNow() >= d.open ? `<button data-act="deal" data-id="${d.id}">買（$${d.cost}k）</button>` : d.mine ? '<span class="mini">買過了</span>' : ''}</div>`).join('')}</div>` : ''}
+    <div class="box"><h3 class="sec">突發事件與搶購 <span class="muted">基地到場才拿得到，先到先得</span></h3>
+    ${(W.events || []).map(x => `<div class="row caseline"><span class="mini" style="flex:1"><b style="color:#f2c94c">★</b> ${esc(x.title)}・${esc(x.hint)}・${cd(x.end)}後消失</span><button data-act="basego" data-id="${x.tile}">開過去</button></div>`).join('')}
+    ${deals.map(d => `<div class="row caseline"><span class="mini" style="flex:1"><b style="color:#8fd18b">$</b> ${esc(d.title)}・${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}・剩 ${d.left}</span>${d.tile !== R.tile ? `<button data-act="basego" data-id="${d.tile}">開過去</button>` : ''}</div>`).join('')}
+    ${!(W.events || []).length && !deals.length ? '<p class="mini muted">現在沒有。地圖上的「搜」是遠征點（舊戰場、舊礦坑、燃料林、廢墟），也要基地到場搜索。</p>' : '<p class="mini muted">地圖上的「搜」是遠征點，★是突發事件，$是搶購。</p>'}</div>
+    <div class="box"><h3 class="sec">在地小事 <span class="muted">基地停在城裡時，城裡的人拜託的事，最多同時接三件</span></h3>
+    ${R.jobs.map(j => `<div class="row caseline"><span class="mini" style="flex:1"><b>${esc(j.title)}</b>・$${j.reward}k・${j.state === 'found' ? `人找到了，帶回${esc(j.fromName)}` : j.state === 'fight' ? '正在打' : j.kind === 'deliver' ? `送到${esc(j.toName)}` : `去${esc(j.toName)}`}・${cd(j.expires)}後過期</span>${j.state !== 'fight' ? `<button data-act="basego" data-id="${j.state === 'found' ? j.from : j.to}">開過去（${j.d} 格）</button>` : ''}</div>`).join('') || '<p class="mini muted">沒有接著的小事。</p>'}
+    ${R.jobsHere.length ? `<h4 class="sec2">${nm(R.tile)}的人拜託的</h4>${R.jobsHere.map(j => `<div class="row caseline"><span class="mini" style="flex:1">${esc(j.title)}・$${j.reward}k</span><button data-act="basejob" data-id="${j.id}">${j.kind === 'supply' ? '賣給他們（從倉庫）' : '接下'}</button></div>`).join('')}` : R.inTown ? '<p class="mini muted">這座城現在沒有人拜託事情。</p>' : '<p class="mini muted">停在城裡才有人拜託事情。</p>'}</div>
     <div class="box"><h3 class="sec">升級 <span class="muted">要到對的地方才能升</span></h3>
-    ${R.up.map(u => `<div class="caseline" style="margin:6px 0"><div class="row"><span style="flex:1"><b>${esc(u.n)}</b> ${u.lv}／${u.max} 級<span class="mini muted">・現在：${esc(u.now)}${u.next ? `・下一級：${esc(u.next)}（$${u.cost}k）` : '・已經升到頂'}</span></span>${u.next && u.here ? `<button data-act="roverup" data-id="${u.kind}">升級（$${u.cost}k）</button>` : ''}</div>
-      ${u.next && !u.here ? `<div class="mini muted">要到${esc(u.where)}：${u.near.map(x => `<button data-act="rovergo" data-id="${x.tile}">${esc(x.name)}（${x.d} 格・約 ${fmtLeft(x.hours)}）</button>`).join(' ') || '附近找不到'}</div>` : ''}</div>`).join('')}</div>
-    <div class="box"><h3 class="sec">車上的人 <span class="muted">${crew.length}／4</span></h3>
-    <div class="chips">${crew.map(x => chip(x, false, 'person')).join('') || '<span class="mini muted">沒有人</span>'}</div>
-    ${pack ? `<div class="mini" style="margin-top:6px">行李：${pack.items.map(x => esc(x.name)).join('、') || '空的'}（點人可以整補）</div>` : ''}
-    ${R.atHome && !R.move ? `<h4 class="sec2">編組（在總部才能換人，最多四個）</h4><div class="chips">${home.map(x => `<span class="chip${picking.has(x.uid) ? ' on' : ''}" data-act="roverpick" data-id="${x.uid}"><img src="${face(x)}" alt="">${nameShort(x)}</span>`).join('')}</div><div class="row"><button data-act="rovercrew">確定上車的人（${picking.size}）</button></div>` : ''}</div>
-    <div class="box"><h3 class="sec">旅行日誌</h3><div class="rvlog">${R.log.map(e => `<p class="rv-${e.kind}"><span class="mini muted">${repDay(e.h)} ${String(e.h % 24).padStart(2, '0')}:00</span> ${esc(e.text)}</p>`).join('')}</div></div>`;
+    ${R.up.map(u => `<div class="caseline" style="margin:6px 0"><div class="row"><span style="flex:1"><b>${esc(u.n)}</b> ${u.lv}／${u.max} 級<span class="mini muted">・現在：${esc(u.now)}${u.next ? `・下一級：${esc(u.next)}（$${u.cost}k）` : '・已經升到頂'}</span></span>${u.next && u.here ? `<button data-act="baseup" data-id="${u.kind}">升級（$${u.cost}k）</button>` : ''}</div>
+      ${u.next && !u.here ? `<div class="mini muted">要到${esc(u.where)}：${u.near.map(x => `<button data-act="basego" data-id="${x.tile}">${esc(x.name)}（${x.d} 格・約 ${fmtLeft(x.hours)}）</button>`).join(' ') || '附近找不到'}</div>` : ''}</div>`).join('')}</div>
+    ${GV.here ? hereHtml() : ''}
+    <div class="box"><h3 class="sec">基地日誌</h3><div class="rvlog">${R.log.map(e => `<p class="rv-${e.kind}"><span class="mini muted">${repDay(e.h)} ${String(Math.floor(e.h) % 24).padStart(2, '0')}:00</span> ${esc(e.text)}</p>`).join('')}</div></div>`;
 }
 
 // 人員詳細資料：獨立的一張卡片，疊在畫面上（Alan 2026-10-10：比較好控制版面）；✕、點外面、Esc 關掉
@@ -934,7 +970,7 @@ let selPath = null, armed = null, armT = null, mailFights = '';
 // 一隊的召回、補員（同一行；按下後的說明卡片在下面）
 function squadActions(sq, c, al) {
   if (c.settled) return '';
-  const u = {recall: {type: 'squad', id: sq.id, penalty: c.own || c.kind === 'camp' ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, kind: c.own ? 'escort' : c.kind === 'camp' ? 'camp' : 'squad', busy: !!sq.busy, fast: sq.fast};
+  const u = {recall: {type: 'squad', id: sq.id, penalty: c.own || c.kind === 'camp' ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, kind: c.own ? 'escort' : c.kind === 'camp' ? 'camp' : 'squad', busy: !!sq.busy};
   const canRe = !c.own && c.open && al < 4 && !sq.refused, picking = pickRe && pickRe.squad === sq.id;
   const btns = [recallBtn(u, true), ...sq.pending.map(p => recallBtn({recall: {type: 'column', id: p.id}, kind: 'column', n: p.n}, true)), canRe && !picking ? `<button data-act="re" data-id="${sq.id}">補員</button>` : ''].join('');
   const cards = [recallBtn(u), ...sq.pending.map(p => recallBtn({recall: {type: 'column', id: p.id}, kind: 'column', n: p.n}))].filter(x => x.includes('confirm')).join('');
@@ -948,10 +984,10 @@ function recallBtn(u, onlyBtn = false) {
   const label = u.kind === 'camp' ? '撤軍' : '召回';
   if (onlyBtn) return armed === key ? '' : `<button data-recall="${key}">${label}</button>`;
   if (armed !== key) return u.inRow ? '' : `<div class="row"><button data-recall="${key}">召回</button></div>`;
-  const why = u.recall.type === 'column' ? `這 ${u.n || ''} 名補員在路上掉頭，走回總部。` : u.kind === 'escort' ? '護衛離開車隊，走回總部；車隊之後出事由雇來的守衛自己打。'
+  const why = u.recall.type === 'column' ? `這 ${u.n || ''} 名補員在路上掉頭，開回基地。` : u.kind === 'escort' ? '護衛離開車隊，開回集合點；車隊之後出事由雇來的守衛自己打。'
     : u.kind === 'camp' ? `從大戰役撤軍：不算違約，已打下的貢獻照算，之後不再累積。${u.busy ? '手上那張服務單作廢。' : ''}`
     : `等於毀約：付違約金 <b>$${u.recall.penalty}k</b>，這個案件的積分作廢。${u.busy ? '手上的服務單交給案件的護衛去打。' : ''}`;
-  return `<div class="confirm"><div class="mini">${why}${u.fast ? '回程照樣加速，回程時扣加速的錢。' : ''}</div><div class="row"><button class="warn" data-recall="${key}">確定${u.kind === 'camp' ? '撤軍' : '召回'}</button><button data-recall-x="1">取消</button></div></div>`;
+  return `<div class="confirm"><div class="mini">${why}回到出發時的集合點；基地不在，就在那裡等 48 小時。</div><div class="row"><button class="warn" data-recall="${key}">確定${u.kind === 'camp' ? '撤軍' : '召回'}</button><button data-recall-x="1">取消</button></div></div>`;
 }
 function recallClick(e) {
   if (e.target.closest('[data-recall-x]')) { armed = null; if (page === 'map') renderTile(); else renderPage(); return true; }
@@ -972,7 +1008,7 @@ function renderProc() {
   const cell = (q, m) => { const o = q.offer?.[m]; return !o || o.max <= 0 ? '<span class="muted">—</span>' : `$${o.price}k`; };
   let html = `<table class="rep"><tr><th>城</th><th>來回</th><th>風險</th>${MATS.map(m => `<th>${MN[m]}</th>`).join('')}</tr>` +
     QT.slice(0, 14).map(q => `<tr data-qt="${q.t}" class="${procSel && procSel.t === q.t ? 'sel' : ''}"><td>${esc(q.name)}${q.war ? ' <span class="neg">交戰</span>' : ''}${q.works ? ' <span class="mini">廠區</span>' : ''}</td><td>${fmtH(q.trip)}</td><td class="${q.risk > .5 ? 'neg' : ''}">${Math.round(q.risk * 100)}%</td>${MATS.map(m => `<td>${cell(q, m)}</td>`).join('')}</tr>`).join('') + '</table>';
-  html += `<div class="row"><button data-act="qt-refresh">重新查詢報價</button><span class="mini">價格是那座城的市價；風險是整趟路上出事的機率。可以點地圖上的城鎮「派車隊來這裡採購」。</span></div>`;
+  html += `<div class="row"><button data-act="qt-refresh">重新查詢報價</button><span class="mini">價格是那座城的市價；風險是整趟路上出事的機率。貨送到基地現在停的城；送到時基地不在，貨先寄放在那座城，基地停過去才收。</span></div>`;
   const q = procSel && QT.find(x => x.t === procSel.t);
   if (q) {
     const mats = MATS.filter(m => q.offer[m].max > 0); if (!mats.includes(procSel.mat)) procSel.mat = mats[0] || '';
@@ -984,13 +1020,13 @@ function renderProc() {
       <span>數量</span><input type="number" min="10" step="100" value="${procSel.qty}" data-pf="qty">
       <span>花費</span><span>貨款 $${o ? Math.round(o.price * procSel.qty) : 0}k ＋ 雇車隊 $${q.fee}k ＝ <b>$${cost}k</b>${cost > GV.cash ? ' <span class="neg">錢不夠</span>' : ''}</span>
       <span>護衛</span><span class="chips" style="margin:0">${av.map(c => chip(c, procSel.uids.has(c.uid), 'pu')).join('') || '<span class="muted">沒有待命的人</span>'}</span></div>
-      <div class="row"><button class="primary" data-act="proc-go">出發（${procSel.uids.size >= 2 ? `護衛 ${procSel.uids.size} 人` : '不帶護衛'}）</button><button data-act="proc-x">取消</button><span class="mini">至少兩人才成隊；不帶護衛時，出事由雇來的守衛自己打。</span></div>`;
+      <div class="row"><button class="primary" data-act="proc-go">出發（${procSel.uids.size >= 2 ? `護衛 ${procSel.uids.size} 人` : '不帶護衛'}）</button><button data-act="proc-x">取消</button><span class="mini">護衛坐一台運兵車（最多四人，至少兩人）；不帶護衛時，出事由雇來的守衛自己打。</span></div>`;
   }
   el.html = html;
 }
 
 // ───── 報表 ─────
-const FK = [['fare', '交通費'], ['venue', '場地費'], ['shadow', '黑單報酬'], ['loot', '私掠分貨'], ['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費'], ['retainer', '長約'], ['bond', '履約保證金'], ['breach', '違約金'], ['garrison', '駐紮費'], ['clean', '清運'], ['body', '賣遺體']];
+const FK = [['fare', '油錢'], ['rover', '基地'], ['site', '搜索所得'], ['deal', '搶購'], ['raid', '基地被搶'], ['venue', '場地費'], ['shadow', '黑單報酬'], ['loot', '私掠分貨'], ['camp', '戰役報酬'], ['deposit', '訂金'], ['mid', '期中款'], ['final', '尾款'], ['upkeep', '維持費'], ['speed', '加速'], ['buy', '本地買料'], ['trip', '採購路線'], ['shop', '買裝備'], ['sell', '變賣'], ['mod', '改裝'], ['ammo', '彈藥費'], ['retainer', '長約'], ['bond', '履約保證金'], ['breach', '違約金'], ['garrison', '駐紮費'], ['clean', '清運'], ['body', '賣遺體']];
 function renderRepPage() {
   const P = $('pane-rep');
   if (!GV) { P.innerHTML = '<div class="box"><h3 class="sec">報表</h3><p class="muted">開了公司之後才有報表。</p></div>'; return; }
@@ -1110,9 +1146,8 @@ $('pages').addEventListener('touchend', e => {
 const sg = v => (v > 0 ? '+' : '') + v;
 function rePicker(room) {
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
-  return `<div class="picker confirm"><div class="mini">契約變更：從總部調人補這一隊，雇主不另付錢。還能補 ${room} 人；走過去要時間，路上可能遇襲。打輸太多或放著不打，雇主會拒絕。</div><div class="chips">${av.map(c => chip(c, pickRe.uids.has(c.uid), 'rp')).join('') || '<span class="muted">總部沒有待命的人</span>'}</div>
-    <label class="speed${pickRe.fast ? ' on' : ''}"><input type="checkbox" data-refast="1"${pickRe.fast ? ' checked' : ''}> 加速 <span class="mini">路程時間減半，每人每省一小時 $1k</span></label>
-    <div class="row"><button class="primary" data-act="re-go">送出契約變更（${pickRe.uids.size} 人${pickRe.fast ? '・加速' : ''}）</button><button data-act="re-x">取消</button></div></div>`;
+  return `<div class="picker confirm"><div class="mini">契約變更：從基地調人補這一隊，雇主不另付錢。還能補 ${room} 人；坐一台運兵車過去（剩 ${Math.max(0, vanFree())} 台；基地在現場就直接走過去），路上可能遇襲。打輸太多或放著不打，雇主會拒絕。</div><div class="chips">${av.map(c => chip(c, pickRe.uids.has(c.uid), 'rp')).join('') || '<span class="muted">基地上沒有待命的人</span>'}</div>
+    <div class="row"><button class="primary" data-act="re-go">送出契約變更（${pickRe.uids.size} 人）</button><button data-act="re-x">取消</button></div></div>`;
 }
 function renderOdds() { if (!$('co-odds')) return; const o = classOdds(recipe); $('co-odds').innerHTML = Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${CLS[k].n} ${Math.round(v * 100)}%</span>`).join(''); }
 const coPanes = ['pane-co', 'pane-vat', 'pane-store', 'pane-trade', 'pane-rover', 'drawer', 'pcard'].map($);
@@ -1142,7 +1177,6 @@ const coClick = e => {
   if (e.target.id === 'pcard') { personSel = null; gearPick = null; renderRoster(); return; }   // 點卡片外面
   const rpo = e.target.closest('[data-rpopen]'); if (rpo) { const r = (GV.reports || []).find(x => x.id === rpo.dataset.rpopen); if (r) showReport(r); return; }
   const ps = e.target.closest('[data-person]'); if (ps) { gearPick = null; personSel = ps.dataset.person === '' ? null : +ps.dataset.person; renderRoster(); return; }
-  const rf2 = e.target.closest('[data-refast]'); if (rf2) { pickRe.fast = rf2.checked; renderCo(); return; }
   const st = e.target.closest('[data-rcd]'); if (st) { const r = vatRecipe(+st.dataset.vat), m = st.dataset.m; r[m] = Math.max(GCFG.MIN, Math.min(GCFG.MAX, (r[m] || 0) + +st.dataset.rcd)); renderVat(); return; }
   if (recallClick(e)) return;
   const c = e.target.closest('[data-center]'); if (c && !e.target.closest('button')) { e.preventDefault(); select(+c.dataset.center, true, true); return; }
@@ -1168,29 +1202,28 @@ const coClick = e => {
   else if (A === 'callgar') send({type: 'answer', call: id, squad: b.dataset.sq});
   else if (A === 'ungar') send({type: 'ungarrison', squad: id});
   else if (A === 'rethide') send({type: 'retHide', id});
-  // Rover（Alan 2026-10-11）
-  else if (A === 'roverbuy') { if (confirm(`買一台 Rover（$${GV.rover?.price ?? 300}k）？`)) roverSend({type: 'buyRover'}, '買了一台 Rover'); }
-  else if (A === 'rovergo') { roverToast = +id; send({type: 'roverGo', tile: +id}); }
-  else if (A === 'roverstop') roverSend({type: 'roverStop'}, 'Rover 停車');
-  else if (A === 'roverup') roverSend({type: 'roverUpgrade', kind: id}, 'Rover 升級');
-  else if (A === 'roverjob') roverSend({type: 'roverJob', id}, '在地小事');
-  else if (A === 'roversearch') roverSend({type: 'roverSearch'}, 'Rover 開始搜索');
-  else if (A === 'roversupply') roverSend({type: 'roverSupply', food: +b.dataset.f || 0, water: +b.dataset.w || 0}, 'Rover 補給');
-  else if (A === 'roverpick') { const u = +id; roverPick = roverPick || new Set(GV.rover?.crew || []); if (roverPick.has(u)) roverPick.delete(u); else if (roverPick.size < 4) roverPick.add(u); renderRover(); }
-  else if (A === 'rovercrew') { roverSend({type: 'roverCrew', uids: [...(roverPick || [])]}, 'Rover 編組'); roverPick = null; }
-  else if (A === 'roveraccept') { const o = curOpps(hist[cur]).find(x => x.kind === id && x.tile === +b.dataset.tile); roverSend({type: 'accept', kind: id, tile: +b.dataset.tile, side: o?.kind === 'drill' ? '1' : o?.kind === 'front' || o?.kind === 'camp' ? 'att' : o?.kind === 'tense' ? 'a' : '', uids: [], rover: true}, '用 Rover 接委託'); }
+  // 基地（Alan 2026-10-12；原本的 Rover）
+  else if (A === 'basego') baseGoAsk(+id);
+  else if (A === 'basestop') roverSend({type: 'baseStop'}, '基地停下');
+  else if (A === 'baseup') roverSend({type: 'baseUpgrade', kind: id}, '基地升級');
+  else if (A === 'basejob') roverSend({type: 'baseJob', id}, '在地小事');
+  else if (A === 'basesearch') roverSend({type: 'baseSearch'}, '基地開始搜索');
+  else if (A === 'basevan') { if (confirm('買一台運兵車？同時可以多派一隊出去。')) roverSend({type: 'buyVan'}, '買運兵車'); }
+  else if (A === 'baseregister') { if (confirm(`公司登記換到${ST.names?.[GV.hq.tile] || '這裡'}？\n\n之後算是這裡的勢力的公司（跟誰打仗、能不能接哪一邊的委託、簽長約都照這裡）。$${GV.hq.regCost}k，一季只能換一次。`)) roverSend({type: 'register'}, '換登記'); }
+  else if (A === 'deal') { const d = (GV.world?.deals || []).find(x => x.id === id); if (d && confirm(`搶購：${d.title}？`)) roverSend({type: 'deal', id}, '搶購'); }
+  else if (A === 'note' || A === 'say') { const inp = b.closest('.box')?.querySelector(A === 'note' ? '#noteIn' : '#sayIn') || $(A === 'note' ? 'noteIn' : 'sayIn'); const t = inp?.value.trim(); if (t) { send({type: A, text: t}); inp.value = ''; } }
   else if (A === 'ungarall') { if (confirm('撤回這個產地所有不在護送中的駐軍？')) for (const sq of id.split(',')) send({type: 'ungarrison', squad: sq}); }
   else if (A === 'callpick' || A === 'garpick') {
     const c = (GV.retainer?.mine || []).find(x => A === 'garpick' ? x.site === +id : x.calls.some(q => q.id === id)), q = c?.calls.find(x => x.id === id); if (!c) return;
     sortie = {key: 'custom', tile: c.site, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: A === 'garpick'
       ? {kind: 'retainer', lv: 3, tile: c.site, title: `派人駐紮：${b.dataset.nm}`, detail: '駐軍在產地待命，每天每人駐紮費 $1.5k；應召時限到了還沒派，就從駐軍隨機拉一隊。', go: uids => send({type: 'garrison', site: c.site, uids})}
-      : {kind: 'retainer', lv: 3, tile: c.site, title: `長約應召：${q.g}車隊往${q.to}`, detail: `從總部出發，一隊（最多四人）`, go: uids => send({type: 'answer', call: q.id, uids})}};
+      : {kind: 'retainer', lv: 3, tile: c.site, title: `長約應召：${q.g}車隊往${q.to}`, detail: `從基地坐一台運兵車出發，一隊（最多四人）`, go: uids => send({type: 'answer', call: q.id, uids})}};
     renderSortie();
   }
   else if (A === 'merge') { if (confirm('合成之後，被吃掉的那一位就不在了。確定？')) send({type: 'merge', keep: +id, feed: +b.dataset.feed}); }
   else if (A === 'resolve' || A === 'fight') return;   // 上面 pointerdown 已經送出
   else if (A === 're') { pickRe = {squad: id, uids: new Set()}; renderCo(); }
-  else if (A === 're-go') { send({type: 'reinforce', squad: pickRe.squad, uids: [...pickRe.uids], fast: !!pickRe.fast}); pickRe = null; }
+  else if (A === 're-go') { send({type: 'reinforce', squad: pickRe.squad, uids: [...pickRe.uids]}); pickRe = null; }
   else if (A === 're-x') { pickRe = null; renderCo(); }
 };
 for (const el of coPanes) el.addEventListener('click', coClick);

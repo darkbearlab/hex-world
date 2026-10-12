@@ -11,6 +11,7 @@ let h = 1, camp = null;
 for (; h <= maxDays * 24; h++) { c.advanceTo(h); const e = c.boardView('絞肉機').find(x => x.kind === 'camp'); if (e) { camp = e; break; } }
 if (!camp) { console.log('這段期間沒有大戰役'); process.exit(1); }
 console.log(`第 ${(h / 24).toFixed(1)} 天：${camp.title}（${camp.detail}）`);
+G.base = camp.tile;   // 移動基地（2026-10-12）：大戰役要基地到場才能接，測試直接把基地放到戰場
 const uids = G.roster.filter(x => x.alive && x.status === 'home').map(x => x.uid);
 console.log('接案：', c.command({type: 'accept', kind: 'camp', tile: camp.tile, side: 'att', uids}, '絞肉機') || `派出 ${uids.length} 人`);
 const cs = c.game.book.cases.find(x => x.kind === 'camp' && G.cases.includes(x.id));
