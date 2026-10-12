@@ -305,6 +305,7 @@ $('pane-tile').onclick = e => { if (recallClick(e)) return; if (e.target.closest
 $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) return; const id = +r.dataset.f; hiFac = hiFac === id ? -1 : id; const f = hist[cur].fac.find(x => x.id === id); if (f && hiFac >= 0) centerOn(f.cap); draw(); };
 
 function renderTile() {
+  if ($('pane-tile').contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;   // 正在打留言，先不重畫
   const s = hist[cur], i = sel; if (i < 0) { $('pane-tile').innerHTML = '<p class="muted">點地圖上的格子看細節。</p>'; return; }
   const F = facById(s), o = s.owner[i], t = s.towns.find(x => x.t === i), g = s.gangs.filter(x => x.lair === i);
   let html = `<h2>${esc(ST.names[i] || '無名之地')}</h2><dl class="kv"><dt>地形</dt><dd>${ST.biomes[s.biome[i]].n}${ST.river[i] ? '・有水脈' : ''}</dd><dt>屬於</dt><dd>${o >= 0 && F[o] ? esc(F[o].n) : '無主'}</dd>`;
@@ -803,17 +804,19 @@ function baseTileHtml(i) {
   for (const x of (W.sites || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #c49a5a;padding-left:8px"><b style="color:#c49a5a">遠征點 ${'●'.repeat(x.lv)}${'○'.repeat(3 - x.lv)}</b>　${esc(x.title)}<br><span class="muted">${esc(x.hint)}・${x.taken ? `最近被${esc(x.taken)}搜過了` : '基地開過來搜索才拿得到，先搜到的先拿'}</span></p>`;
   for (const d of (W.deals || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #8fd18b;padding-left:8px"><b style="color:#8fd18b">搶購</b>　${esc(d.title)}<br><span class="muted">${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}・剩 ${d.left} 個名額${d.mine ? '・你買過了' : ''}・基地要停在這座城才能買</span>${H.tile === i && H.inTown && !d.mine && d.left > 0 && hourNow() >= d.open ? `<br><button data-act="deal" data-id="${d.id}">買（$${d.cost}k）</button>` : ''}</p>`;
   if (i !== H.tile || !H.parked) html += `<p><button data-act="basego" data-id="${i}">基地開到這裡</button> <span class="mini muted">${selPath?.to === i && selPath.base ? `${selPath.base.tiles} 格・約 ${fmtLeft(selPath.base.hours)}・油錢 $${selPath.base.fuel}k` : '基地照原本慢車的速度一格一格走'}</span></p>`;
-  if (i === H.tile && GV.here) html += hereHtml();
+  html += hereHtml(i);
   return html;
 }
-function hereHtml() {
-  const X = GV.here, rel = h => `${repDay(h)} ${String(Math.floor(h) % 24).padStart(2, '0')}:00`;
-  return `<div class="box" style="margin-top:8px"><h3 class="sec">此地 <span class="muted">基地同一格的人；留言留三天，對話留一天</span></h3>
-    <div class="mini">${X.cos.length ? X.cos.map(c => `<b>${esc(c.name)}</b>${c.npc ? '（NPC）' : ''} ${c.n} 人`).join('・') : '這一格沒有別家公司的基地。'}</div>
-    <h4 class="sec2">留言</h4>${X.notes.map(n => `<p class="mini"><span class="muted">${rel(n.h)}</span> <b>${esc(n.co)}</b>：${esc(n.text)}</p>`).join('') || '<p class="mini muted">沒有留言。</p>'}
-    <div class="row"><input id="noteIn" maxlength="120" placeholder="留一句話給之後經過的人（120 字以內）" style="flex:1"><button data-act="note">留言</button></div>
-    <h4 class="sec2">對話</h4>${X.chat.map(n => `<p class="mini"><span class="muted">${rel(n.h)}</span> <b>${esc(n.co)}</b>：${esc(n.text)}</p>`).join('') || '<p class="mini muted">還沒有人說話。</p>'}
-    <div class="row"><input id="sayIn" maxlength="120" placeholder="跟這一格的人說話" style="flex:1"><button data-act="say">說</button></div></div>`;
+// 此地（Alan 2026-10-12：在戰略地圖的地點分頁）：這一格停著哪些公司的基地、留在這一格的留言（三天）；基地停在這一格時可以留言、跟同一格的人對話（一天）
+function hereHtml(i) {
+  const W = GV.world || {}, mine = GV.hq?.tile === i, X = mine ? GV.here : null, rel = h => `${repDay(h)} ${String(Math.floor(h) % 24).padStart(2, '0')}:00`;
+  const cos = (W.bases || []).filter(c => c.tile === i), notes = (W.notes || []).filter(n => n.tile === i).slice(-20).reverse();
+  if (!mine && !cos.length && !notes.length) return '';
+  return `<h2 style="margin-top:10px">此地</h2><div class="mini">${mine ? '<b>我們的基地停在這裡</b>・' : ''}${cos.length ? cos.map(c => `<b>${esc(c.name)}</b>${c.npc ? '（NPC）' : ''} ${c.n} 人`).join('・') : '沒有別家公司的基地停在這裡。'}</div>
+    <h4 class="sec2">留言 <span class="mini muted">留三天</span></h4>${notes.map(n => `<p class="mini"><span class="muted">${rel(n.h)}</span> <b>${esc(n.co)}</b>：${esc(n.text)}</p>`).join('') || '<p class="mini muted">沒有留言。</p>'}
+    ${mine ? `<div class="row"><input id="noteIn" maxlength="120" placeholder="留一句話給之後經過的人（120 字以內）" style="flex:1"><button data-act="note">留言</button></div>
+    <h4 class="sec2">對話 <span class="mini muted">基地停在這一格的人看得到，留一天</span></h4>${X.chat.map(n => `<p class="mini"><span class="muted">${rel(n.h)}</span> <b>${esc(n.co)}</b>：${esc(n.text)}</p>`).join('') || '<p class="mini muted">還沒有人說話。</p>'}
+    <div class="row"><input id="sayIn" maxlength="120" placeholder="跟這一格的人說話" style="flex:1"><button data-act="say">說</button></div>` : '<p class="mini muted">基地停在這一格才能留言、說話。</p>'}`;
 }
 // 外出的人（Alan 2026-10-12）：照集合點分組；誰、在做什麼、什麼時候到集合點、到了之後還能等多久。駐軍另外在長約那邊
 function outsHtml(R) {
@@ -858,7 +861,6 @@ function renderRover() {
     <div class="box"><h3 class="sec">升級 <span class="muted">要到對的地方才能升</span></h3>
     ${R.up.map(u => `<div class="caseline" style="margin:6px 0"><div class="row"><span style="flex:1"><b>${esc(u.n)}</b> ${u.lv}／${u.max} 級<span class="mini muted">・現在：${esc(u.now)}${u.next ? `・下一級：${esc(u.next)}（$${u.cost}k）` : '・已經升到頂'}</span></span>${u.next && u.here ? `<button data-act="baseup" data-id="${u.kind}">升級（$${u.cost}k）</button>` : ''}</div>
       ${u.next && !u.here ? `<div class="mini muted">要到${esc(u.where)}：${u.near.map(x => `<button data-act="basego" data-id="${x.tile}">${esc(x.name)}（${x.d} 格・約 ${fmtLeft(x.hours)}）</button>`).join(' ') || '附近找不到'}</div>` : ''}</div>`).join('')}</div>
-    ${GV.here ? hereHtml() : ''}
     <div class="box"><h3 class="sec">基地日誌</h3><div class="rvlog">${R.log.map(e => `<p class="rv-${e.kind}"><span class="mini muted">${repDay(e.h)} ${String(Math.floor(e.h) % 24).padStart(2, '0')}:00</span> ${esc(e.text)}</p>`).join('')}</div></div>`;
 }
 
@@ -1225,7 +1227,7 @@ const coClick = e => {
   else if (A === 'basevan') { if (confirm('買一台運兵車？同時可以多派一隊出去。')) roverSend({type: 'buyVan'}, '買運兵車'); }
   else if (A === 'baseregister') { if (confirm(`公司登記換到${ST.names?.[GV.hq.tile] || '這裡'}？\n\n之後算是這裡的勢力的公司（跟誰打仗、能不能接哪一邊的委託、簽長約都照這裡）。$${GV.hq.regCost}k，一季只能換一次。`)) roverSend({type: 'register'}, '換登記'); }
   else if (A === 'deal') { const d = (GV.world?.deals || []).find(x => x.id === id); if (d && confirm(`搶購：${d.title}？`)) roverSend({type: 'deal', id}, '搶購'); }
-  else if (A === 'note' || A === 'say') { const inp = b.closest('.box')?.querySelector(A === 'note' ? '#noteIn' : '#sayIn') || $(A === 'note' ? 'noteIn' : 'sayIn'); const t = inp?.value.trim(); if (t) { send({type: A, text: t}); inp.value = ''; } }
+  else if (A === 'note' || A === 'say') { const inp = $(A === 'note' ? 'noteIn' : 'sayIn'); const t = inp?.value.trim(); if (t) { send({type: A, text: t}); inp.value = ''; } }
   else if (A === 'ungarall') { if (confirm('撤回這個產地所有不在護送中的駐軍？')) for (const sq of id.split(',')) send({type: 'ungarrison', squad: sq}); }
   else if (A === 'callpick' || A === 'garpick') {
     const c = (GV.retainer?.mine || []).find(x => A === 'garpick' ? x.site === +id : x.calls.some(q => q.id === id)), q = c?.calls.find(x => x.id === id); if (!c) return;

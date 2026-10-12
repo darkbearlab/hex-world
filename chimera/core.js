@@ -322,6 +322,8 @@ export class Core {
     const b = this.game.book, h = this.game.h, w = this.w;
     return {sites: (b.sites || []).map(s => ({tile: s.tile, kind: s.kind, lv: s.lv, title: s.title, hint: s.hint, taken: (t => t && h - t.h < G.SITE_CD ? t.co : null)(b.siteTaken?.[s.tile])})),
       events: (b.events || []).filter(e => h >= e.start && h < e.end && !e.taken).map(e => ({id: e.id, tile: e.tile, kind: e.kind, title: e.title, hint: e.hint, end: e.end})),
+      // 此地（Alan 2026-10-12：改在戰略地圖的地點分頁看）：每一格的留言、停在哪一格的公司，點哪一格就看哪一格
+      notes: (b.notes || []).slice(-200), bases: Object.values(this.game.cos).filter(x => x !== g).map(x => ({name: x.name, tile: x.base, npc: !!x.npc, n: x.roster.filter(c => c.alive).length})),
       deals: (b.deals || []).map(d => ({id: d.id, tile: d.tile, kind: d.kind, title: d.title, cost: d.cost, open: d.open, close: d.close, left: d.slots - d.buyers.length, mine: d.buyers.includes(g.name), place: w.names[d.tile] || ''}))};
   }
   // 此地（Alan 2026-10-12，照 warband 的「此地」）：基地同一格的其他公司、留在這一格的留言（三天）、對話（一天）
