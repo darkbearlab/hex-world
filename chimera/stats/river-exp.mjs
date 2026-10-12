@@ -7,6 +7,7 @@ import {Core} from '../core.js';
 import * as S from '../sim.js';
 
 const [file, mode, years = '40', out, nRiv = '3'] = process.argv.slice(2);
+if (process.env.OPR) globalThis.OPR = +process.env.OPR;   // 拓荒者遠行的機率（每個勢力每年，預設 0.06）
 const raw = JSON.parse(fs.readFileSync(file, 'utf8')), c = new Core(() => {}); c.load(raw.seed, raw.save); const w = c.w, W = S.W, N = S.N;
 const east = i => i % W >= Math.floor(W * .66), K0 = c.sim.peek();
 const rivers = [];
@@ -25,6 +26,19 @@ if (mode === 'rivers' || mode === 'near') {   // near：源頭挑離東邊現有
   for (const p of rivers) { w.riverPaths.push(p); for (const t of p) if (w.land[t] && !w.river[t]) { w.river[t] = 1; st.fert[t] = Math.min(1.3, st.fert[t] + .35); w.fert[t] = Math.min(1.3, w.fert[t] + .35); w.water[t] = Math.min(1.2, w.water[t] + .4); w.waterK[t] = Math.min(1.3, w.waterK[t] + .6); } }
   console.log(`加了 ${rivers.length} 條河：${rivers.map(p => `${p.length} 格（${w.names[p[0]]} → ${w.names[p[p.length - 1]] || '海'}）`).join('、')}`);
 }
+// corridor（Alan 2026-10-12）：東邊低地一條從北往南、流進東南海的大河；從西南的城沿南邊、經南岸的聚落往東北，每 5～6 格一個綠洲當跳板（這張地圖專用的路線）
+if (mode === 'corridor') {
+  const at = (q, r) => r * W + q, st = c.sim.exportState(), wet = (t, k = 1) => { if (!w.land[t]) return; if (!w.river[t]) { w.river[t] = 1; st.fert[t] = Math.min(1.3, st.fert[t] + .35); w.fert[t] = Math.min(1.3, w.fert[t] + .35); } w.water[t] = Math.min(1.2, w.water[t] + .4 * k); w.waterK[t] = Math.min(1.3, w.waterK[t] + .6 * k); };
+  const NB = i => { const r = Math.floor(i / W), q = i % W, d = (r & 1) ? [[1, 0], [1, -1], [0, -1], [-1, 0], [0, 1], [1, 1]] : [[1, 0], [0, -1], [-1, -1], [-1, 0], [-1, 1], [0, 1]], o = []; for (const [dq, dr] of d) { const a = q + dq, b = r + dr; if (a >= 0 && a < W && b >= 0 && b < S.H) o.push(b * W + a); } return o; };
+  // 大河：從東北的高處沿最低的谷地（成本＝1＋高度×4）走到東南的海
+  const src = at(52, 7), isMouth = t => !w.land[t] && Math.floor(t / W) >= 32 && t % W >= 46; let dst = -1; const dist = new Map([[src, 0]]), prev = new Map(), Q = [[0, src]];
+  while (Q.length) { Q.sort((a, b) => a[0] - b[0]); const [d0, u] = Q.shift(); if (isMouth(u)) { dst = u; break; } if (d0 > dist.get(u)) continue; for (const n of NB(u)) { if (!w.land[n] && !isMouth(n)) continue; const nd = d0 + 1 + w.elev[n] * 4; if (nd < (dist.get(n) ?? 1e9)) { dist.set(n, nd); prev.set(n, u); Q.push([nd, n]); } } }
+  const big = [dst]; while (prev.has(big[0])) big.unshift(prev.get(big[0])); rivers.push(big); for (const t of big) wet(t, 1.2);
+  // 跳板：沿著這些點（欄, 列）放綠洲（中心＋一格小水脈）
+  const stones = [[17, 38], [23, 40], [29, 41], [34, 40], [40, 39], [45, 37], [49, 34], [51, 29], [53, 24], [54, 18]].map(([q, r]) => at(q, r)).filter(t => w.land[t]);
+  for (const t of stones) { const n = NB(t).find(x => w.land[x] && !w.river[x]); const p = n != null ? [t, n] : [t]; rivers.push(p); for (const x of p) wet(x, 1); }
+  console.log(`大河 ${big.length} 格（${w.names[big[0]]} → ${w.names[big[big.length - 1]] || '海'}），跳板綠洲 ${stones.length} 個：${stones.map(t => w.names[t]).join('、')}`);
+}
 const snap = () => { const K = c.sim.peek(), towns = Object.keys(K.markets).map(Number).filter(t => K.owner[t] >= 0);
   let own = 0, pop = 0; for (let i = 0; i < N; i++) if (east(i) && K.owner[i] >= 0) { own++; pop += K.pop[i]; }
   return {y: c.year, own, pop: Math.round(pop), towns: towns.filter(east).length, owner: Array.from(K.owner), townList: towns}; };
@@ -33,5 +47,5 @@ while (c.year < y0 + +years) { c.advanceTo(c.hour + 24 * 14); if (c.year % 5 ===
 rows.push(snap());
 const ev = w.events.filter((e, i) => !seen.has(i) && e.tile != null && east(e.tile) && /聚落|拓荒|新市鎮|打了井|廢墟/.test(e.text)).map(e => ({y: e.y, text: e.text, tile: e.tile}));
 const K = c.sim.peek();
-fs.writeFileSync(out, JSON.stringify({mode, W, H: S.H, rivers, oldRivers: w.riverPaths.filter(p => !rivers.includes(p)), land: w.land, biome: Array.from(K.biome), fac: K.fac.map(f => ({id: f.id, n: f.n, c: f.c, alive: f.alive})), names: w.names, rows, ev}));
+fs.writeFileSync(out, JSON.stringify({mode: process.env.TAG || mode, W, H: S.H, rivers, oldRivers: w.riverPaths.filter(p => !rivers.includes(p)), land: w.land, biome: Array.from(K.biome), fac: K.fac.map(f => ({id: f.id, n: f.n, c: f.c, alive: f.alive})), names: w.names, rows, ev}));
 console.log(`${mode}：${rows[0].y} → ${rows.at(-1).y} 年，東邊有人 ${rows[0].own} → ${rows.at(-1).own} 格、城 ${rows[0].towns} → ${rows.at(-1).towns}、人口 ${rows[0].pop} → ${rows.at(-1).pop}；東邊的拓殖事件 ${ev.length} 件`);

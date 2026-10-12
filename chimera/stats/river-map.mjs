@@ -3,7 +3,7 @@
 import fs from 'fs';
 import {BIOMES} from '../sim.js';
 const A = process.argv.slice(2), out = A.pop(), B = JSON.parse(fs.readFileSync(A[0], 'utf8')), V = A.slice(1).map(f => JSON.parse(fs.readFileSync(f, 'utf8'))), R = V[0];
-const LABEL = {rivers: '照地勢拉河（離城遠）', near: '河靠近東邊的城'};
+const LABEL = {rivers: '照地勢拉河（離城遠）', near: '河靠近東邊的城', corridor: '南邊跳板綠洲＋東邊大河', fast: '跳板＋大河＋拓荒機率 30%'};
 const {W, H} = R, S0 = 9, SQ3 = Math.sqrt(3), c0 = Math.floor(W * .5);
 const col = i => i % W, row = i => Math.floor(i / W), cx = i => (col(i) - c0 + .5 * (row(i) & 1)) * SQ3 * S0 + SQ3 * S0 / 2, cy = i => row(i) * 1.5 * S0 + S0;
 const hex = (x, y, s) => { let p = ''; for (let k = 0; k < 6; k++) { const a = Math.PI / 180 * (60 * k - 30); p += `${(x + s * Math.cos(a)).toFixed(1)},${(y + s * Math.sin(a)).toFixed(1)} `; } return p; };
