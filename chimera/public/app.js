@@ -652,6 +652,31 @@ setInterval(() => { if (page === 'vat') tickVat(); }, 1000);
 // ───── 倉庫（Alan 2026-10-09）：所有人身上的裝備與沒在用的庫存。內容先留空，之後人員詳細資料的換裝會帶到這裡 ─────
 // 改裝：倉庫裡的槍換一個詞條（Alan 2026-10-09）
 let modPick = null;
+// 庫存的篩選與排序（Alan 2026-10-12）：種類（槍、近戰、護甲、預備品、遺產級）、槍種／款式、詞條；排序照種類、名稱、價值、詞條。記在這個瀏覽器
+let storeF = (() => { try { return {kind: 'all', base: '', affix: '', sort: 'kind', ...JSON.parse(localStorage.getItem('chimera-storeF') || '{}')}; } catch { return {kind: 'all', base: '', affix: '', sort: 'kind'}; } })();
+const saveStoreF = () => { try { localStorage.setItem('chimera-storeF', JSON.stringify(storeF)); } catch {} };
+const KIND_N = {gun: '槍', melee: '近戰', armor: '護甲', kit: '預備品'};
+const baseN = it => ({gun: GUNS, melee: MELEES, armor: ARMORS, kit: KITS}[it.kind]?.[it.base]?.n || it.base);
+const affixN = it => !it.affix ? '' : it.kind === 'armor' ? ARMOR_AFFIXES[it.affix]?.n || it.affix : AFFIX_NAMES[it.affix] || it.affix;
+const kindOfIt = it => it.legacy ? 'legacy' : it.kind;
+function storeFilters(store) {
+  const cnt = f => store.filter(f).length, btn = (key, v, label, n) => `<button data-sf="${key}:${v}" class="${storeF[key] === v ? 'on' : ''}">${esc(label)} <span class="muted">${n}</span></button>`;
+  const inKind = store.filter(it => storeF.kind === 'all' || kindOfIt(it) === storeF.kind);
+  const bases = [...new Set(inKind.map(it => it.kind + ':' + it.base))].map(k => { const it = inKind.find(x => x.kind + ':' + x.base === k); return [k, baseN(it), inKind.filter(x => x.kind + ':' + x.base === k).length]; }).sort((a, b) => a[1].localeCompare(b[1]));
+  const affs = [...new Set(inKind.filter(it => it.affix).map(it => it.kind === 'armor' ? 'a:' + it.affix : 'g:' + it.affix))].map(k => { const it = inKind.find(x => (x.kind === 'armor' ? 'a:' : 'g:') + x.affix === k); return [k, affixN(it), inKind.filter(x => x.affix && (x.kind === 'armor' ? 'a:' : 'g:') + x.affix === k).length]; }).sort((a, b) => a[1].localeCompare(b[1]));
+  return `<div class="filters">${btn('kind', 'all', '全部', store.length)}${Object.entries(KIND_N).map(([k, n]) => cnt(it => kindOfIt(it) === k) ? btn('kind', k, n, cnt(it => kindOfIt(it) === k)) : '').join('')}${cnt(it => it.legacy) ? btn('kind', 'legacy', '遺產級', cnt(it => it.legacy)) : ''}</div>
+    ${bases.length > 1 ? `<div class="filters">${btn('base', '', '全部款式', inKind.length)}${bases.map(([k, n, c]) => btn('base', k, n, c)).join('')}</div>` : ''}
+    ${affs.length ? `<div class="filters">${btn('affix', '', '不限詞條', inKind.length)}${btn('affix', '-', '沒有詞條', inKind.filter(it => !it.affix).length)}${affs.map(([k, n, c]) => btn('affix', k, n, c)).join('')}</div>` : ''}
+    <div class="filters"><span class="mini muted" style="align-self:center">排序</span>${[['kind', '種類'], ['name', '名稱'], ['value', '價值'], ['affix', '詞條']].map(([v, n]) => `<button data-sf="sort:${v}" class="${storeF.sort === v ? 'on' : ''}">${n}</button>`).join('')}</div>`;
+}
+function storeList(store) {
+  const order = {gun: 0, melee: 1, armor: 2, kit: 3}, by = {
+    kind: (a, b) => (a.legacy ? -1 : 0) - (b.legacy ? -1 : 0) || order[a.kind] - order[b.kind] || baseN(a).localeCompare(baseN(b)) || affixN(a).localeCompare(affixN(b)),
+    name: (a, b) => a.name.localeCompare(b.name), value: (a, b) => (b.value || 0) - (a.value || 0) || a.name.localeCompare(b.name),
+    affix: (a, b) => (a.affix ? 0 : 1) - (b.affix ? 0 : 1) || affixN(a).localeCompare(affixN(b)) || order[a.kind] - order[b.kind]};
+  return store.filter(it => (storeF.kind === 'all' || kindOfIt(it) === storeF.kind) && (!storeF.base || it.kind + ':' + it.base === storeF.base)
+    && (!storeF.affix || (storeF.affix === '-' ? !it.affix : it.affix && (it.kind === 'armor' ? 'a:' : 'g:') + it.affix === storeF.affix))).sort(by[storeF.sort] || by.kind);
+}
 const ARMOR_TEXT = {nightvision: '夜視：射擊暗處的目標不扣命中', infrared: '紅外線：看穿煙霧（牆和門還是擋得住）', steady: '壓制抗性：每次被壓制少 1 層', antitox: '抗毒：中毒每回合少 1 點傷害'};   // 照 ASH 的特性說明
 function renderStore() {
   const P = $('pane-store'); if (!P) return;
@@ -661,7 +686,7 @@ function renderStore() {
   P.html = `<div class="cocols"><div class="cocol"><div class="box"><h3 class="sec">身上的裝備 <span class="muted">點人換裝</span></h3>
     <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${face(c)}" alt="">${nameShort(c)}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
     <div class="cocol"><div class="box"><h3 class="sec">庫存 <span class="muted">戰鬥撿到的、換下來的・本地行情 ×${(GV.sellFactor ?? 1).toFixed(2)}</span></h3>
-    ${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${store.map(it => `<tr><td>${KN[it.kind]}</td><td>${esc(it.name)}${it.kind === 'armor' && it.affix ? `<div class="mini muted">${esc(ARMOR_TEXT[it.affix] || '')}</div>` : ''}</td><td class="acts">${it.kind === 'gun' ? `<button data-modpick="${it.id}">改裝</button>` : ''}<button data-sell="${it.id}">${it.value ? `賣 $${it.value}k` : '丟棄'}</button></td></tr>${modPick === it.id ? `<tr><td colspan="3"><div class="gpick">${Object.keys(MOD_AFFIXES).filter(a => !MOD_AFFIXES[a].notOn?.includes(it.base) && a !== it.affix).map(a => `<button data-mod="${it.id}:${a}">${AFFIX_NAMES[a]}</button>`).join('')}<span class="mini">每次 $${modCost(it.base)}k</span><button data-modx="1">取消</button></div></td></tr>` : ''}`).join('')}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
+    ${store.length ? storeFilters(store) : ''}${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${(L => L.length ? L : [])(storeList(store)).map(it => `<tr><td>${it.legacy ? '遺產級' : KN[it.kind]}</td><td>${esc(it.name)}${it.kind === 'armor' && it.affix ? `<div class="mini muted">${esc(ARMOR_TEXT[it.affix] || '')}</div>` : ''}</td><td class="acts">${it.kind === 'gun' ? `<button data-modpick="${it.id}">改裝</button>` : ''}<button data-sell="${it.id}">${it.value ? `賣 $${it.value}k` : '丟棄'}</button></td></tr>${modPick === it.id ? `<tr><td colspan="3"><div class="gpick">${Object.keys(MOD_AFFIXES).filter(a => !MOD_AFFIXES[a].notOn?.includes(it.base) && a !== it.affix).map(a => `<button data-mod="${it.id}:${a}">${AFFIX_NAMES[a]}</button>`).join('')}<span class="mini">每次 $${modCost(it.base)}k</span><button data-modx="1">取消</button></div></td></tr>` : ''}`).join('') || '<tr><td colspan="3" class="muted">沒有符合的裝備。</td></tr>'}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
 }
 // ───── 交易：素材庫存、在總部買、派車隊去別座城採購（之後賣人也放這裡） ─────
 function renderTrade() {
@@ -840,7 +865,7 @@ function renderRover() {
   const deals = (W.deals || []).filter(d => d.left > 0 && !d.mine), here = (W.deals || []).filter(d => d.tile === R.tile);
   P.html = `<div class="box"><h3 class="sec">基地 <span class="muted">・<a href="#" data-center="${R.tile}">${nm(R.tile)}</a></span></h3>
     <div class="mini">${st}</div>
-    <div class="mini" style="margin-top:4px">登記在 <b>${esc(R.homeName)}</b>（${esc(R.homeFac || '無主')}，勢力照這裡算）${R.inTown && R.home !== R.tile ? ` <button data-act="baseregister">換登記到${nm(R.tile)}（$${R.regCost}k，一季一次）</button>` : ''}</div>
+    <div class="mini" style="margin-top:4px">登記在 <b>${esc(R.homeName)}</b><!-- 說明（不顯示）：（登記地的勢力，勢力照這裡算） -->${R.inTown && R.home !== R.tile ? ` <button data-act="baseregister">換登記到${nm(R.tile)}（$${R.regCost}k，一季一次）</button>` : ''}</div>
     <div class="mini">運兵車 <b>${Math.max(0, V.cap - V.used)}</b>／${V.cap} 台空著${V.used > V.cap ? '（舊規則派出去的隊伍還沒回來）' : ''}${R.inTown && V.cap < 4 ? ` <button data-act="basevan">買第 ${V.cap + 1} 台（$${vanPrice}k）</button>` : ''}・一台載一隊四人；基地在現場就直接派、不用車</div>
     <div class="mini">${R.inTown ? '停在城裡：吃喝照城裡的' : `在城外每天：熱量 ${+(homeN * R.daily.food).toFixed(1)}、淨水 ${+(homeN * R.daily.water).toFixed(1)}（在家 ${homeN} 人，從倉庫扣）`}${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天（培養槽停擺）</span>` : ''}</div>
     ${out ? `<div class="mini">有 ${out} 個人在外面，集合點就是這裡：基地不要開走，他們回來就會自己上車。</div>` : ''}
@@ -848,16 +873,18 @@ function renderRover() {
     ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）・守衛：${R.guard.map(u => esc(nameShort(GV.roster.find(x => x.uid === u) || {}))).join('、')}</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row"><button data-act="fight" data-id="${tk.id}">親自打</button><button data-act="resolve" data-id="${tk.id}">現在自動結算</button></div></div>` : ''}
     <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="basestop">停下</button>' : ''}<button data-act="basesearch"${R.block || !R.parked ? ' disabled' : ''}>搜索這一帶（4 小時）${R.site && !R.site.taken ? `：${esc(R.site.title)}` : ''}</button></div>
     ${R.site ? `<p class="mini">${esc(R.site.title)}：${esc(R.site.hint)}${R.site.taken ? `（最近被${esc(R.site.taken)}搜過了）` : ''}</p>` : ''}
-    <p class="mini muted">要去哪裡：到戰略地圖點一格，按「基地開到這裡」。基地照原本慢車的速度走，每格油錢 $${R.fuel}k；停在委託旁邊一格以內，那個委託就能直接派人（不用車、不限隊數）。</p></div>
+    <!-- 說明（不顯示）：要去哪裡：到戰略地圖點一格，按「基地開到這裡」。基地照原本慢車的速度走，每格油錢 $3k；停在委託旁邊一格以內，那個委託就能直接派人（不用車、不限隊數） --></div>
     ${here.length ? `<div class="box"><h3 class="sec">這座城的搶購</h3>${here.map(d => `<div class="row caseline"><span class="mini" style="flex:1">${esc(d.title)}・剩 ${d.left} 個名額・${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}</span>${R.inTown && !d.mine && d.left > 0 && hourNow() >= d.open ? `<button data-act="deal" data-id="${d.id}">買（$${d.cost}k）</button>` : d.mine ? '<span class="mini">買過了</span>' : ''}</div>`).join('')}</div>` : ''}
     ${outsHtml(R)}
     <div class="box"><h3 class="sec">突發事件與搶購 <span class="muted">基地到場才拿得到，先到先得</span></h3>
     ${(W.events || []).map(x => `<div class="row caseline"><span class="mini" style="flex:1"><b style="color:#f2c94c">★</b> ${esc(x.title)}・${esc(x.hint)}・${cd(x.end)}後消失</span><button data-act="basego" data-id="${x.tile}">開過去</button></div>`).join('')}
     ${deals.map(d => `<div class="row caseline"><span class="mini" style="flex:1"><b style="color:#8fd18b">$</b> ${esc(d.title)}・${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}・剩 ${d.left}</span>${d.tile !== R.tile ? `<button data-act="basego" data-id="${d.tile}">開過去</button>` : ''}</div>`).join('')}
-    ${!(W.events || []).length && !deals.length ? '<p class="mini muted">現在沒有。地圖上的「搜」是遠征點（舊戰場、舊礦坑、燃料林、廢墟），也要基地到場搜索。</p>' : '<p class="mini muted">地圖上的「搜」是遠征點，★是突發事件，$是搶購。</p>'}</div>
+    ${!(W.events || []).length && !deals.length ? '<p class="mini muted">現在沒有。</p>' : ''}</div>
+    <!-- 說明（Alan 2026-10-12：不要顯示，留在註解）：地圖上的「搜」是遠征點（舊戰場、舊礦坑、燃料林、廢墟），也要基地到場搜索；★是突發事件，$是搶購 -->
     <div class="box"><h3 class="sec">在地小事 <span class="muted">基地停在城裡時，城裡的人拜託的事，最多同時接三件</span></h3>
     ${R.jobs.map(j => `<div class="row caseline"><span class="mini" style="flex:1"><b>${esc(j.title)}</b>・$${j.reward}k・${j.state === 'found' ? `人找到了，帶回${esc(j.fromName)}` : j.state === 'fight' ? '正在打' : j.kind === 'deliver' ? `送到${esc(j.toName)}` : `去${esc(j.toName)}`}・${cd(j.expires)}後過期</span>${j.state !== 'fight' ? `<button data-act="basego" data-id="${j.state === 'found' ? j.from : j.to}">開過去（${j.d} 格）</button>` : ''}</div>`).join('') || '<p class="mini muted">沒有接著的小事。</p>'}
-    ${R.jobsHere.length ? `<h4 class="sec2">${nm(R.tile)}的人拜託的</h4>${R.jobsHere.map(j => `<div class="row caseline"><span class="mini" style="flex:1">${esc(j.title)}・$${j.reward}k</span><button data-act="basejob" data-id="${j.id}">${j.kind === 'supply' ? '賣給他們（從倉庫）' : '接下'}</button></div>`).join('')}` : R.inTown ? '<p class="mini muted">這座城現在沒有人拜託事情。</p>' : '<p class="mini muted">停在城裡才有人拜託事情。</p>'}</div>
+    ${R.jobsHere.length ? `<h4 class="sec2">${nm(R.tile)}的人拜託的</h4>${R.jobsHere.map(j => `<div class="row caseline"><span class="mini" style="flex:1">${esc(j.title)}・$${j.reward}k</span><button data-act="basejob" data-id="${j.id}">${j.kind === 'supply' ? '賣給他們（從倉庫）' : '接下'}</button></div>`).join('')}` : R.inTown ? '<p class="mini muted">這座城現在沒有人拜託事情。</p>' : ''}</div>
+    <!-- 說明（不顯示）：停在城裡才有人拜託事情 -->
     <div class="box"><h3 class="sec">升級 <span class="muted">要到對的地方才能升</span></h3>
     ${R.up.map(u => `<div class="caseline" style="margin:6px 0"><div class="row"><span style="flex:1"><b>${esc(u.n)}</b> ${u.lv}／${u.max} 級<span class="mini muted">・現在：${esc(u.now)}${u.next ? `・下一級：${esc(u.next)}（$${u.cost}k）` : '・已經升到頂'}</span></span>${u.next && u.here ? `<button data-act="baseup" data-id="${u.kind}">升級（$${u.cost}k）</button>` : ''}</div>
       ${u.next && !u.here ? `<div class="mini muted">要到${esc(u.where)}：${u.near.map(x => `<button data-act="basego" data-id="${x.tile}">${esc(x.name)}（${x.d} 格・約 ${fmtLeft(x.hours)}）</button>`).join(' ') || '附近找不到'}</div>` : ''}</div>`).join('')}</div>
@@ -1184,6 +1211,7 @@ const coClick = e => {
   const eq = e.target.closest('[data-eq]'); if (eq && gearPick) { const pc = GV.roster.find(x => x.uid === gearPick.uid);
     send(pc?.field ? {type: 'fieldEquip', squad: pc.field, uid: gearPick.uid, slot: gearPick.slot, item: eq.dataset.eq || null} : {type: 'equip', uid: gearPick.uid, slot: gearPick.slot, item: eq.dataset.eq || null}); gearPick = null; return; }
   const sl = e.target.closest('[data-sell]'); if (sl) { send({type: 'sell', item: sl.dataset.sell}); return; }
+  const sf = e.target.closest('[data-sf]'); if (sf) { const [k, v] = sf.dataset.sf.split(/:(.+)/); storeF[k] = storeF[k] === v && k !== 'sort' && k !== 'kind' ? (k === 'affix' || k === 'base' ? '' : v) : v; if (k === 'kind') { storeF.base = ''; storeF.affix = ''; } saveStoreF(); renderStore(); return; }   // 庫存的篩選、排序
   const mp = e.target.closest('[data-modpick]'); if (mp) { modPick = modPick === mp.dataset.modpick ? null : mp.dataset.modpick; renderStore(); return; }
   if (e.target.closest('[data-modx]')) { modPick = null; renderStore(); return; }
   const md = e.target.closest('[data-mod]'); if (md) { const [item, affix] = md.dataset.mod.split(':'); send({type: 'mod', item, affix}); modPick = null; return; }
