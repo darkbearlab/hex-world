@@ -58,6 +58,7 @@ R.classSprite = function (a, size, character, dead = false, dark = false, tint =
   if (!im || !hasHalf(im, !!dead)) return classSprite.call(this, a, size, character, dead, dark, tint);   // 那半張空著就照舊用職業圖（Alan 2026-10-12：有的人只有倒地圖、有的只有站姿）
   const c = this.ctx, src = dark && this.darkActors ? this.darkActors.get(im) : im;
   c.drawImage(src, dead ? 32 : 0, 0, 32, 32, Math.round(a.x - size / 2), Math.round(a.y - size / 2), size, size);
-  if (dead) { const u = this.chimeraUnit, b = bloodOf(im, u?.id || u?.squadId || u?.callName || 'x'); if (b) { c.save(); if (dark && this.darkActors) c.globalAlpha = .55; c.imageSmoothingEnabled = false; c.drawImage(b, 0, 0, 32, 32, Math.round(a.x - size / 2), Math.round(a.y - size / 2), size, size); c.restore(); } }
+  // 暗處：血跟身體一樣交給 ASH 壓暗（同一個 DarkActorCache）；夜間、光照是之後整片蓋上去的，也會蓋到血
+  if (dead) { const u = this.chimeraUnit, b = bloodOf(im, u?.id || u?.squadId || u?.callName || 'x'); if (b) { c.save(); c.imageSmoothingEnabled = false; c.drawImage(dark && this.darkActors ? this.darkActors.get(b) : b, 0, 0, 32, 32, Math.round(a.x - size / 2), Math.round(a.y - size / 2), size, size); c.restore(); } }
   return true;
 };
