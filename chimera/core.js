@@ -150,6 +150,7 @@ export class Core {
       G.retainerHour(game.cos, game.book, this.w, t, Math.max(1, Math.round(24 * game.yearDays / 4)));
       for (const e of this.sim.campaignHour(t)) this.campaignNews(e, t);
       if (this.npcOn) npcHour(this, t);   // NPC 傭兵公司（npc.js；伺服器才開）
+      if (t % 24 === 0) G.pruneSquads(game.cos, game.book, t);   // 用完的小隊每天清一次
       if (t % 24 === 0) { const r = this.sim.stepDay(Math.max(1, Math.round(game.yearDays / 4))); if (r) yearDone = true; }
     }
     if (yearDone) this.emit({type: 'year', data: this.snapshot()});

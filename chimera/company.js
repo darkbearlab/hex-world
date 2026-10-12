@@ -958,3 +958,26 @@ function unitsView(G, book, h) {
   for (const k in grp) { const g = grp[k]; out.push({key: 'R' + k, kind: 'returning', name: '歸途', n: g.n, pos: C.posOn(g.move.path, (h - g.move.t0) / Math.max(1, g.move.t1 - g.move.t0)), path: rest(g.move, h), status: `回總部途中，約 ${C.fmtDur(g.move.t1 - h)}後到`, where: ''}); }
   return out;
 }
+
+// 清掉用完的小隊（Alan 2026-10-12：沒有資料相依就刪）：帳本裡的小隊是出勤時的編組，人回到總部、案件結案之後就只剩名單，
+// 一直留著會佔掉存檔一半。還有人引用的都留著：沒結案（或結案不到三天、畫面還在顯示）的案件、沒打完的服務單、還在路上的補員、
+// 行軍中的事件、駐軍、Rover；隊上還有出勤中的人、而且不在別的小隊裡的也留著。每天一次（core.js）
+export function pruneSquads(cos, book, h) {
+  const keep = new Set();
+  for (const c of book.cases) if (!c.settled || h - (c.settledAt ?? h) < 72 || c.squads.some(id => { const p = book.squads[id]?.player; return p && cos[p] && !(c.backHome === true || c.backHome?.[p]); })) for (const id of c.squads) keep.add(id);
+  for (const t of book.tickets) if (!t.done && t.squad) keep.add(t.squad);
+  for (const a of book.amends || []) if (!a.done) { keep.add(a.squad); keep.add(a.col); }
+  for (const tr of book.trips || []) if (!tr.done) keep.add(tr.unit);
+  for (const g of Object.values(cos)) if (g.rover?.squad) keep.add(g.rover.squad);
+  const drop = Object.values(book.squads).filter(sq => !keep.has(sq.id) && sq.garrison == null && !sq.rover && !sq.caseId);
+  if (!drop.length) return 0;
+  const dropIds = new Set(drop.map(sq => sq.id)), elsewhere = new Set();
+  for (const sq of Object.values(book.squads)) if (!dropIds.has(sq.id)) for (const x of sq.clones) elsewhere.add(x);
+  let n = 0;
+  for (const sq of drop) {
+    if (sq.clones.some(x => x.alive && x.status === 'away' && !elsewhere.has(x))) continue;
+    if (sq.pack?.length && cos[sq.player]) unpack(cos[sq.player], sq, h);   // 行李沒收進倉庫的（照理不會有）先收
+    delete book.squads[sq.id]; n++;
+  }
+  return n;
+}
