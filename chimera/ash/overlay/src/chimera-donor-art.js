@@ -8,7 +8,10 @@ const R = Renderer.prototype, cache = new Map();
 let have = null;
 fetch('/asset-manifest.json', {cache: 'no-cache'}).then(r => r.ok ? r.json() : null).then(d => { have = new Set((d?.items || []).map(x => x.path)); }).catch(() => { have = new Set(); });
 export const donorSpritePath = k => `donors/${k}/sprite.png`;
+// 先關掉（Alan 2026-10-12：評價不好，要重新設計）：戰場一律用各兵種的基本圖。圖檔（public/donors/*/sprite.png）和產生的腳本都留著，重新設計好改回 true
+export const DONOR_SPRITES = false;
 export function donorSprite(u) {
+  if (!DONOR_SPRITES) return null;
   const k = u?.donor; if (!k || !have?.has(donorSpritePath(k))) return null;
   let im = cache.get(k); if (!im) { im = new Image(); im.src = '/' + donorSpritePath(k); cache.set(k, im); }
   return im.complete && im.naturalWidth ? im : null;
