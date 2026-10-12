@@ -815,6 +815,16 @@ function hereHtml() {
     <h4 class="sec2">對話</h4>${X.chat.map(n => `<p class="mini"><span class="muted">${rel(n.h)}</span> <b>${esc(n.co)}</b>：${esc(n.text)}</p>`).join('') || '<p class="mini muted">還沒有人說話。</p>'}
     <div class="row"><input id="sayIn" maxlength="120" placeholder="跟這一格的人說話" style="flex:1"><button data-act="say">說</button></div></div>`;
 }
+// 外出的人（Alan 2026-10-12）：照集合點分組；誰、在做什麼、什麼時候到集合點、到了之後還能等多久。駐軍另外在長約那邊
+function outsHtml(R) {
+  const G = R.outs || []; if (!G.length) return '';
+  const who = u => { const c = GV.roster.find(x => x.uid === u); return c ? chip(c, false, 'person') : `#${u}`; };   // 點人看詳細資料（跟名冊一樣）
+  const row = p => { const now = hourNow() ?? GV.h;
+    const st = p.state === 'wait' ? `<b style="color:var(--war)">在集合點等基地</b>・補給還撐 ${cd(p.until)}` : p.state === 'travel' ? `開回集合點・${cd(p.eta)}後到・到了之後可以等 48 小時` : `${p.state === 'column' ? '補員路上' : '任務中'}：${esc(p.what || '')}${p.eta != null ? `・預估 ${cd(p.eta)}後到集合點（案期結束後開回來）` : ''}`;
+    return `<div class="row caseline"><span style="flex:0 0 auto">${who(p.uid)}</span><span class="mini" style="flex:1">${st}</span></div>`; };
+  return `<div class="box"><h3 class="sec">外出的人 <span class="muted">照集合點分組；回到集合點時基地在那裡（或旁邊一格）就上車，不在就最多等 48 小時</span></h3>
+    ${G.map(g => `<h4 class="sec2">集合點：<a href="#" data-mappick="${g.tile}" title="到地圖上看這一格">📍${esc(g.name)}</a>　${g.here ? '<span style="color:var(--ok, #8fd18b)">基地在這裡，回來就上車</span>' : `<span style="color:var(--war)">基地不在（${g.d} 格外）</span> <button data-act="basego" data-id="${g.tile}">基地開過去</button>`}　<span class="mini muted">${g.people.length} 人</span></h4>${g.people.slice().sort((a, b) => (a.state === 'wait' ? 0 : 1) - (b.state === 'wait' ? 0 : 1) || (a.eta ?? 1e9) - (b.eta ?? 1e9)).map(row).join('')}`).join('')}</div>`;
+}
 function renderRover() {
   const P = $('pane-rover'); if (!P) return;
   if (!GV) { P.html = '<div class="box"><p class="muted">開了公司之後才有基地。</p></div>'; return; }
@@ -831,12 +841,13 @@ function renderRover() {
     <div class="mini">運兵車 <b>${Math.max(0, V.cap - V.used)}</b>／${V.cap} 台空著${V.used > V.cap ? '（舊規則派出去的隊伍還沒回來）' : ''}${R.inTown && V.cap < 4 ? ` <button data-act="basevan">買第 ${V.cap + 1} 台（$${vanPrice}k）</button>` : ''}・一台載一隊四人；基地在現場就直接派、不用車</div>
     <div class="mini">${R.inTown ? '停在城裡：吃喝照城裡的' : `在城外每天：熱量 ${+(homeN * R.daily.food).toFixed(1)}、淨水 ${+(homeN * R.daily.water).toFixed(1)}（在家 ${homeN} 人，從倉庫扣）`}${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天（培養槽停擺）</span>` : ''}</div>
     ${out ? `<div class="mini">有 ${out} 個人在外面，集合點就是這裡：基地不要開走，他們回來就會自己上車。</div>` : ''}
-    ${R.out?.far ? `<div class="mini" style="color:var(--war)">有 ${R.out.far} 個人的集合點在別的地方：${R.out.farAt.map(x => `<button data-act="basego" data-id="${x.tile}">${esc(x.name)}</button>`).join(' ')}——把基地開過去接（到了集合點基地不在，只能等 48 小時）。</div>` : ''}
+    ${R.out?.far ? `<div class="mini" style="color:var(--war)">有 ${R.out.far} 個人的集合點在別的地方：${R.out.farAt.map(x => `<a href="#" data-mappick="${x.tile}">📍${esc(x.name)}</a>`).join('、')}——把基地開過去接（到了集合點基地不在，只能等 48 小時；下面「外出的人」有每個人的時間）。</div>` : ''}
     ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）・守衛：${R.guard.map(u => esc(nameShort(GV.roster.find(x => x.uid === u) || {}))).join('、')}</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row"><button data-act="fight" data-id="${tk.id}">親自打</button><button data-act="resolve" data-id="${tk.id}">現在自動結算</button></div></div>` : ''}
     <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="basestop">停下</button>' : ''}<button data-act="basesearch"${R.block || !R.parked ? ' disabled' : ''}>搜索這一帶（4 小時）${R.site && !R.site.taken ? `：${esc(R.site.title)}` : ''}</button></div>
     ${R.site ? `<p class="mini">${esc(R.site.title)}：${esc(R.site.hint)}${R.site.taken ? `（最近被${esc(R.site.taken)}搜過了）` : ''}</p>` : ''}
     <p class="mini muted">要去哪裡：到戰略地圖點一格，按「基地開到這裡」。基地照原本慢車的速度走，每格油錢 $${R.fuel}k；停在委託旁邊一格以內，那個委託就能直接派人（不用車、不限隊數）。</p></div>
     ${here.length ? `<div class="box"><h3 class="sec">這座城的搶購</h3>${here.map(d => `<div class="row caseline"><span class="mini" style="flex:1">${esc(d.title)}・剩 ${d.left} 個名額・${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}</span>${R.inTown && !d.mine && d.left > 0 && hourNow() >= d.open ? `<button data-act="deal" data-id="${d.id}">買（$${d.cost}k）</button>` : d.mine ? '<span class="mini">買過了</span>' : ''}</div>`).join('')}</div>` : ''}
+    ${outsHtml(R)}
     <div class="box"><h3 class="sec">突發事件與搶購 <span class="muted">基地到場才拿得到，先到先得</span></h3>
     ${(W.events || []).map(x => `<div class="row caseline"><span class="mini" style="flex:1"><b style="color:#f2c94c">★</b> ${esc(x.title)}・${esc(x.hint)}・${cd(x.end)}後消失</span><button data-act="basego" data-id="${x.tile}">開過去</button></div>`).join('')}
     ${deals.map(d => `<div class="row caseline"><span class="mini" style="flex:1"><b style="color:#8fd18b">$</b> ${esc(d.title)}・${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}・剩 ${d.left}</span>${d.tile !== R.tile ? `<button data-act="basego" data-id="${d.tile}">開過去</button>` : ''}</div>`).join('')}
@@ -1180,6 +1191,8 @@ const coClick = e => {
   const ps = e.target.closest('[data-person]'); if (ps) { gearPick = null; personSel = ps.dataset.person === '' ? null : +ps.dataset.person; renderRoster(); return; }
   const st = e.target.closest('[data-rcd]'); if (st) { const r = vatRecipe(+st.dataset.vat), m = st.dataset.m; r[m] = Math.max(GCFG.MIN, Math.min(GCFG.MAX, (r[m] || 0) + +st.dataset.rcd)); renderVat(); return; }
   if (recallClick(e)) return;
+  // 集合點（Alan 2026-10-12）：點了跳到戰略地圖、選取那一格（格子面板有「基地開到這裡」）
+  const mpk = e.target.closest('[data-mappick]'); if (mpk) { e.preventDefault(); showPage('map'); select(+mpk.dataset.mappick, true); return; }
   const c = e.target.closest('[data-center]'); if (c && !e.target.closest('button')) { e.preventDefault(); select(+c.dataset.center, true, true); return; }
   const f = e.target.closest('[data-found]'); if (f) { found(+f.dataset.found); return; }
   const r = e.target.closest('[data-rf]'); if (r) { rosterF = r.dataset.rf; renderRoster(); return; }

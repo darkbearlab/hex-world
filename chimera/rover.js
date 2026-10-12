@@ -271,6 +271,13 @@ export function hqView(G, book, w, h) {
       for (const sq of Object.values(book.squads)) if (sq.player === G.name && sq.headedHome == null && sq.garrison == null && !sq.guard && (sq.caseId || sq.column)) add(sq.meet ?? G.base, sq.clones.filter(x => x.alive && x.status === 'away').length);
       for (const r of G.returning || []) add(r.to ?? G.base, 1);
       return {...o, farAt: o.farAt.map(t => ({tile: t, name: nm(t)}))}; })(),
+    // 外出的人（Alan 2026-10-12）：照集合點分組；每個人現在在做什麼、什麼時候到集合點（任務中的是預估：案期結束後開回來）、到了之後還能等多久
+    outs: (() => { const by = {}, grp = to => by[to] ||= {tile: to, name: nm(to), here: hdist(to, G.base) <= 1, d: Math.max(0, (w.sim.pmc.route(G.base, to) || [0]).length - 1), people: []};
+      for (const sq of Object.values(book.squads)) { if (sq.player !== G.name || sq.headedHome != null || sq.garrison != null || sq.guard || !(sq.caseId || sq.column)) continue;
+        const c = book.cases.find(k => k.id === sq.caseId), to = sq.meet ?? G.base, back = c ? C.travelHours(w, c.tile, to) : 0;
+        for (const x of sq.clones) if (x.alive && x.status === 'away') grp(to).people.push({uid: x.uid, state: sq.column ? 'column' : 'case', what: c?.title || sq.name, eta: c ? +(c.end + (isFinite(back) ? back : 24)).toFixed(2) : null, est: true}); }
+      for (const r of G.returning || []) { const to = r.to ?? G.base; grp(to).people.push(h >= r.at ? {uid: r.uid, state: 'wait', until: r.wait ?? r.at + 48} : {uid: r.uid, state: 'travel', eta: r.at, until: r.at + 48}); }
+      return Object.values(by).sort((a, b) => b.here - a.here || a.d - b.d); })(),
     fuel: HQ.FUEL, daily: {food: HQ.FOOD_K * upK(R, 'food'), water: HQ.WATER_K * upK(R, 'water')}, hungry: R.hungry || 0,
     home: G.home ?? G.base, homeName: nm(G.home ?? G.base), homeFac: K.fac[K.owner[G.home ?? G.base]]?.n || '', regCost: HQ.REG_COST, regAt: G.homeAt ?? null,
     site: (s => s && {title: s.title, hint: s.hint, taken: s.taken || null, kind: s.kind})(nearSite(book, w, G.base, h)), log: R.log.slice(-80).reverse()};
