@@ -1,0 +1,56 @@
+diff --git a/src/controller-comms.js b/src/controller-comms.js
+index 0565c6f..1fa1e34 100644
+--- a/src/controller-comms.js
++++ b/src/controller-comms.js
+@@ -97,7 +97,10 @@ export function sayCommsEvents(entries){
+   const speaker=dutySpeaker({game});
+   // 3.204.0: a boss seen for the first time plays its intro (src/boss-scenes.js) ahead of this action's other remarks.
+   const intro=event=>Boolean(event.actor),events=commsEvents({game,before:commsBefore,logs:entries,memory:commsMemory}).sort((a,b)=>Number(intro(b))-Number(intro(a)));
+-  for(const event of events){if(intro(event)){startBossIntro(event,speaker);continue;}const message=commsLine(speaker,event.type,event.vars);if(message)sayComms(message);}
++  // 奇美拉（hex-world chimera/ash 的補丁 0010）：戰場上的台詞改由小隊的隊員自己說（game.chimeraVoice；沒有就照舊是管制員），另外接上奇美拉自己排的台詞（開火等）
++  const voice=game.chimeraVoice?.bind(game);
++  for(const event of events){if(intro(event)){startBossIntro(event,speaker);if(voice){const m=voice('boss',event);if(m)sayComms(m);}continue;}const message=voice?voice(event.type,event):commsLine(speaker,event.type,event.vars);if(message)sayComms(message);}
++  if(voice)for(const event of game.chimeraVoiceTake?.()||[]){const m=voice(event.type,event);if(m)sayComms(m);}
+ }
+ // Killed in action (3.174.0, user design; docs/STORY.md 8; timing and burst in src/kia.js). It starts when the
+ // operative's fall plays: the world freezes and slows (renderer.pace), the camera pushes in, blood and light burst
+@@ -111,7 +114,7 @@ export function startKia(fall){
+   clearComms();resetCourse();
+   // 3.198.0: the training course voices its deaths (src/course.js courseDeathLines); the rest of the kill house stays quiet.
+   const quiet=Boolean(replay)||isSimulation(game)&&!courseActive(game),seed=(Number(game.seed)||0)*31+game.turn;
+-  kia={start:performance.now(),times:kiaTimes(),quiet,voiced:false,resultAt:Infinity,resultPending:false,shown:false,member:!!fall.member};
++  kia={start:performance.now(),times:kiaTimes(),quiet,voiced:false,resultAt:Infinity,resultPending:false,shown:false,member:!!fall.member,fall};
+   renderer.kia={start:renderer.time,at:{x:fall.to.x,y:fall.to.y},blow:fall.blow||null,burst:kiaBurst(seed,fall.blow||null),frozen:true};
+   renderer.pace=()=>{if(!kia)return null;const since=performance.now()-kia.start;renderer.kia.frozen=since<KIA_TUNING.freezeMs;return {scale:kiaTimeScale(since),zoom:kiaZoom(since,kia.times.voiceAt)};};
+ }
+@@ -124,7 +127,7 @@ export function kiaTick(){
+     const lines=!kia.quiet&&courseActive(game)?courseDeathLines(game):null,k=kia;
+     if(lines?.length)lines.forEach((m,i)=>sayComms(i===lines.length-1?{...m,then:()=>{if(kia===k)k.resultAt=performance.now()-k.start;}}:m));
+     else{
+-    const message=kia.quiet||lines?null:commsLine(dutySpeaker({game}),'kia');
++    const message=kia.quiet||lines?null:game.chimeraVoice?game.chimeraVoice('kia',{fall:kia.fall}):commsLine(dutySpeaker({game}),'kia');   // 奇美拉（補丁 0010）：倒下的人自己的最後一句
+     if(message){const seconds=kiaSeconds(t(message.line,message.vars));sayComms({...message,seconds,tap:false});kia.resultAt=since+seconds*1000+KIA_TUNING.closeMs;}
+     else kia.resultAt=since;
+     }
+diff --git a/src/comms.js b/src/comms.js
+index 71022da..ed06beb 100644
+--- a/src/comms.js
++++ b/src/comms.js
+@@ -147,7 +147,7 @@ export function resolveComms(message,context={},speakers=COMMS_SPEAKERS){
+  const speaker=speakers[id]||{name:''},expression=m.expression||DEFAULT_EXPRESSION;
+  const cell=speaker.expressions?.[expression]??speaker.expressions?.[DEFAULT_EXPRESSION]??0;
+  const ms=Number.isFinite(m.seconds)&&m.seconds>0?Math.round(Math.min(COMMS_TUNING.maxSeconds,m.seconds)*1000):null;
+- return {speaker:id,name:m.name??speaker.name,short:m.short??m.name??speaker.short??speaker.name,expression,portrait:speaker.sheet?{sheet:speaker.sheet,cell,face:speaker.face||[0,0]}:null,text:m.text??(m.line?t(m.line,m.vars):''),ms};
++ return {speaker:id,name:m.name??speaker.name,short:m.short??m.name??speaker.short??speaker.name,expression,portrait:m.face?{url:m.face}:speaker.sheet?{sheet:speaker.sheet,cell,face:speaker.face||[0,0]}:null,text:m.text??(m.line?t(m.line,m.vars):''),ms};
+ }
+ 
+ // `compact` (3.173.0, user's pick from the mockups): the slim box over the battle header, as tall as the header and
+@@ -157,7 +157,7 @@ export function commsMarkup(message,{timer=true,context={},speakers=COMMS_SPEAKE
+  const c=resolveComms(message,context,speakers);
+  // The face is one cell of a 4x4 sheet, shown as a background so the whole sheet loads once per speaker.
+  const [fx,fy]=compact&&c.portrait?c.portrait.face:[0,0];
+- const face=c.portrait?`<span class="comms-portrait" style="background-image:url('${c.portrait.sheet}');background-position:-${c.portrait.cell%4*64+fx}px -${Math.floor(c.portrait.cell/4)*64+fy}px"></span>`:'<span>SOUND</span><span>ONLY</span>';
++ const face=c.portrait?.url?`<span class="comms-portrait" style="background-image:url('${c.portrait.url}');background-size:cover;background-position:50% 50%;image-rendering:pixelated"></span>`:c.portrait?`<span class="comms-portrait" style="background-image:url('${c.portrait.sheet}');background-position:-${c.portrait.cell%4*64+fx}px -${Math.floor(c.portrait.cell/4)*64+fy}px"></span>`:'<span>SOUND</span><span>ONLY</span>';   // 奇美拉（補丁 0010）：m.face 是一張完整的頭像
+  if(compact)return `<div class="comms compact" role="group" aria-label="${t('comms.aria')}" data-speaker="${c.speaker}" data-expression="${c.expression}" data-ms="${c.ms??commsDuration(c.text)}"><div class="comms-face" aria-hidden="true">${face}</div><p class="comms-line"><span class="comms-who">${c.short}</span>${c.text}</p>${timer?'<span class="comms-timer" aria-hidden="true"></span>':''}</div>`;
+  return `<div class="comms" role="group" aria-label="${t('comms.aria')}" data-speaker="${c.speaker}" data-expression="${c.expression}"${c.ms?` data-ms="${c.ms}"`:''}><div class="comms-face" aria-hidden="true">${face}</div><div class="comms-body"><p class="comms-name">${c.name}</p><p class="comms-line">${c.text}</p></div>${timer?'<span class="comms-timer" aria-hidden="true"></span>':''}</div>`;
+ }

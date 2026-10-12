@@ -6,6 +6,7 @@
 //   - 視野：每位隊員都揭露地圖、驚動敵人。
 //   - 交棒：被操作的隊員倒下、還有人活著，就換下一位接手（不判敗）；全員倒下才結束。
 // 跟著遊戲走、其實屬於個人的狀態（鎖定的目標、影步、追擊、待選升級……）換人時一起換（PERSONAL）。
+import {installVoices} from './chimera-voices.js';
 import {Game} from './game.js';
 import {MissionGame,applyStats,character} from './chimera-mission.js';
 import {CHARACTERS} from './characters.js';
@@ -257,3 +258,4 @@ export class SquadGame extends MissionGame{
   return {win:this.status==='won',dead,kills,total,turns:this.turn,progress,boss:this.chimeraBossOut||null,legacy:carrier?carrier[0]:null,loot:this.status==='won'?this.fieldLoot():null,floors:this.ticket?.floors?(this.status==='won'?this.floor:Math.max(0,(this.floor||1)-1)):undefined};   // 狩獵場：打穿了幾層
  }
 }
+installVoices(SquadGame);   // 戰場上的台詞改由隊員自己說（chimera-voices.js、補丁 0010）
