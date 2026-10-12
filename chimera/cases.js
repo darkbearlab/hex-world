@@ -672,7 +672,7 @@ export function nextDue(book, t) {
   return x;
 }
 function assign(book, c, tk, now) {
-  const free = c.squads.map(id => book.squads[id]).filter(s => !s.busy && !s.headedHome && s.readyAt <= now && alive(s).length >= 2);   // 合約到期已啟程返回的不再派
+  const free = c.squads.map(id => book.squads[id]).filter(s => s && !s.busy && !s.headedHome && s.readyAt <= now && alive(s).length >= 2);   // 合約到期已啟程返回的不再派
   if (!free.length) return false;
   free.sort((a, b) => a.readyAt - b.readyAt || (rng(book) - .5));
   const sq = free[0];

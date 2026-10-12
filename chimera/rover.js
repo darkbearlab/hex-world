@@ -232,7 +232,8 @@ export function roverHour(cos, book, w, h) {
     const sq = roverSquad(book, R), crew = crewOf(book, R);
     // 全員倒下：拖回總部
     if (R.squad && !crew.length && !busyTicket(book, R)) {
-      const c = book.cases.find(k => k.id === R.caseId); if (c && sq) c.squads = c.squads.filter(id => id !== sq.id);
+      // Rover 自己的案件、和用 Rover 接的委託（sq.caseId）都要拿掉這支小隊：原本只拿掉前者，委託留著指向不存在的小隊，之後每個小時派單都丟例外（soak 測試 2026-10-12）
+      if (sq) for (const c of book.cases) if (c.id === R.caseId || c.id === sq.caseId) c.squads = c.squads.filter(id => id !== sq.id);
       if (sq) { if (sq.pack?.length) (G.store ||= []).push(...sq.pack); delete book.squads[sq.id]; }
       R.squad = null; R.move = null; R.route = []; const far = R.tile !== G.base; R.tile = G.base;
       if (far) { G.cash -= ROVER.TOW; C.pay(book, h, G.name, -ROVER.TOW, 'rover', 'Rover 的人全倒下了，拖車把車拖回總部'); }

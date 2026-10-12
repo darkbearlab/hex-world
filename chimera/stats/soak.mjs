@@ -1,0 +1,206 @@
+// 高強度測試第一層（Alan 2026-10-12）：在本機、不開伺服器，拿線上存檔（或任何 core.save()）跑很多天，
+// 世界裡除了 NPC 公司，再加幾家「亂玩的機器人公司」：什麼指令都試（接案、親自打的假戰果、撤軍、長約、駐軍、Rover、倉庫、培養槽……）。
+// 每個遊戲小時檢查一次「不該發生的事」，每隔幾天把存檔寫出去、讀回一個全新的核心（像伺服器重開），指紋要一樣。
+// node chimera/stats/soak.mjs --save 存檔.json [--days 30] [--bots 6] [--seed 1] [--roundtrip 5] [--rich 2000] [--quiet]
+// 存檔可以是 admin/save 的回應（{seed, save}）或 core.save() 本身（要加 --world 種子）。結果有問題時 exit 1。
+import fs from 'fs';
+import {Core} from '../core.js';
+import * as G from '../company.js';
+
+const args = process.argv.slice(2), opt = (k, d) => { const i = args.indexOf('--' + k); return i < 0 ? d : args[i + 1]; }, flag = k => args.includes('--' + k);
+const days = +opt('days', 30), nBots = +opt('bots', 6), seed0 = +opt('seed', 1), every = +opt('roundtrip', 5), rich = +opt('rich', 2000), quiet = flag('quiet');
+const watch = opt('watch', '');   // --watch 公司:uid：每小時印出這個人的狀態有沒有變（追問題用）
+const file = opt('save'); if (!file) { console.log('要給 --save 存檔.json（線上的用 admin/save 抓）'); process.exit(2); }
+const raw = JSON.parse(fs.readFileSync(file, 'utf8')), worldSeed = raw.save ? raw.seed : opt('world', '奇美拉-1'), save0 = raw.save || raw;
+
+// 機器人的亂數：每家公司自己一條（同一個 --seed 每次跑都一樣，問題才重現得出來）
+const rng = s => () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+const pick = (r, a) => a[Math.floor(r() * a.length)];
+
+let c = new Core(() => {}); c.load(worldSeed, save0); c.enableNpcs();
+const h0 = c.game.h, K = c.sim.peek();
+
+// ───── 問題紀錄 ─────
+const issues = new Map();   // 同一種問題只記第一次的細節，之後只數次數
+// 問題跟某家機器人公司有關時，附上它最近下的指令（重現用）
+const recentOf = name => { const bot = bots.find(x => x.name === name); return bot ? '\n    最近的指令：\n      ' + bot.recent.join('\n      ') : ''; };
+function issue(kind, text, h, co) { if (co) text += recentOf(co); const e = issues.get(kind); if (e) { e.n++; return; } issues.set(kind, {n: 1, h, text}); if (!quiet) console.log(`  ⚠ 第 ${((h - h0) / 24).toFixed(1)} 天 ${kind}：${text}`); }
+const refusals = {}, used = {};
+
+// ───── 機器人公司 ─────
+const towns = Object.keys(K.markets).map(Number).filter(t => K.owner[t] >= 0);
+const taken = new Set(Object.values(c.game.cos).map(g => g.base));
+const bots = [];
+for (let i = 0; i < nBots; i++) {
+  const r = rng(seed0 * 1000 + i), name = `測試機器人${i + 1}`;
+  if (!c.game.cos[name]) { const free = towns.filter(t => !taken.has(t)), base = pick(r, free.length ? free : towns); const err = c.found(base, name); if (err) { console.log(name, '開不了公司：', err); continue; } taken.add(base); c.co(name).cash += rich; }
+  bots.push({name, r, recent: [], style: ['busy', 'fighter', 'rover', 'contract', 'chaos', 'merchant'][i % 6]});
+}
+const cmd = (bot, m) => {
+  used[m.type] = (used[m.type] || 0) + 1;
+  bot.recent.push(`${c.game.h - h0}h ${JSON.stringify(m).slice(0, 120)}`); if (bot.recent.length > 10) bot.recent.shift();
+  let err; try { err = c.command(m, bot.name); } catch (e) { issue('指令丟出例外：' + m.type, `${bot.name} ${JSON.stringify(m).slice(0, 160)}\n    ${e.stack?.split('\n').slice(0, 4).join('\n    ')}`, c.game.h); return 'exception'; }
+  if (err) { const k = `${m.type}：${String(err).replace(/\d+/g, '#')}`; refusals[k] = (refusals[k] || 0) + 1; }
+  return err;
+};
+
+// 親自打的假戰果：輸贏、陣亡、撿到的東西都隨機（伺服器上的戰鬥會交一樣格式的 result）
+function fakeResult(bot, tk) {
+  const sq = c.game.book.squads[tk.squad], alive = sq.clones.filter(x => x.alive).slice(0, 4), r = bot.r, win = r() < .7;
+  const dead = alive.filter(() => r() < (win ? .08 : .35)).map(x => x.id);
+  const progress = Object.fromEntries(alive.map(x => [x.id, {lv: x.lv || 1, xp: 0, picks: x.picks || [], skills: x.skills || [], prep: x.prep || null, perkPicks: x.perkPicks || 0, classPerkMisses: x.classPerkMisses || 0, legacyPerkPicks: x.legacyPerkPicks || 0}]));
+  const loot = win && r() < .5 ? {ammo: Math.floor(r() * 40), guns: r() < .5 ? [{base: pick(r, Object.keys(G.GUNS))}] : [], kits: r() < .5 ? {[pick(r, Object.keys(G.KITS))]: 1 + Math.floor(r() * 4)} : {}, melee: r() < .2 ? [pick(r, Object.keys(G.MELEES))] : []} : null;
+  return {win, dead, progress, kills: Math.floor(r() * 12), ...(loot ? {loot} : {}), ...(tk.enemy?.boss && win && r() < .5 ? {boss: r() < .5 ? 'dead' : 'retreat', legacy: alive[0]?.id} : {})};
+}
+
+function botHour(bot, h) {
+  const g = c.co(bot.name), b = c.game.book, r = bot.r, home = () => g.roster.filter(x => x.alive && x.status === 'home' && !x.keep);
+  // 培養槽與素材
+  for (const [i, q] of g.queue.entries()) if (q.ready) cmd(bot, {type: 'claim', slot: q.slot ?? i});
+  if (g.roster.filter(x => x.alive).length + g.queue.length < 14 && r() < .3) {
+    for (const m of ['food', 'water', 'implant', 'neural']) if ((g.mats[m] || 0) < 60) cmd(bot, {type: 'buy', mat: m, qty: 100});
+    cmd(bot, {type: 'build', recipe: {food: 40 + Math.floor(r() * 40), water: 40 + Math.floor(r() * 40), implant: 40 + Math.floor(r() * 40), neural: 40 + Math.floor(r() * 40)}});
+  }
+  for (const x of g.roster.filter(x => x.status === 'recovered')) if (r() < .2) cmd(bot, r() < .7 ? {type: 'revive', uid: x.uid} : {type: 'sellbody', uid: x.uid});
+  if (r() < .05) for (const s of G.cleanSites(g, b, c.w)) if (s.ok) cmd(bot, {type: 'clean', tile: s.tile});
+  // 服務單：fighter 大多親自打（假戰果），其他大多自動結算；有時候放著不管（看逾期怎麼處理）
+  for (const tk of b.tickets.filter(t => t.player === bot.name && !t.done && t.squad)) {
+    const x = r(); if (x < .15) continue;
+    if (bot.style === 'fighter' ? x < .8 : x < .3) { if (!cmd(bot, {type: 'fight', ticket: tk.id})) cmd(bot, {type: 'submit', ticket: tk.id, result: fakeResult(bot, tk)}); }
+    else cmd(bot, {type: 'resolve', ticket: tk.id});
+  }
+  // 接案
+  const open = g.cases.map(id => b.cases.find(k => k.id === id)).filter(k => k && !k.settled).length;
+  if (open < (bot.style === 'chaos' ? 5 : 3) && home().length >= 2 && r() < .25) {
+    const board = c.boardView(bot.name).filter(e => !e.joined && h >= e.start && h < e.closeAt && !e.gone && !['drill', 'hunting', 'security'].includes(e.kind));
+    const e = board.length && pick(r, board);
+    if (e) { const side = e.kind === 'front' || e.kind === 'camp' ? pick(r, ['att', 'def']) : e.kind === 'tense' ? pick(r, ['a', 'b']) : '';
+      cmd(bot, {type: 'accept', kind: e.kind, tile: e.tile, side, uids: home().slice(0, 2 + Math.floor(r() * 5)).map(x => x.uid), fast: r() < .3}); }
+  }
+  // 撤軍、增援、整補
+  const mySq = Object.values(b.squads).filter(sq => sq.player === bot.name);
+  if (r() < (bot.style === 'chaos' ? .04 : .01)) { const sq = mySq.filter(s => s.caseId).length && pick(r, mySq.filter(s => s.caseId)); if (sq) cmd(bot, {type: 'recall', squad: sq.id}); }
+  if (r() < .03 && home().length) { const sq = mySq.filter(s => s.caseId).length && pick(r, mySq.filter(s => s.caseId)); if (sq) cmd(bot, {type: 'reinforce', squad: sq.id, uids: home().slice(0, 2).map(x => x.uid)}); }
+  if (r() < .05) { const sq = mySq.find(s => s.pack?.length); if (sq) { const m = sq.clones.find(x => x.alive); if (m) cmd(bot, {type: 'fieldEquip', squad: sq.id, uid: m.uid, slot: pick(r, G.SLOTS), item: pick(r, sq.pack).id}); } }
+  // 長約與駐軍
+  if (bot.style === 'contract' || bot.style === 'chaos' || r() < .2) {
+    for (const k of (b.contracts || []).filter(k => !k.done && h < k.signUntil && !k.signers.some(s => s.co === bot.name))) if (r() < .05) cmd(bot, {type: 'sign', id: k.id});
+    for (const k of (b.contracts || []).filter(k => !k.done && k.signers.some(s => s.co === bot.name && !s.void))) {
+      const gar = mySq.filter(sq => sq.garrison === k.site);
+      if (!gar.length && home().length >= 2 && r() < .1) cmd(bot, {type: 'garrison', site: k.site, uids: home().slice(0, 4).map(x => x.uid)});
+      if (gar.length && r() < .005) cmd(bot, {type: 'ungarrison', squad: gar[0].id});
+      for (const q of (k.calls || []).filter(q => q.co === bot.name && q.state === 'open')) { const y = r(); if (y < .1) cmd(bot, {type: 'answer', call: q.id, uids: home().slice(0, 4).map(x => x.uid)}); else if (y < .15 && gar.length) cmd(bot, {type: 'answer', call: q.id, squad: gar[0].id}); }
+    }
+  }
+  // Rover
+  if (bot.style === 'rover' || bot.style === 'chaos') {
+    const R = g.rover;
+    if (!R) { if (g.cash > 500) cmd(bot, {type: 'buyRover'}); }
+    else {
+      const v = c.view(bot.name).data.rover;
+      if (!v.crew.length && v.atHome && home().length) cmd(bot, {type: 'roverCrew', uids: home().slice(0, 4).map(x => x.uid)});
+      if (v.atHome && r() < .3) cmd(bot, {type: 'roverSupply', food: 20 + Math.floor(r() * 40), water: 20 + Math.floor(r() * 40)});
+      if (!v.move && !v.route.length && !v.block && r() < .2) { const y = r(); if (y < .4) cmd(bot, {type: 'roverGo', tile: pick(r, towns)}); else if (y < .6) cmd(bot, {type: 'roverSearch'}); else if (y < .8 && v.jobsHere.length) cmd(bot, {type: 'roverJob', id: pick(r, v.jobsHere).id}); else if (v.up.some(u => u.here && u.cost)) cmd(bot, {type: 'roverUpgrade', kind: v.up.find(u => u.here && u.cost).kind}); else cmd(bot, {type: 'roverGo', tile: g.base}); }
+      if (v.move && r() < .01) cmd(bot, {type: 'roverStop'});
+      if (!v.move && !v.block && r() < .05) { const e = c.boardView(bot.name).find(e => e.tile === v.tile && !e.joined && h >= e.start && h < e.closeAt && !e.gone); if (e) cmd(bot, {type: 'accept', kind: e.kind, tile: e.tile, side: e.kind === 'front' ? 'att' : e.kind === 'tense' ? 'a' : '', uids: v.crew, rover: true}); }
+    }
+  }
+  // 倉庫、市場
+  if (bot.style === 'merchant' || bot.style === 'chaos' || r() < .05) {
+    if (r() < .1) { const kind = pick(r, ['gun', 'kit', 'armor', 'melee']); const T = {gun: G.GUNS, kit: G.KITS, armor: G.ARMORS, melee: G.MELEES}[kind]; if (T) cmd(bot, {type: 'shop', kind, base: pick(r, Object.keys(T))}); }
+    const st = g.store || [];
+    if (st.length && r() < .1) { const x = home().length && pick(r, home()); if (x) cmd(bot, {type: 'equip', uid: x.uid, slot: pick(r, G.SLOTS), item: pick(r, st).id}); }
+    if (st.length > 8 && r() < .1) cmd(bot, {type: 'sell', item: pick(r, st).id});
+    if (r() < .02 && home().length >= 2) { const [a, x] = home(); cmd(bot, {type: 'merge', keep: a.uid, feed: x.uid}); }
+  }
+  if (r() < .01) cmd(bot, {type: 'readReport', id: 'all'});
+}
+
+// ───── 每小時檢查 ─────
+const garFree = (sq, now) => !sq.caseId && sq.readyAt <= now && sq.clones.filter(x => x.alive).length >= 2 && sq.clones.filter(x => x.alive).every(x => x.status === 'away');
+let freeGar = new Set(), missedSeen = new Set(), npcErr = {};
+function snapshotGar() { const b = c.game.book, h = c.game.h; freeGar = new Set(Object.values(b.squads).filter(sq => sq.garrison != null && garFree(sq, h)).map(sq => sq.player + '@' + sq.garrison)); }
+function check() {
+  const game = c.game, b = game.book, h = game.h, uids = new Map(), inSq = new Map();
+  for (const sq of Object.values(b.squads)) for (const x of sq.clones) { if (!x.alive) continue; const k = sq.player + '#' + x.uid; if (sq.headedHome == null && inSq.has(k) && inSq.get(k).headedHome == null && (sq.caseId || sq.garrison != null) && (inSq.get(k).caseId || inSq.get(k).garrison != null) && inSq.get(k).caseId !== sq.caseId) issue('同一個人同時在兩支有任務的小隊', `${sq.player} ${x.id}：${inSq.get(k).name} 和 ${sq.name}`, h, sq.player); if (sq.headedHome == null || !inSq.has(k)) inSq.set(k, sq);
+    const co = game.cos[sq.player]; if (co && x.uid != null && co.roster.find(y => y.uid === x.uid) !== x) issue('小隊成員和名冊不是同一個物件', `${sq.player} ${x.id} 在 ${sq.name}`, h); }
+  for (const g of Object.values(game.cos)) {
+    if (!Number.isFinite(g.cash)) issue('現金不是數字', `${g.name}：${g.cash}`, h, g.name);
+    for (const [m, v] of Object.entries(g.mats || {})) if (!Number.isFinite(v) || v < 0) issue('素材數量不對', `${g.name} ${m}=${v}`, h);
+    const ret = new Set((g.returning || []).map(x => x.uid)), roverSq = g.rover?.squad;
+    for (const x of g.roster) {
+      if (x.uid > 0) { if (uids.has(x.uid)) issue('uid 重複', `${g.name} ${x.id} 和 ${uids.get(x.uid)}`, h, g.name); uids.set(x.uid, `${g.name} ${x.id}`); }   // 負的是易主遺體留下的影子，本來就可能重複
+      if (!x.alive) continue;
+      const sq = inSq.get(g.name + '#' + x.uid);
+      if (x.status === 'away' && !sq && !ret.has(x.uid)) issue('出勤中卻不在任何小隊（人不見了）', `${g.name} ${x.id}，最後的紀錄：${JSON.stringify((x.record || []).at(-1))}`, h, g.name);
+      if (x.status === 'home' && sq && (sq.caseId || sq.garrison != null) && sq.headedHome == null && sq.id !== roverSq && sq.clones.some(y => y.alive && y.status === 'away')) issue('在總部卻還掛在有任務的小隊', `${g.name} ${x.id} 在 ${sq.name}`, h, g.name);
+    }
+    const mine = [...(g.store || [])]; for (const x of g.roster) if (x.alive && x.gear) mine.push(...x.gear.guns, x.gear.melee, x.gear.armor, ...x.gear.kits); for (const sq of Object.values(b.squads)) if (sq.player === g.name) mine.push(...(sq.pack || []));
+    const ids = new Set(), objs = new Set(); for (const it of mine) { if (!it || objs.has(it)) continue; objs.add(it); if (ids.has(it.id)) issue('公司裡有重複的物品編號', `${g.name} ${it.id} ${JSON.stringify(it)}（同一個物件：${(g.store || []).filter(y => y === it).length > 1}）`, h, g.name); ids.add(it.id); if (it.kind === 'kit' && !(it.n > 0)) issue('預備品數量不對', `${g.name} ${it.base} n=${it.n}`, h, g.name); }
+    if (g.npc?.err && npcErr[g.name] !== g.npc.err) { npcErr[g.name] = g.npc.err; issue('NPC 公司的行動出錯', `${g.name}：${g.npc.err}`, h); }
+  }
+  for (const tk of b.tickets) if (!tk.done) {
+    if (!tk.squad) continue;   // 還沒派人的（例如獵場的清剿）在等人接
+    if (!b.squads[tk.squad]) issue('服務單的小隊不在了', `${tk.player} ${tk.title}`, h, tk.player);
+    if (h - (tk.issued ?? h) > 24 * 7) issue('服務單超過七天沒結算', `${tk.player} ${tk.title}（第 ${((tk.issued - h0) / 24).toFixed(1)} 天開的）`, h);
+  }
+  for (const k of b.cases) if (!k.settled) for (const id of k.squads || []) if (!b.squads[id]) issue('案件的小隊名單指向不存在的小隊', `${k.title}（${k.kind}）→ ${id}`, h, b.cases.find(x => x.id === k.id) && Object.values(c.game.cos).find(g => g.cases.includes(k.id))?.name);
+  for (const k of b.cases) if (!k.settled && k.end != null && h - k.end > 24 * 7) issue('案件過期七天還沒結案', `${k.title}（${k.kind}）`, h);
+  // 有駐軍在、駐軍有空，車隊卻因為沒人護送而違約
+  for (const k of b.contracts || []) for (const q of k.calls || []) if (q.state === 'missed' && !missedSeen.has(q.id)) { missedSeen.add(q.id); if (freeGar.has(q.co + '@' + k.site)) issue('有空的駐軍卻被判違約', `${q.co} 在 ${c.w.names[k.site]}`, h, q.co); }
+}
+
+let watchLast = '';
+function watchOne() {
+  const [co, u] = watch.split(':'), g = c.co(co), x = g?.roster.find(y => y.uid === +u); if (!x) return;
+  const b = c.game.book, sqs = Object.values(b.squads).filter(sq => sq.clones.includes(x)).map(sq => `${sq.name}[${sq.id} case=${sq.caseId} gar=${sq.garrison} home=${sq.headedHome}${sq.rover ? ' rover' : ''}]`);
+  const now = `${x.status} ${sqs.join(' ')} 最後紀錄 ${JSON.stringify((x.record || []).at(-1))}`;
+  if (now !== watchLast) { console.log(`  👁 ${c.game.h - h0}h ${x.id}: ${now}`); const bot = bots.find(y => y.name === co); if (bot) console.log('     ' + bot.recent.slice(-3).join('\n     ')); watchLast = now; }
+}
+// 兩份 JSON 哪裡不一樣（最多列幾處，路徑＋前後的值）
+function diff(a, b, path = '', out = []) {
+  if (out.length > 8) return out;
+  if (a === b) return out;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) { out.push(`${path}: ${JSON.stringify(a)?.slice(0, 80)} → ${JSON.stringify(b)?.slice(0, 80)}`); return out; }
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) diff(a[k], b[k], path + '.' + k, out);
+  return out;
+}
+// ───── 存檔、讀回（像伺服器重開） ─────
+function roundtrip() {
+  const fa = c.fingerprint(), s = JSON.stringify(c.save()), d = new Core(() => {});
+  d.load(worldSeed, JSON.parse(s)); d.enableNpcs(); const fb = d.fingerprint();
+  if (fa !== fb) issue('存檔讀回後狀態不一樣', `讀回前 ${fa}，讀回後 ${fb}（讀檔的修補 relink 改到了東西，或有東西沒存到）\n    ${diff(JSON.parse(JSON.stringify(c.game)), JSON.parse(JSON.stringify(d.game))).slice(0, 6).join('\n    ')}`, c.game.h);
+  // 讀回後不見的小隊（讀檔修補拆掉的）：列出隊員的狀態與最後幾筆紀錄
+  if (fa !== fb) for (const [id, sq] of Object.entries(c.game.book.squads)) if (!d.game.book.squads[id]) issue('讀檔時拆掉了小隊', `${sq.name}（${id} 駐地 ${sq.garrison} 案件 ${sq.caseId}）\n    ${sq.clones.map(x => `${x.id} ${x.alive ? x.status : '死'} ${JSON.stringify((x.record || []).slice(-3))}`).join('\n    ')}`, c.game.h, sq.player);
+  c = d; return s.length;
+}
+
+// 存檔裡以前就違約的不算
+for (const k of c.game.book.contracts || []) for (const q of k.calls || []) if (q.state === 'missed') missedSeen.add(q.id);
+
+// ───── 跑 ─────
+console.log(`種子 ${worldSeed}，從第 ${h0} 小時（沙盒第 ${c.year} 年）開始跑 ${days} 天；公司 ${Object.keys(c.game.cos).length} 家（機器人 ${bots.length}）`);
+const t0 = Date.now(); let size = 0;
+for (let d = 1; d <= days; d++) {
+  for (let i = 0; i < 24; i++) {
+    const h = c.game.h + 1;
+    snapshotGar();
+    try { c.advanceTo(h); } catch (e) { issue('推進時間丟出例外', e.stack?.split('\n').slice(0, 5).join('\n    '), h); c.game.h = h; }
+    for (const bot of bots) try { botHour(bot, h); } catch (e) { issue('機器人自己出錯（測試腳本的問題）', e.stack?.split('\n').slice(0, 3).join('\n    '), h); }
+    check(); if (watch) watchOne();
+  }
+  if (every && d % every === 0) size = roundtrip();
+  if (!quiet && d % 5 === 0) console.log(`  第 ${d} 天（${((Date.now() - t0) / 1000).toFixed(0)} 秒）沙盒第 ${c.year} 年`);
+}
+
+// ───── 報告 ─────
+const b = c.game.book;
+console.log(`\n跑完 ${days} 天，${((Date.now() - t0) / 1000).toFixed(0)} 秒；存檔 ${Math.round(size / 1024)} KB`);
+console.table(Object.fromEntries([...bots.map(x => x.name), 'DarkBearLab'].filter(n => c.co(n)).map(n => { const g = c.co(n); return [n, {風格: bots.find(x => x.name === n)?.style || '玩家', 現金: Math.round(g.cash), 活著: g.roster.filter(x => x.alive).length, 陣亡: g.roster.filter(x => !x.alive).length, 結案: b.cases.filter(k => k.settled && g.cases.includes(k.id)).length, Rover: g.rover ? '有' : ''}]; })));
+{ const S = Object.values(b.squads); console.log(`帳本裡的小隊 ${S.length} 支，其中已經在回程（headedHome）的 ${S.filter(s => s.headedHome != null).length} 支、佔存檔 ${Math.round(JSON.stringify(b.squads).length / 1024)} KB`); }
+console.log('指令用了幾次：', Object.entries(used).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join('、'));
+console.log('最常被拒絕的：'); for (const [k, v] of Object.entries(refusals).sort((a, b) => b[1] - a[1]).slice(0, 12)) console.log(`  ${v}×  ${k}`);
+if (!issues.size) { console.log('\n沒有發現問題'); process.exit(0); }
+console.log(`\n發現 ${issues.size} 種問題：`);
+for (const [k, e] of issues) console.log(`- ${k}（${e.n} 次，第一次在第 ${((e.h - h0) / 24).toFixed(1)} 天）\n    ${e.text}`);
+process.exit(1);

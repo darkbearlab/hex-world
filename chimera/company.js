@@ -267,6 +267,16 @@ export function itemValue(it) {
 }
 export const shopPrice = it => Math.round(itemValue({...it, affix: null}) * 1.5);   // 在總部的市場買：沒有詞條，變賣價的 1.5 倍
 function newItem(G, o) { G.itemSeq = (G.itemSeq || 0) + 1; return {id: 'I' + G.itemSeq, ...o}; }
+// 物品編號只在同一家公司裡不重複（I1、I2……）。易主的遺體身上的裝備帶著原公司的編號，會跟新公司的倉庫撞號（soak 測試 2026-10-12）：
+// 這家公司所有的物品（倉庫、名冊身上、自己小隊的行李）裡撞號的重新發號；讀舊存檔時也跑一次
+export function reidItems(G, book) {
+  const all = [...(G.store || [])]; for (const c of G.roster) if (c.gear) for (const s of SLOTS) { const it = slotGet(c.gear, s); if (it) all.push(it); }
+  for (const sq of Object.values(book?.squads || {})) if (sq.player === G.name) all.push(...(sq.pack || []));
+  let mx = G.itemSeq || 0; for (const it of all) { const n = +String(it.id).slice(1); if (n > mx) mx = n; } G.itemSeq = mx;
+  const seen = new Set(), done = new Set(); let n = 0;
+  for (const it of all) { if (done.has(it)) continue; done.add(it); if (seen.has(it.id)) { it.id = 'I' + ++G.itemSeq; n++; } seen.add(it.id); }
+  return n;
+}
 // 一個人身上的裝備（還沒有的照職業配發；舊存檔的人第一次用到時補上）
 export function gearOf(G, c) {
   if (!c.gear) { const d = CLASS_GEAR[c.cls] || CLASS_GEAR.soldier;
@@ -463,6 +473,10 @@ export function hour(G, book, w, h) {
   if (book.relQ?.length) for (const q of book.relQ.splice(0)) { if (q.co === G.name) relAdd(G, q.f, q.v, q.why, h); else (book.relQ2 ||= []).push(q); }
   if (book.relQ2?.length) { book.relQ = book.relQ2; book.relQ2 = []; }
   for (const q of G.queue) if (!q.ready && h >= q.done) readyBuild(G, q, h);
+  // 駐軍剩不到兩人（有人在護送時倒下）：撤回總部。不到兩人不能出動，留著只會在車隊來的時候違約（soak 測試 2026-10-12）
+  for (const sq of Object.values(book.squads)) if (sq.player === G.name && sq.garrison != null && !sq.caseId && sq.clones.filter(x => x.alive && x.status === 'away').length < 2) {
+    const left = sq.clones.filter(x => x.alive && x.status === 'away'); if (left.length) sendHome(G, w, left, sq.garrison, h, false, book, sq.name); unpack(G, sq, h); delete book.squads[sq.id];
+    note(G, h, `${sq.name}只剩 ${left.length} 人，撤回總部${left.length ? `（約 ${Math.round(C.travelHours(w, sq.garrison, G.base))} 小時）` : ''}。駐軍至少要兩人才能出動，要繼續駐紮請重新派人。`); }
   // 帳：真正進出的錢（陣亡是帳面上的業務損失，不再扣一次現金：人和素材早就付過了）
   for (; G.ledgerAt < book.ledger.length; G.ledgerAt++) { const x = book.ledger[G.ledgerAt]; if (x.player !== G.name) continue; if (x.kind !== 'loss') { G.cash += x.amount; if (x.amount) flow(G, x.kind, x.amount, x.text); } else { G.lossBook = (G.lossBook || 0) - x.amount; flow(G, 'loss', x.amount, x.text); } }
   // 陣亡
@@ -481,12 +495,13 @@ export function hour(G, book, w, h) {
 
   // 這個人現在的差事是不是這個案件（Alan 2026-10-11）：舊案件的小隊名單還留著已經去做別的事（下一個案件、駐軍）的人，
   // 舊案件結案時不能把他們拉回總部（空暗原駐軍被前一張護送單結案拉回來，害長約違約）
-  const onCase = (x, id) => { const e = (x.record || []).findLast(e => e.t === 'case' || e.t === 'garrison'); return !e || (e.t === 'case' && e.case === id); };
   // 收尾就啟程（Alan 2026-10-10）：案件進入收尾（不再派服務單），自己的服務單都打完的小隊就啟程返回，不必等案件結算（結算還要等案期結束、一天緩衝、別家的單打完）
   for (const id of G.cases) {
     const c = book.cases.find(x => x.id === id); if (!c || c.settled || c.own || c.open) continue;
     for (const sid of c.squads) { const sq = book.squads[sid]; if (sq.player !== G.name || sq.headedHome || book.tickets.some(t => t.squad === sid && !t.done)) continue;
-      const away = sq.clones.filter(x => x.alive && x.status === 'away' && onCase(x, c.id)); sq.headedHome = h; if (!away.length) continue;
+      const away = sq.clones.filter(x => x.alive && x.status === 'away' && onCase(x, c.id)); sq.headedHome = h;
+      // 駐軍：就算隊上已經沒有在這張單上的人，也要從護送單脫鉤（原本跳過，一直掛在案件上；讀檔的修補才脫鉤，存檔讀回就不一樣——soak 測試 2026-10-12）
+      if (!away.length) { if (sq.garrison != null) garBack(G, book, sq, c, h); continue; }
       if (sq.rover) { roverBack(G, book, sq, c, h); note(G, h, `「${c.title}」收尾，Rover 的人回到車上。`); continue; }
       if (sq.garrison != null) { garBack(G, book, sq, c, h); sq.readyAt = Math.max(sq.readyAt, h + 6); note(G, h, `「${c.title}」收尾，${sq.name} 回到駐地。`); continue; }   // 駐軍回駐地待命（休整 6 小時）
       const back = C.travelHours(w, c.tile, G.base, sq.fast), path = w.sim.pmc.route(c.tile, G.base), t1 = h + (isFinite(back) ? back : 24);
@@ -786,7 +801,7 @@ export function bodiesHour(cos, book, w, h) {
     for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(c); if (i >= 0) sq.clones[i] = ghost; }
     own.roster[own.roster.indexOf(c)] = ghost; note(own, h, `${who} 的遺體沒能收回，確認戰死。`);
     c.status = 'recovered'; c.keep = false; C.rec(c, {h, t: 'transfer', from: own.name, co: to.name, tile: b.tile});
-    to.roster.push(c); note(to, h, `在${w.names[b.tile] || '無名之地'}一帶撿到一具遺體：${who}（原本是別家的人）。可以到培養槽重新培養。`);
+    to.roster.push(c); reidItems(to, book); note(to, h, `在${w.names[b.tile] || '無名之地'}一帶撿到一具遺體：${who}（原本是別家的人）。可以到培養槽重新培養。`);
   }
 }
 
@@ -858,11 +873,15 @@ function sendHome(G, w, clones, from, h, fast = false, book = null, what = '召�
   for (const x of clones) if (x.alive) { x.status = 'returning'; G.returning.push({uid: x.uid, at: t1, move: {path, t0: h, t1}}); }
   return t1 - h;
 }
+// 這個人現在的差事是不是這個案件（最後一筆差事紀錄）：小隊名單留著已經去做別的事的人（例如回程後上了 Rover），結案、召回都只動還在這個案件上的人
+const onCase = (x, id) => { const e = (x.record || []).findLast(e => e.t === 'case' || e.t === 'garrison'); return !e || (e.t === 'case' && e.case === id); };
 export function recall(G, book, w, squadId, now) {
   const sq = book.squads[squadId]; if (!sq || sq.player !== G.name) return '找不到這一隊';
+  // 已經在回程的小隊（收尾就啟程）不能再召回：原本照樣扣違約金，還把隊上已經去做別的事的人拉回總部（soak 測試 2026-10-12 找到）
+  if (sq.headedHome != null) return '這一隊已經在回程了';
   const caseId = sq.caseId, r = C.withdraw(book, w, squadId, now); if (!r.ok) return r.why;
   for (const x of sq.clones) { const e = C.caseRec(x, caseId); if (e && e.end == null) { e.end = now; e.recalled = true; } }
-  const hrs = sendHome(G, w, sq.clones, r.here, now, sq.fast, book, sq.name); unpack(G, sq, now);
+  const hrs = sendHome(G, w, sq.clones.filter(x => onCase(x, caseId)), r.here, now, sq.fast, book, sq.name); unpack(G, sq, now);
   for (const col of r.cols) sendHome(G, w, col.clones, col.here, now, col.fast, book, `${sq.name} 的補員`);
   note(G, now, `召回${sq.name}${r.penalty ? `，付違約金 $${r.penalty}k` : ''}，約 ${C.fmtDur(hrs)}後回到總部。`);
   return null;
