@@ -13,13 +13,14 @@ export function donorSprite(u) {
   let im = cache.get(k); if (!im) { im = new Image(); im.src = '/' + donorSpritePath(k); cache.set(k, im); }
   return im.complete && im.naturalWidth ? im : null;
 }
-// 右半（倒地）有沒有畫：整片透明就當作沒畫
-const deadDrawn = new WeakMap();
-function hasDead(im) {
-  if (deadDrawn.has(im)) return deadDrawn.get(im);
-  let any = false; try { const cv = document.createElement('canvas'); cv.width = 32; cv.height = 32; const x = cv.getContext('2d'); x.drawImage(im, 32, 0, 32, 32, 0, 0, 32, 32);
+// 那半張（左＝站著、右＝倒地）有沒有畫：整片透明就當作沒畫，照舊用職業圖
+const drawn = new WeakMap();
+function hasHalf(im, dead) {
+  let o = drawn.get(im); if (!o) drawn.set(im, o = {});
+  if (o[dead] !== undefined) return o[dead];
+  let any = false; try { const cv = document.createElement('canvas'); cv.width = 32; cv.height = 32; const x = cv.getContext('2d'); x.drawImage(im, dead ? 32 : 0, 0, 32, 32, 0, 0, 32, 32);
     const d = x.getImageData(0, 0, 32, 32).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 8) { any = true; break; } } catch { any = true; }
-  deadDrawn.set(im, any); return any;
+  return o[dead] = any;
 }
 // 正在畫哪一個人：actor 的第四個參數；隊長的屍體與戰死演出在 drawActors 裡畫（這時就是 game.player）
 const actor = R.actor;
@@ -35,7 +36,7 @@ R.drawActors = function (...args) {
 const classSprite = R.classSprite;
 R.classSprite = function (a, size, character, dead = false, dark = false, tint = null) {
   const im = tint ? null : donorSprite(this.chimeraUnit);   // 有 tint 的是敵方的除名幹員，照舊
-  if (!im || dead && !hasDead(im)) return classSprite.call(this, a, size, character, dead, dark, tint);   // 倒地那半張空著：倒地照舊用職業圖（Alan 2026-10-12：倒下的先維持舊案）
+  if (!im || !hasHalf(im, !!dead)) return classSprite.call(this, a, size, character, dead, dark, tint);   // 那半張空著就照舊用職業圖（Alan 2026-10-12：有的人只有倒地圖、有的只有站姿）
   const c = this.ctx, src = dark && this.darkActors ? this.darkActors.get(im) : im;
   c.drawImage(src, dead ? 32 : 0, 0, 32, 32, Math.round(a.x - size / 2), Math.round(a.y - size / 2), size, size);
   return true;
