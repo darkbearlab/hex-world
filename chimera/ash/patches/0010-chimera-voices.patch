@@ -48,7 +48,8 @@ index 71022da..ed06beb 100644
 @@ -157,7 +157,7 @@ export function commsMarkup(message,{timer=true,context={},speakers=COMMS_SPEAKE
   const c=resolveComms(message,context,speakers);
   // The face is one cell of a 4x4 sheet, shown as a background so the whole sheet loads once per speaker.
-  const [fx,fy]=compact&&c.portrait?c.portrait.face:[0,0];
+- const [fx,fy]=compact&&c.portrait?c.portrait.face:[0,0];
++ const [fx,fy]=compact&&c.portrait?.face?c.portrait.face:[0,0];   // 奇美拉（補丁 0010）：完整頭像（url）沒有格子座標，原本在這裡丟例外，對話卡住、戰鬥畫面凍結
 - const face=c.portrait?`<span class="comms-portrait" style="background-image:url('${c.portrait.sheet}');background-position:-${c.portrait.cell%4*64+fx}px -${Math.floor(c.portrait.cell/4)*64+fy}px"></span>`:'<span>SOUND</span><span>ONLY</span>';
 + const face=c.portrait?.url?`<span class="comms-portrait" style="background-image:url('${c.portrait.url}');background-size:cover;background-position:50% 50%;image-rendering:pixelated"></span>`:c.portrait?`<span class="comms-portrait" style="background-image:url('${c.portrait.sheet}');background-position:-${c.portrait.cell%4*64+fx}px -${Math.floor(c.portrait.cell/4)*64+fy}px"></span>`:'<span>SOUND</span><span>ONLY</span>';   // 奇美拉（補丁 0010）：m.face 是一張完整的頭像
   if(compact)return `<div class="comms compact" role="group" aria-label="${t('comms.aria')}" data-speaker="${c.speaker}" data-expression="${c.expression}" data-ms="${c.ms??commsDuration(c.text)}"><div class="comms-face" aria-hidden="true">${face}</div><p class="comms-line"><span class="comms-who">${c.short}</span>${c.text}</p>${timer?'<span class="comms-timer" aria-hidden="true"></span>':''}</div>`;
