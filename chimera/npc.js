@@ -95,7 +95,7 @@ function act(core, g, N, h) {
   const cands = board.filter(e => !['camp', 'drill', 'hunting', 'security'].includes(e.kind) && !e.joined && h >= e.start && h < e.closeAt && !e.gone)
     .sort((a, b2) => fav(a) - fav(b2) || (N.style === 'allin' ? b2.lv - a.lv : N.style === 'careful' ? a.lv - b2.lv : 0) || hash(N.name + a.key + h) - hash(N.name + b2.key + h));
   for (const e of cands.slice(0, 3)) {
-    const side = e.kind === 'front' ? (hash(N.name + e.key) < .5 ? 'att' : 'def') : e.kind === 'tense' ? (hash(N.name + e.key) < .5 ? 'a' : 'b') : '';
+    const side = e.kind === 'front' ? (hash(N.name + e.key) < .5 ? 'att' : 'def') : e.kind === 'tense' || e.kind === 'outpost' ? (hash(N.name + e.key) < .5 ? 'a' : 'b') : '';
     const n = N.style === 'allin' ? Math.min(8, home().length) : 4;
     // 黑單：雇主要求的等級，等級高的先派；人少比較不容易曝光，只派兩到三個
     const pool = e.kind === 'shadow' ? home().filter(c => (c.lv || 1) >= (e.minLv || 0)).sort((a, b2) => (b2.lv || 1) - (a.lv || 1)) : home();

@@ -7,7 +7,8 @@ import {Core} from '../core.js';
 import * as S from '../sim.js';
 
 const [file, mode, years = '40', out, nRiv = '3'] = process.argv.slice(2);
-if (process.env.OPR) globalThis.OPR = +process.env.OPR;   // 拓荒者遠行的機率（每個勢力每年，預設 0.06）
+if (process.env.OPR) globalThis.OPR = +process.env.OPR;
+if (process.env.NOSUPPLY) globalThis.NOSUPPLY = 1;   // 關掉前哨的補給線（比較用）   // 拓荒者遠行的機率（每個勢力每年，預設 0.06）
 // 謠言（RUMOR=1）：東邊大河中段（欄 54、列 22）有舊星艦維修站的謠言；SEED=n 換沙盒的亂數種子（同一份存檔跑出不同的未來）
 if (process.env.RUMOR) globalThis.RUMOR = {tile: 22 * 60 + 54, reach: +(process.env.REACH || 35), opr: +(process.env.ROPR || .3), pull: .5};
 const raw = JSON.parse(fs.readFileSync(file, 'utf8')); if (process.env.SEED) raw.save.sim.rng = (raw.save.sim.rng ^ Math.imul(+process.env.SEED, 2654435761)) | 0;
@@ -49,6 +50,8 @@ const rows = [snap()], y0 = c.year, t0 = Date.now(), seen = new Set(w.events.map
 while (c.year < y0 + +years) { c.advanceTo(c.hour + 24 * 14); if (c.year % 5 === 0 && rows.at(-1).y !== c.year) { rows.push(snap()); console.log(`  ${mode} 第 ${c.year} 年：東邊有人 ${rows.at(-1).own} 格、城 ${rows.at(-1).towns}（${((Date.now() - t0) / 1000).toFixed(0)} 秒）`); } }
 rows.push(snap());
 const ev = w.events.filter((e, i) => !seen.has(i) && e.tile != null && east(e.tile) && /聚落|拓荒|新市鎮|打了井|廢墟/.test(e.text)).map(e => ({y: e.y, text: e.text, tile: e.tile}));
-const K = c.sim.peek();
-fs.writeFileSync(out, JSON.stringify({mode: process.env.TAG || mode, W, H: S.H, rivers, oldRivers: w.riverPaths.filter(p => !rivers.includes(p)), land: w.land, biome: Array.from(K.biome), fac: K.fac.map(f => ({id: f.id, n: f.n, c: f.c, alive: f.alive})), names: w.names, rows, ev}));
+const K = c.sim.peek(), RM = c.sim.rumor, warEv = w.events.filter((e, i) => !seen.has(i) && e.tile != null && east(e.tile) && (e.type === 'war' || /截下|洗劫|維修站/.test(e.text))).map(e => ({y: e.y, text: e.text}));
+const station = RM ? {found: RM.found || null, holder: RM.holder ?? null, holderN: RM.holder >= 0 ? K.fac[RM.holder]?.n : null, heldY: RM.heldY ?? null} : null, outposts = c.sim.outposts ? c.sim.outposts().length : 0;
+console.log(`  維修站：${station?.found ? `第 ${station.found.y} 年被${station.found.who || K.fac[station.found.by]?.n}找到，現在在${station.holderN || '沒有人'}手上` : '還沒找到'}；前哨 ${outposts} 座；東邊的衝突事件 ${warEv.length} 件`);
+fs.writeFileSync(out, JSON.stringify({station, outposts, warEv, mode: process.env.TAG || mode, W, H: S.H, rivers, oldRivers: w.riverPaths.filter(p => !rivers.includes(p)), land: w.land, biome: Array.from(K.biome), fac: K.fac.map(f => ({id: f.id, n: f.n, c: f.c, alive: f.alive})), names: w.names, rows, ev}));
 console.log(`${mode}：${rows[0].y} → ${rows.at(-1).y} 年，東邊有人 ${rows[0].own} → ${rows.at(-1).own} 格、城 ${rows[0].towns} → ${rows.at(-1).towns}、人口 ${rows[0].pop} → ${rows.at(-1).pop}；東邊的拓殖事件 ${ev.length} 件`);

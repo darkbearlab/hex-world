@@ -78,7 +78,7 @@ export class Core {
   open() {
     if (this.game) return;
     let seed = 7; for (const ch of String(this.seed)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: SEASONAL_YEAR_DAYS, seasonal: true, mig: {gar1011: true, hq1012: true, east1012: true}};   // 新開的星球：舊存檔的轉換、東方謠言都不用補跑
+    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: SEASONAL_YEAR_DAYS, seasonal: true, mig: {gar1011: true, hq1012: true, east1012: true, east1013: true}};   // 新開的星球：舊存檔的轉換、東方謠言都不用補跑
     this.log = [{h: 0, year: this.sim.year, cmd: {type: 'open'}}];
     this.sim.setCampaigns(true);   // 大戰役只在照小時推進時開
   }
@@ -265,6 +265,7 @@ export class Core {
       else { const kind = x < .85 ? 'gun' : 'armor', T = kind === 'gun' ? G.GUNS : G.ARMORS, keys = Object.keys(T), bs = keys[Math.floor(hsh(t, 40 + i) * keys.length)], af = Object.keys(kind === 'gun' ? G.AFFIX_NAMES : G.ARMOR_AFFIXES || {}).filter(a => a !== 'homemade'), affix = af.length ? af[Math.floor(hsh(t, 50 + i) * af.length)] : null;
         const cost = Math.round((T[bs]?.v || 40) * 1.2);
         b.deals.push({id, tile, kind, base: bs, affix, cost, slots: 1, buyers: [], open: t + 6, close: t + 30, title: `${nm(tile)}有人出清${G.itemName({kind, base: bs, affix})}（$${cost}k，只有一件）`}); } }
+    { const R = this.sim.rumor; if (R?.found && !b.stationNews) { b.stationNews = t; const K2 = this.sim.peek(), who = R.found.who || K2.fac[R.found.by]?.n || '有人'; for (const name of Object.keys(this.game.cos)) b.inbox.push({t, player: name, kind: 'war', text: `東邊的傳聞是真的：${who}在${w.names[R.tile] || '枯焦站'}找到了舊星艦維修站。誰握著它，誰就有用不完的燃料、彈藥、零件和水——各方勢力都會來搶。`, ref: null}); } }
     b.notes = (b.notes || []).filter(n => t - n.h < 72);
     for (const k of Object.keys(b.chat || {})) { b.chat[k] = b.chat[k].filter(c => t - c.h < 24); if (!b.chat[k].length) delete b.chat[k]; }
   }
@@ -284,6 +285,15 @@ export class Core {
     // 場地維安：人口最多的 8 座城，駐守 24～72 小時
     for (const t of towns.slice().sort((p, q) => (K.markets[q].pop || 0) - (K.markets[p].pop || 0)).slice(0, 8)) { const hours = 24 * (1 + hash(t) % 3);
       out.push({kind: 'security', tile: t, lv: 1, risk: 0, fac: K.owner[t], hours, board: hours + 48, title: `${nm(t)}的場地維安`, detail: `駐守 ${hours} 小時・報酬約打平交通費與維持費・每駐守 6 小時抽一次記憶片段（25 格以上不再抽）・偶爾有人來騷擾・彈藥自費`}); }
+    // 東邊的前哨（Alan 2026-10-13）：缺水缺糧、或最近被劫的前哨開「護送補給車隊」；6 格內有對手的前哨開「前哨爭奪」（替守方守，或替對手去搶）
+    for (const o of this.sim.outposts ? this.sim.outposts() : []) {
+      const f = o.f, nmT = nm(o.tile), h = this.game.h, yr = this.sim.year;
+      if (o.home >= 0 && (o.water < .9 || o.food < .9 || o.raided === yr)) out.push({kind: 'supply', tile: o.tile, home: o.home, lv: o.rivals.length ? 3 : 2, risk: o.rivals.length ? 3 : 1, fac: f, board: 72,
+        title: `護送${fn(f)}往${nmT}前哨的補給車隊`, detail: `從${nm(o.home)}運淨水過去・前哨淨水 ${Math.round(o.water * 100)}%、熱量 ${Math.round(o.food * 100)}%${o.raided === yr ? '・今年被劫過' : ''}${o.rivals.length ? `・附近有${o.rivals.map(fn).join('、')}的人` : ''}`});
+      for (const r of o.rivals.slice(0, 1)) out.push({kind: 'outpost', tile: o.tile, a: f, b: r, lv: 3, risk: 2, board: 72, station: o.tile === this.sim.rumor?.tile,
+        title: o.tile === this.sim.rumor?.tile ? `${nmT}維修站的爭奪` : `${nmT}前哨的爭奪`, detail: `${fn(f)}的${o.tile === this.sim.rumor?.tile ? '維修站' : '前哨'}・${fn(r)}想搶下來・守住了前哨多一批人和物資，搶成了前哨的水窖糧倉被砸`});
+      void h;
+    }
     return out;
   }
   // 一家公司看得到的委託：已經公開、還能接的；加上自己接了、還沒結束的
@@ -323,7 +333,7 @@ export class Core {
     return {sites: (b.sites || []).map(s => ({tile: s.tile, kind: s.kind, lv: s.lv, title: s.title, hint: s.hint, taken: (t => t && h - t.h < G.SITE_CD ? t.co : null)(b.siteTaken?.[s.tile])})),
       events: (b.events || []).filter(e => h >= e.start && h < e.end && !e.taken).map(e => ({id: e.id, tile: e.tile, kind: e.kind, title: e.title, hint: e.hint, end: e.end})),
       // 此地（Alan 2026-10-12：改在戰略地圖的地點分頁看）：每一格的留言、停在哪一格的公司，點哪一格就看哪一格
-      rumor: (R => R ? {tile: R.tile, place: w.names[R.tile] || '', y: R.y} : null)(this.sim.rumor),   // 東方謠言：傳聞中的舊星艦維修站（地圖上的紅★）
+      rumor: (R => R ? {tile: R.tile, place: w.names[R.tile] || '', y: R.y, found: R.found ? {y: R.found.y, who: R.found.who || (K2 => K2.fac[R.found.by]?.n || '')(this.sim.peek())} : null, holder: R.holder != null && R.holder >= 0 ? this.sim.peek().fac[R.holder]?.n || '' : null} : null)(this.sim.rumor),   // 東方謠言：傳聞中的舊星艦維修站（地圖上的紅★）
       notes: (b.notes || []).slice(-200), bases: Object.values(this.game.cos).filter(x => x !== g).map(x => ({name: x.name, tile: x.base, npc: !!x.npc, n: x.roster.filter(c => c.alive).length})),
       deals: (b.deals || []).map(d => ({id: d.id, tile: d.tile, kind: d.kind, title: d.title, cost: d.cost, open: d.open, close: d.close, left: d.slots - d.buyers.length, mine: d.buyers.includes(g.name), place: w.names[d.tile] || ''}))};
   }
@@ -549,6 +559,8 @@ export class Core {
       for (const sq of Object.values(g.book.squads)) { const co = g.cos[sq.player]; if (!co) continue; sq.meet ??= co.base; if (sq.van == null && (sq.caseId || sq.column) && sq.garrison == null) sq.van = true; } }   // 舊規則派出去的駐軍不佔車（照舊駐著；撤回時也不收油錢）
     // 東方謠言（2026-10-12）：上線後第一次讀檔時發生一次
     if (!mig.east1012) { mig.east1012 = true; this.eastRumor(); }
+    // 前哨的補給線（2026-10-13）：謠言事件當下立的前哨補上標記
+    if (!mig.east1013) { mig.east1013 = true; if (this.sim.rumor) for (const e of this.w.events) if (e.tile != null && /立起前哨/.test(e.text)) this.sim.markOutpost(e.tile); }
     // 舊存檔（2026-10-12）：易主遺體帶來的裝備跟倉庫撞號的，重新發號
     for (const co of Object.values(g.cos)) G.reidItems(co, g.book);
     // 舊存檔（Alan 2026-10-11）：補上錫冠、鉛冠

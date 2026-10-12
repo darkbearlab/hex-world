@@ -23,7 +23,7 @@ let allEvents = [];
 let sel = -1, hover = -1, hiFac = -1, mouse = {x: 0, y: 0};
 const layers = {fac: true, pop: false, bandit: false, trench: false, opp: true};
 let oppKind = 'all';
-const OK = {exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}, clean: {n: '清運', ch: '收', c: '#b49ad8'}, retainer: {n: '長約', ch: '約', c: '#e8c35a'},
+const OK = {supply: {n: '前哨補給', ch: '補', c: '#5fd0c0'}, outpost: {n: '前哨爭奪', ch: '奪', c: '#ff7a5a'}, exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}, clean: {n: '清運', ch: '收', c: '#b49ad8'}, retainer: {n: '長約', ch: '約', c: '#e8c35a'},
   shadow: {n: '黑單', ch: '暗', c: '#a070e0'}, counter: {n: '反情報', ch: '緝', c: '#60a0d0'}, privateer: {n: '私掠', ch: '掠', c: '#d0603a'},
   drill: {n: '練兵', ch: '練', c: '#8fbf8f'}, hunting: {n: '狩獵場', ch: '獵', c: '#7ad0b0'}, security: {n: '場地維安', ch: '安', c: '#c0b0e0'}};   // 練兵單、狩獵場、場地維安（Alan 2026-10-11）   // 暗影戰爭、私掠（Alan 2026-10-11）
 let logFilter = 'legend';
@@ -341,7 +341,7 @@ function pickGroups(av) {
 // 手機直向是四張橫長卡片，只露出頭和往右延伸的名字，裝備收在卡片下面、點開才展開。按「確認出擊」才真的派出去。
 let sortie = null;   // {key, tile, side, fast, sq: [[uid|null ×4]…], pick: [i, j] | null, open: Set}
 function openSortie(o) {
-  sortie = {key: o.kind + ':' + o.tile, tile: o.tile, side: o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' ? 'a' : o.kind === 'drill' ? '1' : '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set()};
+  sortie = {key: o.kind + ':' + o.tile, tile: o.tile, side: o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' || o.kind === 'outpost' ? 'a' : o.kind === 'drill' ? '1' : '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set()};
   if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile});
   renderSortie();
 }
@@ -364,7 +364,7 @@ function renderSortie() {
   const o = sortie && GV && (sortie.custom || curOpps().find(x => x.kind + ':' + x.tile === sortie.key));
   P.hidden = !o; if (!o) { $('spick').hidden = true; if (sortie && GV) sortie = null; return; }
   const K = OK[o.kind], s = hist[cur], fn = id => s?.fac?.find(f => f.id === id)?.n || '';
-  const sides = o.joined || sortie.custom ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
+  const sides = o.joined || sortie.custom ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'outpost' ? [['a', '替 ' + fn(o.a) + ' 守'], ['b', '替 ' + fn(o.b) + ' 搶']] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
   const chosen = new Set(sortieUids()), n = chosen.size, bad = sortie.sq.some(q => q.filter(u => u != null).length === 1);
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid));
   const groups = [...Object.entries(TAGS).map(([k, nm]) => [nm, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
@@ -419,7 +419,7 @@ function accPicker(o) {
   const camp = o.kind === 'camp', campNote = camp ? '<div class="mini">大戰役：派幾隊都可以，服務單一張接一張、越來越大；撤軍不算違約，已打下的貢獻照算。</div>' : '';
   if (!pickOpp || pickOpp.key !== key) return `${camp && !o.joined ? campNote : ''}<div class="row" style="margin-top:4px"><button data-acc="${key}">${o.joined ? '加派' : '接案'}</button></div>`;
   const s = hist[cur], fn = id => s.fac.find(f => f.id === id)?.n || '';
-  const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
+  const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'outpost' ? [['a', '替 ' + fn(o.a) + ' 守'], ['b', '替 ' + fn(o.b) + ' 搶']] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
   return `<div class="picker">${campNote}${sides.length ? `<div class="row">${sides.map(([v, n]) => `<button data-side="${v}" class="${pickOpp.side === v ? 'on' : ''}">${esc(n)}</button>`).join('')}</div>` : ''}
     <div class="mini" style="margin-top:6px">選要派的人（四人一隊，最少兩人${camp ? '；全部派上去也可以' : ''}）：</div>${pickGroups(av)}
@@ -827,7 +827,8 @@ function baseGoAsk(tile) {
 // 地圖上一格：基地開到這裡、這裡的遠征點／突發事件／搶購、此地（同一格的公司、留言、對話）
 function baseTileHtml(i) {
   const H = GV.hq || {}, W = GV.world || {}, nm = t => esc(ST.names?.[t] || '荒野'); let html = '';
-  if (W.rumor?.tile === i) html += `<p style="border-left:3px solid #ff5a5a;padding-left:8px"><b style="color:#ff5a5a">傳聞</b>　舊星艦的維修站<br><span class="muted">第 ${W.rumor.y} 年開始流傳：東邊大河中段的${nm(i)}一帶露出了舊時代的鋼骨。還沒有人真的找到它；好幾個勢力派了遠征隊往這裡走。</span></p>`;
+  if (W.rumor?.tile === i) html += W.rumor.found ? `<p style="border-left:3px solid #ff5a5a;padding-left:8px"><b style="color:#ff5a5a">舊星艦維修站</b>　第 ${W.rumor.found.y} 年由${esc(W.rumor.found.who)}找到<br><span class="muted">${W.rumor.holder ? `現在在${esc(W.rumor.holder)}手上：每段時間吐出大量燃料、彈藥、零件和水，駐守的人越多產得越多。其他勢力一直在打它的主意。` : '還沒有勢力佔下它。'}</span></p>`
+    : `<p style="border-left:3px solid #ff5a5a;padding-left:8px"><b style="color:#ff5a5a">傳聞</b>　舊星艦的維修站<br><span class="muted">第 ${W.rumor.y} 年開始流傳：東邊大河中段的${nm(i)}一帶露出了舊時代的鋼骨。還沒有人真的找到它；好幾個勢力派了遠征隊往這裡走。把基地開到這一格搜索，或某個勢力推進到附近，就會知道是真是假。</span></p>`;
   for (const x of (W.events || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #f2c94c;padding-left:8px"><b style="color:#f2c94c">突發事件</b>　${esc(x.title)}<br><span class="muted">${esc(x.hint)}・${cd(x.end)}後消失・基地開過來搜索，先搜到的先拿</span></p>`;
   for (const x of (W.sites || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #c49a5a;padding-left:8px"><b style="color:#c49a5a">遠征點 ${'●'.repeat(x.lv)}${'○'.repeat(3 - x.lv)}</b>　${esc(x.title)}<br><span class="muted">${esc(x.hint)}・${x.taken ? `最近被${esc(x.taken)}搜過了` : '基地開過來搜索才拿得到，先搜到的先拿'}</span></p>`;
   for (const d of (W.deals || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #8fd18b;padding-left:8px"><b style="color:#8fd18b">搶購</b>　${esc(d.title)}<br><span class="muted">${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}・剩 ${d.left} 個名額${d.mine ? '・你買過了' : ''}・基地要停在這座城才能買</span>${H.tile === i && H.inTown && !d.mine && d.left > 0 && hourNow() >= d.open ? `<br><button data-act="deal" data-id="${d.id}">買（$${d.cost}k）</button>` : ''}</p>`;

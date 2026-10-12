@@ -308,7 +308,7 @@ function createSim(w,rand,pick){
   function pioneerPick(f,y,P,lead){const {RM,dR0,pull}=P;const own=Object.keys(markets).map(Number).filter(t=>owner[t]===f.id);if(!own.length)return -1;
     let best=-1,bs=0;for(let i=0;i<N;i++){if(!land[i]||owner[i]>=0||bandit[i]>=30||!(river[i]||w.coast[i]))continue;if(pull&&hdist(i,RM.tile)>=dR0)continue;let d=99;for(const t of own)d=Math.min(d,hdist(i,t));if(d<(globalThis.OPD??5)||d>(globalThis.OPD??5)+4)continue;let dm=99;for(const t in markets)dm=Math.min(dm,hdist(i,+t));if(dm<(globalThis.TSP??3))continue;
       const sc=fert[i]+(river[i]?.3:0)-d*.03+rand()*.2+(pull?(RM.pull??.5)*(dR0-hdist(i,RM.tile))/5:0);if(sc>bs){bs=sc;best=i}}
-    if(best>=0&&bs>.7){owner[best]=f.id;pop[best]=30*(globalThis.WSCALE??1e4);peak[best]=30*(globalThis.WSCALE??1e4);town[best]=1;markets[best]=newMarket();
+    if(best>=0&&bs>.7){owner[best]=f.id;pop[best]=30*(globalThis.WSCALE??1e4);peak[best]=30*(globalThis.WSCALE??1e4);town[best]=1;markets[best]=newMarket();if(lead||pull&&rumor){markets[best].outpost=f.id;markets[best].outpostY=y}   // 前哨：靠本國補給（outpostSupply）
       say(y,'found',lead?`${f.n}聽了東邊的傳聞，派出遠征隊沿著新冒出來的水源往東走，在${nm(best)}打了井，立起前哨。`:`${f.n}的拓荒者走得很遠，在${nm(best)}打了井，立起新的聚落。`,best);return best}
     return -1}
   function riverOn(p,fresh){for(const t of p){if(!land[t]||river[t])continue;river[t]=1;if(fresh)fert[t]=Math.min(1.3,fert[t]+.35);w.water[t]=Math.min(1.2,w.water[t]+.4);waterK[t]=Math.min(1.3,waterK[t]+.6)}}
@@ -318,6 +318,53 @@ function createSim(w,rand,pick){
     const F=fac.filter(f=>f.alive&&f.pop>=300*(globalThis.WSCALE??1e4)).map(f=>[f,rumorPull(f)]).filter(([,P])=>P.pull).sort((a,b)=>a[1].dR0-b[1].dR0),made=[];
     for(const [f] of F)for(let k=0;k<(R.first??2);k++){const t=pioneerPick(f,y0,rumorPull(f),true);if(t<0)break;made.push({t,f:f.id})}
     return made}
+  // ===== 前哨的補給線與東邊的互搶（Alan 2026-10-12，DESIGN.md「東邊有沒有救」）=====
+  // 每個時段（交易之後、消耗之前）：前哨照下一段的需求，從本國最近的一座非前哨的城運熱量、淨水過去（一次最多那座城存貨的三成，路上耗損一成五）。
+  // 路越遠、那一帶匪越多、附近（6 格內）有對手的前哨或交戰中的勢力，越容易被劫；被對手劫走的貨歸對手最近的前哨，兩家的緊張度加 3。
+  // 兩家的前哨靠得近（6 格內），緊張度每段慢慢往上加；戰爭挑目標時，東邊的前哨分數加 4（pickGoal）。前哨換了主人（被打下）就不再是前哨。
+  function rivalsNear(t,o){const out=new Set();for(const k in markets){const u=+k,m2=markets[k],o2=owner[u];if(o2<0||o2===o||hdist(u,t)>6)continue;if(m2.outpost!=null||atWar(o,o2))out.add(o2)}return [...out]}
+  function outpostSupply(y,DT){if(!rumor||globalThis.NOSUPPLY)return;   // NOSUPPLY：實驗用（比較沒有補給線的情況）
+    for(const k in markets){const t=+k,m=markets[k],o=owner[t];if(m.outpost==null)continue;if(o<0||m.outpost!==o||!fac[o].alive){m.outpost=null;continue}
+      const R=rivalsNear(t,o);for(const r of R)if(markets[t]&&Object.keys(markets).some(x=>owner[+x]===r&&markets[x].outpost!=null&&hdist(+x,t)<=6))shTen(o,r,.6*DT);
+      const want={food:Math.max(0,m.need.food*DT*1.5-m.stock.food),water:Math.max(0,m.need.water*DT*1.5-m.stock.water)};if(want.food+want.water<=0){m.supplied=y;continue}
+      let home=-1,bd=99;for(const k2 in markets){const u=+k2;if(owner[u]!==o||markets[k2].outpost!=null)continue;const d=hdist(u,t);if(d<bd){bd=d;home=u}}if(home<0)continue;m.home=home;
+      const hm=markets[home],got={};for(const g of ['food','water']){got[g]=Math.min(want[g],hm.stock[g]*.3*DT);hm.stock[g]-=got[g]}if(got.food+got.water<=0)continue;
+      const p=Math.min(.6,.04+bd*.008+(bandit[t]||0)*.004+R.length*.15);
+      if(rand()<p){const r=R.length&&rand()<.7?R[Math.floor(rand()*R.length)]:-1;m.raided=y;
+        if(r>=0){let to=-1,bt=99;for(const k2 in markets){const u=+k2;if(owner[u]!==r)continue;const d=hdist(u,t);if(d<bt){bt=d;to=u}}if(to>=0){markets[to].stock.food+=got.food*.85;markets[to].stock.water+=got.water*.85}shTen(o,r,3);
+          if(m.raidSaid!==y){m.raidSaid=y;say(y,'war',`${fac[o].n}運往${nm(t)}前哨的補給車隊，在半路被${fac[r].n}的人截下。`,t)}}
+        else if(m.raidSaid!==y){m.raidSaid=y;say(y,'econ',`運往${nm(t)}前哨的補給車隊在沙裡被掠奪者劫走。`,t)}
+        continue}
+      m.stock.food+=got.food*.85;m.stock.water+=got.water*.85;m.supplied=y}}
+  // ===== 舊星艦維修站（Alan 2026-10-13：謠言是真的；「幾乎無限的資源」，但有上限）=====
+  // rumor.found：被發現了沒（某個勢力的城推進到 2 格內，或玩家的基地在那裡搜索 → stationFound）。發現之後，那一格沒主人的話，
+  // 6 格內有城、離得最近的勢力派人佔下（立一座「維修站」市鎮）。握著的勢力每段時間從那裡拿到大量燃料、彈藥、零件、淨水：
+  // 一座大城好幾倍的量，照駐守的人（那一格的人口，150 萬人滿載）打折；產出放在維修站的市場，照原本的貿易網運回本國。
+  // 握著它的代價：其他被謠言吸引的勢力，跟它的緊張度每段往上加；戰爭挑目標時維修站分數再加 8（pickGoal）
+  const STATION={fuel:60,ammo:15,parts:10,water:40,crew:150};
+  function stationFound(by,y,who){if(!rumor||rumor.found)return false;rumor.found={y,by,who:who||''};
+    sagaSay(y,`${who||(by>=0?fac[by].n:'有人')}在${nm(rumor.tile)}找到了傳聞中的舊星艦維修站——鋼骨底下的工廠還在動，燃料、彈藥、零件和水源源不絕。消息傳開，東邊的局勢再也不一樣了。`,rumor.tile);return true}
+  // 為了維修站可以開戰（Alan 2026-10-13）：自由城平常不跟人打仗，但握著維修站的話，被謠言吸引的勢力就可以為了它跟它開戰（反過來也一樣）
+  function stationFeud(a,b){if(!rumor||!rumor.found)return false;const h=rumor.holder;if(h!==a&&h!==b)return false;const o=h===a?b:a;return fac[o]?.alive&&rumorPull(fac[o]).pull}
+  function stationTick(y,DT){if(!rumor)return;const t=rumor.tile,SC=globalThis.WSCALE??1e4;
+    if(!rumor.found)for(const k in markets){const u=+k,o=owner[u];if(o>=0&&fac[o].alive&&hdist(u,t)<=2){stationFound(o,y);break}}
+    if(!rumor.found)return;
+    if(owner[t]<0){let best=-1,bd=99;for(const k in markets){const u=+k,o=owner[u];if(o<0||!fac[o].alive)continue;const d=hdist(u,t);if(d<=6&&d<bd){bd=d;best=o}}
+      if(best>=0){owner[t]=best;pop[t]=40*SC;peak[t]=40*SC;town[t]=1;markets[t]=newMarket();markets[t].station=true;markets[t].outpost=best;markets[t].outpostY=y;say(y,'found',`${fac[best].n}派人佔下了${nm(t)}的維修站，在鋼骨間立起營地。`,t)}}
+    const o=owner[t],m=markets[t];rumor.holder=o;if(o<0||!m||!fac[o].alive)return;
+    if(rumor.heldBy!==o){if(rumor.heldBy!=null&&rumor.heldBy>=0)say(y,'war',`${nm(t)}的維修站易主：從${fac[rumor.heldBy]?.n||'某勢力'}手上落到${fac[o].n}手裡。`,t);rumor.heldBy=o;rumor.heldY=y}
+    m.station=true;if(m.outpost==null)m.outpost=o;pop[t]=Math.max(pop[t],30*SC);   // 維修站一直有人想進去做工：不會荒廢（人口下限 30 萬）
+    const k=Math.min(1,pop[t]/(STATION.crew*SC))*DT;for(const g of ['fuel','ammo','parts','water'])m.stock[g]+=STATION[g]*SC*k;
+    for(const f of fac){if(!f.alive||f.id===o)continue;if(rumorPull(f).pull)shTen(o,f.id,2.5*DT)}}
+  // 前哨的消長（委託結案時，cases.js 呼叫）：hold＝守住、多一批人和物資；hit＝被搶（存貨大減、人跑掉一部分）
+  function outpostEffect(t,kind,by){const m=markets[t];if(!m||m.outpost==null)return false;const o=owner[t],y=histY||curY;
+    if(kind==='hold'){pop[t]*=1.1;m.stock.water+=(m.need?.water||0)*2;m.stock.food+=(m.need?.food||0)*2;say(y,'war',`${nm(t)}的前哨在傭兵幫忙下守住了，${fac[o].n}又送來一批人手。`,t)}
+    else{m.stock.water*=.3;m.stock.food*=.5;pop[t]*=.8;if(by>=0)shTen(o,by,4);const what=m.station?'維修站':'前哨';
+      // 守軍剩不到兩成五（25 萬人）：攻下來，換主人（維修站也是）
+      if(by>=0&&fac[by]?.alive&&pop[t]<25*(globalThis.WSCALE??1e4)){owner[t]=by;m.outpost=by;m.outpostY=y;say(y,'war',`${fac[by].n}雇來的傭兵攻破了${nm(t)}的${what}，${fac[o].n}的人撤走，${nm(t)}落到${fac[by].n}手裡。`,t)}
+      else say(y,'war',`${nm(t)}的${what}被${by>=0?fac[by].n+'雇來的傭兵':'人'}洗劫，水窖被砸、糧倉被燒。`,t)}
+    return true}
+  function outposts(){const out=[];for(const k in markets){const t=+k,m=markets[k];if(m.outpost==null||owner[t]<0)continue;out.push({tile:t,f:owner[t],home:m.home??-1,pop:pop[t],water:m.ratio?.water??1,food:m.ratio?.food??1,need:m.need?{food:m.need.food,water:m.need.water}:null,raided:m.raided??null,supplied:m.supplied??null,rivals:rivalsNear(t,owner[t])})}return out}
   function resolveOp(id){const o=ops.find(x=>x.id===id);if(!o||o.state!=='open')return null;o.state='done';const y=histY||curY;
     if(!fac[o.a].alive||!fac[o.b].alive){o.res={ok:false,caught:false,gone:true};return o}
     const r=runOp(o.a,o.b,o.op,Math.max(0,o.S-o.D),y,o.hot,'黑單',o.keep,o.at??null);o.res={...r,S:o.S,D:o.D};
@@ -636,7 +683,7 @@ function createSim(w,rand,pick){
     for(const [,n,dd] of front[att][def]){if(owner[n]!==def)continue;cand.set(n,Math.min(cand.get(n)??9,dd));
       for(const m of NBR[n])if(owner[m]===def&&!cand.has(m))cand.set(m,dd+1)}
     let best=-1,bv=-1e9,why='';
-    for(const [t,d] of cand){const v=(vein[t]>0&&known[t]?3:0)+(town[t]?2+pop[t]/150:0)+(t===fac[def].cap?1:0)+timberK[t]/80+fert[t]*.8+waterK[t]*.6-.35*d-(markets[t]?.works?4:0)+(markets[t]?.vat||0)*1.5+Math.min(3,((markets[t]?.veh?.armor||0)+(markets[t]?.veh?.gt||0))*.15);
+    for(const [t,d] of cand){const v=(vein[t]>0&&known[t]?3:0)+(town[t]?2+pop[t]/150:0)+(t===fac[def].cap?1:0)+timberK[t]/80+fert[t]*.8+waterK[t]*.6-.35*d-(markets[t]?.works?4:0)+(markets[t]?.vat||0)*1.5+Math.min(3,((markets[t]?.veh?.armor||0)+(markets[t]?.veh?.gt||0))*.15)+(rumor&&markets[t]?.outpost!=null?4:0)+(rumor&&t===rumor.tile&&rumor.found?8:0);   // 東邊的前哨（謠言）、維修站是搶手的目標
       if(v>bv){bv=v;best=t}}
     if(best>=0)why=markets[best]?.vat?'培養槽':vein[best]>0&&known[best]?'舊礦坑':town[best]?'市集':waterK[best]>.8?'水源':timberK[best]>60?'燃料林':'田地';
     return [best,why]}
@@ -657,7 +704,7 @@ function createSim(w,rand,pick){
     for(let a=0;a<FMAX;a++)for(let b=a+1;b<FMAX;b++){
       if(!fac[a].alive||!fac[b].alive){war[a][b]=null;continue}
       if(!bc[a][b]){tension[a][b]*=.9;if(war[a][b]){war[a][b]=null;say(y,'war',`${fac[a].n}與${fac[b].n}之間已經沒有人煙，戰事不了了之。`)}continue}
-      if(!war[a][b]&&(fac[a].free||fac[b].free||sameRealm(a,b)||pactOn(a,b)||(fac[a].house&&fac[a].house===fac[b].house))){tension[a][b]*=.8;continue}
+      if(!war[a][b]&&((fac[a].free||fac[b].free||pactOn(a,b))&&!stationFeud(a,b)||sameRealm(a,b)||(fac[a].house&&fac[a].house===fac[b].house))){tension[a][b]*=.8;continue}
       if(!war[a][b]){tension[a][b]+=tBonus(a,b,y);tension[a][b]+=tMul(a,b)*(.4+rand()*1.6+Math.min(bc[a][b],20)*.06+(covet[a][b]||covet[b][a]?2:0)+Math.max(-1.5,Math.min(3,-hAff(fac[a].house,fac[b].house)*1.2))+(fac[a].bloc&&fac[b].bloc&&fac[a].bloc!==fac[b].bloc?(globalThis.BLOCT??3):0));
         const xb=fac[a].bloc&&fac[b].bloc&&fac[a].bloc!==fac[b].bloc;   // 不同陣營：門檻低，打起來就是長期的陣營戰爭
         if(tension[a][b]>(xb?18+rand()*18:30+rand()*25)){
@@ -750,6 +797,7 @@ function createSim(w,rand,pick){
       // 價格（Alan 2026-10-10）：原本在「完全缺貨」（2.86）和「過剩」（0.3）兩端都卡住，各地看起來一樣。缺貨時再看上一季缺多少往上推；過剩時用對數慢慢往下
       for(const g of GOODS){const cover=m.stock[g]/Math.max(.01,m.need[g]*4),r=m.ratio?.[g]??1,pr=Math.min(4.5,Math.max(.12,cover<1?(1+(1-r)*.6)/(.35+cover):1/(1.35+Math.log(cover))));{const k_=Math.pow(.6,DT);m.price[g]=m.price[g]*k_+pr*(1-k_)}}}
     tradeSeason(y,s);
+    outpostSupply(y,DT);stationTick(y,DT);   // 東邊前哨的補給線、舊星艦維修站（謠言出現之後才有）
     // 消耗與腐壞
     for(const k in markets){const t=+k,m=markets[k];if(owner[t]<0)continue;
       let civUsed=0;
@@ -1603,7 +1651,7 @@ function createSim(w,rand,pick){
     trait(f){return rTr(f)},
     drops,pmcAid};
   return {pmc,peek,legendData,opportunities,runHistory,begin,stepYear,stepSeason,get season(){return qs},campaignHour,campaignView,campaignHit,setCampaigns(v){campOn=!!v},
-    campaignOf(id){const c=campaigns.find(x=>x.id===id);return c?{id:c.id,done:!!c.done,win:c.win,att:c.att,def:c.def,tile:c.n,round:c.round,mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),fa:c.FA/c.FA0,fd:c.FD/c.FD0}:null},get year(){return histY},startLive,periodTick,act,exportState,importState,stepDay,addRivers,rumorStart,get rumor(){return rumor},get extraRivers(){return extraRivers},get day(){return qd},view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
+    campaignOf(id){const c=campaigns.find(x=>x.id===id);return c?{id:c.id,done:!!c.done,win:c.win,att:c.att,def:c.def,tile:c.n,round:c.round,mulA:campMul(c.FA/c.FA0),mulD:campMul(c.FD/c.FD0),fa:c.FA/c.FA0,fd:c.FD/c.FD0}:null},get year(){return histY},startLive,periodTick,act,exportState,importState,stepDay,addRivers,rumorStart,outposts,outpostEffect,stationFound,markOutpost(t){if(markets[t]&&owner[t]>=0){markets[t].outpost=owner[t];markets[t].outpostY=histY}},get rumor(){return rumor},get extraRivers(){return extraRivers},get day(){return qd},view,spawnActor,actors:()=>actors,get live(){return live},get T(){return T}};
 }
 
 

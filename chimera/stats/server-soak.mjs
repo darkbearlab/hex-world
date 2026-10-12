@@ -84,7 +84,7 @@ async function turn(bot) {
     const B = v.board.filter(e => !e.joined && h >= e.start && h < e.closeAt && !e.gone && !['drill', 'hunting', 'security'].includes(e.kind));
     // 同一個委託大家搶著接（測同時接案）：一半的機會挑板上的第一個
     const e = B.length && (r() < .5 ? B[0] : pick(r, B));
-    if (e) await send({type: 'accept', kind: e.kind, tile: e.tile, side: e.kind === 'front' || e.kind === 'camp' ? pick(r, ['att', 'def']) : e.kind === 'tense' ? pick(r, ['a', 'b']) : '', uids: home().slice(0, e.here ? 8 : 4).map(x => x.uid)});
+    if (e) await send({type: 'accept', kind: e.kind, tile: e.tile, side: e.kind === 'front' || e.kind === 'camp' ? pick(r, ['att', 'def']) : (e.kind === 'tense' || e.kind === 'outpost') ? pick(r, ['a', 'b']) : '', uids: home().slice(0, e.here ? 8 : 4).map(x => x.uid)});
   }
   const sqs = D.cases.filter(k => !k.settled).flatMap(k => k.squads);
   if (r() < (bot.style === 'chaos' ? .15 : .03) && sqs.length) await send({type: 'recall', squad: pick(r, sqs).id});

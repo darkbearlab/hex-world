@@ -132,6 +132,18 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
     const m = K.markets[a], g = ['food', 'water', 'fuel', 'parts', 'ammo'].sort((x, y) => m.stock[y] * BASEP[y] - m.stock[x] * BASEP[x])[0];
     return openCase(book, w, {kind: 'route', title: `護送${nm(a)}往${nm(b)}的${GN[g]}車隊`, tile: opp.tile, from: a, to: b, fac: K.owner[a], lv, hours, cargo: {g, amt: Math.round((20 + 15 * lv) * WX())}}, now);
   }
+  // 前哨補給車隊（Alan 2026-10-13）：從本國的城把兩季份的淨水運到前哨；送到多少進前哨的市場（settleCase 的路線結算）、從出發的城扣
+  if (opp.kind === 'supply') {
+    const to = opp.tile, src = opp.home, m = K.markets[to], ms = K.markets[src]; if (!m || !ms) return null;
+    const amt = Math.round(Math.min((m.need?.water || 5) * 2, ms.stock.water * .5)); if (amt < 1) return null;
+    return openCase(book, w, {kind: 'route', title: `護送${K.fac[K.owner[to]]?.n || ''}往${nm(to)}前哨的補給車隊`, tile: to, from: src, to, fac: K.owner[to], lv, hours, cargo: {g: 'water', amt, src}}, now);
+  }
+  // 前哨爭奪：替守方守住，或替對手去搶（跟快開戰的壓陣一樣是駐守型的案件）；結案時照有沒有打出積分影響前哨（settleCase）
+  if (opp.kind === 'outpost') {
+    const f = o.side === 'b' ? opp.b : opp.a, foe = f === opp.a ? opp.b : opp.a, what = opp.station ? '維修站' : '前哨';
+    const c = openCase(book, w, {kind: 'garrison', title: f === opp.a ? `替${K.fac[f].n}守住${nm(opp.tile)}的${what}` : `替${K.fac[f].n}去搶${nm(opp.tile)}的${what}`, tile: opp.tile, fac: f, foe, lv, hours}, now);
+    c.outpost = opp.tile; return c;
+  }
   if (opp.kind === 'exp') {
     const [home] = nearTowns(opp.tile); if (home === undefined) return null;
     return openCase(book, w, {kind: 'route', title: `從${nm(opp.tile)}把東西運回${nm(home)}`, tile: opp.tile, from: opp.tile, to: home, fac: K.owner[home], lv, hours, cargo: {g: 'parts', amt: Math.round((10 + 10 * lv) * WX())}}, now);
@@ -906,6 +918,8 @@ function settleCase(book, w, c, now) {
     if (c.cargo?.forest !== undefined) w.sim.pmc.cutForest(c.cargo.forest, c.cargo.amt * delivered);   // 伐木車隊：林子少了這麼多
     if (c.cargo?.src !== undefined && K.markets[c.cargo.src]) K.markets[c.cargo.src].stock[c.cargo.g] = Math.max(0, K.markets[c.cargo.src].stock[c.cargo.g] - c.cargo.amt * delivered);   // 缺貨委託：來源城少了這麼多
   }
+  // 前哨爭奪：打出積分的那一邊說了算（守方守住、攻方洗劫）
+  if (c.outpost != null && Object.values(c.score).some(v => v > 0) && w.sim.outpostEffect) w.sim.outpostEffect(c.outpost, c.fac === K.owner[c.outpost] ? 'hold' : 'hit', c.fac);
   // 大戰役：戰役結束時照貢獻再分一筆（每點貢獻 1k；雇主輸了只付一半）
   if (c.kind === 'camp') { const v = w.sim.campaignOf(c.camp); c.pay.final = Math.round(Object.values(c.score).reduce((x, y) => x + y, 0) * (v && v.done && v.win !== c.fac ? .5 : 1)); }
   const pool = c.pay.final * mult, tot = Object.values(c.score).reduce((x, y) => x + y, 0);

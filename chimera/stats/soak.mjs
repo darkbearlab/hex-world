@@ -75,7 +75,7 @@ function botHour(bot, h) {
   if (open < (bot.style === 'chaos' ? 5 : 3) && home().length >= 2 && r() < .25) {
     const board = c.boardView(bot.name).filter(e => !e.joined && h >= e.start && h < e.closeAt && !e.gone && !['drill', 'hunting', 'security'].includes(e.kind));
     const e = board.length && pick(r, board.some(x => x.here) && r() < .5 ? board.filter(x => x.here) : board);
-    if (e) { const side = e.kind === 'front' || e.kind === 'camp' ? pick(r, ['att', 'def']) : e.kind === 'tense' ? pick(r, ['a', 'b']) : '';
+    if (e) { const side = e.kind === 'front' || e.kind === 'camp' ? pick(r, ['att', 'def']) : (e.kind === 'tense' || e.kind === 'outpost') ? pick(r, ['a', 'b']) : '';
       cmd(bot, {type: 'accept', kind: e.kind, tile: e.tile, side, uids: home().slice(0, e.here ? 2 + Math.floor(r() * 7) : 2 + Math.floor(r() * 4)).map(x => x.uid)}); }
   }
   // 撤軍、增援、整補

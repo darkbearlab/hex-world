@@ -29,6 +29,9 @@ const NO_VAN = '運兵車都派出去了（等車回來，或把基地開過去�
 // 遠征點與突發事件（core.js 每天整理進 book.sites、book.events）：一定要基地到場搜索，先搜到的先拿
 export const SITE_CD = 24 * 7;
 export function nearSite(book, w, t, h) {
+  const R = w.sim.rumor; if (R && R.tile === t && !R.found) return {kind: 'station', title: '傳聞中的舊星艦維修站', hint: '鋼骨從沙裡伸出來，底下好像還有東西在動', lv: 3, taken: null, event: true,
+    claim: () => {}, loot: (G, h2) => { w.sim.stationFound(-1, w.sim.year, G.name); G.mats.implant = (G.mats.implant || 0) + 60; G.mats.neural = (G.mats.neural || 0) + 60; C.pay(book, h2, G.name, 80, 'site', `${w.names[t] || ''}：找到舊星艦維修站`);
+      return ['鋼骨底下真的是一座舊星艦的維修站——工廠還在動。從外圍拆下一批舊時代的零件：植入物 +60、神經介質 +60，另外賣掉一些拆下來的東西 $80k。消息很快就會傳開。']; }};
   const ev = (book.events || []).find(e => e.tile === t && !e.taken && h >= e.start && h < e.end), st = ev ? null : (book.sites || []).find(x => x.tile === t), s = ev || st;
   if (!s) return null;
   const tk = st && book.siteTaken?.[t], taken = tk && h - tk.h < SITE_CD ? tk.co : null;
@@ -474,7 +477,7 @@ export function accept(G, book, w, opp, side, uids, now, _fast = false, contract
   note(G, now, `${again ? `「${c.title}」加派` : `接下「${c.title}」，派出`} ${n} 隊（${here ? '基地在現場，直接派' : '坐運兵車'}；集合點${w.names[G.base] || '這裡'}）。`);
   return null;
 }
-const kindOf = o => ({short: 'route', route: 'route', exp: 'route', logging: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp', shadow: 'shadow', counter: 'shadow', privateer: 'privateer', drill: 'drill', hunting: 'hunting', security: 'security'})[o.kind];
+const kindOf = o => ({supply: 'route', outpost: 'garrison', short: 'route', route: 'route', exp: 'route', logging: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp', shadow: 'shadow', counter: 'shadow', privateer: 'privateer', drill: 'drill', hunting: 'hunting', security: 'security'})[o.kind];
 
 // ===== 派系關係（Alan 2026-10-11）=====
 // 每家公司對每個勢力一個關係值（−100～100）。一般委託做得好就上升；暗影行動曝光、替人私掠就下降。
