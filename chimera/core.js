@@ -9,6 +9,8 @@ import {ensureNpcs, npcHour} from './npc.js';
 import * as RV from './rover.js';
 
 const r1 = v => Math.round(v * 10) / 10;
+// 可以開 50×50 的戰鬥類型（清光敵人或守住就贏的；2026-10-13 size-check：巡邏遭遇 245 回合、守點 36 回合、清剿 304 回合打完）
+const BIG_OK = new Set(['probe', 'hold', 'clear', 'patrol', 'sweep', 'scout', 'guard', 'rally', 'drill']);
 // 會改變遊戲狀態、要記進指令紀錄的指令（path、quotes 只是查詢）
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
@@ -411,7 +413,10 @@ export class Core {
       if (tk.fightAt == null) tk.fightAt = h;   // 開打了：打完之前這一隊不能整補（戰場上的裝備是開打那一刻的）
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
       if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
-      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster: C.enemyRoster(tk.enemy)}, squad, type: tk.transit ? 'transit' : tk.type, intro: tk.transit ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0,
+      // 戰場大小（Alan 2026-10-13：照 Claude 的意思）：敵人 12 名以上的大單開 50×50（據點群的佈陣），其餘 27×27；室內設施、公路戰由戰場那邊固定 27
+      // 只開在「清光敵人／守住」的戰場：奪點、裝炸藥（突擊、戰壕、破壞…）在 50×50 上機器人隊員打不完（size-check 18 名敵人：卡到步數上限），先維持 27
+      const roster = C.enemyRoster(tk.enemy), size = roster.length >= 12 && BIG_OK.has(tk.transit ? 'transit' : tk.type) ? 50 : 27;
+      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster}, squad, type: tk.transit ? 'transit' : tk.type, intro: tk.transit ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0, size,
         depth: Math.max(1, Math.min(12, 1 + Math.round((tk.enemy.power || 10) / 7) + (tk.wave ? Math.floor(tk.wave / 3) : 0)))}});   // 敵人的強度（菁英、詞條的機率照 ASH 的樓層），Alan 2026-10-11
       return null;
     }
