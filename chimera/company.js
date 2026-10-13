@@ -67,8 +67,56 @@ export const CLS = {
   berserker: {n: '狂戰士', base: {hp: 160, acc: -10, eva: 0, mel: 0}, k: 1.05, weapon: '斧頭、土製霰彈槍'},
   engineer:  {n: '工兵', base: {hp: 100, acc: 0, eva: 0, mel: 0}, k: .95, weapon: '土製衝鋒槍、土製霰彈槍'},
 };
-// ASH 技能的中文名（複製人出生沒有技能，3 級學會職業技能；chimera/ash/overlay/src/chimera-squad.js）
-export const SKILL_NAME = {early_warning: '預警', signal_break: '訊號斷層', anchor: '下錨', grapple: '鉤鎖', workshop: '工坊'};
+// ASH 技能的中文名（複製人出生沒有技能，2 級學會職業技能（2026-10-13 起；原本 3 級）；chimera/ash/overlay/src/chimera-squad.js）
+export const SKILL_NAME = {early_warning: '預警', signal_break: '訊號斷層', anchor: '下錨', grapple: '鉤鎖', workshop: '工坊', suppressive_fire: '壓制射擊'};
+// ===== 成長（Alan 2026-10-13，DESIGN.md「強化（perk）整組重做」：模仿 XCOM）=====
+// 2 級學會職業技能；4、6、8、10 級各從三種性格裡選一個（選了就固定，可以跨性格）；3、5、7、9、11 級長數值（GROW 每次的量）。
+// 規則在戰鬥那邊（chimera/ash/overlay/src/chimera-talents.js，照 id）；ASH 原本的升級三選一不再出現。
+export const TALENT_ROWS = [4, 6, 8, 10];
+const T = (id, n, text) => ({id, n, text});
+export const TALENTS = {
+  soldier: {paths: ['觀測手', '火線手', '突入手'], grow: {hp: 6, acc: 2, eva: 1}, rows: {
+    4: [T('sol_wide', '廣域預警', '預警半徑 +4、冷卻 −2。'), T('sol_brace', '架槍精通', '打躲在掩體後的目標，架槍的命中加成 +12 → +20。'), T('sol_close', '近身射擊', '3 格內的霰彈槍傷害 +20%。')],
+    6: [T('sol_weaken', '標定弱化', '預警的標定多 1 回合；被標定的敵人打全隊的命中 −10。'), T('sol_track', '修正到底', '著彈修正多一層（最多 +32）；換目標只掉一層，不歸零。'), T('sol_charge', '衝鋒', '每場第一次移動不花回合。')],
+    8: [T('sol_press', '標定壓制', '預警的標定多 1 回合；全隊打被標定的目標傷害再 +10%（共 +20%）。'), T('sol_supp', '壓制射擊', '學會壓制射擊（技能：消耗 3 發，目標格與相鄰的敵人被壓制）。技能的預備欄一次放一個。'), T('sol_finish', '補刀', '打中但沒打倒的敵人，到下一回合結束前你打他命中 +15、傷害 +15%。')],
+    10: [T('sol_net', '戰場網', '每回合開始自動預警一次（照你的預警半徑），不用自己放。'), T('sol_line', '火線', '敵人在你的射程內、看得到的地方移動時，你自動開一槍（命中 −15，每回合一次）。'), T('sol_stand', '不倒', '每場一次，致命傷改成剩 1 點生命。')]}},
+  recon: {paths: ['獵影', '斥候', '游擊'], grow: {hp: 4, acc: 2, eva: 2}, rows: {
+    4: [T('rec_unseen', '隱蔽射手', '目標看不到你時，傷害 +24%。'), T('rec_smoke', '煙幕專家', '每場多帶 2 顆煙霧彈、2 顆震撼彈。'), T('rec_side', '側身精通', '側身時，敵人打你的命中再 −12。')],
+    6: [T('rec_break', '斷層延長', '訊號斷層持續 +1、冷卻 −1。'), T('rec_spot', '前方觀測', '你看得到的敵人，隊友打它命中 +8。'), T('rec_hitrun', '打帶跑', '開槍之後可以再走一格，不花回合（每回合一次）。')],
+    8: [T('rec_first', '第一槍', '每場的第一輪射擊，以及打還沒發現你們的敵人時，傷害 ×1.5。'), T('rec_nv', '夜眼分享', '身邊 3 格內的隊友也有夜視。'), T('rec_dodge', '閃身', '每回合第一次被打中，傷害減半。')],
+    10: [T('rec_ghost', '幽靈', '你擊倒敵人時，訊號斷層的冷卻歸零。'), T('rec_cover', '全隊掩護', '身邊 3 格內的隊友被打中的機率 −10。'), T('rec_blur', '無影', '移動之後，敵人打中你的機率最多 30%。')]}},
+  bulwark: {paths: ['堡壘', '彈幕', '破陣'], grow: {plates: 10, acc: 1}, rows: {
+    4: [T('bul_anchor', '下錨強化', '下錨時受到的傷害 −30%，解除下錨不花回合。'), T('bul_belt', '彈鏈', '輕機槍彈匣 +50%。'), T('bul_knock', '破陣拳', '動力拳打中時，把敵人擊退一格。')],
+    6: [T('bul_plate', '板甲護持', '還有護甲板時，受到的傷害再 −16%。'), T('bul_deep', '壓得更深', '輕機槍每打中一次，多疊一層壓制。'), T('bul_ram', '衝撞', '走到敵人身邊時順手打一拳（動力拳傷害的一半，每回合一次）。')],
+    8: [T('bul_guard', '護衛', '身邊的隊友受到的傷害，三成改由你的護甲板吃。'), T('bul_sweep', '掃射', '輕機槍打中目標時，目標身邊的敵人各挨一發。'), T('bul_wall', '拆牆', '動力拳打中敵人時，把他身邊的掩體一起打爛。')],
+    10: [T('bul_rock', '不動如山', '下錨時不會被壓制，每回合回 10 點護甲板。'), T('bul_net', '火力網', '下錨時，每回合射程內最近的兩個敵人各被壓制一層。'), T('bul_hammer', '重錘', '動力拳擊倒敵人時，他身邊的敵人各受 15 點傷害。')]}},
+  berserker: {paths: ['屠夫', '狂徒', '獵犬'], grow: {hp: 10, mel: 2, eva: 1}, rows: {
+    4: [T('ber_thirst', '嗜血狂歡', '近戰吸血 20% → 36%。'), T('ber_fury', '狂怒堆疊', '戰意上限 5 → 7 層。'), T('ber_hook', '快鉤', '鉤鎖冷卻 −2。')],
+    6: [T('ber_endure', '血怒不退', '戰意晚 4 回合才開始掉。'), T('ber_whirl', '旋斬', '近戰打中時，身邊其他敵人各挨一半的傷害。'), T('ber_rehook', '連鉤', '鉤鎖那一刀擊倒敵人時，鉤鎖冷卻歸零。')],
+    8: [T('ber_bloodplate', '血甲', '吸血超過生命上限的部分變成護甲板。'), T('ber_roar', '戰吼', '近戰擊倒敵人時，身邊 3 格的敵人被壓制一層。'), T('ber_pounce', '撲殺', '鉤鎖那一刀傷害 +50%，打大型與頭目再 +50%。')],
+    10: [T('ber_undying', '不死', '致命傷改成剩 1 點生命，消耗一層戰意（沒有戰意就照常倒下）。'), T('ber_slaughter', '屠戮', '每回合第一次擊倒敵人後，可以再攻擊一次，不花回合。'), T('ber_execute', '處決', '近戰打中生命低於三成的敵人直接斃命（頭目除外）。')]}},
+  engineer: {paths: ['機師', '工廠', '陣地'], grow: {hp: 5, acc: 1, drone: 5}, rows: {
+    4: [T('eng_frame', '機體強化', '機體最大生命 +40、裝甲 +2。'), T('eng_lines', '生產序列', '工坊多一條生產線。'), T('eng_cover', '架設掩體', '這回合沒有移動、身邊沒有掩體時，回合結束自動花 10 廢料在面向敵人的一側立一塊掩體。')],
+    6: [T('eng_fire', '火控校準', '機體射擊命中 +16、傷害 +6。'), T('eng_deploy', '部署上限', '同時部署的機體 +1 台。'), T('eng_sentry', '砲台延伸', '定點砲台射程 +2。')],
+    8: [T('eng_remote', '遙控', '這回合沒有移動時，身邊 3 格內的機體多行動一次。'), T('eng_salvage', '戰場回收', '全隊每擊倒一個敵人，你拿到 3 廢料。'), T('eng_mine', '絆雷', '這回合沒有移動時，回合結束自動花 15 廢料在身邊埋一顆絆雷（最多 3 顆）；敵人踩到就爆炸（60 點傷害，周圍 1 格）。')],
+    10: [T('eng_boom', '自爆', '機體被打爆時，身邊 1 格的敵人受 30 點傷害。'), T('eng_repair', '免費維修', '每回合自動修理受傷最重的一台機體（回復 25% 生命），不花廢料。'), T('eng_line', '堡壘線', '站在掩體或定點砲台旁邊的隊友，受到的傷害 −20%。')]}},
+};
+// 數值成長的次數（3、5、7、9、11 級各一次）與總量
+export const growSteps = lv => Math.max(0, Math.floor(((lv || 1) - 1) / 2));
+export function growOf(c) { const g = TALENTS[c.cls]?.grow || {}, n = growSteps(c.lv); return Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v * n])); }
+export const talentIds = c => TALENT_ROWS.map(r => c.tal?.[r] != null ? TALENTS[c.cls]?.rows[r]?.[c.tal[r]]?.id : null).filter(Boolean);
+// 工兵的廢料（Alan 2026-10-13）：ASH 不再給廢料（擊殺、拆武器、撿到的都沒有），每場進場照等級補滿到這個數
+export const engineerScrap = lv => (lv || 1) < 2 ? 0 : 40 + 20 * ((lv || 1) - 2);
+export const SKILL_LV = 2;
+export function pickTalent(G, uid, row, k) {
+  const c = G.roster.find(x => x.uid === uid), R = TALENTS[c?.cls];
+  if (!c || !R) return '找不到這個人';
+  if (!TALENT_ROWS.includes(row) || !(k >= 0 && k < 3)) return '沒有這個選項';
+  if ((c.lv || 1) < row) return `${row} 級才能選`;
+  if (c.tal?.[row] != null) return '這一級已經選過了';
+  (c.tal ||= {})[row] = k; C.rec(c, {h: G.h, t: 'talent', co: G.name, lv: row, name: R.rows[row][k].n});
+  return null;
+}
 export const PORTRAITS = ['ember', 'onyx', 'silver', 'cedar', ...Array.from({length: 12}, (_, i) => `portrait-${String(i + 5).padStart(2, '0')}`)];
 // 資料主人（DNA 原主）（Alan 2026-10-10）：每張立繪是一位原主，名字和職業都綁在原主身上（大和不會變成輕巡）；
 // 複製人是原主的一批，畫面顯示「原主名字 編號」。名單是暫定的，之後 Alan 會換掉。
@@ -258,7 +306,7 @@ function finishBuild(G, q, h, book = null) {
   const r = () => rnd(G);
   if (q.revive != null) {
     const c = G.roster.find(x => x.uid === q.revive); if (!c || c.status !== 'recovered') { for (const m of MATS) G.mats[m] += q.recipe[m] || 0; note(G, h, '重新培養失敗：遺體不在了，素材退回。'); return; }
-    Object.assign(c, {alive: true, status: 'home', hp: 20, lv: 1, xp: 0, cells: [0, 0, 0, 0], dup: 0, cellPts: 0, picks: [], skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0, downAs: null, downAt: null, downTile: null, diedH: null, born: h});
+    Object.assign(c, {alive: true, status: 'home', hp: 20, lv: 1, xp: 0, cells: [0, 0, 0, 0], dup: 0, cellPts: 0, picks: [], tal: {}, skills: [], prep: null, perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0, downAs: null, downAt: null, downTile: null, diedH: null, born: h});
     // 舊小隊的名單裡還有這個人（倒下時留著，給結案記紀錄用）：拿掉，不然活過來的人會被當成那一隊的人繼續派單
     if (book) for (const sq of Object.values(book.squads)) { const i = sq.clones.indexOf(c); if (i >= 0) sq.clones.splice(i, 1); }
     C.rec(c, {h, t: 'revive', co: G.name, tile: G.base}); G.fresh = c.uid;

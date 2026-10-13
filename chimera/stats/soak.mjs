@@ -116,6 +116,8 @@ function botHour(bot, h) {
     if (r() < .02 && home().length >= 2) { const [a, x] = home(); cmd(bot, {type: 'merge', keep: a.uid, feed: x.uid}); }
   }
   if (r() < .01) cmd(bot, {type: 'readReport', id: 'all'});
+  // 成長（2026-10-13）：亂選性格技能（也會亂丟不合法的等級、選項）
+  if (r() < .05 && g.roster.length) { const x = pick(r, g.roster); cmd(bot, {type: 'talent', uid: x.uid, row: pick(r, [4, 6, 8, 10, 5]), k: pick(r, [0, 1, 2, 3])}); }
 }
 
 // ───── 每小時檢查（stats/lib/checks.mjs） ─────

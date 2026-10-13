@@ -1,5 +1,5 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
-import {CLS, MN, MATS, REVIVE_RECIPE, TAGS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES} from './company.js';
+import {CLS, MN, MATS, REVIVE_RECIPE, TAGS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES, TALENTS, TALENT_ROWS, growOf, SKILL_LV} from './company.js';
 import {unitName, cellHas, cellCount, CELL_PITY} from './cases.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
@@ -947,9 +947,29 @@ function serviceRecord(c) {
     : e.t === 'transfer' ? `${d(e.h)}・遺體輾轉到了${esc(e.co)}手上`
     : e.t === 'callsign' ? `${d(e.h)}・在${esc(e.co)}被叫作 “${esc(e.name)}”`
     : e.t === 'sold' ? `${d(e.h)}・${esc(e.co)}把遺體賣了（$${e.price}k）`
+    : e.t === 'talent' ? `${d(e.h)}・${e.lv} 級選了「${esc(e.name)}」`
     : e.t === 'merge' ? `${d(e.h)}・吸收了 ${esc(e.fed)} 的記憶片段，多了 ${e.gain} 片`
     : e.t === 'revive' ? `${d(e.h)}・在${esc(e.co)}重新培養，等級、技能從頭來` : esc(e.t);
   return `<h4 class="sec2">服役紀錄</h4>${R.length ? R.map(e => `<div class="mini caseline">${line(e)}</div>`).join('') : '<p class="mini muted">還沒有紀錄。</p>'}`;
+}
+// 數值：出生的天賦＋等級的成長（3、5、7、9、11 級；company.js growOf）
+function statTable(c) {
+  const g = growOf(c), up = k => g[k] ? `<span class="grow">+${g[k]}</span>` : '';
+  const extra = [g.plates ? `護甲板上限 +${g.plates}` : '', g.drone ? `機體生命 +${g.drone}` : ''].filter(Boolean).join('・');
+  return `<table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp + (g.hp || 0)}${up('hp')}</td><td>${sg(c.st.acc + (g.acc || 0))}${up('acc')}</td><td>${sg(c.st.eva + (g.eva || 0))}${up('eva')}</td><td>${sg(c.st.mel + (g.mel || 0))}${up('mel')}</td><td>${pctText(c)}</td></tr></table>${extra ? `<div class="mini">等級成長：${extra}</div>` : ''}`;
+}
+// 性格技能（Alan 2026-10-13，模仿 XCOM）：4、6、8、10 級各從三種性格裡選一個，選了就固定
+function talentBox(c) {
+  const R = TALENTS[c.cls]; if (!R) return '';
+  const lv = c.lv || 1, live = c.alive || c.status === 'recovered';
+  const rows = TALENT_ROWS.map(r => {
+    const got = c.tal?.[r], open = live && lv >= r && got == null;
+    return `<div class="talrow${lv < r ? ' locked' : ''}"><div class="tallv">${r} 級</div>${R.rows[r].map((o, k) => `<button class="tal${got === k ? ' on' : got != null ? ' off' : ''}"${open ? ` data-act="talent" data-id="${c.uid}" data-row="${r}" data-k="${k}"` : ' disabled'}><b>${esc(o.n)}</b><span>${esc(o.text)}</span></button>`).join('')}</div>`;
+  }).join('');
+  const due = TALENT_ROWS.filter(r => lv >= r && c.tal?.[r] == null).length;
+  return `<h4 class="sec2">性格與技能 ${due && live ? `<span class="due">有 ${due} 個可以選</span>` : ''}</h4>
+    <div class="talrow talhead"><div></div>${R.paths.map(n => `<div>${esc(n)}</div>`).join('')}</div>${rows}
+    <div class="mini muted">選了就固定，可以跨性格選。3、5、7、9、11 級自動長數值。</div>`;
 }
 function personCard(c) {
   const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : c.status === 'recovered' ? (c.reviving ? '遺體在培養槽裡，重新培養中' : '遺體已收回，可以重新培養（等級、技能從頭來）')
@@ -961,9 +981,10 @@ function personCard(c) {
     <div class="pcart"><img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"><span class="pcart-cap">${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}${crownTag(c)}</span></div>
     <div class="pcmain">
     <div class="phead"><div><div class="pname">${nameFull(c)}${crownTag(c)} <button class="csbtn" data-act="callsign" data-id="${c.uid}" title="取綽號">✎ 綽號</button></div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・記憶片段 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
-    <table class="rep pstats"><tr><th>生命</th><th>命中</th><th>閃避</th><th>近戰</th><th>素質</th></tr><tr><td>${c.st.hp}</td><td>${sg(c.st.acc)}</td><td>${sg(c.st.eva)}</td><td>${sg(c.st.mel)}</td><td>${pctText(c)}</td></tr></table>
+    ${statTable(c)}
     ${gearBox(c)}
-    <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : '還沒有（3 級學會職業技能）'}</div>
+    ${talentBox(c)}
+    <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : `還沒有（${SKILL_LV} 級學會職業技能）`}</div>
     <div class="mini" style="margin-top:8px">分類（可以多選；「不出擊」的人不會被派出去）</div>
     <div class="row tags">${c.alive || c.status === 'recovered' ? [['keep', '不出擊'], ...Object.entries(TAGS)].map(([k, n]) => `<button data-act="tag" data-id="${c.uid}" data-tag="${k}" class="${k === 'keep' ? c.keep ? 'on' : '' : (c.tags || []).includes(k) ? 'on' : ''}">${n}</button>`).join('') : ''}</div>
     ${canRv ? `<div class="row"><button class="primary" data-act="revive" data-id="${c.uid}"${MATS.some(m => GV.mats[m] < rv[m]) ? ' disabled title="素材不夠"' : ''}>重新培養（${MATS.map(m => `${MN[m]} ${rv[m]}`).join('・')}）</button><button data-act="sellbody" data-id="${c.uid}" data-p="${c.bodyPrice}">賣掉遺體（時價 $${c.bodyPrice}k）</button></div><div class="mini muted">時價：最近 7 天全星球倒下 ${GV.deaths7 ?? 0} 人，死的人越多越便宜；金冠、銀冠、記憶片段多的比較值錢。賣掉前身上的裝備會先放進倉庫。</div>` : ''}
@@ -1244,6 +1265,7 @@ const coClick = e => {
   else if (A === 'keep') send({type: 'keep', uid: +id});
   else if (A === 'tag') send({type: 'tag', uid: +id, tag: b.dataset.tag});
   else if (A === 'sellbody') { const c = GV.roster.find(x => x.uid === +id); if (c && confirm(`賣掉 ${who(c)} ${c.id} 的遺體，$${b.dataset.p}k？\n賣掉之後就不能再重新培養了。`)) send({type: 'sellbody', uid: +id}); }
+  else if (A === 'talent') { const c = GV.roster.find(x => x.uid === +id), o = TALENTS[c?.cls]?.rows[+b.dataset.row]?.[+b.dataset.k]; if (o && confirm(`替 ${who(c)} ${c.id} 選「${o.n}」？\n${o.text}\n\n選了就不能改。`)) send({type: 'talent', uid: +id, row: +b.dataset.row, k: +b.dataset.k}); }
   else if (A === 'callsign') { const c = GV.roster.find(x => x.uid === +id), v = prompt('綽號（最多 8 個字；清空就拿掉）', c?.callsign || ''); if (v !== null) send({type: 'callsign', uid: +id, name: v}); }
   else if (A === 'revive') send({type: 'revive', uid: +id});
   else if (A === 'clean') send({type: 'clean', tile: +id});

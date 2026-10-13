@@ -32,6 +32,7 @@ import {perkLimit} from './endless.js';
 import {initialSkillState,SKILLS} from './skills.js';
 import {initializeAllies} from './allies.js';
 import {grantTrait,removeTraitSource} from './traits.js';
+import {installTalents,setupMember,setupSquad} from './chimera-talents.js';
 
 // 土製（DESIGN.md「本輪規劃」B）：ASH 的詞條都是一好一壞，土製只取壞的那一面。出生配發的槍都帶著；到終端改裝換掉詞條，
 // 就是把土製槍升級成正規槍。職業天生的近戰武器（動力拳、斧頭）不套。dropOnly:[] 讓它不會隨機出現在掉落與商店裡。
@@ -40,8 +41,8 @@ const ARMOR_TRAITS={nightvision:['night_vision'],infrared:['infrared'],steady:['
 AFFIXES.homemade??={name:'土製',text:'土法拼裝：傷害 −10%、彈匣 −25%、命中 −8。到終端改裝可以換掉。',damage:.9,mag:.75,accuracy:-8,dropOnly:[]};
 // 技能跟著人走（C）：出生沒有技能；職業技能在 SKILL_LEVEL 級學會（跨戰役的等級）。技能可插拔：學會的放在 skills，預備欄放一個。
 export const CLASS_SKILL={soldier:'early_warning',recon:'signal_break',bulwark:'anchor',berserker:'grapple',engineer:'workshop'};
-export const SKILL_LEVEL=3;
-// 升級三選一跨戰役保留（Alan 2026-10-08：暫時保留，待檢討）：進戰鬥時重新套用永久的效果，一次性的（補給、醫療包、廢料、護甲板）不重複給
+export const SKILL_LEVEL=2;   // Alan 2026-10-13：2 級學會（原本 3 級）
+// 升級三選一（2026-10-08～10-13）已經拿掉：成長改成策略層選的性格技能（chimera-talents.js）。PERMANENT 留著給舊的任務資料
 const PERMANENT={weapon:(p,o)=>{p.perkWeaponBonus+=o.amount;},health:(p,o)=>{p.maxHp+=o.amount;p.hp+=o.amount;},stat:(p,o)=>{p[o.stat]+=o.amount;},
  scavenger:(p,o)=>{p.scavenger+=o.amount;},medic:(p,o)=>{p.healBonus+=o.amount;},hazmat:(p,o)=>{p.hazmat+=o.amount;},
  combat:(p,o)=>{p.combatModifiers={...p.combatModifiers};for(const k of o.stats)p.combatModifiers[k]=Math.min(100,(p.combatModifiers[k]||0)+o.amount);}};
@@ -59,7 +60,7 @@ export class SquadGame extends MissionGame{
   const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;lead.callName=callName(ticket.squad[0]);lead.donor=ticket.squad[0].donor||null;
   this.equip(lead,ticket.squad[0]);for(const k of COUNTERS)this[k]=ticket.squad[0][k]||0;
   // 格子收集（Alan 2026-10-10）：等級在戰場外決定；這一級該有、還沒挑的升級，進場時補給（照 ASH 的 perkLimit：每升一級一個）
-  this.pendingPerks=Math.max(0,perkLimit(lead.level)-(this.perkPicks||0));
+  this.pendingPerks=0;   // Alan 2026-10-13：戰場上不再跳升級
   // brains（函式）與 stash 不可列舉：ASH 每一步動畫前用 structuredClone 複製遊戲（presentation.js snapshot）
   for(const [k,v]of [['stash',new Map([[lead,{}]])],['brains',new Map()]])Object.defineProperty(this,k,{configurable:true,writable:true,enumerable:false,value:v});
   this.members=[lead];this.controlled=lead;
@@ -69,18 +70,19 @@ export class SquadGame extends MissionGame{
    const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;m.callName=callName(c);m.donor=c.donor||null;applyStats(m,c,CHARACTERS[cls]);
    this.shareArmory(m,lead);this.equip(m,c);
    const cell=this.freeCellNear(lead);if(!cell)continue;Object.assign(m,{x:cell.x,y:cell.y});
-   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:Math.max(0,perkLimit(m.level)-(c.perkPicks||0)),perkDraft:null,perkPicks:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
+   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:0,perkDraft:null,perkPicks:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
    this.chimera.units[c.id]=m;
   }
   this.chimera.units[ticket.squad[0].id]=lead;
+  setupSquad(this);
   this.reveal();
  }
  // 複製人的成長帶進戰鬥（ticket 的 c：lv、xp、picks、skills、prep）；槍套上土製
  equip(m,c){
   if(!this.applyGear(m,c))for(const slot of m.owned)if(!WEAPONS[m.weaponBases[slot]]?.melee){m.affixes[slot]='homemade';m.ammo[slot]=Math.min(m.ammo[slot],weaponStats(m.weaponBases[slot],'homemade',m).mag);}
-  m.level=Math.max(1,c.lv||1);m.xp=Math.max(0,c.xp||0);m.chimeraPicks=[...(c.picks||[])];
-  for(const id of m.chimeraPicks){const o=perkDef(this,PERKS.find(x=>x.id===id));if(!o)continue;PERMANENT[o.effect]?.(m,o);m.perks[o.id]=(m.perks[o.id]||0)+1;}
-  m.skills=(c.skills||[]).filter(id=>SKILLS[id]);m.skillState=initialSkillState(m.skills);
+  m.level=Math.max(1,c.lv||1);m.xp=Math.max(0,c.xp||0);m.chimeraPicks=[];
+  setupMember(this,m,c);   // 性格技能、等級成長、工兵的廢料（chimera-talents.js）
+  m.skills=(c.skills||[]).filter(id=>SKILLS[id]);if(m.chimeraTal.includes('sol_supp')&&!m.skills.includes('suppressive_fire'))m.skills.push('suppressive_fire');m.skillState=initialSkillState(m.skills);
   m.prepared={...m.prepared,skill:m.skills.includes(c.prep)?c.prep:m.skills[0]||null};
   if(!m.skills.includes('workshop'))m.productionLines=[];
   this.learnClassSkill(m);
@@ -123,6 +125,8 @@ export class SquadGame extends MissionGame{
  }
  // 格子收集取代經驗（Alan 2026-10-10）：戰場上打倒敵人不再升級（等級由戰後的積分抽格子決定），經驗直接歸零
  settleLevels(){this.player.xp=0;}
+ // 多層設施（狩獵場）不再有交易終端（Alan 2026-10-13：廢料只有工兵進場時給）
+ generateFloor(){const map=super.generateFloor();if(map?.props)map.props=map.props.filter(o=>o.type!=='terminal');return map;}
  choosePerk(id){const ok=super.choosePerk(id);if(ok)(this.player.chimeraPicks||=[]).push(id);return ok;}
  // 戰後寫回名冊的成長
  progressOf(m){const own=m===this.player,st=this.stash?.get(m)||{};return {gear:this.gearOf(m),lv:m.level,xp:m.xp,picks:[...(m.chimeraPicks||[])],skills:[...m.skills],prep:m.prepared?.skill||null,...Object.fromEntries(COUNTERS.map(k=>[k,own?this[k]:st[k]||0]))};}
@@ -258,4 +262,5 @@ export class SquadGame extends MissionGame{
   return {win:this.status==='won',dead,kills,total,turns:this.turn,progress,boss:this.chimeraBossOut||null,legacy:carrier?carrier[0]:null,loot:this.status==='won'?this.fieldLoot():null,floors:this.ticket?.floors?(this.status==='won'?this.floor:Math.max(0,(this.floor||1)-1)):undefined};   // 狩獵場：打穿了幾層
  }
 }
-installVoices(SquadGame);   // 戰場上的台詞改由隊員自己說（chimera-voices.js、補丁 0010）
+installVoices(SquadGame);
+installTalents(SquadGame);   // 性格技能（Alan 2026-10-13）   // 戰場上的台詞改由隊員自己說（chimera-voices.js、補丁 0010）

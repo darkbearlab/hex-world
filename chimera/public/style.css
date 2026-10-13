@@ -602,3 +602,16 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
   .scard.full .sinfo .sname{position:static;padding:0 0 6px;background:none}
   .scard.full .sinfo .sgear{position:static;height:auto;max-height:46%;overflow:visible;padding:0;background:none}
 }
+
+/* 性格技能（2026-10-13） */
+.pstats .grow{color:var(--good,#7fbf6a);font-size:.8em;margin-left:2px}
+.sec2 .due{font-size:.75em;color:#e6c281;margin-left:6px}
+.talrow{display:grid;grid-template-columns:3.2em repeat(3,1fr);gap:4px;margin:3px 0;align-items:stretch}
+.talhead div{font-size:.8em;text-align:center;opacity:.8}
+.tallv{font-size:.8em;opacity:.8;align-self:center}
+.talrow .tal{display:flex;flex-direction:column;gap:2px;text-align:left;padding:4px 6px;font-size:.78em;line-height:1.3;min-height:3.6em}
+.talrow .tal span{opacity:.75;font-size:.92em}
+.talrow .tal.on{outline:2px solid #e6c281;opacity:1}
+.talrow .tal.off{opacity:.35}
+.talrow.locked .tal{opacity:.45}
+@media (max-width:520px){.talrow{grid-template-columns:2.6em repeat(3,1fr)}.talrow .tal span{display:none}.talrow .tal.on span{display:block}}

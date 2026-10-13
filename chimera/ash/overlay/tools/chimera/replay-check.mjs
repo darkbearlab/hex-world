@@ -9,7 +9,9 @@ import {ClearBot} from '../clear-bot/bot.mjs';
 import {applyEntry,record,fingerprint} from '../../src/chimera-log.js';
 const args=process.argv.slice(2),opt=(k,d)=>{const i=args.indexOf(`--${k}`);return i<0?d:args[i+1];},flag=k=>args.includes(`--${k}`);
 const seeds=Number(opt('seeds',6)),from=Number(opt('seed-from',1));
-const squad=[['A','soldier'],['B','recon'],['C','bulwark'],['D','berserker']].map(([id,cls],i)=>({id,cls,portrait:['ember','onyx','silver','cedar'][i],st:{hp:cls==='berserker'?160:100},lv:3,xp:0,picks:[],skills:[],prep:null}));
+// --talents 0|1|2：每人那一條性格的技能全點、11 級（chimera-talents.js；--eng 把狂戰士換成工兵）
+const {TALENTS,TALENT_ROWS,engineerScrap}=await import('../../../../company.js'),TP=opt('talents',null);
+const squad=[['A','soldier'],['B','recon'],['C','bulwark'],['D',flag('eng')?'engineer':'berserker']].map(([id,cls],i)=>({id,cls,portrait:['ember','onyx','silver','cedar'][i],st:{hp:cls==='berserker'?160:100},lv:TP==null?3:11,xp:0,picks:[],skills:[],prep:null,...(TP==null?{}:{tal:TALENT_ROWS.map(r=>TALENTS[cls].rows[r][+TP].id),grow:Object.fromEntries(Object.entries(TALENTS[cls].grow).map(([k,v])=>[k,v*5])),scrap:cls==='engineer'?engineerScrap(11):0})}));
 const fresh=s=>{const g=new SquadGame({seed:s,faction:s%2?'rebel':'loyalist',...(opt('type','')?{type:opt('type',''),biome:'旱原'}:{}),enemy:{units:flag('big')?{raider:20,raider_heavy:8,trooper:8}:{raider:4,raider_heavy:2,trooper:2},veh:{},boss:flag('boss')?{weapon:'x'}:null},squad});installFullSquad(g);return g;};
 let bad=0;const rows=[];
 for(let s=from;s<from+seeds;s++){

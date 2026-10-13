@@ -15,7 +15,7 @@ const BIG_OK = new Set(['probe', 'hold', 'clear', 'patrol', 'sweep', 'scout', 'g
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -80,7 +80,7 @@ export class Core {
   open() {
     if (this.game) return;
     let seed = 7; for (const ch of String(this.seed)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: SEASONAL_YEAR_DAYS, seasonal: true, mig: {gar1011: true, hq1012: true, east1012: true, east1013: true}};   // 新開的星球：舊存檔的轉換、東方謠言都不用補跑
+    this.game = {book: C.newBook(seed % 1000000 + 7), cos: {}, h: 0, speed: 3, yearDays: SEASONAL_YEAR_DAYS, seasonal: true, mig: {gar1011: true, hq1012: true, east1012: true, east1013: true, tal1013: true}};   // 新開的星球：舊存檔的轉換、東方謠言都不用補跑
     this.log = [{h: 0, year: this.sim.year, cmd: {type: 'open'}}];
     this.sim.setCampaigns(true);   // 大戰役只在照小時推進時開
   }
@@ -389,6 +389,7 @@ export class Core {
     if (m.type === 'tag') return G.tag(g, +m.uid, String(m.tag));
     if (m.type === 'sellbody') return G.sellBody(g, b, +m.uid, h);
     if (m.type === 'callsign') return G.setCallsign(g, +m.uid, m.name);
+    if (m.type === 'talent') return G.pickTalent(g, +m.uid, +m.row, +m.k);   // 成長（Alan 2026-10-13）：在角色詳細裡選
     if (m.type === 'accept') {
       const o = this.allOpps().find(x => x.kind === m.kind && x.tile === m.tile), e = b.board?.[m.kind + ':' + m.tile];
       if (!o || !e || e.gone) return '這個委託已經不在了';
@@ -408,7 +409,7 @@ export class Core {
       const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
       if (!sq) return '這張服務單已經不在了';
       const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, name: G.donorName(c) || null, callsign: c.callsign || null, donor: c.donor ?? c.portrait, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
-        lv: c.lv || 1, xp: c.xp || 0, picks: c.picks || [], skills: c.skills || [], prep: c.prep || null, gear: G.gearOf(g, c), perkPicks: c.perkPicks || 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: c.legacyPerkPicks || 0}));
+        lv: c.lv || 1, xp: c.xp || 0, picks: [], tal: G.talentIds(c), grow: G.growOf(c), scrap: c.cls === 'engineer' ? G.engineerScrap(c.lv) : 0, skills: c.skills || [], prep: c.prep || null, gear: G.gearOf(g, c), perkPicks: c.perkPicks || 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: c.legacyPerkPicks || 0}));
       if (!squad.length) return '這一隊沒有活著的人';
       if (tk.fightAt == null) tk.fightAt = h;   // 開打了：打完之前這一隊不能整補（戰場上的裝備是開打那一刻的）
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
@@ -566,6 +567,11 @@ export class Core {
     if (!mig.east1012) { mig.east1012 = true; this.eastRumor(); }
     // 前哨的補給線（2026-10-13）：謠言事件當下立的前哨補上標記
     if (!mig.east1013) { mig.east1013 = true; if (this.sim.rumor) for (const e of this.w.events) if (e.tile != null && /立起前哨/.test(e.text)) this.sim.markOutpost(e.tile); }
+    // 成長改版（Alan 2026-10-13）：ASH 的升級三選一拿掉，改成在角色詳細裡選性格技能；之前選的強化清掉，等級、記憶片段不動
+    if (!mig.tal1013) { mig.tal1013 = true;
+      for (const co of Object.values(g.cos)) { let n = 0; for (const c of co.roster) { if ((c.picks || []).length) n++; Object.assign(c, {picks: [], perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0}); c.tal ||= {}; }
+        const can = co.roster.filter(c => (c.lv || 1) >= 4 && c.status !== 'sold').length;
+        if ((n || can) && !co.npc) g.book.inbox.push({t: g.h ?? 0, player: co.name, kind: 'log', text: `成長改版：戰鬥裡的升級三選一拿掉了，改成每個職業三種性格，4、6、8、10 級在角色詳細裡選一個（選了就固定），3、5、7、9、11 級自動長數值；職業技能改成 2 級學會。之前選的強化已經清掉。${can ? ` 你有 ${can} 個人已經可以選了。` : ''}`, ref: null}); } }
     // 舊存檔（2026-10-12）：易主遺體帶來的裝備跟倉庫撞號的，重新發號
     for (const co of Object.values(g.cos)) G.reidItems(co, g.book);
     // 舊存檔（Alan 2026-10-11）：補上錫冠、鉛冠
