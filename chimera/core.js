@@ -306,7 +306,9 @@ export class Core {
       const ids = Object.values(e.cases), joined = ids.some(id => mine.has(id)), cs = ids.map(id => book.cases.find(c => c.id === id)).filter(Boolean);
       const n = new Set(cs.flatMap(c => c.squads.map(s => book.squads[s]?.player).filter(Boolean))).size;
       const side = Object.entries(e.cases).find(([, id]) => mine.has(id))?.[0];   // 自己接的是哪一邊（大戰役加派時沿用）
-      return {...e.opp, key: e.key, start: e.start, end: e.end, closeAt: e.end - C.CFG.FREEZE, gone: !!e.gone, joined, side, n, here: g ? G.onSite(g, e.opp.tile) : false};   // here：基地在現場（直接派、不用車、不限隊數）
+      // 同一格、同一種案件已經接了別的委託（例如同一條路上的危險商路和遠征）：不能再接，畫面上跟已接的放在一起（Alan 2026-10-13）
+      const busy = !joined && e.opp.kind !== 'camp' && !!g && (g.cases || []).some(k => { const c = book.cases.find(x => x.id === k); return c && !c.settled && c.tile === e.opp.tile && c.kind === G.kindOf(e.opp); });
+      return {...e.opp, key: e.key, start: e.start, end: e.end, closeAt: e.end - C.CFG.FREEZE, gone: !!e.gone, joined, busy, side, n, here: g ? G.onSite(g, e.opp.tile) : false};   // here：基地在現場（直接派、不用車、不限隊數）
     }).filter(e => h >= e.start && ((h < e.closeAt && !e.gone && (!g || G.canSee(g, book, this.w, e))) || (e.joined && h < e.end)));
   }
   // 準時出槽：時間（帶小數的遊戲小時）到了的培養槽出槽。回傳出槽了幾個

@@ -413,6 +413,7 @@ $('spick').onclick = e => {
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && sortie && $('pcard').hidden) { if (sortie.pick) sortie.pick = null; else sortie = null; renderSortie(); } });
 function accPicker(o) {
   const key = o.kind + ':' + o.tile; if (!GV) return '';
+  if (o.busy) return '';   // 同一格已經接了別的委託（core.js boardView）
   if (o.clean) return `<div class="row" style="margin-top:4px"><button data-clean="${o.tile}">出車清運</button></div>`;
   if (o.ret) return `<div class="row" style="margin-top:4px"><button data-ret="${o.ret.id}">簽約</button></div>`;
   // 大戰役（Alan 2026-10-09）：不限隊數、接了之後可以一再加派、撤軍不違約
@@ -449,12 +450,12 @@ const retOpps = () => (GV?.retainer?.offers || []).map(r => ({kind: 'retainer', 
   detail: `${r.fac}・${r.seasons} 季・簽約金 $${r.plan === 'lump' ? r.fee + 'k 一次給' : Math.round(r.total / r.seasons) + 'k × ' + r.seasons + ' 季'}${r.bond ? `・履約保證金 $${r.bond}k` : ''}・季末獎金 $${r.bonus}k・剩 ${r.left} 個名額`}));
 const curOpps = (s = hist[cur]) => GM?.board ? [...GM.board, ...cleanOpps(), ...retOpps()] : s?.opps || [];
 function renderOpp() {
-  const s = hist[cur], O = curOpps(s).slice().sort((a, b) => (b.joined ? 1 : 0) - (a.joined ? 1 : 0) || b.lv - a.lv || a.kind.localeCompare(b.kind));
+  const s = hist[cur], O = curOpps(s).slice().sort((a, b) => (b.joined || b.busy ? 1 : 0) - (a.joined || a.busy ? 1 : 0) || b.lv - a.lv || a.kind.localeCompare(b.kind));
   const cnt = k => O.filter(o => (k === 'all' || o.kind === k) && o.lv >= 2).length;
   let html = `<div class="opphead"><p class="muted" style="margin:0">${GM?.board ? '星球上公開的委託：每個公開三天，截止前一天不能再接；大家接同一個委託就在同一個案件裡搶積分。' : '如果玩家此刻進場，沙盒會給出的事。'}外圈越粗越亮，程度越高（●●● 最高）。</p></div><div class="filters">` +
     [['all', '全部'], ...Object.entries(OK).map(([k, v]) => [k, v.n])].map(([k, n]) => `<button data-ok="${k}" class="${oppKind === k ? 'on' : ''}">${n} <span class="muted">${cnt(k)}</span></button>`).join('') + '</div>';
   const list = O.filter(o => oppKind === 'all' || o.kind === oppKind);
-  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}${ownWarn(o)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${o.closeAt != null ? `<span class="due">${o.joined ? `已接・${cd(o.end)}後結束` : `${cd(o.closeAt)}後截止`}${o.n ? `・${o.n} 家公司在打` : ''}</span>` : ''}${o.joined && o.kind !== 'camp' ? '' : accPicker(o)}</li>`; }).join('') + '</ol>';
+  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}${ownWarn(o)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${o.closeAt != null ? `<span class="due">${o.joined ? `已接・${cd(o.end)}後結束` : o.busy ? '這裡已經接了別的委託' : `${cd(o.closeAt)}後截止`}${o.n ? `・${o.n} 家公司在打` : ''}</span>` : ''}${o.joined && o.kind !== 'camp' ? '' : accPicker(o)}</li>`; }).join('') + '</ol>';
   $('pane-opp').html = html || '';
 }
 $('pane-opp').onclick = e => {

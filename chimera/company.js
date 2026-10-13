@@ -525,7 +525,7 @@ export function accept(G, book, w, opp, side, uids, now, _fast = false, contract
   note(G, now, `${again ? `「${c.title}」加派` : `接下「${c.title}」，派出`} ${n} 隊（${here ? '基地在現場，直接派' : '坐運兵車'}；集合點${w.names[G.base] || '這裡'}）。`);
   return null;
 }
-const kindOf = o => ({supply: 'route', outpost: 'garrison', short: 'route', route: 'route', exp: 'route', logging: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp', shadow: 'shadow', counter: 'shadow', privateer: 'privateer', drill: 'drill', hunting: 'hunting', security: 'security'})[o.kind];
+export const kindOf = o => ({supply: 'route', outpost: 'garrison', short: 'route', route: 'route', exp: 'route', logging: 'route', front: 'front', tense: 'garrison', lair: 'hunt', camp: 'camp', shadow: 'shadow', counter: 'shadow', privateer: 'privateer', drill: 'drill', hunting: 'hunting', security: 'security'})[o.kind];
 
 // ===== 派系關係（Alan 2026-10-11）=====
 // 每家公司對每個勢力一個關係值（−100～100）。一般委託做得好就上升；暗影行動曝光、替人私掠就下降。
