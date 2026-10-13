@@ -354,7 +354,7 @@ function sortieCard(u, i, j) {
   return `<div class="scard full${open ? ' gopen' : ''}">
     <div class="sart" data-smenu="${i}:${j}" title="點一下：換人、編輯裝備"><img class="sface" src="${face(c)}" alt=""><img class="sfull" src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"></div>
     ${sortie.menu?.[0] === i && sortie.menu?.[1] === j ? `<div class="smenu"><button data-slot="${i}:${j}">換人</button><button data-sgear="${u}">編輯裝備</button><button data-sinfo="${u}">看資料</button></div>` : ''}
-    <div class="sinfo"><div class="sname"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b> <span class="mini">${c.id}・${CLS[c.cls].n}・${c.lv || 1} 級</span></div>
+    <div class="sinfo"><div class="sname"><b>${c.callsign ? csq(c) : esc(who(c))}</b> <span class="mini">${c.callsign ? esc(who(c)) + ' ' : ''}${c.id}・${CLS[c.cls].n}・${c.lv || 1} 級</span></div>
     <div class="sgear">${gear}</div></div>
     <button class="sgtog" data-sg="${u}">${open ? '收起裝備 ▴' : '裝備 ▾'}</button>
     <button class="sx" data-sx="${i}:${j}" aria-label="拿掉">✕</button></div>`;
@@ -369,7 +369,7 @@ function renderSortie() {
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid) && (!sortie.custom?.avail || sortie.custom.avail(c)));   // 行動：休息中的人不列
   const groups = [...Object.entries(TAGS).map(([k, nm]) => [nm, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
   // 選人：另一張卡片疊在編成畫面上（Alan 2026-10-10）；一列一個人，照分類分組
-  const row = c => `<button class="sprow" data-sp="${c.uid}"><img src="${face(c)}" alt=""><span class="sprn"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b> <span class="mini">${c.id}</span><br><span class="mini">${CLS[c.cls].n}・${c.lv || 1} 級・記憶片段 ${cellCount(c)}${c.crown === 'gold' ? '・金冠' : c.crown === 'silver' ? '・銀冠' : ''}${(c.tags || []).length ? '・' + c.tags.map(t => TAGS[t]).join('、') : ''}</span></span></button>`;
+  const row = c => `<button class="sprow" data-sp="${c.uid}"><img src="${face(c)}" alt=""><span class="sprn"><b>${c.callsign ? csq(c) : esc(who(c))}</b> <span class="mini">${c.callsign ? esc(who(c)) + ' ' : ''}${c.id}</span><br><span class="mini">${CLS[c.cls].n}・${c.lv || 1} 級・記憶片段 ${cellCount(c)}${c.crown === 'gold' ? '・金冠' : c.crown === 'silver' ? '・銀冠' : ''}${(c.tags || []).length ? '・' + c.tags.map(t => TAGS[t]).join('、') : ''}</span></span></button>`;
   const SP = $('spick'); SP.hidden = !sortie.pick;
   if (sortie.pick) $('spbox').html = `<div class="shead"><b style="flex:1">選人：第 ${sortie.pick[0] + 1} 隊第 ${sortie.pick[1] + 1} 位</b><button data-pickx="1" aria-label="關閉">✕</button></div>${groups.map(([nm, L]) => `<div class="mini pgroup">${nm}（${L.length}）</div><div class="sprows">${L.map(row).join('')}</div>`).join('') || '<p class="muted">沒有待命的人（「不出擊」的人不會列出）</p>'}`;
   const picker = '';
