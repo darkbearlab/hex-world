@@ -86,7 +86,10 @@ export class SquadGame extends MissionGame{
   // 行動：局內的強化（只在這次行動有效，永久的效果每一點重新套）、帶過來的生命與護甲板
   if(c.run){m.chimeraPicks=[...(c.run.picks||[])];
    for(const id of m.chimeraPicks){const o=perkDef(this,PERKS.find(x=>x.id===id));if(!o)continue;PERMANENT[o.effect]?.(m,o);m.perks[o.id]=(m.perks[o.id]||0)+1;}
-   if(c.run.hp!=null)m.hp=Math.max(1,Math.min(m.maxHp,c.run.hp));if(c.run.plates!=null)m.plates=Math.max(0,c.run.plates);}
+   if(c.run.hp!=null)m.hp=Math.max(1,Math.min(m.maxHp,c.run.hp));if(c.run.plates!=null)m.plates=Math.max(0,c.run.plates);
+   // 「每一點多帶」（戰地補給、急救訓練、資源回收）：進場時給，打完寫回裝備時先扣掉（不會變成倉庫裡的東西）
+   const n=id=>m.chimeraPicks.filter(x=>x===id).length,bonus={meds:2*n('med')+n('medic'),grenades:2*n('med')};
+   const B=m.chimeraBonusKits||={};for(const [k,v] of Object.entries(bonus))if(v){m[k]=(m[k]||0)+v;B[k]=(B[k]||0)+v;}if(n('scavenger'))m.scrap=(m.scrap||0)+15*n('scavenger');}
   m.skills=(c.skills||[]).filter(id=>SKILLS[id]);if(m.chimeraTal.includes('sol_supp')&&!m.skills.includes('suppressive_fire'))m.skills.push('suppressive_fire');m.skillState=initialSkillState(m.skills);
   m.prepared={...m.prepared,skill:m.skills.includes(c.prep)?c.prep:m.skills[0]||null};
   if(!m.skills.includes('workshop'))m.productionLines=[];
@@ -118,7 +121,7 @@ export class SquadGame extends MissionGame{
   const L=this.chimeraLegacySlots||new Map(),ms=m.owned.find(s=>w(s)?.melee&&!innate(s));
   return {guns:m.owned.filter(s=>w(s)&&!w(s).melee).slice(0,3).map(s=>({base:w(s).id,affix:m.affixes[s]||null,...(L.get(s)?{legacy:L.get(s)}:{})})),meleeLegacy:ms!=null&&L.get(ms)||null,
    melee:(m.owned.find(s=>w(s)?.melee&&!innate(s))!=null?w(m.owned.find(s=>w(s)?.melee&&!innate(s))).id:null),
-   kits:{meds:m.meds||0,grenades:m.grenades||0,smoke:m.smoke||0,stun:m.stun||0,emp:m.emp||0},
+   kits:Object.fromEntries(['meds','grenades','smoke','stun','emp'].map(k=>[k,Math.max(0,(m[k]||0)-(m.chimeraBonusKits?.[k]||0))])),   // 性格技能、行動多給的先用掉（不會變成倉庫裡的東西）
    ammoUsed:m.chimeraAmmo0?Object.fromEntries(Object.entries(this.ammoTotals(m)).map(([k,v])=>[k,Math.max(0,(m.chimeraAmmo0[k]||0)-v)])):{}};   // 補滿要多少（Alan 2026-10-09：算補滿的費用；撿到的補回來就不用錢）
  }
  // 到了 SKILL_LEVEL 級學會職業技能（升級當下也會檢查，見 settleLevels）

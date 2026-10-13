@@ -7,20 +7,57 @@
 // - 打完（成功或失敗）參加的人要休息 REST_H 小時（疲勞先綁角色，AP 還是角色疲勞待 Alan 決定）。
 import * as C from './cases.js';
 export const REST_H = 12;
-// 試玩路線圖（Alan 2026-10-13：先做骨架，沒有故事）。layer 1～5，next 是接得上的點；type 對上現有的戰鬥類型，rest 是休整
+// 試玩路線圖（Alan 2026-10-13：先做骨架，沒有故事）。layer 1～5，next 是接得上的點；type 對上現有的戰鬥類型，rest 是休整；x、y 是在區域地圖上的位置（0～1）
 export const OPS = {
   trial: {title: '試玩行動：鏽牙礦場', text: '礦主「鏽牙」帶著一夥掠奪者佔了北邊的舊礦場。從外圍一路打進去，拿下他的堡壘。', side: 'warlord', cost: {food: 40, water: 40}, cash: 60, nodes: [
-    {id: 'a', layer: 1, type: 'clear', kind: '突破', name: '外圍營地', text: '木柵圍起來的營地，清掉裡面的人。', next: ['c', 'd']},
-    {id: 'b', layer: 1, type: 'pursuit', kind: '潛入', name: '油料庫', text: '油料庫已經點著了，追兵從後面追上來：跑到另一頭的撤離點。', next: ['d', 'e']},
-    {id: 'c', layer: 2, type: 'hold', kind: '守住', name: '斷橋', text: '守住橋頭，撐到援軍被打退。', next: ['f']},
-    {id: 'd', layer: 2, type: 'rest', kind: '休整', name: '廢棄加油站', text: '喘口氣：每人回復一半的生命、補滿護甲板。', next: ['f', 'g']},
-    {id: 'e', layer: 2, type: 'ambush', kind: '車隊', name: '礦車道', text: '搭上運礦車往裡面衝，路上會被追上來。', next: ['g']},
-    {id: 'f', layer: 3, type: 'assault', kind: '突破', name: '礦場大門', text: '正面打下大門的陣地。', next: ['h', 'i']},
-    {id: 'g', layer: 3, type: 'facility', kind: '室內', name: '礦坑', text: '從坑道繞進去，裡面又窄又暗。', next: ['h', 'i']},
-    {id: 'h', layer: 4, type: 'rest', kind: '休整', name: '工寮', text: '最後一次休整：每人回復一半的生命、補滿護甲板。', next: ['j']},
-    {id: 'i', layer: 4, type: 'probe', kind: '精英', name: '親衛巡邏隊', text: '鏽牙的親衛在礦場裡巡邏，人多、裝備好。', next: ['j'], elite: true},
-    {id: 'j', layer: 5, type: 'clear', kind: '王點', name: '鏽牙的堡壘', text: '礦主本人和他最後的手下。', next: [], boss: {ash: 'delisted_soldier', name: '礦主「鏽牙」', hp: 3}}]},
+    {id: 'a', x: .1, y: .34, layer: 1, type: 'clear', kind: '突破', name: '外圍營地', text: '木柵圍起來的營地，清掉裡面的人。', next: ['c', 'd']},
+    {id: 'b', x: .12, y: .72, layer: 1, type: 'pursuit', kind: '潛入', name: '油料庫', text: '油料庫已經點著了，追兵從後面追上來：跑到另一頭的撤離點。', next: ['d', 'e']},
+    {id: 'c', x: .32, y: .2, layer: 2, type: 'hold', kind: '守住', name: '斷橋', text: '守住橋頭，撐到援軍被打退。', next: ['f']},
+    {id: 'd', x: .33, y: .5, layer: 2, type: 'rest', kind: '休整', name: '廢棄加油站', text: '喘口氣：每人回復一半的生命、補滿護甲板。', next: ['f', 'g']},
+    {id: 'e', x: .3, y: .82, layer: 2, type: 'ambush', kind: '車隊', name: '礦車道', text: '搭上運礦車往裡面衝，路上會被追上來。', next: ['g']},
+    {id: 'f', x: .54, y: .3, layer: 3, type: 'assault', kind: '突破', name: '礦場大門', text: '正面打下大門的陣地。', next: ['h', 'i']},
+    {id: 'g', x: .55, y: .7, layer: 3, type: 'facility', kind: '室內', name: '礦坑', text: '從坑道繞進去，裡面又窄又暗。', next: ['h', 'i']},
+    {id: 'h', x: .75, y: .22, layer: 4, type: 'rest', kind: '休整', name: '工寮', text: '最後一次休整：每人回復一半的生命、補滿護甲板。', next: ['j']},
+    {id: 'i', x: .77, y: .6, layer: 4, type: 'probe', kind: '精英', name: '親衛巡邏隊', text: '鏽牙的親衛在礦場裡巡邏，人多、裝備好。', next: ['j'], elite: true},
+    {id: 'j', x: .92, y: .42, layer: 5, type: 'clear', kind: '王點', name: '鏽牙的堡壘', text: '礦主本人和他最後的手下。', next: [], boss: {ash: 'delisted_soldier', name: '礦主「鏽牙」', hp: 3}}]},
 };
+// 局內的三選一（Alan 2026-10-14：在路線圖上選，不在戰鬥開場）：ASH 原本的強化（id 照 ASH，戰場上照 ASH 的規則生效）。
+// 一次性的效果（回生命、加護甲板）在選的當下算進帶到下一點的狀態；「每一點多帶」的預備品、廢料是每一場進場時給（打完不會變成倉庫的東西）。
+const P = (id, n, text, o = {}) => ({id, n, text, cap: 3, ...o});
+export const RUN_PERKS = [
+  P('health', '生存本能', '最大生命 +20，立刻回 30。'), P('med', '戰地補給', '這次行動每一點多帶 2 個醫療包、2 顆手榴彈。', {cap: null}), P('blast', '爆破專家', '破片手榴彈與爆炸武器傷害 +12。'),
+  P('medic', '急救訓練', '醫療包多回 20；這次行動每一點多帶 1 個醫療包。'), P('hazmat', '密封防護', '環境傷害 −5、中毒每回合 −1；第 3 階免疫。'), P('melee', '格鬥訓練', '近戰命中、近戰迴避 +8。'),
+  P('plating', '裝甲回收', '敵人更常掉護甲板；立刻 +10 護甲板。'), P('steady', '沉著', '等待之後下一發的命中加成 +8。'), P('skirmish', '游擊', '你移動之後，敵人打你的移動懲罰再 +6。'),
+  P('plate_rack', '加掛板架', '護甲板上限 +10，立刻 +10。'), P('ammo_recovery', '彈藥回收', '敵人掉彈藥的機率 +15%。'), P('scavenger', '資源回收', '這次行動每一點多 15 廢料。', {cls: 'engineer'}),
+  P('soldier_overwatch', '廣域預警', '預警半徑 +2、冷卻 −1。', {cls: 'soldier'}), P('soldier_marked', '標定弱化', '標定多 1 回合；被標定的敵人打你命中 −6。', {cls: 'soldier'}), P('soldier_hunter', '標定壓制', '標定多 1 回合；你打被標定的目標傷害 +10%。', {cls: 'soldier'}),
+  P('recon_unseen', '隱蔽射手', '目標看不到你時，傷害 +12%。', {cls: 'recon'}), P('recon_blackout', '斷層延長', '訊號斷層持續 +1、冷卻 −1。', {cls: 'recon'}), P('recon_sidestep', '側身精通', '側身時敵人命中再 −6。', {cls: 'recon'}),
+  P('bulwark_plating', '板甲護持', '還有護甲板時，受到的傷害再 −8%。', {cls: 'bulwark'}), P('bulwark_recovery', '板材回收', '敵人更常掉護甲板、每份 +5。', {cls: 'bulwark'}), P('bulwark_anchor', '下錨強化', '下錨時受到的傷害 −10%。', {cls: 'bulwark'}),
+  P('berserker_fury', '狂怒堆疊', '戰意上限 +1 層。', {cls: 'berserker'}), P('berserker_endure', '血怒不退', '戰意晚 2 回合才開始掉。', {cls: 'berserker'}), P('berserker_thirst', '嗜血狂歡', '近戰吸血 +8%。', {cls: 'berserker'}),
+  P('engineer_frame', '機體強化', '機體生命 +20、裝甲 +1。', {cls: 'engineer'}), P('engineer_firecontrol', '火控校準', '機體命中 +8、傷害 +3。', {cls: 'engineer'}), P('engineer_lines', '生產序列', '工坊多一條生產線。', {cls: 'engineer'}), P('engineer_deploy', '部署上限', '同時部署的機體 +1 台。', {cls: 'engineer'})];
+const perkOf = id => RUN_PERKS.find(p => p.id === id);
+// 抽三個（照 ASH 的抽法：三成先抽一個已經有的、五成放一個職業的，其餘從全部平均抽）
+function draft(op, c) {
+  const have = op.picks[c.uid] || [], n = id => have.filter(x => x === id).length, r = lcg((op.seed ^ c.uid * 2654435761 ^ (have.length + 1) * 40503) >>> 0);
+  const pool = RUN_PERKS.filter(p => (!p.cls || p.cls === c.cls) && (p.cap == null || n(p.id) < p.cap)), out = [];
+  const take = L => { const a = L.filter(p => !out.includes(p.id)); if (a.length) out.push(a[Math.floor(r() * a.length)].id); };
+  if (r() < .3) take(pool.filter(p => n(p.id) > 0 && p.cap != null));
+  if (r() < .5) take(pool.filter(p => p.cls));
+  for (let i = 0; i < 9 && out.length < 3; i++) take(pool);
+  return out;
+}
+const pendingOf = (op, c) => Math.max(0, wonFights(op) - (op.picks[c.uid] || []).length);
+// 在路線圖上選一個
+export function pick(G, h, uid, id) {
+  const op = G.op; if (!op) return '沒有進行中的行動'; if (op.fight) return '先把這一點打完';
+  const c = G.roster.find(x => x.uid === uid); if (!c || !op.uids.includes(uid) || !c.alive) return '這個人不在這次行動裡';
+  if (!pendingOf(op, c)) return '現在沒有可以選的';
+  if (!draft(op, c).includes(id)) return '沒有這個選項';   // 抽到的三個照種子固定，不用存
+  (op.picks[uid] ||= []).push(id);
+  const k = op.carry[uid] ||= {};
+  if (id === 'health') { if (k.hp != null) k.hp += 30; if (k.maxHp) k.maxHp += 20; }
+  if ((id === 'plating' || id === 'plate_rack') && k.plates != null) k.plates += 10;
+  return null;
+}
 const nodeOf = (op, id) => OPS[op.def]?.nodes.find(n => n.id === id);
 // 現在能選的點：還沒走第一步就是第 1 層，不然是上一點的 next
 export function nextNodes(op) { const D = OPS[op.def]; if (!D) return []; if (!op.at) return D.nodes.filter(n => n.layer === 1); return (nodeOf(op, op.at)?.next || []).map(id => nodeOf(op, id)).filter(Boolean); }
@@ -67,7 +104,7 @@ export function battle(G, w) {
 export function runOf(G, c) {
   const op = G.op; if (!op) return null; const k = op.carry[c.uid] || {};
   const picks = op.picks[c.uid] || [];
-  return {picks, pending: Math.max(0, wonFights(op) - picks.length), hp: k.hp ?? null, plates: k.plates ?? null};
+  return {picks, pending: 0, hp: k.hp ?? null, plates: k.plates ?? null};   // 三選一在路線圖上選（pick），戰場上不再跳
 }
 // 一點打完
 export function settle(G, book, w, h, ticket, res) {
@@ -115,5 +152,7 @@ export function leave(G, book, h) { const op = G.op; if (!op) return '沒有進�
 export function view(G, h) {
   const op = G.op, defs = Object.entries(OPS).map(([id, D]) => ({id, title: D.title, text: D.text, cost: D.cost, cash: D.cash, nodes: D.nodes.map(({boss, ...n}) => ({...n, boss: !!boss}))}));
   return {defs, rest: REST_H, log: (G.opLog || []).slice(-5).reverse(),
-    cur: op ? {def: op.def, at: op.at, done: op.done, uids: op.uids, next: nextNodes(op).map(n => n.id), fight: op.fight, cells: op.cells, carry: op.carry, picks: op.picks, resupply: resupplyCost(op)} : null};
+    cur: op ? {def: op.def, at: op.at, done: op.done, uids: op.uids, next: nextNodes(op).map(n => n.id), fight: op.fight, cells: op.cells, carry: op.carry, picks: op.picks, resupply: resupplyCost(op),
+      drafts: Object.fromEntries(op.uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c?.alive && pendingOf(op, c)).map(c => [c.uid, {left: pendingOf(op, c), ids: draft(op, c)}]))} : null,
+    perks: Object.fromEntries(RUN_PERKS.map(p => [p.id, {n: p.n, text: p.text}]))};
 }

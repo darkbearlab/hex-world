@@ -17,23 +17,28 @@ for (const c of home) { c.lv = 5; }   // 有一點等級（2 級學會職業技�
 ok(cmd({type: 'opStart', def: 'trial', uids: home.map(c => c.uid)}) === null, '出發');
 ok(home.every(c => c.status === 'op') && co.mats.food === 160, `行動中、付了素材（熱量 ${co.mats.food}）`);
 ok(cmd({type: 'opStart', def: 'trial', uids: home.map(c => c.uid)}) === '已經有一個行動在進行中', '不能同時開兩個');
-let step = 0, fights = 0, prevPicks = 0;
+let step = 0, fights = 0, prevPicks = 0, restLast = false;
 while (co.op && step < 10) {
   const op = co.op, nx = nextNodes(op), n = nx[Math.min(route[step] ?? 0, nx.length - 1)]; step++;
+  // 局內的三選一在路線圖上選（Alan 2026-10-14）：每打贏一點每人一次
+  const V = a.view('測試公司').data.ops.cur, DR = Object.entries(V.drafts || {});
+  if (fights && !restLast) ok(DR.length === op.uids.filter(u => co.roster.find(c => c.uid === u)?.alive).length && DR.every(([, d]) => d.ids.length === 3), `${n.name} 之前：路線圖上每人三選一（${DR.map(([, d]) => d.ids.join('/')).join('、')}）`);
+  for (const [u, d] of DR) { const hp0 = op.carry[u]?.hp; ok(cmd({type: 'opPick', uid: +u, id: d.ids[0]}) === null, `選 ${d.ids[0]}`); if (d.ids[0] === 'health' && hp0 != null) ok(op.carry[u].hp === hp0 + 30, '生存本能立刻回 30'); }
+  if (DR.length) ok(cmd({type: 'opPick', uid: +DR[0][0], id: 'health'}) !== null, '選過了不能再選');
   out.length = 0; const err = cmd({type: 'opGo', node: n.id});
   if (err) { ok(false, `選 ${n.name}：${err}`); break; }
-  if (n.type === 'rest') { ok(co.op?.at === n.id, `休整：${n.name}`); continue; }
+  restLast = n.type === 'rest'; if (restLast) { ok(co.op?.at === n.id, `休整：${n.name}`); continue; }
   const m = out.find(x => x.type === 'mission'); if (!m) { ok(false, `${n.name} 沒有開戰`); break; }
   const d = m.data, run = d.squad.map(s => s.run);
-  if (fights) ok(run.every(r => r && r.pending >= 1), `${n.name}：每人有待選的局內強化（${run.map(r => r?.pending).join('/')}）`);
+  if (fights) ok(run.every(r => r && r.pending === 0 && r.picks.length >= 1), `${n.name}：帶著選好的局內強化進場、戰場上不再跳（${run.map(r => r?.picks.join('+')).join('/')}）`);
   if (fights) ok(run.some(r => r?.hp != null), `${n.name}：帶著上一點的生命（${run.map(r => r?.hp).join('/')}）`);
   const g = new SquadGame(d), {botFor} = installFullSquad(g, {onError: e => console.log('  bot', String(e).slice(0, 200))});
-  if (fights) { ok(g.pendingPerks >= 1 && g.perkChoices.length === 3, `${n.name}：開場跳出三選一（${g.perkChoices.map(o => o.name).join('、')}）`); }
+  if (fights) { ok(!g.pendingPerks && !g.perkChoices.length, `${n.name}：開場沒有三選一`); const mm = g.members.find(m => m.chimeraPicks.includes('med')); if (mm) ok(mm.chimeraBonusKits?.meds >= 2, '戰地補給：這一點多帶醫療包'); }
   let k = 0; while (g.status === 'playing' && k++ < 8000) botFor(g.player).step();
   const res = g.missionResult; fights++;
   const P = Object.values(res.progress), picks = P.reduce((x, p) => x + (p.picks?.length || 0), 0) / Math.max(1, P.length);   // 每人平均
   console.log(`  ${d.title}：${g.status}，${g.turn} 回合，敵人 ${res.kills}/${res.total}，倒下 ${res.dead.length}，局內強化共 ${picks}`);
-  if (fights > 1 && res.win) ok(picks > prevPicks, `局內強化有選（${prevPicks}→${picks}）`); prevPicks = picks;
+  prevPicks = picks;
   out.length = 0; const e2 = cmd({type: 'submit', ticket: d.id, result: res});
   ok(!e2, `交戰果${e2 ? '：' + e2 : ''}`);
   ok(cmd({type: 'submit', ticket: d.id, result: res}) !== null, '同一場不能交兩次');

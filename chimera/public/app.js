@@ -495,6 +495,8 @@ let ART = new Set();
 fetch('asset-manifest.json', {cache: 'no-cache'}).then(r => r.ok ? r.json() : null).then(d => { if (!d) return; ART = new Set(d.items.map(x => x.path)); if (GV) { try { renderPage(); renderRoster(); } catch {} } }).catch(() => {});
 const donorKey = c => c.donor ?? c.portrait;
 const face = c => ART.has(`donors/${donorKey(c)}/portrait.png`) ? `donors/${donorKey(c)}/portrait.png` : img(c.portrait);
+// 主選單的站姿立繪：去背的 stand.png（chimera/scripts/stand-cutout.py），沒有就用一般的立繪
+const standArt = c => ART.has(`donors/${donorKey(c)}/stand.png`) ? `donors/${donorKey(c)}/stand.png` : fullArt(c);
 const fullArt = c => ART.has(`donors/${donorKey(c)}/full.png`) ? `donors/${donorKey(c)}/full.png` : `art/full/${c.portrait}.png`;
 const who = c => c.name || CLS[c.cls].n;   // 原主的名字（Alan 2026-10-10）；舊資料沒有就顯示職業
 // 綽號（call sign，Alan 2026-10-10）：有綽號就優先顯示。完整：瑟琳 “人獵人” X-0910；簡短：瑟琳 “人獵人”；最短：“人獵人”
@@ -567,20 +569,27 @@ function renderOps() {
       <div class="oppick">${can.map(c => { const rest = (c.restUntil || 0) > h; return `<button class="${opSel.has(c.uid) ? 'on' : ''}" data-oppick="${c.uid}"${rest ? ` disabled title="休息中"` : ''}>${esc(who(c))} ${c.id}・${CLS[c.cls].n} ${c.lv || 1} 級${rest ? `（休息 ${Math.ceil(c.restUntil - h)} 小時）` : ''}</button>`; }).join('') || '<span class="mini muted">基地裡沒有待命的人。</span>'}</div>
       <div class="row"><button class="primary" data-opstart="1"${opSel.size < 1 || opSel.size > 4 || Object.entries(D.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled' : ''}>出發（${opSel.size} 人，最多 4 人）</button></div>`;
   } else {
-    const L = Math.max(...D.nodes.map(n => n.layer)), next = new Set(cur.next), fightNode = cur.fight?.node;
-    html += `<div class="oproute">${Array.from({length: L}, (_, i) => `<div class="oplayer">${D.nodes.filter(n => n.layer === i + 1).map(n => {
+    const next = new Set(cur.next), fightNode = cur.fight?.node, byId = Object.fromEntries(D.nodes.map(n => [n.id, n]));
+    const legs = D.nodes.flatMap(n => n.next.map(t => [n, byId[t]])).filter(([, t]) => t);
+    html += `<div class="opmap" data-def="${D.id}"><canvas id="opcv"></canvas><svg class="oplegs" viewBox="0 0 100 100" preserveAspectRatio="none">${legs.map(([f, t]) => { const walked = cur.done.includes(f.id) && (cur.done.includes(t.id) || fightNode === t.id), live = (cur.at === f.id || !cur.at && f.layer === 1 && false) && next.has(t.id);
+      return `<line x1="${f.x * 100}" y1="${f.y * 100}" x2="${t.x * 100}" y2="${t.y * 100}" class="${walked ? 'walked' : cur.at === f.id ? 'live' : ''}"/>`; }).join('')}</svg>${D.nodes.map(n => {
       const done = cur.done.includes(n.id), here = cur.at === n.id, open = next.has(n.id) && !cur.fight, fighting = fightNode === n.id;
       const cls = done ? 'done' : fighting ? 'fight' : open ? 'open' : 'lock';
-      return `<button class="opnode ${cls}${n.boss ? ' boss' : ''}${here ? ' here' : ''}"${open ? ` data-opgo="${n.id}"` : fighting ? ` data-opfight="${esc(cur.fight.ticket)}"` : ' disabled'}><b>${esc(n.kind)}</b><span>${esc(n.name)}</span><i>${done ? '✓ 打下' : fighting ? '▶ 繼續打' : open ? '前往' : ''}</i><em>${esc(n.text)}</em></button>`;
-    }).join('')}</div>`).join('')}</div>
-      <div class="mini">隊伍：${cur.uids.map(u => { const c = who2(u), k = cur.carry[u]; return c ? `${esc(who(c))} ${c.id}${!c.alive ? '（倒下）' : k?.hp != null ? `（生命 ${k.hp}${k.maxHp ? '／' + k.maxHp : ''}・局內強化 ${(cur.picks[u] || []).length}）` : ''}` : ''; }).join('、')}・這次已拿記憶片段 ${cur.cells}</div>
+      return `<button class="opnode ${cls}${n.boss ? ' boss' : ''}${here ? ' here' : ''} t-${n.type}" style="left:${n.x * 100}%;top:${n.y * 100}%"${open ? ` data-opgo="${n.id}"` : fighting ? ` data-opfight="${esc(cur.fight.ticket)}"` : ' disabled'} title="${esc(n.text)}"><i class="dot">${n.boss ? '★' : n.type === 'rest' ? '✚' : done ? '✓' : '●'}</i><b>${esc(n.kind)}</b><span>${esc(n.name)}</span>${open ? '<em>前往</em>' : fighting ? '<em>繼續打</em>' : ''}</button>`;
+    }).join('')}<div class="opmapname">作戰區域　${esc(D.title.replace(/^試玩行動：/, ''))}</div></div>`;
+    // 局內的三選一（Alan 2026-10-14：在路線圖上選）：每打贏一點，每人多一次
+    const DR = Object.entries(cur.drafts || {});
+    if (DR.length) html += `<div class="opdraft"><h4 class="sec2">局內強化 <span class="muted">每打贏一點每人選一個，只在這次行動有效</span></h4>${DR.map(([u, d]) => { const c = who2(+u); return `<div class="row draftrow"><span class="mini who">${c ? `${esc(who(c))} ${c.id}・${CLS[c.cls].n}` : u}${d.left > 1 ? `（還有 ${d.left} 次）` : ''}</span>${d.ids.map(id => `<button class="perk" data-oppk="${u}" data-id="${id}"><b>${esc(O.perks[id]?.n || id)}</b><span>${esc(O.perks[id]?.text || '')}</span></button>`).join('')}</div>`; }).join('')}</div>`;
+    html += `      <div class="mini">隊伍：${cur.uids.map(u => { const c = who2(u), k = cur.carry[u]; return c ? `${esc(who(c))} ${c.id}${!c.alive ? '（倒下）' : k?.hp != null ? `（生命 ${k.hp}${k.maxHp ? '／' + k.maxHp : ''}・局內強化 ${(cur.picks[u] || []).length}）` : ''}` : ''; }).join('、')}・這次已拿記憶片段 ${cur.cells}</div>
       <div class="row">${cur.fight ? `<button class="primary" data-opfight="${esc(cur.fight.ticket)}">繼續這一場</button>` : `<button data-opresupply="1"${GV.cash < cur.resupply.cash || GV.mats.implant < cur.resupply.implant || GV.mats.neural < cur.resupply.neural ? ' disabled' : ''} title="全隊補滿生命和護甲板；同一次行動每用一次價錢加倍">整補（$${cur.resupply.cash}k・${MN.implant} ${cur.resupply.implant}・${MN.neural} ${cur.resupply.neural}）</button>`}<button data-opleave="1"${cur.fight ? ' disabled title="先把這一點打完（戰鬥裡可以撤出）"' : ''}>撤回基地（行動結束）</button></div>`;
   }
   if (O.log.length) html += `<div class="mini muted" style="margin-top:6px">最近：${O.log.map(x => `第 ${Math.floor(x.h / 24) + 1} 天 ${x.ok ? '成功' : '結束'}（${x.nodes} 點・記憶片段 ${x.cells}）`).join('；')}</div>`;
   el.html = html;
+  const mp = el.querySelector('.opmap'); if (mp) drawOpMap(mp);
 }
 function opClick(e) {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
+  if (b.dataset.oppk) { send({type: 'opPick', uid: +b.dataset.oppk, id: b.dataset.id}); return; }
   if (b.dataset.oppick) { const u = +b.dataset.oppick; if (opSel.has(u)) opSel.delete(u); else if (opSel.size < 4) opSel.add(u); renderOps(); return; }
   if (b.dataset.opstart) { send({type: 'opStart', def: 'trial', uids: [...opSel]}); opSel = new Set(); return; }
   if (b.dataset.opgo) { const D = GV.ops.defs.find(d => d.id === GV.ops.cur.def), n = D.nodes.find(x => x.id === b.dataset.opgo); send({type: 'opGo', node: n.id}); if (n.type !== 'rest') showMissionLoading(); return; }
@@ -588,6 +597,44 @@ function opClick(e) {
   if (b.dataset.opresupply) { const c = GV.ops.cur.resupply; if (confirm(`花 $${c.cash}k、${MN.implant} ${c.implant}、${MN.neural} ${c.neural} 整補？\n全隊補滿生命和護甲板。這次行動下一次整補的價錢加倍。`)) send({type: 'opResupply'}); return; }
   if (b.dataset.opleave && confirm('撤回基地？這次行動就結束了（已經拿到的記憶片段不會收回）。')) send({type: 'opLeave'});
 }
+// 區域地圖（Alan 2026-10-14：路線圖套在一張像真的區域地圖上）：照行動的 id 產生地形——起伏的等高線、一條河、格線與座標、指北、比例尺。
+// 地形算一次存起來（同一個行動、同一個大小），每次只重畫上面的東西
+const opTerrain = new Map();
+function drawOpMap(box) {
+  const cv = box.querySelector('canvas'), W = box.clientWidth, H = box.clientHeight; if (!cv || !W || !H) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1); cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const key = box.dataset.def + ':' + W + 'x' + H; let T = opTerrain.get(key);
+  if (!T) {
+    let seed = 7; for (const ch of box.dataset.def) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+    const hash = (x, y) => { let h = (x * 374761393 + y * 668265263 + seed * 2246822519) >>> 0; h = Math.imul(h ^ h >>> 13, 1274126177) >>> 0; return ((h ^ h >>> 16) >>> 0) / 4294967296; };
+    const sm = t => t * t * (3 - 2 * t), vn = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), xf = sm(x - xi), yf = sm(y - yi), a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1); return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf; };
+    const fbm = (x, y) => { let v = 0, a = .5, f = 1; for (let i = 0; i < 5; i++) { v += a * vn(x * f, y * f); a /= 2; f *= 2; } return v; };
+    const w = Math.ceil(W / 2), h = Math.ceil(H / 2), E = new Float32Array(w * h);
+    // 河：從左上往右下彎過去（在它附近把地勢壓低）
+    const river = t => ({x: t, y: .18 + .55 * t + .12 * Math.sin(t * 7 + seed % 5)});
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const u = x / w, v = y / h; let e = fbm(u * 4.2, v * 4.2 * H / W) * .9 + .25 * (1 - v) * u;
+      const r = river(u); e -= .35 * Math.exp(-((v - r.y) ** 2) / .004); E[y * w + x] = e; }
+    const img = new ImageData(w, h), band = e => Math.floor(e * 14);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const e = E[y * w + x], i = (y * w + x) * 4, wet = e < .22;
+      const k = Math.max(0, Math.min(1, (e - .2) / .7)); let r = 40 + 52 * k, g = 38 + 42 * k, bl = 30 + 26 * k;
+      if (wet) { r = 34; g = 52; bl = 60; }
+      const edge = x + 1 < w && band(E[y * w + x + 1]) !== band(e) || y + 1 < h && band(E[(y + 1) * w + x]) !== band(e);
+      if (edge && !wet) { r += 26; g += 22; bl += 14; }
+      const n = hash(x, y) * 10 - 5; img.data[i] = r + n; img.data[i + 1] = g + n; img.data[i + 2] = bl + n; img.data[i + 3] = 255; }
+    T = document.createElement('canvas'); T.width = w; T.height = h; T.getContext('2d').putImageData(img, 0, 0); opTerrain.set(key, T); if (opTerrain.size > 8) opTerrain.delete(opTerrain.keys().next().value);
+  }
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.imageSmoothingEnabled = true; g.drawImage(T, 0, 0, W, H);
+  // 格線與座標
+  g.strokeStyle = 'rgba(230,194,129,.10)'; g.lineWidth = 1; g.fillStyle = 'rgba(230,194,129,.45)'; g.font = '10px monospace';
+  for (let i = 1; i < 10; i++) { const x = W * i / 10; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, H); g.stroke(); g.fillText(String.fromCharCode(64 + i), x + 3, 11); }
+  for (let j = 1; j < 6; j++) { const y = H * j / 6; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); g.fillText(String(j), 3, y - 3); }
+  // 指北、比例尺
+  const cx = W - 26, cy = 30; g.fillStyle = 'rgba(230,194,129,.7)'; g.beginPath(); g.moveTo(cx, cy - 14); g.lineTo(cx + 6, cy + 6); g.lineTo(cx, cy + 2); g.lineTo(cx - 6, cy + 6); g.closePath(); g.fill(); g.fillText('N', cx - 3, cy + 18);
+  g.fillRect(W - 110, H - 16, 40, 3); g.fillStyle = 'rgba(230,194,129,.3)'; g.fillRect(W - 70, H - 16, 40, 3); g.fillStyle = 'rgba(230,194,129,.6)'; g.fillText('0　　1　　2 km', W - 112, H - 22);
+  // 外框
+  g.strokeStyle = 'rgba(230,194,129,.35)'; g.strokeRect(.5, .5, W - 1, H - 1);
+}
+addEventListener('resize', () => { const mp = document.querySelector('#ops-box .opmap'); if (mp) drawOpMap(mp); });
 function renderOpsPage() {
   const P = $('pane-ops'); if (!P) return; if (!GV) { P.innerHTML = '<p class="muted">開了公司之後才有行動。</p>'; return; }
   if (!$('ops-box')) { P.innerHTML = '<div class="box" id="ops-box"></div>'; $('ops-box').onclick = opClick; }
@@ -595,20 +642,33 @@ function renderOpsPage() {
 }
 // ===== 主選單（Alan 2026-10-14）：最左邊一頁。左邊是封面角色（從名冊挑，記在伺服器），右邊是各個入口 =====
 let coverPick = false;
+// 封面角色的一句話（照時間換）；之後可以換成原主自己的台詞
+const HOME_LINES = [['深夜了。指揮官也該睡一下吧？', 0, 5], ['早。今天的委託板我看過了。', 5, 11], ['午安。外面的風沙又變大了。', 11, 17], ['晚上好。槍我都擦過了。', 17, 24]];
 function renderHome() {
   const P = $('pane-home'); if (!P) return; if (!GV) { P.innerHTML = ''; return; }
   const R = GV.roster, c = R.find(x => x.uid === GV.cover) || R.find(x => x.alive) || R[0], O = GV.ops?.cur, D = O && GV.ops.defs.find(d => d.id === O.def);
-  const opLine = O ? `進行中：${esc(D.title)}・打下 ${O.done.length} 點${O.fight ? '・有一場還沒打完' : ''}` : '一張路線圖，每一點一場，最後是王點';
-  P.innerHTML = `<div class="home">
-    <div class="cover${c && !ART.has(`donors/${donorKey(c)}/full.png`) ? '' : ''}">${c ? `<img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"><span class="cap">${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}・${CLS[c.cls].n} ${c.lv || 1} 級</span>` : ''}
-      <button class="pickc" data-hcover="1">換封面</button>
-      ${coverPick ? `<div class="roster-pick">${R.filter(x => x.status !== 'sold').map(x => `<button data-hpick="${x.uid}"${x === c ? ' class="on"' : ''}>${esc(who(x))} ${x.id}</button>`).join('')}</div>` : ''}</div>
-    <div class="menu"><h2>PROJECT: CHIMERA</h2><p class="co">${esc(GV.name)}・基地 ${esc(GV.hq?.place || GV.baseName)}・$${GV.cash}k</p>
-      <button class="entry big" data-goto="ops">行動<span>${opLine}</span></button>
-      <button class="entry" data-goto="co">任務管制<span>待打的服務單 ${GV.tickets.length}・進行中的案件 ${GV.cases.filter(x => !x.settled).length}</span></button>
-      <div class="grid2"><button class="entry" data-goto="map">戰略地圖<span>沙盒的星球、委託</span></button><button class="entry" data-goto="vat">培養槽<span>造人、重新培養</span></button>
-        <button class="entry" data-goto="store">倉庫<span>裝備、預備品</span></button><button class="entry" data-goto="rover">基地<span>移動基地、運兵車</span></button>
-        <button class="entry" data-goto="trade">交易<span>素材、採購</span></button><button class="entry" data-goto="rep">報表<span>收支、結算報告</span></button></div></div></div>`;
+  const opLine = O ? `進行中・打下 ${O.done.length} 點${O.fight ? '・有一場沒打完' : ''}${Object.keys(O.drafts || {}).length ? '・有強化沒選' : ''}` : '路線圖・王點';
+  const hr = new Date().getHours(), line = (HOME_LINES.find(([, a, b]) => hr >= a && hr < b) || HOME_LINES[1])[0];
+  const news = (GM.inbox || [])[0];
+  P.innerHTML = `<div class="home2">
+    <div class="hbg"><span>CHIMERA</span></div>
+    ${c ? `<img class="hchar" src="${standArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.classList.add('px')">` : ''}
+    <div class="htop"><b>${esc(GV.name)}</b><span>基地 ${esc(GV.hq?.place || GV.baseName)}</span><span>$${GV.cash}k</span>${MATS.map(m => `<span>${MN[m]} ${GV.mats[m]}</span>`).join('')}</div>
+    ${c ? `<div class="hsay"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b><span>${esc(line)}</span></div>
+    <div class="hname"><b>${esc(who(c))}</b><span>${CLS[c.cls].n}・${c.lv || 1} 級</span><button data-hcover="1">換封面</button></div>` : ''}
+    ${coverPick ? `<div class="roster-pick">${R.filter(x => x.status !== 'sold').map(x => `<button data-hpick="${x.uid}"${x === c ? ' class="on"' : ''}>${esc(who(x))} ${x.id}</button>`).join('')}</div>` : ''}
+    <nav class="hmenu">
+      <button class="hb big" data-goto="ops"><b>行動</b><span>${opLine}</span></button>
+      <button class="hb" data-goto="co"><b>任務管制</b><span>服務單 ${GV.tickets.length}・案件 ${GV.cases.filter(x => !x.settled).length}</span></button>
+      <button class="hb" data-goto="map"><b>戰略地圖</b><span>星球、委託</span></button>
+      <button class="hb" data-goto="vat"><b>培養槽</b><span>造人、重新培養</span></button>
+      <button class="hb" data-goto="store"><b>倉庫</b><span>裝備</span></button>
+      <button class="hb" data-goto="rover"><b>基地</b><span>運兵車</span></button>
+      <button class="hb" data-goto="trade"><b>交易</b><span>素材</span></button>
+      <button class="hb" data-goto="rep"><b>報表</b><span>收支</span></button>
+    </nav>
+    ${news ? `<div class="hnews"><b>通知</b>${esc(String(news.text).slice(0, 80))}${String(news.text).length > 80 ? '…' : ''}</div>` : ''}
+  </div>`;
 }
 if ($('pane-home')) $('pane-home').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;

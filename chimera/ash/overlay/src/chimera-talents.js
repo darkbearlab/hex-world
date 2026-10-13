@@ -42,7 +42,7 @@ export function setupMember(g,m,c){
  // 工兵的廢料（Alan 2026-10-13）：進場照等級補滿；ASH 的廢料來源全部關掉（SquadGame.action 每個行動後扣回去）
  m.scrap=Math.max(0,c.scrap|0);
  if(has(m,'sol_track'))m.chimeraTrack=true;
- if(has(m,'rec_smoke')){m.smoke=(m.smoke||0)+2;m.stun=(m.stun||0)+2;}
+ if(has(m,'rec_smoke')){m.smoke=(m.smoke||0)+2;m.stun=(m.stun||0)+2;const B=m.chimeraBonusKits||={};B.smoke=(B.smoke||0)+2;B.stun=(B.stun||0)+2;}   // 多給的，打完寫回裝備時扣掉（chimera-squad.js gearOf）
  if(has(m,'bul_belt'))for(const s of m.owned){const w=g.weaponAtOf(m,s);if(w?.id==='lmg')m.ammo[s]=Math.floor(w.mag*1.5);}
 }
 // 進場：全隊都到齊之後

@@ -646,3 +646,44 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .home .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .home .roster-pick{display:flex;flex-wrap:wrap;gap:4px;max-height:220px;overflow:auto;background:#000c;padding:8px;border-radius:8px;position:absolute;right:10px;top:46px;left:10px}
 @media (max-width:640px){.home{grid-template-columns:1fr;grid-template-rows:46vh auto}}
+
+/* 路線圖套在區域地圖上（2026-10-14） */
+.opmap{position:relative;width:100%;aspect-ratio:2/1;min-height:260px;max-height:62vh;margin:6px 0;border-radius:6px;overflow:hidden;background:#2a2620}
+.opmap canvas{position:absolute;inset:0}
+.opmap .oplegs{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.oplegs line{stroke:rgba(230,194,129,.35);stroke-width:.5;stroke-dasharray:1.4 1.2;vector-effect:non-scaling-stroke}
+.oplegs line{stroke-width:2}.oplegs line.walked{stroke:#e6c281;stroke-dasharray:none}.oplegs line.live{stroke:rgba(230,194,129,.8)}
+.opmap .opnode{position:absolute;transform:translate(-50%,-50%);min-height:0;padding:4px 8px 4px 22px;background:rgba(18,16,13,.82);border:1px solid rgba(230,194,129,.35);border-radius:6px;white-space:nowrap;font-size:.75em}
+.opmap .opnode .dot{position:absolute;left:6px;top:50%;transform:translateY(-50%);font-style:normal;color:#e6c281;font-size:.9em}
+.opmap .opnode em{display:block;font-style:normal;color:#e6c281;font-size:.9em}
+.opmap .opnode.lock{opacity:.6}.opmap .opnode.done{opacity:.7}.opmap .opnode.open{border-color:#e6c281;box-shadow:0 0 0 2px rgba(230,194,129,.25)}
+.opmap .opnode.fight{border-color:#ff8a5a;box-shadow:0 0 0 2px rgba(255,138,90,.35)}.opmap .opnode.boss{border-color:#ff5a5a}.opmap .opnode.boss .dot{color:#ff5a5a}
+.opmap .opnode.here{box-shadow:0 0 0 2px #e6c281}
+.opmapname{position:absolute;left:10px;bottom:8px;font-size:.8em;letter-spacing:.15em;color:rgba(230,194,129,.75);background:rgba(0,0,0,.4);padding:2px 8px}
+.opdraft .draftrow{align-items:stretch;gap:6px;margin:4px 0}.opdraft .who{min-width:9em;align-self:center}
+.opdraft .perk{flex:1;display:flex;flex-direction:column;align-items:flex-start;text-align:left;font-size:.8em;padding:6px 8px}.opdraft .perk span{opacity:.75;font-size:.92em}
+@media (max-width:640px){.opmap{aspect-ratio:auto;height:70vh;max-height:none}.opmap .opnode{font-size:.68em;padding:3px 6px 3px 18px}.opdraft .draftrow{flex-wrap:wrap}.opdraft .who{min-width:100%}}
+/* 主選單（2026-10-14 重做，艦娘／少女前線式）：立繪貼齊畫面下緣、右邊一欄入口、上面一條資源列、角色旁邊一句話 */
+#page-home{padding:0!important;overflow:hidden}#pane-home{height:100%}
+.home2{position:relative;height:100%;min-height:540px;overflow:hidden}
+.home2 .hbg{position:absolute;inset:0;background:radial-gradient(ellipse at 32% 70%,rgba(230,194,129,.16),transparent 55%),linear-gradient(180deg,#1b1813 0%,#14110d 60%,#0d0b09 100%)}
+.home2 .hbg::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(115deg,transparent 0 46px,rgba(230,194,129,.035) 46px 48px)}
+.home2 .hbg span{position:absolute;left:-2%;bottom:6%;font-size:min(18vw,220px);font-weight:900;letter-spacing:.05em;color:rgba(230,194,129,.05);line-height:1;text-shadow:none!important}
+.home2 .hchar{position:absolute;bottom:0;left:12%;height:96%;max-width:62%;object-fit:contain;object-position:50% 100%;filter:drop-shadow(0 0 22px rgba(0,0,0,.6))}
+.home2 .hchar.px{image-rendering:pixelated;height:55%;bottom:8%}
+.home2 .htop{position:absolute;top:0;left:0;right:0;display:flex;gap:16px;align-items:center;padding:8px 16px;background:linear-gradient(90deg,rgba(0,0,0,.65),rgba(0,0,0,.2));font-size:.85em;border-bottom:1px solid rgba(230,194,129,.2)}
+.home2 .htop b{letter-spacing:.1em}.home2 .htop span{opacity:.8}
+.home2 .hsay{position:absolute;left:46%;top:18%;max-width:min(300px,34%);background:rgba(16,14,11,.88);border:1px solid rgba(230,194,129,.4);border-radius:10px;padding:10px 14px;font-size:.9em}
+.home2 .hsay::before{content:'';position:absolute;left:-9px;top:18px;border:8px solid transparent;border-right-color:rgba(230,194,129,.4);border-left:0}
+.home2 .hsay b{display:block;font-size:.8em;color:#e6c281;margin-bottom:2px}
+.home2 .hname{position:absolute;left:16px;bottom:16px;display:flex;align-items:baseline;gap:10px;background:rgba(0,0,0,.55);padding:6px 12px;border-left:3px solid #e6c281}
+.home2 .hname b{font-size:1.2em}.home2 .hname span{opacity:.8;font-size:.85em}.home2 .hname button{font-size:.75em;padding:2px 8px}
+.home2 .roster-pick{position:absolute;left:16px;bottom:60px;max-width:44%;max-height:40%;overflow:auto;display:flex;flex-wrap:wrap;gap:4px;background:rgba(0,0,0,.85);padding:8px;border-radius:8px}
+.home2 .hmenu{position:absolute;right:0;top:56px;bottom:56px;width:min(300px,34%);display:flex;flex-direction:column;justify-content:center;gap:8px;padding-right:14px}
+.home2 .hb{display:flex;flex-direction:column;align-items:flex-end;text-align:right;padding:10px 22px 10px 30px;clip-path:polygon(14px 0,100% 0,100% 100%,0 100%);background:linear-gradient(90deg,rgba(30,26,20,.6),rgba(30,26,20,.92));border:0;border-right:3px solid rgba(230,194,129,.5)}
+.home2 .hb b{font-size:1.05em;letter-spacing:.1em}.home2 .hb span{font-size:.72em;opacity:.65}
+.home2 .hb:hover{border-right-color:#e6c281;background:linear-gradient(90deg,rgba(60,50,36,.6),rgba(60,50,36,.95))}
+.home2 .hb.big{padding:18px 22px 18px 30px;border-right:4px solid #e6c281;background:linear-gradient(90deg,rgba(120,90,50,.35),rgba(90,68,40,.95))}
+.home2 .hb.big b{font-size:1.4em}
+.home2 .hnews{position:absolute;right:14px;bottom:14px;max-width:min(420px,40%);font-size:.75em;opacity:.8;background:rgba(0,0,0,.5);padding:6px 10px;border-radius:6px}.home2 .hnews b{color:#e6c281;margin-right:6px}
+@media (max-width:640px){.home2 .hchar{left:-6%;height:82%;max-width:none}.home2 .hmenu{width:52%;top:auto;bottom:70px}.home2 .hb{padding:7px 14px 7px 22px}.home2 .hb span{display:none}.home2 .hsay{left:30%;top:12%;max-width:60%}.home2 .htop{flex-wrap:wrap;gap:8px;font-size:.75em}.home2 .hnews{display:none}}
