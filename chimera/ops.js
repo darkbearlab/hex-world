@@ -100,10 +100,20 @@ export function finish(G, book, h, ok, why) {
   book.inbox.push({t: h, player: G.name, kind: 'result', text: `${D.title}：${ok ? '行動成功' : '行動結束'}——${why}。記憶片段共 ${op.cells} 片；參加的人休息 ${REST_H} 小時。`, ref: null});
   G.op = null; return null;
 }
+// 整補（Alan 2026-10-14）：兩點之間花一大筆錢和素材，全隊補滿生命和護甲板；同一次行動每用一次價錢加倍
+export const RESUPPLY = {cash: 50, implant: 30, neural: 30};
+export const resupplyCost = op => { const k = 2 ** (op.resupplied || 0); return {cash: RESUPPLY.cash * k, implant: RESUPPLY.implant * k, neural: RESUPPLY.neural * k}; };
+export function resupply(G, book, h) {
+  const op = G.op; if (!op) return '沒有進行中的行動'; if (op.fight) return '先把這一點打完';
+  const c = resupplyCost(op); if (G.cash < c.cash) return '錢不夠'; if ((G.mats.implant || 0) < c.implant || (G.mats.neural || 0) < c.neural) return '素材不夠';
+  G.mats.implant -= c.implant; G.mats.neural -= c.neural; C.pay(book, h, G.name, -c.cash, 'op', `${OPS[op.def].title}：整補`, null);
+  for (const u of op.uids) { const k = op.carry[u]; if (k) { k.hp = k.maxHp || k.hp; k.plates = null; } }
+  op.resupplied = (op.resupplied || 0) + 1; (G.log ||= []).push({h, text: `${OPS[op.def].title}：花 $${c.cash}k 整補，全隊補滿。`}); return null;
+}
 export function leave(G, book, h) { const op = G.op; if (!op) return '沒有進行中的行動'; if (op.fight) return '先把這一點打完（戰鬥裡可以撤出）'; return finish(G, book, h, false, `在${op.at ? nodeOf(op, op.at)?.name : '出發點'}撤回`); }
 // 畫面
 export function view(G, h) {
   const op = G.op, defs = Object.entries(OPS).map(([id, D]) => ({id, title: D.title, text: D.text, cost: D.cost, cash: D.cash, nodes: D.nodes.map(({boss, ...n}) => ({...n, boss: !!boss}))}));
   return {defs, rest: REST_H, log: (G.opLog || []).slice(-5).reverse(),
-    cur: op ? {def: op.def, at: op.at, done: op.done, uids: op.uids, next: nextNodes(op).map(n => n.id), fight: op.fight, cells: op.cells, carry: op.carry, picks: op.picks} : null};
+    cur: op ? {def: op.def, at: op.at, done: op.done, uids: op.uids, next: nextNodes(op).map(n => n.id), fight: op.fight, cells: op.cells, carry: op.carry, picks: op.picks, resupply: resupplyCost(op)} : null};
 }

@@ -78,6 +78,7 @@ function botHour(bot, h) {
       cmd(bot, {type: 'fight', ticket: g.op.fight.ticket});
       cmd(bot, {type: 'submit', ticket: g.op.fight.ticket, result: {win, dead: alive.filter(() => r() < (win ? .1 : .4)).map(x => x.id), kills: 5, progress: Object.fromEntries(alive.map(x => [x.id, {hp: 20 + Math.floor(r() * 80), maxHp: 110, plates: 10, picks: [...(g.op.picks[x.uid] || []), 'health'], skills: x.skills || [], prep: x.prep || null}]))}}); }
     else if (r() < .1) cmd(bot, {type: 'opLeave'});
+    else if (r() < .15) cmd(bot, {type: 'opResupply'});
     else { const nx = OPN(g.op); if (nx.length) cmd(bot, {type: 'opGo', node: pick(r, nx).id}); }
   }
   // 接案
@@ -124,6 +125,7 @@ function botHour(bot, h) {
     if (st.length && r() < .1) { const x = home().length && pick(r, home()); if (x) cmd(bot, {type: 'equip', uid: x.uid, slot: pick(r, G.SLOTS), item: pick(r, st).id}); }
     if (st.length > 8 && r() < .1) cmd(bot, {type: 'sell', item: pick(r, st).id});
     if (r() < .02 && home().length >= 2) { const [a, x] = home(); cmd(bot, {type: 'merge', keep: a.uid, feed: x.uid}); }
+    if (r() < .02) cmd(bot, {type: 'cover', uid: pick(r, g.roster)?.uid});
   }
   if (r() < .01) cmd(bot, {type: 'readReport', id: 'all'});
   // 成長（2026-10-13）：亂選性格技能（也會亂丟不合法的等級、選項）

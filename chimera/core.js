@@ -16,7 +16,7 @@ const BIG_OK = new Set(['probe', 'hold', 'clear', 'patrol', 'sweep', 'scout', 'g
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave', 'opResupply', 'cover'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -330,7 +330,7 @@ export class Core {
     const game = this.game, g = this.co(name); if (!g) return null;
     return {type: 'game', err: err || null, year: this.sim.year, season: this.sim.season, campaigns: this.sim.campaignView(), speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
       inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: {...G.view(g, game.book, this.w), hq: RV.hqView(g, game.book, this.w, game.h),
-        vans: {cap: G.vanCap(g), used: G.vansUsed(g, game.book)}, depot: g.depot || {}, world: this.worldView(g), here: this.hereView(g), ops: OP.view(g, game.h)}};
+        vans: {cap: G.vanCap(g), used: G.vansUsed(g, game.book)}, depot: g.depot || {}, world: this.worldView(g), here: this.hereView(g), ops: OP.view(g, game.h), cover: g.cover ?? null}};
   }
   // 地圖上的遠征點、突發事件、搶購（每家看到的都一樣，加上自己買過沒有）
   worldView(g) {
@@ -423,6 +423,9 @@ export class Core {
     if (m.type === 'opStart') return OP.start(g, h, m.def || 'trial', m.uids || [], b);
     if (m.type === 'opGo') { const err = OP.go(g, h, m.node); if (!err && g.op?.fight) this.opMission(g); return err; }
     if (m.type === 'opLeave') return OP.leave(g, b, h);
+    if (m.type === 'opResupply') return OP.resupply(g, b, h);
+    // 主選單的封面角色（Alan 2026-10-14）
+    if (m.type === 'cover') { if (m.uid != null && !g.roster.some(c => c.uid === +m.uid)) return '找不到這個人'; g.cover = m.uid == null ? null : +m.uid; return null; }
     if (m.type === 'submit' || m.type === 'abort') {
       if (game.fighting != null) { game.speed = game.fighting; game.fighting = null; }
       if (m.type === 'abort') return null;

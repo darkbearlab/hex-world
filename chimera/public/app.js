@@ -541,7 +541,7 @@ function onGame(m) {
   if (m.campaigns?.some(c => !c.done) || $('campbar') && !$('campbar').hidden) draw();   // 大戰役每 6 小時變一次
   if (m.err && roverToast == null && roverAct == null) toast(m.err);
   if (roverToast != null) { roverToastCheck(m.err); roverSeen = rvKey(GV?.hq?.log?.[0]); } else roverNews(m.err);
-  if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('mailBtn').hidden = false; $('gyd').value = m.yearDays; showPage('co'); renderAll(); send({type: 'quotes'}); }
+  if (first) { setPlaying(false); cur = hist.length - 1; computing = false; $('computing').hidden = true; $('more').hidden = true; document.body.classList.add('game'); $('gamebar').hidden = false; $('mailBtn').hidden = false; $('gyd').value = m.yearDays; for (const b of document.querySelectorAll('.pager [data-page="home"],.pager [data-page="ops"]')) b.hidden = false; showPage('home'); renderAll(); send({type: 'quotes'}); }
   $('gclock').textContent = clockText(Math.max(GV.h, hourNow() ?? GV.h), m);
   $('gsub').textContent = `${GV.name}・基地 ${GV.hq?.place || GV.baseName}${GV.hq && !GV.hq.parked ? '（開動中）' : ''}・運兵車 ${GV.vans ? `${Math.max(0, GV.vans.cap - GV.vans.used)}／${GV.vans.cap}` : ''}`;
   $('gcash').textContent = `$${GV.cash}k`; $('gcash').classList.toggle('neg', GV.cash < 0);
@@ -556,7 +556,7 @@ $('gyd').onchange = e => send({type: 'yearDays', v: +e.target.value});
 // ===== 行動（Alan 2026-10-13，chimera/ops.js）：隨時能打的副本——路線圖、每點一場、局內三選一、王點 =====
 let opSel = new Set();
 function renderOps() {
-  const O = GV?.ops, el = $('co-op'); if (!O || !el) return;
+  const O = GV?.ops, el = $('ops-box'); if (!O || !el) return;
   const cur = O.cur, D = O.defs.find(d => d.id === (cur?.def || 'trial')), h = GV.h, who2 = u => GV.roster.find(c => c.uid === u);
   const costTxt = Object.entries(D.cost).map(([m, n]) => `${MN[m]} ${n}`).join('・');
   let html = `<h3 class="sec">行動 <span class="muted">隨時能打：一張路線圖，每一點一場，最後是王點。倒下是真的死，但遺體全數收回。</span></h3><div class="optitle"><b>${esc(D.title)}</b>　<span class="mini muted">${esc(D.text)}</span></div>`;
@@ -574,7 +574,7 @@ function renderOps() {
       return `<button class="opnode ${cls}${n.boss ? ' boss' : ''}${here ? ' here' : ''}"${open ? ` data-opgo="${n.id}"` : fighting ? ` data-opfight="${esc(cur.fight.ticket)}"` : ' disabled'}><b>${esc(n.kind)}</b><span>${esc(n.name)}</span><i>${done ? '✓ 打下' : fighting ? '▶ 繼續打' : open ? '前往' : ''}</i><em>${esc(n.text)}</em></button>`;
     }).join('')}</div>`).join('')}</div>
       <div class="mini">隊伍：${cur.uids.map(u => { const c = who2(u), k = cur.carry[u]; return c ? `${esc(who(c))} ${c.id}${!c.alive ? '（倒下）' : k?.hp != null ? `（生命 ${k.hp}${k.maxHp ? '／' + k.maxHp : ''}・局內強化 ${(cur.picks[u] || []).length}）` : ''}` : ''; }).join('、')}・這次已拿記憶片段 ${cur.cells}</div>
-      <div class="row">${cur.fight ? `<button class="primary" data-opfight="${esc(cur.fight.ticket)}">繼續這一場</button>` : ''}<button data-opleave="1"${cur.fight ? ' disabled title="先把這一點打完（戰鬥裡可以撤出）"' : ''}>撤回基地（行動結束）</button></div>`;
+      <div class="row">${cur.fight ? `<button class="primary" data-opfight="${esc(cur.fight.ticket)}">繼續這一場</button>` : `<button data-opresupply="1"${GV.cash < cur.resupply.cash || GV.mats.implant < cur.resupply.implant || GV.mats.neural < cur.resupply.neural ? ' disabled' : ''} title="全隊補滿生命和護甲板；同一次行動每用一次價錢加倍">整補（$${cur.resupply.cash}k・${MN.implant} ${cur.resupply.implant}・${MN.neural} ${cur.resupply.neural}）</button>`}<button data-opleave="1"${cur.fight ? ' disabled title="先把這一點打完（戰鬥裡可以撤出）"' : ''}>撤回基地（行動結束）</button></div>`;
   }
   if (O.log.length) html += `<div class="mini muted" style="margin-top:6px">最近：${O.log.map(x => `第 ${Math.floor(x.h / 24) + 1} 天 ${x.ok ? '成功' : '結束'}（${x.nodes} 點・記憶片段 ${x.cells}）`).join('；')}</div>`;
   el.html = html;
@@ -585,8 +585,37 @@ function opClick(e) {
   if (b.dataset.opstart) { send({type: 'opStart', def: 'trial', uids: [...opSel]}); opSel = new Set(); return; }
   if (b.dataset.opgo) { const D = GV.ops.defs.find(d => d.id === GV.ops.cur.def), n = D.nodes.find(x => x.id === b.dataset.opgo); send({type: 'opGo', node: n.id}); if (n.type !== 'rest') showMissionLoading(); return; }
   if (b.dataset.opfight) { send({type: 'fight', ticket: b.dataset.opfight}); showMissionLoading(); return; }
+  if (b.dataset.opresupply) { const c = GV.ops.cur.resupply; if (confirm(`花 $${c.cash}k、${MN.implant} ${c.implant}、${MN.neural} ${c.neural} 整補？\n全隊補滿生命和護甲板。這次行動下一次整補的價錢加倍。`)) send({type: 'opResupply'}); return; }
   if (b.dataset.opleave && confirm('撤回基地？這次行動就結束了（已經拿到的記憶片段不會收回）。')) send({type: 'opLeave'});
 }
+function renderOpsPage() {
+  const P = $('pane-ops'); if (!P) return; if (!GV) { P.innerHTML = '<p class="muted">開了公司之後才有行動。</p>'; return; }
+  if (!$('ops-box')) { P.innerHTML = '<div class="box" id="ops-box"></div>'; $('ops-box').onclick = opClick; }
+  renderOps();
+}
+// ===== 主選單（Alan 2026-10-14）：最左邊一頁。左邊是封面角色（從名冊挑，記在伺服器），右邊是各個入口 =====
+let coverPick = false;
+function renderHome() {
+  const P = $('pane-home'); if (!P) return; if (!GV) { P.innerHTML = ''; return; }
+  const R = GV.roster, c = R.find(x => x.uid === GV.cover) || R.find(x => x.alive) || R[0], O = GV.ops?.cur, D = O && GV.ops.defs.find(d => d.id === O.def);
+  const opLine = O ? `進行中：${esc(D.title)}・打下 ${O.done.length} 點${O.fight ? '・有一場還沒打完' : ''}` : '一張路線圖，每一點一場，最後是王點';
+  P.innerHTML = `<div class="home">
+    <div class="cover${c && !ART.has(`donors/${donorKey(c)}/full.png`) ? '' : ''}">${c ? `<img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"><span class="cap">${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}・${CLS[c.cls].n} ${c.lv || 1} 級</span>` : ''}
+      <button class="pickc" data-hcover="1">換封面</button>
+      ${coverPick ? `<div class="roster-pick">${R.filter(x => x.status !== 'sold').map(x => `<button data-hpick="${x.uid}"${x === c ? ' class="on"' : ''}>${esc(who(x))} ${x.id}</button>`).join('')}</div>` : ''}</div>
+    <div class="menu"><h2>PROJECT: CHIMERA</h2><p class="co">${esc(GV.name)}・基地 ${esc(GV.hq?.place || GV.baseName)}・$${GV.cash}k</p>
+      <button class="entry big" data-goto="ops">行動<span>${opLine}</span></button>
+      <button class="entry" data-goto="co">任務管制<span>待打的服務單 ${GV.tickets.length}・進行中的案件 ${GV.cases.filter(x => !x.settled).length}</span></button>
+      <div class="grid2"><button class="entry" data-goto="map">戰略地圖<span>沙盒的星球、委託</span></button><button class="entry" data-goto="vat">培養槽<span>造人、重新培養</span></button>
+        <button class="entry" data-goto="store">倉庫<span>裝備、預備品</span></button><button class="entry" data-goto="rover">基地<span>移動基地、運兵車</span></button>
+        <button class="entry" data-goto="trade">交易<span>素材、採購</span></button><button class="entry" data-goto="rep">報表<span>收支、結算報告</span></button></div></div></div>`;
+}
+if ($('pane-home')) $('pane-home').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.goto) { showPage(b.dataset.goto); return; }
+  if (b.dataset.hcover) { coverPick = !coverPick; renderHome(); return; }
+  if (b.dataset.hpick) { coverPick = false; GV.cover = +b.dataset.hpick; send({type: 'cover', uid: +b.dataset.hpick}); renderHome(); }
+};
 function renderCo() {
   const P = $('pane-co');
   if (!GV) {
@@ -598,7 +627,6 @@ function renderCo() {
   }
   if (!coBuilt) {
     P.innerHTML = `<div class="cohead" id="co-head"></div>
-      <div class="box" id="co-op"></div>
       <div class="cocols" id="co-ops">
         <div class="cocol"><div class="box"><h3 class="sec">服務單</h3><div id="co-tk"></div></div></div>
         <div class="cocol"><div class="box"><h3 class="sec">案件與車隊</h3><div id="co-cases"></div></div>
@@ -606,9 +634,7 @@ function renderCo() {
           <div class="box"><h3 class="sec">清運 <span class="muted">不用派人：收生物廢棄物換植入物、神經介質，順便撿回那一帶的遺體</span></h3><div id="co-clean"></div></div></div>
       </div>`;
     coBuilt = true;
-    $('co-op').onclick = opClick;
   }
-  renderOps();
   const G = GV, h = G.h;
   const active = G.cases.filter(c => !c.settled), alive = G.roster.filter(c => c.alive);
   $('co-head').html = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div></div>
@@ -1214,9 +1240,9 @@ $('pane-co').addEventListener('pointerleave', () => { const b = $('co-spark'); i
 // ───── 兩頁切換：上方按鈕，或左右滑 ─────
 let page = 'map';
 // 分頁（Alan 2026-10-09）：戰略地圖｜任務管制（原「公司」）｜培養槽｜交易｜報表
-const PAGES = ['map', 'co', 'vat', 'store', 'trade', 'rover', 'rep'];
+const PAGES = ['home', 'map', 'co', 'ops', 'vat', 'store', 'trade', 'rover', 'rep'];
 function renderPage() {
-  if (page === 'co') renderCo(); else if (page === 'vat') renderVat(); else if (page === 'store') renderStore(); else if (page === 'trade') renderTrade(); else if (page === 'rover') renderRover(); else if (page === 'rep') renderRepPage();
+  if (page === 'home') renderHome(); else if (page === 'ops') renderOpsPage(); else if (page === 'co') renderCo(); else if (page === 'vat') renderVat(); else if (page === 'store') renderStore(); else if (page === 'trade') renderTrade(); else if (page === 'rover') renderRover(); else if (page === 'rep') renderRepPage();
   renderRoster();
 }
 function showPage(p) {
