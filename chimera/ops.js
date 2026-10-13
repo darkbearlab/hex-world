@@ -9,7 +9,7 @@ import * as C from './cases.js';
 export const REST_H = 12;
 // 試玩路線圖（Alan 2026-10-13：先做骨架，沒有故事）。layer 1～5，next 是接得上的點；type 對上現有的戰鬥類型，rest 是休整；x、y 是在區域地圖上的位置（0～1）
 export const OPS = {
-  trial: {title: '試玩行動：鏽牙礦場', text: '礦主「鏽牙」帶著一夥掠奪者佔了北邊的舊礦場。從外圍一路打進去，拿下他的堡壘。', side: 'warlord', cost: {food: 40, water: 40}, cash: 60, nodes: [
+  trial: {title: '行動一：鏽牙礦場', tier: 0, foe: '鏽牙的人', text: '礦主「鏽牙」帶著一夥掠奪者佔了北邊的舊礦場。從外圍一路打進去，拿下他的堡壘。', side: 'warlord', cost: {food: 40, water: 40}, cash: 60, nodes: [
     {id: 'a', x: .1, y: .34, layer: 1, type: 'clear', kind: '突破', name: '外圍營地', text: '木柵圍起來的營地，清掉裡面的人。', next: ['c', 'd']},
     {id: 'b', x: .12, y: .72, layer: 1, type: 'pursuit', kind: '潛入', name: '油料庫', text: '油料庫已經點著了，追兵從後面追上來：跑到另一頭的撤離點。', next: ['d', 'e']},
     {id: 'c', x: .32, y: .2, layer: 2, type: 'hold', kind: '守住', name: '斷橋', text: '守住橋頭，撐到援軍被打退。', next: ['f']},
@@ -20,6 +20,40 @@ export const OPS = {
     {id: 'h', x: .75, y: .22, layer: 4, type: 'rest', kind: '休整', name: '工寮', text: '最後一次休整：每人回復一半的生命、補滿護甲板。', next: ['j']},
     {id: 'i', x: .77, y: .6, layer: 4, type: 'probe', kind: '精英', name: '親衛巡邏隊', text: '鏽牙的親衛在礦場裡巡邏，人多、裝備好。', next: ['j'], elite: true},
     {id: 'j', x: .92, y: .42, layer: 5, type: 'clear', kind: '王點', name: '鏽牙的堡壘', text: '礦主本人和他最後的手下。', next: [], boss: {ash: 'delisted_soldier', name: '礦主「鏽牙」', hp: 3}}]},
+  // 行動二～四（Alan 2026-10-14：多幾組，前一組打贏了後面的才能打；每組都是樹狀路線、多個點）
+  well: {title: '行動二：枯井淨水廠', req: 'trial', tier: 1, foe: '佔廠的傭兵', text: '一夥傭兵佔了枯井的淨水廠，把水賣給出價最高的人。從乾河床摸過去，奪回廠區。', side: 'free', cost: {food: 60, water: 20, implant: 20}, cash: 100, nodes: [
+    {id: 'a', x: .08, y: .5, layer: 1, type: 'probe', kind: '遭遇', name: '乾河床', text: '河床上的巡邏隊。', next: ['c', 'd']},
+    {id: 'b', x: .12, y: .18, layer: 1, type: 'ambush', kind: '車隊', name: '運水車道', text: '攔下傭兵的運水車隊。', next: ['c']},
+    {id: 'c', x: .3, y: .3, layer: 2, type: 'hold', kind: '守住', name: '抽水站', text: '奪下抽水站，守到傭兵退走。', next: ['e', 'f']},
+    {id: 'd', x: .3, y: .72, layer: 2, type: 'rest', kind: '休整', name: '廢棄營房', text: '喘口氣：每人回復一半的生命、補滿護甲板。', next: ['f', 'g']},
+    {id: 'e', x: .52, y: .16, layer: 3, type: 'trench', kind: '戰壕', name: '外圍壕溝', text: '跳進壕溝一路清過去。', next: ['h']},
+    {id: 'f', x: .5, y: .46, layer: 3, type: 'assault', kind: '突破', name: '廠區大門', text: '正面打下大門的陣地。', next: ['h', 'i']},
+    {id: 'g', x: .52, y: .8, layer: 3, type: 'pursuit', kind: '潛入', name: '排水渠', text: '從排水渠鑽進去，被發現了就往前跑。', next: ['i']},
+    {id: 'h', x: .72, y: .3, layer: 4, type: 'facility', kind: '室內', name: '過濾槽', text: '廠房裡又暗又窄。', next: ['j']},
+    {id: 'i', x: .72, y: .66, layer: 4, type: 'rest', kind: '休整', name: '控制室', text: '最後一次休整。', next: ['j']},
+    {id: 'j', x: .92, y: .48, layer: 5, type: 'clear', kind: '王點', name: '水塔', text: '傭兵隊長守在水塔下。', next: [], boss: {ash: 'gunline', name: '傭兵隊長「渴」', hp: 3}}]},
+  hive: {title: '行動三：鹽沼巢穴', req: 'well', tier: 2, foe: '蟲群', biome: '鹽沼', text: '鹽沼底下的舊設施被蟲群築了巢，附近的聚落一個個空了。一路往下，燒掉巢母。', side: 'hive', cost: {food: 60, water: 60, neural: 20}, cash: 150, nodes: [
+    {id: 'a', x: .07, y: .3, layer: 1, type: 'clear', kind: '清剿', name: '空聚落', text: '被蟲群掏空的聚落。', next: ['c', 'd']},
+    {id: 'b', x: .1, y: .74, layer: 1, type: 'hold', kind: '守住', name: '鹽田', text: '守住鹽田邊的高地，擋住湧上來的蟲。', next: ['d', 'e']},
+    {id: 'c', x: .3, y: .16, layer: 2, type: 'facility', kind: '室內', name: '舊管線', text: '鑽進管線，裡面全是卵。', next: ['f']},
+    {id: 'd', x: .32, y: .48, layer: 2, type: 'rest', kind: '休整', name: '鹽工小屋', text: '喘口氣：每人回復一半的生命、補滿護甲板。', next: ['f', 'g']},
+    {id: 'e', x: .3, y: .82, layer: 2, type: 'probe', kind: '遭遇', name: '沼澤', text: '泥裡有東西在動。', next: ['g']},
+    {id: 'f', x: .54, y: .3, layer: 3, type: 'facility', kind: '室內', name: '巢道', text: '越往下越熱、越黏。', next: ['h', 'i']},
+    {id: 'g', x: .54, y: .7, layer: 3, type: 'hold', kind: '守住', name: '升降井', text: '守住升降井，等電梯上來。', next: ['i']},
+    {id: 'h', x: .76, y: .2, layer: 4, type: 'probe', kind: '精英', name: '育巢', text: '長大了的那一批。', next: ['j'], elite: true},
+    {id: 'i', x: .74, y: .6, layer: 4, type: 'rest', kind: '休整', name: '舊控制台', text: '最後一次休整。', next: ['j']},
+    {id: 'j', x: .92, y: .42, layer: 5, type: 'facility', kind: '王點', name: '巢心', text: '巢母本體。', next: [], boss: {ash: 'hive_beast', name: '巢母'}}]},
+  yard: {title: '行動四：黑鐵車場', req: 'hive', tier: 3, foe: '工廠群的機械兵', biome: '總督府', text: '工廠群在黑鐵車場囤了一整排戰車和機械兵。在他們開出來之前，把車場打爛。', side: 'works', cost: {food: 80, water: 80, implant: 40, neural: 40}, cash: 220, nodes: [
+    {id: 'a', x: .08, y: .22, layer: 1, type: 'probe', kind: '遭遇', name: '外圍哨站', text: '哨站的機械兵。', next: ['c', 'd']},
+    {id: 'b', x: .08, y: .64, layer: 1, type: 'ambush', kind: '車隊', name: '補給列車', text: '搭上補給列車混進去。', next: ['d', 'e']},
+    {id: 'c', x: .3, y: .12, layer: 2, type: 'trench', kind: '戰壕', name: '防線', text: '一整排壕溝與機槍座。', next: ['f']},
+    {id: 'd', x: .3, y: .44, layer: 2, type: 'assault', kind: '突破', name: '鐵絲網', text: '剪開鐵絲網，正面打進去。', next: ['f', 'g']},
+    {id: 'e', x: .32, y: .8, layer: 2, type: 'rest', kind: '休整', name: '廢料堆', text: '喘口氣：每人回復一半的生命、補滿護甲板。', next: ['g']},
+    {id: 'f', x: .54, y: .26, layer: 3, type: 'hold', kind: '守住', name: '調度場', text: '奪下調度場，擋住反撲。', next: ['h', 'i']},
+    {id: 'g', x: .54, y: .64, layer: 3, type: 'facility', kind: '室內', name: '組裝廠', text: '生產線還在動。', next: ['i']},
+    {id: 'h', x: .76, y: .2, layer: 4, type: 'probe', kind: '精英', name: '親衛機隊', text: '最新型的機械兵。', next: ['j'], elite: true},
+    {id: 'i', x: .74, y: .58, layer: 4, type: 'rest', kind: '休整', name: '油庫', text: '最後一次休整。', next: ['j']},
+    {id: 'j', x: .92, y: .42, layer: 5, type: 'clear', kind: '王點', name: '指揮塔', text: '焚線官坐鎮指揮塔。', next: [], boss: {ash: 'burnline', name: '焚線官'}}]},
 };
 // 局內的三選一（Alan 2026-10-14：在路線圖上選，不在戰鬥開場）：ASH 原本的強化（id 照 ASH，戰場上照 ASH 的規則生效）。
 // 一次性的效果（回生命、加護甲板）在選的當下算進帶到下一點的狀態；「每一點多帶」的預備品、廢料是每一場進場時給（打完不會變成倉庫的東西）。
@@ -70,6 +104,7 @@ export function start(G, h, def, uids, book) {
   const pick = [...new Set(uids || [])].map(u => G.roster.find(c => c.uid === u)).filter(c => c && c.alive && c.status === 'home' && !c.keep);
   if (pick.length < 1 || pick.length > 4) return '一次行動派一到四個人（在基地裡、沒有標「不出擊」的）';
   const tired = pick.find(c => (c.restUntil || 0) > h); if (tired) return `${tired.id} 還在休息（${Math.ceil(tired.restUntil - h)} 小時）`;
+  if (D.req && !(G.opClear || {})[D.req]) return `要先完成「${OPS[D.req].title}」`;   // 前一組打贏了後面的才能打
   for (const [m, n] of Object.entries(D.cost)) if ((G.mats[m] || 0) < n) return '素材不夠';
   for (const [m, n] of Object.entries(D.cost)) G.mats[m] -= n;
   G.opSeq = (G.opSeq || 0) + 1; const serial = book.nextId++;   // 編號用全星球的流水號：伺服器上的戰鬥照編號開，兩家公司不能撞
@@ -94,11 +129,11 @@ export function go(G, h, nodeId) {
 export function battle(G, w) {
   const op = G.op, f = op?.fight; if (!f) return null;
   const D = OPS[op.def], n = nodeOf(op, f.node), r = lcg(op.seed ^ f.n * 7919);
-  const power = (n.boss ? 32 : 14 + 7 * n.layer) * (n.elite ? 1.4 : 1) * (1 + .25 * Math.max(0, op.uids.length - 2));
+  const power = (n.boss ? 32 : 14 + 7 * n.layer) * (n.elite ? 1.4 : 1) * (1 + .25 * Math.max(0, op.uids.length - 2)) * (1 + .3 * (D.tier || 0));   // 後面的行動更難
   const units = C.opUnits({rs: op.seed ^ f.n}, D.side, power, n.type === 'facility' ? 'clear' : n.type, 26);
   const facility = n.type === 'facility';
-  return {id: f.ticket, title: `${D.title}・${n.kind}：${n.name}`, type: facility ? 'hunting' : n.type, facility, floors: facility ? 1 : 0, biome: '礫丘', night: r() < .3,
-    enemy: {side: D.side, name: '鏽牙的人', power: Math.round(power), units, veh: {}, boss: n.boss || null}, intro: n.text, wave: 0};
+  return {id: f.ticket, title: `${D.title}・${n.kind}：${n.name}`, type: facility ? 'hunting' : n.type, facility, floors: facility ? 1 : 0, biome: D.biome || '礫丘', night: r() < .3,
+    enemy: {side: D.side, name: D.foe || '敵人', power: Math.round(power), units, veh: {}, boss: n.boss || null}, intro: n.text, wave: 0};
 }
 // 戰場送進去的每個人多帶的東西：局內的強化、還沒挑的、帶過來的生命與護甲板
 export function runOf(G, c) {
@@ -125,7 +160,7 @@ export function settle(G, book, w, h, ticket, res) {
   // 獎勵：每打贏一點，活著的人各抽 2 片記憶片段；王點再多 4 片、加現金
   const k = n.boss ? 6 : 2; for (const c of alive) { const lv0 = c.lv || 1; C.drawCells(c, k, r); c.lv = C.cellLevel(c); if (c.lv > lv0) lines.push(`${c.id} 升到 ${c.lv} 級`); }
   op.cells += k * alive.length;
-  if (n.boss) { C.pay(book, h, G.name, D.cash, 'op', `${D.title}：完成`, null); return finish(G, book, h, true, `拿下${n.name}${lines.length ? '，' + lines.join('、') : ''}；獎勵 $${D.cash}k`); }
+  if (n.boss) { C.pay(book, h, G.name, D.cash, 'op', `${D.title}：完成`, null); (G.opClear ||= {})[op.def] = ((G.opClear || {})[op.def] || 0) + 1; return finish(G, book, h, true, `拿下${n.name}${lines.length ? '，' + lines.join('、') : ''}；獎勵 $${D.cash}k`); }
   book.inbox.push({t: h, player: G.name, kind: 'result', text: `${D.title}：拿下${n.name}${lines.length ? '，' + lines.join('、') : ''}。選下一點繼續，或撤回基地。`, ref: null});
   return null;
 }
@@ -150,7 +185,7 @@ export function resupply(G, book, h) {
 export function leave(G, book, h) { const op = G.op; if (!op) return '沒有進行中的行動'; if (op.fight) return '先把這一點打完（戰鬥裡可以撤出）'; return finish(G, book, h, false, `在${op.at ? nodeOf(op, op.at)?.name : '出發點'}撤回`); }
 // 畫面
 export function view(G, h) {
-  const op = G.op, defs = Object.entries(OPS).map(([id, D]) => ({id, title: D.title, text: D.text, cost: D.cost, cash: D.cash, nodes: D.nodes.map(({boss, ...n}) => ({...n, boss: !!boss}))}));
+  const op = G.op, C2 = G.opClear || {}, defs = Object.entries(OPS).map(([id, D]) => ({id, title: D.title, text: D.text, cost: D.cost, cash: D.cash, req: D.req || null, open: !D.req || !!C2[D.req], cleared: C2[id] || 0, nodes: D.nodes.map(({boss, ...n}) => ({...n, boss: !!boss}))}));
   return {defs, rest: REST_H, log: (G.opLog || []).slice(-5).reverse(),
     cur: op ? {def: op.def, at: op.at, done: op.done, uids: op.uids, next: nextNodes(op).map(n => n.id), fight: op.fight, cells: op.cells, carry: op.carry, picks: op.picks, resupply: resupplyCost(op),
       drafts: Object.fromEntries(op.uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c?.alive && pendingOf(op, c)).map(c => [c.uid, {left: pendingOf(op, c), ids: draft(op, c)}]))} : null,

@@ -363,10 +363,10 @@ function renderSortie() {
   const P = $('sortie'); if (!P) return;
   const o = sortie && GV && (sortie.custom || curOpps().find(x => x.kind + ':' + x.tile === sortie.key));
   P.hidden = !o; if (!o) { $('spick').hidden = true; if (sortie && GV) sortie = null; return; }
-  const K = OK[o.kind], s = hist[cur], fn = id => s?.fac?.find(f => f.id === id)?.n || '';
+  const K = OK[o.kind] || {n: '行動', c: '#e6c281'}, s = hist[cur], fn = id => s?.fac?.find(f => f.id === id)?.n || '';
   const sides = o.joined || sortie.custom ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'outpost' ? [['a', '替 ' + fn(o.a) + ' 守'], ['b', '替 ' + fn(o.b) + ' 搶']] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
-  const chosen = new Set(sortieUids()), n = chosen.size, bad = sortie.sq.some(q => q.filter(u => u != null).length === 1);
-  const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid));
+  const chosen = new Set(sortieUids()), n = chosen.size, bad = !sortie.custom?.min && sortie.sq.some(q => q.filter(u => u != null).length === 1);
+  const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid) && (!sortie.custom?.avail || sortie.custom.avail(c)));   // 行動：休息中的人不列
   const groups = [...Object.entries(TAGS).map(([k, nm]) => [nm, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
   // 選人：另一張卡片疊在編成畫面上（Alan 2026-10-10）；一列一個人，照分類分組
   const row = c => `<button class="sprow" data-sp="${c.uid}"><img src="${face(c)}" alt=""><span class="sprn"><b>${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}</b> <span class="mini">${c.id}</span><br><span class="mini">${CLS[c.cls].n}・${c.lv || 1} 級・記憶片段 ${cellCount(c)}${c.crown === 'gold' ? '・金冠' : c.crown === 'silver' ? '・銀冠' : ''}${(c.tags || []).length ? '・' + c.tags.map(t => TAGS[t]).join('、') : ''}</span></span></button>`;
@@ -376,10 +376,10 @@ function renderSortie() {
   $('sbox').html = `<div class="shead"><div style="flex:1"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}${ownWarn(o)}<div class="mini muted">${esc(o.detail || '')}</div></div><button data-scancel="1" aria-label="關閉">✕</button></div>
     ${sides.length ? `<div class="row">${sides.map(([v, nm]) => `<button data-side="${v}" class="${sortie.side === v ? 'on' : ''}">${esc(nm)}</button>`).join('')}</div>` : ''}
     ${sortie.sq.map((q, i) => `<div class="sqlabel mini">第 ${i + 1} 隊（${q.filter(u => u != null).length}／4）${sortie.sq.length > 1 && !q.some(u => u != null) ? ` <button data-sqx="${i}">拿掉這一隊</button>` : ''}</div><div class="srow">${q.map((u, j) => sortieCard(u, i, j)).join('')}</div>`).join('')}
-    <div class="row">${o.here || sortie.custom ? '<button data-addsq="1">＋ 再編一隊</button>' : '<span class="mini muted">一台運兵車載一隊（四人）；要派更多隊，把基地開到這裡</span>'}</div>
+    <div class="row">${sortie.custom?.one ? '<span class="mini muted">一次行動一隊（最多四人）</span>' : o.here || sortie.custom ? '<button data-addsq="1">＋ 再編一隊</button>' : '<span class="mini muted">一台運兵車載一隊（四人）；要派更多隊，把基地開到這裡</span>'}</div>
     ${picker}
     ${sortie.custom ? '' : vanRow(o, sortie.sq.filter(q => q.some(u => u != null)).length)}
-    <div class="row sfoot">${bad ? '<span class="mini" style="color:var(--war)">每一隊至少兩個人</span>' : ''}<button class="primary" data-sgo="1"${n < 2 || bad || (!sortie.custom && vanBlock(o, sortie.sq.filter(q => q.some(u => u != null)).length)) ? ' disabled' : ''}>確認出擊（${n} 人）</button><button data-scancel="1">取消</button></div>`;
+    <div class="row sfoot">${bad ? '<span class="mini" style="color:var(--war)">每一隊至少兩個人</span>' : ''}<button class="primary" data-sgo="1"${n < (sortie.custom?.min || 2) || bad || (!sortie.custom && vanBlock(o, sortie.sq.filter(q => q.some(u => u != null)).length)) ? ' disabled' : ''}>確認出擊（${n} 人）</button><button data-scancel="1">取消</button></div>`;
 }
 $('sortie').onclick = e => {
   if (e.target.id === 'sortie') { sortie = null; renderSortie(); return; }
@@ -556,22 +556,23 @@ $('gspeed').onchange = e => send({type: 'speed', v: +e.target.value});
 $('gyd').onchange = e => send({type: 'yearDays', v: +e.target.value});
 
 // ===== 行動（Alan 2026-10-13，chimera/ops.js）：隨時能打的副本——路線圖、每點一場、局內三選一、王點 =====
-let opSel = new Set();
 function renderOps() {
   const O = GV?.ops, el = $('ops-box'); if (!O || !el) return;
-  const cur = O.cur, D = O.defs.find(d => d.id === (cur?.def || 'trial')), h = GV.h, who2 = u => GV.roster.find(c => c.uid === u);
-  const costTxt = Object.entries(D.cost).map(([m, n]) => `${MN[m]} ${n}`).join('・');
-  let html = `<h3 class="sec">行動 <span class="muted">隨時能打：一張路線圖，每一點一場，最後是王點。倒下是真的死，但遺體全數收回。</span></h3><div class="optitle"><b>${esc(D.title)}</b>　<span class="mini muted">${esc(D.text)}</span></div>`;
+  const cur = O.cur, D = cur && O.defs.find(d => d.id === cur.def), h = GV.h, who2 = u => GV.roster.find(c => c.uid === u);
+  const costTxt = d => Object.entries(d.cost).map(([m, n]) => `${MN[m]} ${n}`).join('・');
+  let html = `<h3 class="sec">行動 <span class="muted">隨時能打：一張路線圖，每一點一場，最後是王點。倒下是真的死，但遺體全數收回。前一組打贏了，後面的才能打。</span></h3>`;
   if (!cur) {
-    const can = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
-    for (const u of [...opSel]) if (!can.some(c => c.uid === u)) opSel.delete(u);
-    html += `<div class="mini">代價：${costTxt}・完成拿 $${D.cash}k・每打贏一點每人 2 片記憶片段（王點 6 片）・打完的人休息 ${O.rest} 小時</div>
-      <div class="oppick">${can.map(c => { const rest = (c.restUntil || 0) > h; return `<button class="${opSel.has(c.uid) ? 'on' : ''}" data-oppick="${c.uid}"${rest ? ` disabled title="休息中"` : ''}>${esc(who(c))} ${c.id}・${CLS[c.cls].n} ${c.lv || 1} 級${rest ? `（休息 ${Math.ceil(c.restUntil - h)} 小時）` : ''}</button>`; }).join('') || '<span class="mini muted">基地裡沒有待命的人。</span>'}</div>
-      <div class="row"><button class="primary" data-opstart="1"${opSel.size < 1 || opSel.size > 4 || Object.entries(D.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled' : ''}>出發（${opSel.size} 人，最多 4 人）</button></div>`;
+    // 行動的清單（Alan 2026-10-14：多幾組，照順序解鎖）；挑人用出擊編成（跟接案一樣的卡片）
+    html += `<div class="oplist">${O.defs.map(d => { const lock = !d.open, req = d.req && O.defs.find(x => x.id === d.req);
+      return `<div class="opcard${lock ? ' lock' : ''}${d.cleared ? ' cleared' : ''}"><div class="opct"><b>${esc(d.title)}</b>${d.cleared ? `<span class="tagok">完成 ${d.cleared} 次</span>` : ''}</div><div class="mini">${esc(d.text)}</div>
+        <div class="mini muted">代價：${costTxt(d)}・完成 $${d.cash}k・${d.nodes.length} 個點</div>
+        <div class="row">${lock ? `<span class="mini">🔒 要先完成「${esc(req?.title || '')}」</span>` : `<button class="primary" data-opsel="${d.id}"${Object.entries(d.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled title="素材不夠"' : ''}>出發</button>`}</div></div>`; }).join('')}</div>
+      <div class="mini muted">一次一組；派一到四個人。打完的人休息 ${O.rest} 小時。每打贏一點每人 2 片記憶片段（王點 6 片）。</div>`;
   } else {
+    html += `<div class="optitle"><b>${esc(D.title)}</b>　<span class="mini muted">${esc(D.text)}</span></div>`;
     const next = new Set(cur.next), fightNode = cur.fight?.node, byId = Object.fromEntries(D.nodes.map(n => [n.id, n]));
     const legs = D.nodes.flatMap(n => n.next.map(t => [n, byId[t]])).filter(([, t]) => t);
-    html += `<div class="opmap" data-def="${D.id}"><canvas id="opcv"></canvas><svg class="oplegs" viewBox="0 0 100 100" preserveAspectRatio="none">${legs.map(([f, t]) => { const walked = cur.done.includes(f.id) && (cur.done.includes(t.id) || fightNode === t.id), live = (cur.at === f.id || !cur.at && f.layer === 1 && false) && next.has(t.id);
+    html += `<div class="opmap" data-def="${cur.def}"><canvas id="opcv"></canvas><svg class="oplegs" viewBox="0 0 100 100" preserveAspectRatio="none">${legs.map(([f, t]) => { const walked = cur.done.includes(f.id) && (cur.done.includes(t.id) || fightNode === t.id), live = (cur.at === f.id || !cur.at && f.layer === 1 && false) && next.has(t.id);
       return `<line x1="${f.x * 100}" y1="${f.y * 100}" x2="${t.x * 100}" y2="${t.y * 100}" class="${walked ? 'walked' : cur.at === f.id ? 'live' : ''}"/>`; }).join('')}</svg>${D.nodes.map(n => {
       const done = cur.done.includes(n.id), here = cur.at === n.id, open = next.has(n.id) && !cur.fight, fighting = fightNode === n.id;
       const cls = done ? 'done' : fighting ? 'fight' : open ? 'open' : 'lock';
@@ -590,8 +591,9 @@ function renderOps() {
 function opClick(e) {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   if (b.dataset.oppk) { send({type: 'opPick', uid: +b.dataset.oppk, id: b.dataset.id}); return; }
-  if (b.dataset.oppick) { const u = +b.dataset.oppick; if (opSel.has(u)) opSel.delete(u); else if (opSel.size < 4) opSel.add(u); renderOps(); return; }
-  if (b.dataset.opstart) { send({type: 'opStart', def: 'trial', uids: [...opSel]}); opSel = new Set(); return; }
+  if (b.dataset.opsel) { const d = GV.ops.defs.find(x => x.id === b.dataset.opsel); if (!d) return;
+    sortie = {key: 'custom', tile: GV.base, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'op', lv: 3, one: true, min: 1, tile: GV.base, title: d.title, detail: `${d.text}　代價：${costTxt2(d)}`, avail: c => (c.restUntil || 0) <= GV.h, go: uids => send({type: 'opStart', def: d.id, uids})}};
+    renderSortie(); return; }
   if (b.dataset.opgo) { const D = GV.ops.defs.find(d => d.id === GV.ops.cur.def), n = D.nodes.find(x => x.id === b.dataset.opgo); send({type: 'opGo', node: n.id}); if (n.type !== 'rest') showMissionLoading(); return; }
   if (b.dataset.opfight) { send({type: 'fight', ticket: b.dataset.opfight}); showMissionLoading(); return; }
   if (b.dataset.opresupply) { const c = GV.ops.cur.resupply; if (confirm(`花 $${c.cash}k、${MN.implant} ${c.implant}、${MN.neural} ${c.neural} 整補？\n全隊補滿生命和護甲板。這次行動下一次整補的價錢加倍。`)) send({type: 'opResupply'}); return; }
@@ -635,6 +637,7 @@ function drawOpMap(box) {
   g.strokeStyle = 'rgba(230,194,129,.35)'; g.strokeRect(.5, .5, W - 1, H - 1);
 }
 addEventListener('resize', () => { const mp = document.querySelector('#ops-box .opmap'); if (mp) drawOpMap(mp); });
+const costTxt2 = d => Object.entries(d.cost).map(([m, n]) => `${MN[m]} ${n}`).join('・');
 function renderOpsPage() {
   const P = $('pane-ops'); if (!P) return; if (!GV) { P.innerHTML = '<p class="muted">開了公司之後才有行動。</p>'; return; }
   if (!$('ops-box')) { P.innerHTML = '<div class="box" id="ops-box"></div>'; $('ops-box').onclick = opClick; }
