@@ -552,6 +552,8 @@ function enemyOf(book, w, c, ev, o = {}) {
 }
 // 頭目算進戰力（自動結算用）：遺產級頭目最強
 const bossPow = b => !b ? 0 : b.legacy ? 3 + 10 * (b.bonus || .1) : b.ash === 'squad_leader' ? 1 : 3;
+// 行動（ops.js）用：照陣營、戰力配一隊敵人
+export const opUnits = (book, side, power, type, cap) => unitsOf(book, side, power, null, type, cap);
 function unitsOf(book, side, power, cloneShare, type, cap = 14) {
   const n = Math.max(3, Math.min(cap, Math.round(power / 4))), u = {};
   const add = k => u[k] = (u[k] || 0) + 1;

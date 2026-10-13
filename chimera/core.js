@@ -7,6 +7,7 @@ import * as C from './cases.js';
 import * as G from './company.js';
 import {ensureNpcs, npcHour} from './npc.js';
 import * as RV from './rover.js';
+import * as OP from './ops.js';
 
 const r1 = v => Math.round(v * 10) / 10;
 // 可以開 50×50 的戰鬥類型（清光敵人或守住就贏的；2026-10-13 size-check：巡邏遭遇 245 回合、守點 36 回合、清剿 304 回合打完）
@@ -15,7 +16,7 @@ const BIG_OK = new Set(['probe', 'hold', 'clear', 'patrol', 'sweep', 'scout', 'g
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent'];
+export const COMMANDS = ['speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -329,7 +330,7 @@ export class Core {
     const game = this.game, g = this.co(name); if (!g) return null;
     return {type: 'game', err: err || null, year: this.sim.year, season: this.sim.season, campaigns: this.sim.campaignView(), speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
       inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: {...G.view(g, game.book, this.w), hq: RV.hqView(g, game.book, this.w, game.h),
-        vans: {cap: G.vanCap(g), used: G.vansUsed(g, game.book)}, depot: g.depot || {}, world: this.worldView(g), here: this.hereView(g)}};
+        vans: {cap: G.vanCap(g), used: G.vansUsed(g, game.book)}, depot: g.depot || {}, world: this.worldView(g), here: this.hereView(g), ops: OP.view(g, game.h)}};
   }
   // 地圖上的遠征點、突發事件、搶購（每家看到的都一樣，加上自己買過沒有）
   worldView(g) {
@@ -407,25 +408,25 @@ export class Core {
     if (m.type === 'quotes') { this.emit({type: 'quotes', data: G.quotes(g, w)}); return null; }
     if (m.type === 'resolve') { const tk = b.tickets.find(x => x.id === m.ticket); if (!tk || tk.player !== name) return '這張服務單不是你的'; C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
     // 親自打（ASH 任務戰鬥）：把服務單和小隊交給畫面去開戰。單人測試模式打的時候時間停住（pauseOnFight）；伺服器上大家共用時鐘，不停
+    if (m.type === 'fight' && String(m.ticket).startsWith('OP-')) { if (g.op?.fight?.ticket !== m.ticket) return '這場行動的戰鬥已經結算了'; this.opMission(g); return null; }   // 接回行動的戰鬥
     if (m.type === 'fight') {
       const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
       if (!sq) return '這張服務單已經不在了';
-      const squad = sq.clones.filter(c => c.alive).slice(0, 4).map(c => ({id: c.id, name: G.donorName(c) || null, callsign: c.callsign || null, donor: c.donor ?? c.portrait, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
-        lv: c.lv || 1, xp: c.xp || 0, picks: [], tal: G.talentIds(c), grow: G.growOf(c), scrap: c.cls === 'engineer' ? G.engineerScrap(c.lv) : 0, skills: c.skills || [], prep: c.prep || null, gear: G.gearOf(g, c), perkPicks: c.perkPicks || 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: c.legacyPerkPicks || 0}));
+      const squad = this.squadOf(g, sq.clones.filter(c => c.alive).slice(0, 4));
       if (!squad.length) return '這一隊沒有活著的人';
       if (tk.fightAt == null) tk.fightAt = h;   // 開打了：打完之前這一隊不能整補（戰場上的裝備是開打那一刻的）
       let seed = 7; for (const ch of tk.id + ':' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
-      if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
-      // 戰場大小（Alan 2026-10-13：照 Claude 的意思）：敵人 12 名以上的大單開 50×50（據點群的佈陣），其餘 27×27；室內設施、公路戰由戰場那邊固定 27
-      // 只開在「清光敵人／守住」的戰場：奪點、裝炸藥（突擊、戰壕、破壞…）在 50×50 上機器人隊員打不完（size-check 18 名敵人：卡到步數上限），先維持 27
-      const roster = C.enemyRoster(tk.enemy), size = roster.length >= 12 && BIG_OK.has(tk.transit ? 'transit' : tk.type) ? 50 : 27;
-      this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster}, squad, type: tk.transit ? 'transit' : tk.type, intro: tk.transit ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0, size,
-        depth: Math.max(1, Math.min(12, 1 + Math.round((tk.enemy.power || 10) / 7) + (tk.wave ? Math.floor(tk.wave / 3) : 0)))}});   // 敵人的強度（菁英、詞條的機率照 ASH 的樓層），Alan 2026-10-11
+      this.emitMission(tk, squad, seed);
       return null;
     }
+    // 行動（ops.js，Alan 2026-10-13）：開始、選下一點（戰鬥的點直接開打）、在兩點之間撤回
+    if (m.type === 'opStart') return OP.start(g, h, m.def || 'trial', m.uids || [], b);
+    if (m.type === 'opGo') { const err = OP.go(g, h, m.node); if (!err && g.op?.fight) this.opMission(g); return err; }
+    if (m.type === 'opLeave') return OP.leave(g, b, h);
     if (m.type === 'submit' || m.type === 'abort') {
       if (game.fighting != null) { game.speed = game.fighting; game.fighting = null; }
       if (m.type === 'abort') return null;
+      if (String(m.ticket).startsWith('OP-')) return this.opSubmit(g, name, m.ticket, m.result || {});
       const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
       if (!sq) return '這張服務單已經結算了';
       const win = !!m.result.win, dead = (m.result.dead || []).filter(id => sq.clones.some(c => c.id === id && c.alive));
@@ -457,6 +458,33 @@ export class Core {
     return '不認得的指令';
   }
 
+  // 送進戰場的隊員（ASH 的完整玩家角色）：成長、性格技能、裝備；行動裡多帶 run（局內的強化、帶過來的生命與護甲板）
+  squadOf(g, clones, run = null) {
+    return clones.map(c => ({id: c.id, name: G.donorName(c) || null, callsign: c.callsign || null, donor: c.donor ?? c.portrait, cls: c.cls || 'soldier', portrait: c.portrait, st: c.st || {hp: 100},
+      lv: c.lv || 1, xp: c.xp || 0, picks: [], tal: G.talentIds(c), grow: G.growOf(c), scrap: c.cls === 'engineer' ? G.engineerScrap(c.lv) : 0, skills: c.skills || [], prep: c.prep || null, gear: G.gearOf(g, c), perkPicks: 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: 0,
+      ...(run ? {run: run(c)} : {})}));
+  }
+  emitMission(tk, squad, seed) {
+    const game = this.game;
+    if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
+    // 戰場大小（Alan 2026-10-13：照 Claude 的意思）：敵人 12 名以上的大單開 50×50（據點群的佈陣），其餘 27×27；室內設施、公路戰由戰場那邊固定 27
+    // 只開在「清光敵人／守住」的戰場：奪點、裝炸藥（突擊、戰壕、破壞…）在 50×50 上機器人隊員打不完（size-check 18 名敵人：卡到步數上限），先維持 27
+    const roster = C.enemyRoster(tk.enemy), size = roster.length >= 12 && BIG_OK.has(tk.transit ? 'transit' : tk.type) ? 50 : 27;
+    this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster}, squad, type: tk.transit ? 'transit' : tk.type, intro: tk.transit ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0, size,
+      depth: Math.max(1, Math.min(12, 1 + Math.round((tk.enemy.power || 10) / 7) + (tk.wave ? Math.floor(tk.wave / 3) : 0)))}});   // 敵人的強度（菁英、詞條的機率照 ASH 的樓層），Alan 2026-10-11
+  }
+  // 行動這一點的戰鬥：種子跟著行動走（同一點重開是同一場）
+  opMission(g) {
+    const op = g.op, tk = OP.battle(g, this.w); if (!tk) return false;
+    const clones = op.uids.map(u => g.roster.find(c => c.uid === u)).filter(c => c?.alive).slice(0, 4);
+    this.emitMission(tk, this.squadOf(g, clones, c => OP.runOf(g, c)), (op.seed ^ op.fight.n * 2246822519) >>> 0); return true;
+  }
+  opSubmit(g, name, ticket, res) {
+    const b = this.game.book, h = this.game.h, w = this.w, op = g.op; if (!op?.fight || op.fight.ticket !== ticket) return '這場行動的戰鬥已經結算了';
+    for (const u of op.uids) { const c = g.roster.find(x => x.uid === u), pr = c && res.progress?.[c.id]; if (pr?.gear) G.gearAfterBattle(g, c, pr.gear, null); }   // 撿到的槍、用剩的預備品
+    if (res.win && res.loot) { const t = G.lootAfterBattle(g, res.loot, h, null); if (t) b.inbox.push({t: h, player: name, kind: 'result', text: `行動的戰場回收：${t}`, ref: null}); }
+    const err = OP.settle(g, b, w, h, ticket, res); G.hour(g, b, w, h); return err;
+  }
   // ===== 東方謠言（Alan 2026-10-12，warband/DESIGN.md「東邊有沒有救」）=====
   // 這顆星球（種子 奇美拉-1、60×48）專用：東邊低地一條從北往南流進東南海的大河，從西南沿南邊到東北每 5～6 格一個綠洲當跳板；
   // 大河中段傳出有一座舊星艦維修站。被吸引的勢力（35 格內有城）當場各派兩支遠征隊沿跳板立前哨，之後每年 30% 的機會繼續往東。只發生一次（g.mig.east1012）

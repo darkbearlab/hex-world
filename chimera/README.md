@@ -256,3 +256,5 @@
   - 敵人對應（暫定）：掠奪者→破口突擊兵、重裝掠奪者→叛變哨兵、原住民→被感染突擊兵、原住民獵手→盲眼狙擊手、士兵→斷訊槍兵、重裝士兵→裝甲斷訊槍兵、複製兵→裝甲破口突擊兵；帶遺產級的頭目→小隊長；衝鋒車→自爆機器人、武裝車→固定砲台、戰鬥卡車→叛變哨兵。掠奪者與原住民打叛軍設施，勢力部隊打忠誠派設施。
 
 - 成長改版（2026-10-13，Alan：模仿 XCOM）：ASH 的升級三選一拿掉；2 級學會職業技能，4、6、8、10 級在角色詳細裡從三種性格選一個技能（`company.js` TALENTS），3、5、7、9、11 級長數值。戰場上的規則在 `ash/overlay/src/chimera-talents.js`（補丁 0011 只改著彈修正與定點砲台射程）。工兵的廢料進場照等級補滿，ASH 的廢料來源與狩獵場的交易終端拿掉。測試：`ash/overlay/tools/chimera/talent-check.mjs`、`talent-unit.mjs`、`replay-check.mjs --talents 0|1|2 [--eng]`、`stats/talent-pick.mjs`。細節見 main 分支 `warband/DESIGN.md`「強化（perk）整組重做」。
+
+- 行動（2026-10-14，Alan：隨時有得打的主力模式）：`ops.js` 的路線圖副本（試玩「鏽牙礦場」），任務管制最上面的「行動」框。戰鬥編號 `OP-…`，生命、局內三選一帶到下一點，倒下真死但遺體收回。測試 `stats/op-play.mjs`、`replay-check.mjs --run`。

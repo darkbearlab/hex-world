@@ -27,7 +27,7 @@ import {VENT_TUNING} from './vent-map.js';
 import {FIRE_TUNING,burningAt} from './fire.js';
 import {AFFIXES,weaponStats} from './weapons.js';
 import {WEAPONS,PERKS} from './data.js';
-import {perkDef} from './perks.js';
+import {perkDef,drawPerks,eligiblePerks,recordPerkOffer,applyPerk} from './perks.js';
 import {perkLimit} from './endless.js';
 import {initialSkillState,SKILLS} from './skills.js';
 import {initializeAllies} from './allies.js';
@@ -60,7 +60,8 @@ export class SquadGame extends MissionGame{
   const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;lead.callName=callName(ticket.squad[0]);lead.donor=ticket.squad[0].donor||null;
   this.equip(lead,ticket.squad[0]);for(const k of COUNTERS)this[k]=ticket.squad[0][k]||0;
   // 格子收集（Alan 2026-10-10）：等級在戰場外決定；這一級該有、還沒挑的升級，進場時補給（照 ASH 的 perkLimit：每升一級一個）
-  this.pendingPerks=0;   // Alan 2026-10-13：戰場上不再跳升級
+  // Alan 2026-10-13：一般的戰鬥不再跳升級；行動（ticket.squad[i].run，chimera/ops.js）裡每打贏一點多一次局內的三選一
+  this.chimeraRun=ticket.squad.some(c=>c.run);const run0=ticket.squad[0].run;this.pendingPerks=run0?.pending||0;if(run0)this.perkPicks=run0.picks.length;
   // brains（函式）與 stash 不可列舉：ASH 每一步動畫前用 structuredClone 複製遊戲（presentation.js snapshot）
   for(const [k,v]of [['stash',new Map([[lead,{}]])],['brains',new Map()]])Object.defineProperty(this,k,{configurable:true,writable:true,enumerable:false,value:v});
   this.members=[lead];this.controlled=lead;
@@ -70,7 +71,7 @@ export class SquadGame extends MissionGame{
    const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;m.callName=callName(c);m.donor=c.donor||null;applyStats(m,c,CHARACTERS[cls]);
    this.shareArmory(m,lead);this.equip(m,c);
    const cell=this.freeCellNear(lead);if(!cell)continue;Object.assign(m,{x:cell.x,y:cell.y});
-   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:0,perkDraft:null,perkPicks:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
+   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:c.run?.pending||0,perkDraft:null,perkPicks:c.run?c.run.picks.length:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
    this.chimera.units[c.id]=m;
   }
   this.chimera.units[ticket.squad[0].id]=lead;
@@ -82,6 +83,10 @@ export class SquadGame extends MissionGame{
   if(!this.applyGear(m,c))for(const slot of m.owned)if(!WEAPONS[m.weaponBases[slot]]?.melee){m.affixes[slot]='homemade';m.ammo[slot]=Math.min(m.ammo[slot],weaponStats(m.weaponBases[slot],'homemade',m).mag);}
   m.level=Math.max(1,c.lv||1);m.xp=Math.max(0,c.xp||0);m.chimeraPicks=[];
   setupMember(this,m,c);   // 性格技能、等級成長、工兵的廢料（chimera-talents.js）
+  // 行動：局內的強化（只在這次行動有效，永久的效果每一點重新套）、帶過來的生命與護甲板
+  if(c.run){m.chimeraPicks=[...(c.run.picks||[])];
+   for(const id of m.chimeraPicks){const o=perkDef(this,PERKS.find(x=>x.id===id));if(!o)continue;PERMANENT[o.effect]?.(m,o);m.perks[o.id]=(m.perks[o.id]||0)+1;}
+   if(c.run.hp!=null)m.hp=Math.max(1,Math.min(m.maxHp,c.run.hp));if(c.run.plates!=null)m.plates=Math.max(0,c.run.plates);}
   m.skills=(c.skills||[]).filter(id=>SKILLS[id]);if(m.chimeraTal.includes('sol_supp')&&!m.skills.includes('suppressive_fire'))m.skills.push('suppressive_fire');m.skillState=initialSkillState(m.skills);
   m.prepared={...m.prepared,skill:m.skills.includes(c.prep)?c.prep:m.skills[0]||null};
   if(!m.skills.includes('workshop'))m.productionLines=[];
@@ -127,9 +132,16 @@ export class SquadGame extends MissionGame{
  settleLevels(){this.player.xp=0;}
  // 多層設施（狩獵場）不再有交易終端（Alan 2026-10-13：廢料只有工兵進場時給）
  generateFloor(){const map=super.generateFloor();if(map?.props)map.props=map.props.filter(o=>o.type!=='terminal');return map;}
- choosePerk(id){const ok=super.choosePerk(id);if(ok)(this.player.chimeraPicks||=[]).push(id);return ok;}
+ // 局內的三選一（行動才有）：照 ASH 的抽法，但不受等級限制（ASH 是一級一個）
+ get perkChoices(){if(!this.chimeraRun)return [];if(!this.pendingPerks){this.perkDraft=null;return [];}if(!this.perkDraft)this.perkDraft=drawPerks(this);return this.perkDraft.ids.map(id=>perkDef(this,PERKS.find(o=>o.id===id)));}
+ choosePerk(id){
+  if(!this.chimeraRun||this.status!=='playing'||!this.pendingPerks)return false;
+  const offer=this.perkChoices.find(o=>o.id===id);if(!offer||!eligiblePerks(this).some(o=>o.id===id))return false;
+  recordPerkOffer(this);applyPerk(this,offer);this.pendingPerks--;this.perkPicks++;this.perkDraft=null;
+  this.log(t('game.perkInstalled',{perk:offer.name}));(this.player.chimeraPicks||=[]).push(id);return true;
+ }
  // 戰後寫回名冊的成長
- progressOf(m){const own=m===this.player,st=this.stash?.get(m)||{};return {gear:this.gearOf(m),lv:m.level,xp:m.xp,picks:[...(m.chimeraPicks||[])],skills:[...m.skills],prep:m.prepared?.skill||null,...Object.fromEntries(COUNTERS.map(k=>[k,own?this[k]:st[k]||0]))};}
+ progressOf(m){const own=m===this.player,st=this.stash?.get(m)||{};return {gear:this.gearOf(m),lv:m.level,xp:m.xp,hp:Math.max(0,m.hp),maxHp:m.maxHp,plates:m.plates||0,picks:[...(m.chimeraPicks||[])],skills:[...m.skills],prep:m.prepared?.skill||null,...Object.fromEntries(COUNTERS.map(k=>[k,own?this[k]:st[k]||0]))};}
  // 武器登錄表（weaponBases／affixes／ammo／upgrades，地上的武器用它的編號）全隊共用同一份；
  // 隊員的初始武器各自登錄成新的一把，同職業才不會共用彈匣
  shareArmory(m,lead){

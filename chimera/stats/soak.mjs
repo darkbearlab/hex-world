@@ -6,6 +6,7 @@
 import fs from 'fs';
 import {Core} from '../core.js';
 import * as G from '../company.js';
+import {nextNodes as OPN} from '../ops.js';
 import {createChecks, diff} from './lib/checks.mjs';
 
 const args = process.argv.slice(2), opt = (k, d) => { const i = args.indexOf('--' + k); return i < 0 ? d : args[i + 1]; }, flag = k => args.includes('--' + k);
@@ -69,6 +70,15 @@ function botHour(bot, h) {
     const x = r(); if (x < .15) continue;
     if (bot.style === 'fighter' ? x < .8 : x < .3) { if (!cmd(bot, {type: 'fight', ticket: tk.id})) cmd(bot, {type: 'submit', ticket: tk.id, result: fakeResult(bot, tk)}); }
     else cmd(bot, {type: 'resolve', ticket: tk.id});
+  }
+  // 行動（2026-10-13，ops.js）：亂出發、亂選點、假戰果、偶爾中途撤回
+  if (!g.op && r() < .03) { const pk = home().filter(x => (x.restUntil || 0) <= h).slice(0, 1 + Math.floor(r() * 4)); if (pk.length) { g.mats.food = Math.max(g.mats.food || 0, 40); g.mats.water = Math.max(g.mats.water || 0, 40); cmd(bot, {type: 'opStart', def: 'trial', uids: pk.map(x => x.uid)}); } }
+  if (g.op && r() < .3) {
+    if (g.op.fight) { const alive = g.op.uids.map(u => g.roster.find(x => x.uid === u)).filter(x => x?.alive), win = r() < .7;
+      cmd(bot, {type: 'fight', ticket: g.op.fight.ticket});
+      cmd(bot, {type: 'submit', ticket: g.op.fight.ticket, result: {win, dead: alive.filter(() => r() < (win ? .1 : .4)).map(x => x.id), kills: 5, progress: Object.fromEntries(alive.map(x => [x.id, {hp: 20 + Math.floor(r() * 80), maxHp: 110, plates: 10, picks: [...(g.op.picks[x.uid] || []), 'health'], skills: x.skills || [], prep: x.prep || null}]))}}); }
+    else if (r() < .1) cmd(bot, {type: 'opLeave'});
+    else { const nx = OPN(g.op); if (nx.length) cmd(bot, {type: 'opGo', node: pick(r, nx).id}); }
   }
   // 接案
   const open = g.cases.map(id => b.cases.find(k => k.id === id)).filter(k => k && !k.settled).length;

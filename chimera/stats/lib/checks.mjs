@@ -24,6 +24,8 @@ export function createChecks(issue, h0 = 0) {
         if (x.uid > 0) { if (uids.has(x.uid)) issue('uid 重複', `${g.name} ${x.id} 和 ${uids.get(x.uid)}`, h, g.name); uids.set(x.uid, `${g.name} ${x.id}`); }   // 負的是易主遺體留下的影子，本來就可能重複
         if (!x.alive) continue;
         const sq = inSq.get(g.name + '#' + x.uid);
+        if (x.status === 'op' && !g.op?.uids.includes(x.uid)) issue('行動中卻不在進行中的行動裡', `${g.name} ${x.id}`, h, g.name);   // 行動（2026-10-13，ops.js）
+        if (g.op?.uids.includes(x.uid) && x.status !== 'op') issue('在行動的隊伍裡卻不是行動中', `${g.name} ${x.id} 是 ${x.status}`, h, g.name);
         if (x.status === 'away' && !sq && !ret.has(x.uid)) issue('出勤中卻不在任何小隊（人不見了）', `${g.name} ${x.id}，最後的紀錄：${JSON.stringify((x.record || []).at(-1))}`, h, g.name);
         if (x.status === 'home' && sq && (sq.caseId || sq.garrison != null) && sq.headedHome == null && sq.id !== roverSq && sq.clones.some(y => y.alive && y.status === 'away')) issue('在總部卻還掛在有任務的小隊', `${g.name} ${x.id} 在 ${sq.name}`, h, g.name);
       }

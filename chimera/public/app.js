@@ -533,7 +533,7 @@ setInterval(() => {
 }, 1000);
 // el.html = ...：內容（倒數的數字不算）和上次一樣就不重畫。整塊 innerHTML 重設會讓頭像重新載入、閃一下（Alan 2026-10-09 回報）
 Object.defineProperty(HTMLElement.prototype, 'html', {configurable: true, set(v) { const k = String(v).replace(/(<span class="cd"[^>]*>)[^<]*/g, '$1'); if (this._k === k && this.childNodes.length) return; this._k = k; this.innerHTML = v; }});
-const STATUS = {home: '待命', away: '出勤', returning: '歸途', kia: '已除名', recovered: '遺體已收回', lost: '遺體沒能帶回', sold: '已除名'};   // 陣亡、遺體賣掉都算除名（Alan 2026-10-10）
+const STATUS = {home: '待命', away: '出勤', op: '行動中', returning: '歸途', kia: '已除名', recovered: '遺體已收回', lost: '遺體沒能帶回', sold: '已除名'};   // 陣亡、遺體賣掉都算除名（Alan 2026-10-10）
 function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3200); }
 function found(base) { if (WATCH) return; send({type: 'found', base}); }
 function onGame(m) {
@@ -553,6 +553,40 @@ function onGame(m) {
 $('gspeed').onchange = e => send({type: 'speed', v: +e.target.value});
 $('gyd').onchange = e => send({type: 'yearDays', v: +e.target.value});
 
+// ===== 行動（Alan 2026-10-13，chimera/ops.js）：隨時能打的副本——路線圖、每點一場、局內三選一、王點 =====
+let opSel = new Set();
+function renderOps() {
+  const O = GV?.ops, el = $('co-op'); if (!O || !el) return;
+  const cur = O.cur, D = O.defs.find(d => d.id === (cur?.def || 'trial')), h = GV.h, who2 = u => GV.roster.find(c => c.uid === u);
+  const costTxt = Object.entries(D.cost).map(([m, n]) => `${MN[m]} ${n}`).join('・');
+  let html = `<h3 class="sec">行動 <span class="muted">隨時能打：一張路線圖，每一點一場，最後是王點。倒下是真的死，但遺體全數收回。</span></h3><div class="optitle"><b>${esc(D.title)}</b>　<span class="mini muted">${esc(D.text)}</span></div>`;
+  if (!cur) {
+    const can = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
+    for (const u of [...opSel]) if (!can.some(c => c.uid === u)) opSel.delete(u);
+    html += `<div class="mini">代價：${costTxt}・完成拿 $${D.cash}k・每打贏一點每人 2 片記憶片段（王點 6 片）・打完的人休息 ${O.rest} 小時</div>
+      <div class="oppick">${can.map(c => { const rest = (c.restUntil || 0) > h; return `<button class="${opSel.has(c.uid) ? 'on' : ''}" data-oppick="${c.uid}"${rest ? ` disabled title="休息中"` : ''}>${esc(who(c))} ${c.id}・${CLS[c.cls].n} ${c.lv || 1} 級${rest ? `（休息 ${Math.ceil(c.restUntil - h)} 小時）` : ''}</button>`; }).join('') || '<span class="mini muted">基地裡沒有待命的人。</span>'}</div>
+      <div class="row"><button class="primary" data-opstart="1"${opSel.size < 1 || opSel.size > 4 || Object.entries(D.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled' : ''}>出發（${opSel.size} 人，最多 4 人）</button></div>`;
+  } else {
+    const L = Math.max(...D.nodes.map(n => n.layer)), next = new Set(cur.next), fightNode = cur.fight?.node;
+    html += `<div class="oproute">${Array.from({length: L}, (_, i) => `<div class="oplayer">${D.nodes.filter(n => n.layer === i + 1).map(n => {
+      const done = cur.done.includes(n.id), here = cur.at === n.id, open = next.has(n.id) && !cur.fight, fighting = fightNode === n.id;
+      const cls = done ? 'done' : fighting ? 'fight' : open ? 'open' : 'lock';
+      return `<button class="opnode ${cls}${n.boss ? ' boss' : ''}${here ? ' here' : ''}"${open ? ` data-opgo="${n.id}"` : fighting ? ` data-opfight="${esc(cur.fight.ticket)}"` : ' disabled'}><b>${esc(n.kind)}</b><span>${esc(n.name)}</span><i>${done ? '✓ 打下' : fighting ? '▶ 繼續打' : open ? '前往' : ''}</i><em>${esc(n.text)}</em></button>`;
+    }).join('')}</div>`).join('')}</div>
+      <div class="mini">隊伍：${cur.uids.map(u => { const c = who2(u), k = cur.carry[u]; return c ? `${esc(who(c))} ${c.id}${!c.alive ? '（倒下）' : k?.hp != null ? `（生命 ${k.hp}${k.maxHp ? '／' + k.maxHp : ''}・局內強化 ${(cur.picks[u] || []).length}）` : ''}` : ''; }).join('、')}・這次已拿記憶片段 ${cur.cells}</div>
+      <div class="row">${cur.fight ? `<button class="primary" data-opfight="${esc(cur.fight.ticket)}">繼續這一場</button>` : ''}<button data-opleave="1"${cur.fight ? ' disabled title="先把這一點打完（戰鬥裡可以撤出）"' : ''}>撤回基地（行動結束）</button></div>`;
+  }
+  if (O.log.length) html += `<div class="mini muted" style="margin-top:6px">最近：${O.log.map(x => `第 ${Math.floor(x.h / 24) + 1} 天 ${x.ok ? '成功' : '結束'}（${x.nodes} 點・記憶片段 ${x.cells}）`).join('；')}</div>`;
+  el.html = html;
+}
+function opClick(e) {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  if (b.dataset.oppick) { const u = +b.dataset.oppick; if (opSel.has(u)) opSel.delete(u); else if (opSel.size < 4) opSel.add(u); renderOps(); return; }
+  if (b.dataset.opstart) { send({type: 'opStart', def: 'trial', uids: [...opSel]}); opSel = new Set(); return; }
+  if (b.dataset.opgo) { const D = GV.ops.defs.find(d => d.id === GV.ops.cur.def), n = D.nodes.find(x => x.id === b.dataset.opgo); send({type: 'opGo', node: n.id}); if (n.type !== 'rest') showMissionLoading(); return; }
+  if (b.dataset.opfight) { send({type: 'fight', ticket: b.dataset.opfight}); showMissionLoading(); return; }
+  if (b.dataset.opleave && confirm('撤回基地？這次行動就結束了（已經拿到的記憶片段不會收回）。')) send({type: 'opLeave'});
+}
 function renderCo() {
   const P = $('pane-co');
   if (!GV) {
@@ -564,6 +598,7 @@ function renderCo() {
   }
   if (!coBuilt) {
     P.innerHTML = `<div class="cohead" id="co-head"></div>
+      <div class="box" id="co-op"></div>
       <div class="cocols" id="co-ops">
         <div class="cocol"><div class="box"><h3 class="sec">服務單</h3><div id="co-tk"></div></div></div>
         <div class="cocol"><div class="box"><h3 class="sec">案件與車隊</h3><div id="co-cases"></div></div>
@@ -571,7 +606,9 @@ function renderCo() {
           <div class="box"><h3 class="sec">清運 <span class="muted">不用派人：收生物廢棄物換植入物、神經介質，順便撿回那一帶的遺體</span></h3><div id="co-clean"></div></div></div>
       </div>`;
     coBuilt = true;
+    $('co-op').onclick = opClick;
   }
+  renderOps();
   const G = GV, h = G.h;
   const active = G.cases.filter(c => !c.settled), alive = G.roster.filter(c => c.alive);
   $('co-head').html = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div></div>
