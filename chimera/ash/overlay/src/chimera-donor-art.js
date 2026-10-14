@@ -7,9 +7,10 @@ import {Renderer} from './renderer.js';
 const R = Renderer.prototype, cache = new Map();
 let have = null;
 fetch('/asset-manifest.json', {cache: 'no-cache'}).then(r => r.ok ? r.json() : null).then(d => { have = new Set((d?.items || []).map(x => x.path)); }).catch(() => { have = new Set(); });
-export const donorSpritePath = k => `donors/${k}/sprite.png`;
+// v2（Alan 2026-10-14：照 ASH 原本的職業 sprite 提示詞重做）是 sprite2.png；有這張的原主才換成自己的圖，舊的 sprite.png（v1，評價不好）不再用
+export const donorSpritePath = k => `donors/${k}/sprite2.png`;
 // 先關掉（Alan 2026-10-12：評價不好，要重新設計）：戰場一律用各兵種的基本圖。圖檔（public/donors/*/sprite.png）和產生的腳本都留著，重新設計好改回 true
-export const DONOR_SPRITES = false;
+export const DONOR_SPRITES = true;   // 2026-10-14 重新打開（只有做了 v2 的原主會換）
 export function donorSprite(u) {
   if (!DONOR_SPRITES) return null;
   const k = u?.donor; if (!k || !have?.has(donorSpritePath(k))) return null;
