@@ -3,9 +3,18 @@
 import {readdirSync, readFileSync, statSync, writeFileSync} from 'node:fs';
 import {join, relative, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {DONORS, OUTFITS} from '../company.js';
+// 原主的圖帶名字（「伊歐・戰鬥服」）：donors/<原主>/… 是預設那套衣服，donors/<原主>/<衣服>/… 是換裝
+const donorLabel = path => {
+  const m = path.match(/^donors\/([^/]+)\/(?:([^/]+)\/)?[^/]+$/); if (!m || !DONORS[m[1]]) return null;
+  const L = OUTFITS[m[1]], o = L && (L.find(([k]) => k === m[2]) || (!m[2] && L[0]));
+  return DONORS[m[1]].name + (o ? '・' + o[1] : '');
+};
 const pub = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 // 資料夾 → 分類名稱（照前綴比對，越前面越優先）
+const SPRITES = '角色戰場 sprite';   // 2026-10-15：像素工作室點一下就開成新作品來改（donors/<原主>[/<衣服>]/sprite2.png）
 const GROUPS = [
+  [SPRITES, SPRITES],
   ['donors/', '原主專屬圖（頭像、立繪、戰場）'],
   ['portraits/', '複製人頭像'],
   ['ash-outdoor/', '戶外戰場材質（Chimera）'],
@@ -37,8 +46,9 @@ const out = [];
     if (st.isDirectory()) { walk(p); continue; }
     if (!name.toLowerCase().endsWith('.png')) continue;
     const b = readFileSync(p); if (b.length < 24 || b.toString('ascii', 12, 16) !== 'IHDR') continue;
-    const path = relative(pub, p).replace(/\\/g, '/'), group = GROUPS.find(([pre]) => path.startsWith(pre))[1];
-    out.push({path, w: b.readUInt32BE(16), h: b.readUInt32BE(20), bytes: st.size, group});
+    const path = relative(pub, p).replace(/\\/g, '/'), label = donorLabel(path);
+    const group = /^donors\/.+\/sprite2\.png$/.test(path) ? SPRITES : GROUPS.find(([pre]) => pre !== SPRITES && path.startsWith(pre))[1];
+    out.push({path, w: b.readUInt32BE(16), h: b.readUInt32BE(20), bytes: st.size, group, ...(label ? {name: label} : {})});
   }
 })(pub);
 out.sort((a, b) => GROUPS.findIndex(g => g[1] === a.group) - GROUPS.findIndex(g => g[1] === b.group) || a.path.localeCompare(b.path));
