@@ -1398,7 +1398,10 @@ function showPage(p) {
   const g = groupOf(p); if (GROUPS[g]) { lastSub[g] = p; try { localStorage.setItem('chimera.sub', JSON.stringify(lastSub)); } catch {} }
   page = p; const at = PAGES.indexOf(p);
   // 分頁一層一層疊（Alan 2026-10-09）：右邊的疊在左邊的上面，每層往右縮一點，看得到下面幾層的邊；比現在這頁右邊的先收到畫面外
-  for (const [i, el] of [...$('track').children].entries()) { el.classList.toggle('above', i > at); el.classList.toggle('under', i < at); }
+  for (const [i, el] of [...$('track').children].entries()) { el.classList.toggle('above', i > at); el.classList.toggle('under', i < at);
+    // 同一組的子分頁：只有現在看的（或那一組上次看的）那頁參與疊層，其他的藏起來，組內切換不滑動
+    const k = el.id.replace(/^page-/, ''), gk = groupOf(k), sib = GROUPS[gk] && k !== (gk === g ? p : lastSub[gk] || GROUPS[gk][0][0]);
+    el.classList.toggle('sib', !!sib); if (sib) el.classList.remove('above', 'under'); }
   for (const b of document.querySelectorAll('.pager button')) b.classList.toggle('on', b.dataset.page === g);
   if (p === 'map') { draw(); renderRoster(); } else renderPage();
 }
