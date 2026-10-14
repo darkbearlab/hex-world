@@ -25,7 +25,11 @@ export function installGuard(E) {
     const b = document.createElement('button'); b.id = 'chimera-retreat'; b.type = 'button'; b.className = 'modal-button secondary'; b.textContent = '撤出戰場（算敗北）';
     b.onclick = async () => { if (!confirm('撤出戰場？\n\n這一場算敗北、沒有積分；撤的當下，附近的敵人會追擊一下，可能有人倒下。活著的人撤出後還留在合約上。')) return;
       M.close?.(); const ok = E.game.action('chimeraRetreat'); if (ok) { try { (await import('./controller-hud.js')).update(); } catch {} } };
-    brief.parentElement.insertBefore(b, brief.nextSibling); };
+    brief.parentElement.insertBefore(b, brief.nextSibling);
+    // 「先不打」（Alan 2026-10-14：從右側欄收進右上角選單）：關掉畫面，戰鬥留在伺服器，票還在
+    const a = document.createElement('button'); a.id = 'chimera-abort'; a.type = 'button'; a.className = 'modal-button secondary'; a.textContent = '先不打（關掉，票還在）';
+    a.onclick = () => { M.close?.(); E.abort(); };
+    b.parentElement.insertBefore(a, b); };
   new MutationObserver(addRetreat).observe(document.body, {childList: true, subtree: true});
   // 狩獵場的電梯口（Alan 2026-10-11）：往下一層，還是帶著收穫撤離
   setInterval(() => { const g = E.game; if (!E.active || !g?.chimeraAtExit || g.status !== 'playing' || document.getElementById('chimera-deeper')) return;

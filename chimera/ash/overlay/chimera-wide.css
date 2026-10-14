@@ -4,11 +4,8 @@
    戰場滿版；左上小隊面板；上方中央訊息與回合；右側欄：任務、鎖定目標、視野內敵人、紀錄；下方行動列。 */
 #ash-root{position:fixed;inset:0;z-index:60;overflow:hidden}
 #ash-root[hidden]{display:none}
-/* 直向（手機）：照 ASH 原本的版面；右側欄只留任務名稱與「先不打」，疊在右上 */
-#ash-root:not(.wide) #chimera-side>section{display:none}
-#ash-root:not(.wide) #chimera-side{position:fixed;right:6px;bottom:6px;z-index:40}
-#ash-root:not(.wide) #chimera-side .mhead b,#ash-root:not(.wide) #chimera-side .mhead small{display:none}
-#ash-root:not(.wide) #chimera-side button{padding:6px 10px;background:#1b211f;border:1px solid #4a5a55;color:#e8e2d0;font-size:11px}
+/* 直向（手機）：照 ASH 原本的版面，右側欄整個不顯示（「先不打」在右上角選單裡，Alan 2026-10-14） */
+#ash-root:not(.wide) #chimera-side{display:none}
 
 #ash-root.wide{--side:300px;--bar:124px}
 #ash-root.wide .app,#ash-root.wide .workspace{max-width:none;width:100vw;height:100vh;padding:0;margin:0}
@@ -39,7 +36,6 @@
 #ash-root.wide #chimera-side .mhead{display:flex;flex-direction:column;gap:6px}
 #ash-root.wide #chimera-side .mhead b{font-size:15px;color:var(--text)}
 #ash-root.wide #chimera-side .mhead small{font-size:11px;color:var(--muted);line-height:1.5}
-#ash-root.wide #chimera-side .mhead button{padding:7px 10px;background:#1b211f;border:1px solid #4a5a55;color:#e8e2d0;font-size:12px}
 #ash-root.wide #chimera-side section{border:1px solid var(--line);background:#181d1c;padding:10px}
 #ash-root.wide #chimera-side h4{margin:0 0 8px;display:flex;gap:8px;font:10px var(--mono);letter-spacing:1.5px;color:var(--muted)}
 #ash-root.wide #chimera-side h4 span{margin-left:auto;letter-spacing:0}

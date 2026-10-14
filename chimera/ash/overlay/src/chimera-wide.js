@@ -16,12 +16,11 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 export function installWide(){
  const E=globalThis.ASH_EMBED,root=document.getElementById('ash-root');
  const side=document.createElement('aside');side.id='chimera-side';
- side.innerHTML=`<header class="mhead"><b data-title></b><button data-abort>先不打（關掉，票還在）</button><small>走到電梯撤離＝勝・全員倒下＝敗・X 或左上切換操作的隊員</small></header>
+ side.innerHTML=`<header class="mhead"><b data-title></b><small>走到電梯撤離＝勝・全員倒下＝敗・X 或左上切換操作的隊員</small></header>
   <section class="target-slot"><h4>LOCKED TARGET<span>Tab 下一個</span></h4><p class="empty">點敵人或右邊清單鎖定</p></section>
   <section class="inview"><h4>IN VIEW <b data-count>0</b><span>點選鎖定</span></h4><ul class="foes"></ul></section>
   <section class="log"><h4>LOG</h4><div data-log></div></section>`;
  root.appendChild(side);
- side.querySelector('[data-abort]').onclick=()=>E.abort();
  const card=root.querySelector('#target-card'),slot=side.querySelector('.target-slot'),home=card.parentElement,anchor=card.nextSibling;
  const layout=()=>{
   const wide=WIDE.matches;if(root.classList.contains('wide')!==wide||!root.dataset.laid){root.classList.toggle('wide',wide);root.dataset.laid='1';
