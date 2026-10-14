@@ -536,7 +536,18 @@ setInterval(() => {
   }
 }, 1000);
 // el.html = ...：內容（倒數的數字不算）和上次一樣就不重畫。整塊 innerHTML 重設會讓頭像重新載入、閃一下（Alan 2026-10-09 回報）
-Object.defineProperty(HTMLElement.prototype, 'html', {configurable: true, set(v) { const k = String(v).replace(/(<span class="cd"[^>]*>)[^<]*/g, '$1'); if (this._k === k && this.childNodes.length) return; this._k = k; this.innerHTML = v; }});
+// 重畫時圖不閃（Alan 2026-10-14 回報：頭像、立繪隔一陣子閃一下）：每次伺服器送來新的畫面資料，整塊 HTML 重建、<img> 也跟著重建，
+// 瀏覽器要重新解碼那一格就空白一下。換內容時，src 一樣的圖沿用原本的那個元素（屬性照新的改）
+const keepImgs = (el, v) => {
+  const t = document.createElement('template'); t.innerHTML = v; const old = new Map();
+  for (const im of el.querySelectorAll('img')) { const k = im.getAttribute('src'); if (!old.has(k)) old.set(k, []); old.get(k).push(im); }
+  if (old.size) for (const im of t.content.querySelectorAll('img')) { const o = old.get(im.getAttribute('src'))?.shift(); if (!o) continue;
+    for (const at of [...o.attributes]) if (!im.hasAttribute(at.name)) o.removeAttribute(at.name);
+    for (const at of im.attributes) if (o.getAttribute(at.name) !== at.value) o.setAttribute(at.name, at.value);
+    im.replaceWith(o); }
+  el.replaceChildren(t.content);
+};
+Object.defineProperty(HTMLElement.prototype, 'html', {configurable: true, set(v) { const k = String(v).replace(/(<span class="cd"[^>]*>)[^<]*/g, '$1'); if (this._k === k && this.childNodes.length) return; this._k = k; keepImgs(this, v); }});
 const STATUS = {home: '待命', away: '出勤', op: '行動中', returning: '歸途', regen: '在培養槽休養', kia: '已除名', recovered: '遺體已收回', lost: '遺體沒能帶回', sold: '已除名'};   // 陣亡、遺體賣掉都算除名（Alan 2026-10-10）
 function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3200); }
 function found(base) { if (WATCH) return; send({type: 'found', base}); }
@@ -710,7 +721,7 @@ function renderHome() {
   const opLine = O ? `進行中・打下 ${O.done.length} 點${O.fight ? '・有一場沒打完' : ''}${Object.keys(O.drafts || {}).length ? '・有強化沒選' : ''}` : '路線圖・王點';
   const hr = new Date().getHours(), line = GV.relief ? '人手不夠了。我把企業留下的緊急程式打開了——別讓我後悔。' : (HOME_LINES.find(([, a, b]) => hr >= a && hr < b) || HOME_LINES[1])[0];   // 最低編制啟動中：封面角色提醒
   const news = (GM.inbox || [])[0];
-  P.innerHTML = `<div class="home2">
+  P.html = `<div class="home2">
     <div class="hbg"><span>CHIMERA</span></div>
     ${c ? `<img class="hchar" src="${standArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.classList.add('px')">` : ''}
     <div class="htop"><b>${esc(GV.name)}</b><span>基地 ${esc(GV.hq?.place || GV.baseName)}</span><span>$${GV.cash}k</span>${MATS.map(m => `<span>${MN[m]} ${GV.mats[m]}</span>`).join('')}</div>
