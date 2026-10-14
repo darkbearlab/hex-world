@@ -669,7 +669,7 @@ function renderHome() {
       <button class="hb" data-goto="co"><b>任務管制</b><span>服務單 ${GV.tickets.length}・案件 ${GV.cases.filter(x => !x.settled).length}</span></button>
       <button class="hb" data-goto="map"><b>戰略地圖</b><span>星球、委託</span></button>
       <button class="hb" data-goto="vat"><b>培養槽</b><span>造人、重新培養</span></button>
-      <button class="hb" data-goto="store"><b>倉庫</b><span>裝備</span></button>
+      <button class="hb" data-goto="store"><b>裝備</b><span>裝備</span></button>
       <button class="hb" data-goto="rover"><b>基地</b><span>運兵車</span></button>
       <button class="hb" data-goto="trade"><b>交易</b><span>素材</span></button>
       <button class="hb" data-goto="rep"><b>報表</b><span>收支</span></button>
@@ -1029,21 +1029,29 @@ function renderRover() {
 // 人員詳細資料：獨立的一張卡片，疊在畫面上（Alan 2026-10-10：比較好控制版面）；✕、點外面、Esc 關掉
 function renderPerson() {
   const P = $('pcard'); if (!P) return;
-  const c = GV && personSel != null && (['co', 'vat', 'store', 'trade', 'rover'].includes(page) || sortie) && GV.roster.find(x => x.uid === personSel);
+  const c = GV && personSel != null && (['co', 'roster', 'vat', 'store', 'trade', 'rover'].includes(page) || sortie) && GV.roster.find(x => x.uid === personSel);
   P.hidden = !c; if (c) $('pcbox').html = personCard(c);
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && personSel != null && !$('pcard').hidden) { personSel = null; gearPick = null; renderRoster(); } });
 function renderRoster() {
-  renderPerson();
+  renderPerson(); renderRosterPage();
   const D = $('drawer'); if (!D) return;
   D.hidden = !GV || !['co', 'vat', 'store', 'trade'].includes(page); if (D.hidden) return;
   D.classList.toggle('open', drawerOpen);
   const G = GV, alive = G.roster.filter(c => c.alive), n = k => G.roster.filter(c => inF(c, k)).length;
   $('drawbar').html = `<b>名冊</b><span class="mini">活著 ${alive.length}・待命 ${n('home')}・出勤 ${G.roster.filter(c => c.alive && c.status === 'away').length}${G.roster.some(c => c.alive && c.status === 'returning') ? `・歸途 ${G.roster.filter(c => c.alive && c.status === 'returning').length}` : ''}${n('kia') ? `・已除名 ${n('kia')}` : ''}</span><span class="caret">${drawerOpen ? '▼' : '▲'}</span>`;
   if (!drawerOpen) return;
-  const B = $('drawbody');
+  $('drawbody').html = rosterBody();
+}
+function renderRosterPage() {
+  const P = $('pane-roster'); if (!P || page !== 'roster') return;
+  P.html = GV ? `<div class="box"><h3 class="sec">名冊 <span class="muted">點人看詳細資料、換裝備</span></h3>${rosterBody()}</div>` : '<div class="box"><p class="muted">開了公司之後才有名冊。</p></div>';
+}
+// 名冊的內容：底部抽屜和「部隊・名冊」子分頁共用
+function rosterBody() {
+  const G = GV, n = k => G.roster.filter(c => inF(c, k)).length;
   const R = G.roster.filter(x => inF(x)).sort((a, b) => b.pct - a.pct);
-  B.html = `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
+  return `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
     <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${face(x)}" alt=""><b>${nameMin(x)}</b><span>${x.callsign ? esc(who(x)) + '・' : ''}${x.id}・${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
 }
 // 裝備欄（Alan 2026-10-09）：槍 ×3、近戰、護甲、預備品 ×2。在總部待命時可以換：點「換」從倉庫挑，原本那件回倉庫
@@ -1307,16 +1315,26 @@ $('pane-co').addEventListener('pointerleave', () => { const b = $('co-spark'); i
 // ───── 兩頁切換：上方按鈕，或左右滑 ─────
 let page = 'map';
 // 分頁（Alan 2026-10-09）：戰略地圖｜任務管制（原「公司」）｜培養槽｜交易｜報表
-const PAGES = ['home', 'map', 'co', 'ops', 'vat', 'store', 'trade', 'rover', 'rep'];
+// 上方分頁整併（Alan 2026-10-14）：主選單・戰略地圖・任務管制・行動・部隊（名冊｜培養槽｜裝備）・公司（基地｜交易｜報表）。
+// 子分頁還是各自一頁（PAGES 的順序就是疊的順序），上方按「部隊」「公司」回到上次看的那個子分頁
+const PAGES = ['home', 'map', 'co', 'ops', 'roster', 'vat', 'store', 'rover', 'trade', 'rep'];
+const GROUPS = {force: [['roster', '名冊'], ['vat', '培養槽'], ['store', '裝備']], corp: [['rover', '基地'], ['trade', '交易'], ['rep', '報表']]};
+const groupOf = p => Object.keys(GROUPS).find(g => GROUPS[g].some(([k]) => k === p)) || p;
+const lastSub = (() => { try { return JSON.parse(localStorage.getItem('chimera.sub') || '{}'); } catch { return {}; } })();
+for (const [g, L] of Object.entries(GROUPS)) for (const [k] of L) { const sec = $('page-' + k); if (!sec) continue;
+  const nav = document.createElement('nav'); nav.className = 'subtabs'; nav.innerHTML = L.map(([k2, n]) => `<button data-sub="${k2}" class="${k2 === k ? 'on' : ''}">${n}</button>`).join(''); sec.prepend(nav);
+  nav.onclick = e => { const b = e.target.closest('[data-sub]'); if (b) showPage(b.dataset.sub); }; }
 function renderPage() {
   if (page === 'home') renderHome(); else if (page === 'ops') renderOpsPage(); else if (page === 'co') renderCo(); else if (page === 'vat') renderVat(); else if (page === 'store') renderStore(); else if (page === 'trade') renderTrade(); else if (page === 'rover') renderRover(); else if (page === 'rep') renderRepPage();
   renderRoster();
 }
 function showPage(p) {
+  if (GROUPS[p]) p = GROUPS[p].some(([k]) => k === lastSub[p]) ? lastSub[p] : GROUPS[p][0][0];
+  const g = groupOf(p); if (GROUPS[g]) { lastSub[g] = p; try { localStorage.setItem('chimera.sub', JSON.stringify(lastSub)); } catch {} }
   page = p; const at = PAGES.indexOf(p);
   // 分頁一層一層疊（Alan 2026-10-09）：右邊的疊在左邊的上面，每層往右縮一點，看得到下面幾層的邊；比現在這頁右邊的先收到畫面外
   for (const [i, el] of [...$('track').children].entries()) { el.classList.toggle('above', i > at); el.classList.toggle('under', i < at); }
-  for (const b of document.querySelectorAll('.pager button')) b.classList.toggle('on', b.dataset.page === p);
+  for (const b of document.querySelectorAll('.pager button')) b.classList.toggle('on', b.dataset.page === g);
   if (p === 'map') { draw(); renderRoster(); } else renderPage();
 }
 for (const b of document.querySelectorAll('.pager button')) b.onclick = () => showPage(b.dataset.page);
@@ -1347,7 +1365,7 @@ function rePicker(room) {
     <div class="row"><button class="primary" data-act="re-go">送出契約變更（${pickRe.uids.size} 人）</button><button data-act="re-x">取消</button></div></div>`;
 }
 function renderOdds() { if (!$('co-odds')) return; const o = classOdds(recipe); $('co-odds').innerHTML = Object.entries(o).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span>${CLS[k].n} ${Math.round(v * 100)}%</span>`).join(''); }
-const coPanes = ['pane-co', 'pane-vat', 'pane-store', 'pane-trade', 'pane-rover', 'drawer', 'pcard'].map($);
+const coPanes = ['pane-co', 'pane-roster', 'pane-vat', 'pane-store', 'pane-trade', 'pane-rover', 'drawer', 'pcard'].map($);
 for (const el of coPanes) el.addEventListener('change', e => { const f = e.target.dataset.pf; if (!f || !procSel) return; procSel[f] = f === 'qty' ? Math.max(10, +e.target.value || 0) : e.target.value; renderProc(); });
 for (const el of coPanes) el.addEventListener('input', e => { const m = e.target.dataset.rc; if (!m) return; const r = e.target.dataset.vat != null ? vatRecipe(+e.target.dataset.vat) : recipe; r[m] = Math.max(0, +e.target.value || 0); renderOdds(); });
 // 配方輸入框打完（離開焦點）才重畫培養槽，機率跟著更新
