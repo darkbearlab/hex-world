@@ -1194,6 +1194,25 @@ function talentBox(c) {
     <div class="talrow talhead"><div></div>${R.paths.map(n => `<div>${esc(n)}</div>`).join('')}</div>${rows}
     <div class="mini muted">選了就固定，可以跨性格選。3、5、7、9、11 級自動長數值。</div>`;
 }
+// 手機的人員卡片（Alan 2026-10-14）：資料那一片的上緣可以往上、往下拉；拉到底只留名字那一條，看得到完整的立繪。點一下上緣在「收起」和「預設」之間切換。
+// 位置記在 sheetY（px，null＝預設），換人、重畫都照著放
+let sheetY = null, sheetDrag = null;
+const sheetLim = () => ({min: Math.round(innerHeight * .1), max: Math.round(innerHeight - 150)});
+document.addEventListener('pointerdown', e => {
+  const g = e.target.closest?.('.pcgrip'); if (!g || innerWidth >= 760) return;
+  const m = g.parentElement; e.preventDefault(); g.setPointerCapture?.(e.pointerId);
+  sheetDrag = {m, y0: e.clientY, top0: parseFloat(getComputedStyle(m).marginTop) || innerHeight * .4, moved: false};
+});
+document.addEventListener('pointermove', e => {
+  if (!sheetDrag) return; const dy = e.clientY - sheetDrag.y0; if (Math.abs(dy) > 4) sheetDrag.moved = true;
+  const {min, max} = sheetLim(); sheetY = Math.max(min, Math.min(max, Math.round(sheetDrag.top0 + dy))); sheetDrag.m.style.marginTop = sheetY + 'px';
+});
+const sheetEnd = () => {
+  if (!sheetDrag) return; const {m, moved} = sheetDrag, {max} = sheetLim(); sheetDrag = null;
+  if (!moved) sheetY = (parseFloat(m.style.marginTop) || 0) >= max - 4 ? null : max;   // 點一下：收起 ↔ 預設
+  m.classList.add('snap'); m.style.marginTop = sheetY == null ? '' : sheetY + 'px'; setTimeout(() => m.classList.remove('snap'), 260);
+};
+document.addEventListener('pointerup', sheetEnd); document.addEventListener('pointercancel', sheetEnd);
 function personCard(c) {
   const st = c.alive ? (STATUS[c.status] || c.status) + (c.status === 'regen' && c.regenAt != null ? `（撤退回基地，${cd(c.regenAt)}後回來，不花素材）` : '') + (c.squad ? `・${esc(c.squad)}` : '') : c.status === 'recovered' ? (c.reviving ? '遺體在培養槽裡，重新培養中' : '遺體已收回，可以重新培養（等級、技能從頭來）')
     : c.status === 'sold' ? '已除名'
@@ -1202,7 +1221,7 @@ function personCard(c) {
   // 版面（Alan 2026-10-10）：左邊（手機在上面）留一整欄給之後的半身／全身立繪（art/full/<立繪>.png，還沒有就先放像素頭像）；右邊是資料
   return `<div class="person pc2"><button class="pcx" data-person="" aria-label="關閉">✕</button>
     <div class="pcart"><img src="${fullArt(c)}" alt="" onerror="this.onerror=null;this.src='${face(c)}';this.parentElement.classList.add('px')"><span class="pcart-cap">${esc(who(c))}${c.callsign ? ' ' + csq(c) : ''}${crownTag(c)}</span></div>
-    <div class="pcmain">
+    <div class="pcmain"${sheetY != null ? ` style="margin-top:${sheetY}px"` : ''}><div class="pcgrip" title="往下拉看完整的立繪，往上拉看更多資料"><i></i></div>
     <div class="phead"><div><div class="pname">${nameFull(c)}${crownTag(c)} <button class="csbtn" data-act="callsign" data-id="${c.uid}" title="取綽號">✎ 綽號</button></div><div class="mini">${CLS[c.cls].n}</div><div class="mini">${st}</div><div class="mini">${c.lv || 1} 級・記憶片段 ${cellCount(c)}／100・出勤 ${c.missions || 0} 次</div></div></div>
     ${statTable(c)}
     ${gearBox(c)}

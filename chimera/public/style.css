@@ -523,7 +523,12 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
   .pcart-cap{display:none}
   .pcmain{position:relative;z-index:1;margin-top:40vh;min-height:60vh;padding:14px 16px 16px;background:color-mix(in srgb,var(--panel) 80%,transparent);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);border-top:1px solid var(--line);border-radius:14px 14px 10px 10px;box-shadow:0 -8px 24px #0008}
   .pcx{z-index:3;background:#000a!important}
+  /* 上緣的拉把（2026-10-14）：往上、往下拉，看完整的立繪 */
+  .pcgrip{display:flex;justify-content:center;align-items:center;height:32px;margin:-14px -16px -2px;cursor:grab;touch-action:none}
+  .pcgrip i{width:44px;height:5px;border-radius:3px;background:color-mix(in srgb,var(--text) 45%,transparent)}
+  .pcmain.snap{transition:margin-top .25s ease}
 }
+@media (min-width:760px){.pcgrip{display:none}}
 
 /* 簽收演出（艦隊收藏式）：全版立繪、資訊依序淡入、下面對話框 */
 .reveal.r2{padding:0;display:block;background:radial-gradient(ellipse at 50% 40%,#2a2318 0%,#0b0a08 70%);cursor:pointer;overflow:hidden}
