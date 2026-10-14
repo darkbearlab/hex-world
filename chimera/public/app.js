@@ -487,6 +487,7 @@ function renderAll() { renderHeader(); draw(); if (hist[cur].y !== lastPanelY ||
 /* ───────── 公司 ───────── */
 // 黑單的目標是自己簽長約的產地（Alan 2026-10-11：縱火燒到自己的長約產地）：標紅提醒
 const ownWarn = o => (o.kind === 'shadow') && (GV?.retainer?.mine || []).some(c => c.endedAt == null && c.site === o.tile) ? ' <b style="color:var(--war)">⚠ 目標是你簽長約的產地</b>' : '';
+let settling = null;   // 剛打完、伺服器還在結算的那一場（任務票編號，2026-10-14）
 let GV = null, GM = null, coBuilt = false, pickOpp = null, pickRe = null, rosterF = 'home', toastT = null;
 const recipe = {food: 30, water: 30, implant: 30, neural: 30};
 const send = m => worker.postMessage(m);
@@ -599,7 +600,7 @@ function renderOps() {
     const DR = Object.entries(cur.drafts || {});
     if (DR.length) html += `<div class="opdraft"><h4 class="sec2">局內強化 <span class="muted">每打贏一點每人選一個，只在這次行動有效</span></h4>${DR.map(([u, d]) => { const c = who2(+u); return `<div class="row draftrow"><span class="mini who">${c ? `${esc(who(c))} ${c.id}・${CLS[c.cls].n}` : u}${d.left > 1 ? `（還有 ${d.left} 次）` : ''}</span>${d.ids.map(id => `<button class="perk" data-oppk="${u}" data-id="${id}"><b>${esc(O.perks[id]?.n || id)}</b><span>${esc(O.perks[id]?.text || '')}</span></button>`).join('')}</div>`; }).join('')}</div>`;
     html += `      <div class="mini">隊伍：${cur.uids.map(u => { const c = who2(u), k = cur.carry[u]; return c ? `${esc(who(c))} ${c.id}${!c.alive ? '（倒下）' : k?.hp != null ? `（生命 ${k.hp}${k.maxHp ? '／' + k.maxHp : ''}・局內強化 ${(cur.picks[u] || []).length}）` : ''}` : ''; }).join('、')}・這次已拿記憶片段 ${cur.cells}</div>
-      <div class="row">${cur.fight ? `<button class="primary" data-opfight="${esc(cur.fight.ticket)}">繼續這一場</button>` : `<button data-opresupply="1"${GV.cash < cur.resupply.cash || GV.mats.implant < cur.resupply.implant || GV.mats.neural < cur.resupply.neural ? ' disabled' : ''} title="全隊補滿生命和護甲板；同一次行動每用一次價錢加倍">整補（$${cur.resupply.cash}k・${MN.implant} ${cur.resupply.implant}・${MN.neural} ${cur.resupply.neural}）</button>`}<button data-opleave="1"${cur.fight ? ' disabled title="先把這一點打完（戰鬥裡可以撤出）"' : ''}>撤回基地（行動結束）</button></div>`;
+      <div class="row">${cur.fight && cur.fight.ticket === settling ? '<span class="mini">伺服器正在結算剛才那一場，稍等一下……（超過一分鐘還是這樣，重新整理頁面）</span>' : cur.fight ? `<button class="primary" data-opfight="${esc(cur.fight.ticket)}">繼續這一場</button>` : `<button data-opresupply="1"${GV.cash < cur.resupply.cash || GV.mats.implant < cur.resupply.implant || GV.mats.neural < cur.resupply.neural ? ' disabled' : ''} title="全隊補滿生命和護甲板；同一次行動每用一次價錢加倍">整補（$${cur.resupply.cash}k・${MN.implant} ${cur.resupply.implant}・${MN.neural} ${cur.resupply.neural}）</button>`}<button data-opleave="1"${cur.fight ? ' disabled title="先把這一點打完（戰鬥裡可以撤出）"' : ''}>撤回基地（行動結束）</button></div>`;
   }
   if (!cur) storyAfter(O);
   if (O.log.length) html += `<div class="mini muted" style="margin-top:6px">最近：${O.log.map(x => `第 ${Math.floor(x.h / 24) + 1} 天 ${x.ok ? '成功' : '結束'}（${x.nodes} 點・記憶片段 ${x.cells}）`).join('；')}</div>`;
@@ -1634,7 +1635,7 @@ window.addEventListener('resize', () => { if (page !== 'map' && page !== 'rep' &
 let mission = null;
 const ash = import('./ash/chimera-boot.js').then(m => m.bootAsh()).then(E => {
   // 伺服器上的戰鬥由伺服器自己結算，這裡只要更新畫面；單人測試模式把戰果交給背景的核心
-  E.onresult = (id, result) => { if (mission && mission.id === id) { if (mission.arena) showTitle('測試戰鬥打完了（不結算）'); else if (result?.server) worker?.poll?.(); else send({type: 'submit', ticket: id, result}); mission = null; } };
+  E.onresult = (id, result) => { if (mission && mission.id === id) { if (mission.arena) showTitle('測試戰鬥打完了（不結算）'); else if (result?.server) { settling = id; for (const t of [0, 3000, 8000, 15000, 30000, 60000]) setTimeout(() => worker?.poll?.(), t); } else send({type: 'submit', ticket: id, result}); mission = null; } };   // 伺服器結算可能要一點時間：多拉幾次（2026-10-14）
   // 先不打：伺服器上的戰鬥留在伺服器，下次按親自打接著打；單人測試模式要讓時間恢復
   E.onabort = id => { if (mission && mission.id === id) { if (mission.arena) showTitle(); else if (LOCAL) send({type: 'abort'}); mission = null; } };
   return E;

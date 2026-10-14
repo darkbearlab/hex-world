@@ -270,7 +270,7 @@ export default {
     const url = new URL(req.url);
     if (url.pathname.startsWith('/api/internal/')) return new Response('not found', {status: 404});
     // 伺服器上的戰鬥：/api/battle/<任務票>/act|state，用身分代碼確認是自己的戰鬥
-    const mb = url.pathname.match(env.DEV === '1' ? /^\/api\/battle\/([^/]+)\/(act|state|log|selftest)$/ : /^\/api\/battle\/([^/]+)\/(act|state|log)$/);   // selftest：開發用，機器人打完
+    const mb = url.pathname.match(env.DEV === '1' ? /^\/api\/battle\/([^/]+)\/(act|state|log|ping|selftest)$/ : /^\/api\/battle\/([^/]+)\/(act|state|log|ping)$/);   // ping：打的時候讓戰鬥留在記憶體（2026-10-14）   // selftest：開發用，機器人打完
     if (mb) {
       const owner = await ownerOf(req, env); if (!owner) return bad(owner === false ? '登入已失效，請重新登入' : '沒有身分代碼', 401);
       return battleStub(env, decodeURIComponent(mb[1]), req.cf?.continent).fetch(new Request('https://battle/' + mb[2], {method: req.method, headers: {'content-type': 'application/json', 'x-owner': owner}, body: req.method === 'POST' ? await req.text() : undefined}));

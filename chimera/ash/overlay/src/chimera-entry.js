@@ -37,6 +37,8 @@ Object.assign(E,{
   const g=await build(tk.mission),log=tk.log||[];
   for(const e of log)applyEntry(g,e);
   const up=uplink(log.length,tk.id);E.uplink=up;record(g,e=>up.push(e,fingerprint(g)));   // 這一場的輸入只送這一場
+  // 保溫（2026-10-14）：打的時候每 30 秒敲一下伺服器的這一場，免得它閒置被收起來、下一步要從頭重播（server/battle.js ping）
+  clearInterval(keepWarm);keepWarm=setInterval(()=>{if(E.uplink!==up||current?.id!==tk.id||E.game?.status!=='playing'){clearInterval(keepWarm);return;}if(!up.pending)post('ping',{},tk.id).catch(()=>{});},30000);
   E.game=g;E.load(g);E.show();
   // 接回時這一場已經打完了（例如不同步、照伺服器的紀錄重建，伺服器那邊已經結束）：直接收尾（Alan 2026-10-11：公路戰常常停在打完的畫面）
   if(g.status!=='playing')E.finish(g);
@@ -97,6 +99,7 @@ function predictMove(g,type,arg){
 }
 // 把輸入送給伺服器：依序、一批批送（每批最多 300 筆），不擋畫面。伺服器說它收到的筆數和這裡不一樣，就從它說的那一筆重送；
 // 伺服器重播出來的指紋和這裡不一樣（不同步），以伺服器為準：重新接回（照伺服器的紀錄重建這一場）。
+let keepWarm=null;
 function uplink(start,id){
  const all=[];let sent=start,fp=null,busy=false,retry=0,idle=[];
  const pending=()=>start+all.length-sent;

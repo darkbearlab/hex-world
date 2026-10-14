@@ -110,6 +110,9 @@ export class Skirmish extends DurableObject {
     }
     if (!(await this.load())) return bad('沒有這場戰鬥', 404);
     const owner = req.headers.get('x-owner'); if (owner !== null && owner !== this.meta.owner) return bad('這不是你的戰鬥', 403);
+    // 保溫（Alan 2026-10-14：伺服器變超慢）：Durable Object 閒置一兩分鐘會被收起來，再叫醒時要從頭重播整場（行動三一場 250 筆輸入、本機就要 8 秒以上），
+    // 玩家想久一點、下一個行動就卡很久。打的時候瀏覽器每 30 秒敲一下，讓它留在記憶體
+    if (path === 'ping') return json({ok: true, status: this.g?.status ?? null});
     if (this.meta.mode === 'verify') {
       // 接回：任務與到目前為止的輸入，瀏覽器重播到同一個狀態
       if (path === 'state') return json({mode: 'verify', mission: this.mission, log: this.log, status: this.g.status, colo: await colo()});
