@@ -206,12 +206,15 @@ export class SquadGame extends MissionGame{
   const keep=this.player;this.swap(m);try{return super.enemyAct(e);}finally{this.swap(keep);}
  }
  // 視野：每位隊員都揭露、都會被看到。reveal 會記下「玩家看得到的格子」（visibleTiles，畫面的視野與光線用它），
- // 所以其他隊員先揭露，操作中的那位最後揭露
+ // 所以其他隊員先揭露，操作中的那位最後揭露。
+ // 畫面的視野是全隊的聯集（Alan 2026-10-14：隊伍拉長後迷霧一直狂閃——原本只記最後揭露的那位，隊員輪流行動時「玩家」換人，看得到的那一圈就跟著跳）。
+ // 瞄準、開火照舊看開火的那個人自己的視線（visible／sight），這裡只影響畫面和「點了看不到的格子＝盲射」
  reveal(opts){
   if(!this.members||this.revealing)return super.reveal(opts);
-  this.revealing=true;const keep=this.player;
-  try{for(const m of this.living)if(m!==keep){this.swap(m);super.reveal({warnings:false});}}finally{this.swap(keep);this.revealing=false;}
-  return super.reveal(opts);
+  this.revealing=true;const keep=this.player,team=new Set();
+  try{for(const m of this.living)if(m!==keep){this.swap(m);super.reveal({warnings:false});for(const k of this.visibleTiles||[])team.add(k);}}finally{this.swap(keep);this.revealing=false;}
+  const r=super.reveal(opts);if(this.visibleTiles)for(const k of team)this.visibleTiles.add(k);
+  return r;
  }
  // 交棒：還有人活著就不算結束（ASH 在「玩家」倒下時會判死，這位玩家可能是被敵人借去的其他隊員）
  // 每個行動之後檢查交棒（隊員在 soloTurn 裡的行動不算，那時「玩家」是他自己）
