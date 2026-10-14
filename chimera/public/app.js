@@ -556,8 +556,15 @@ function found(base) { if (WATCH) return; send({type: 'found', base}); }
 // 打的時候伺服器驗證輸入（超過一下子才出現，免得每一步都閃）；打完到伺服器結算完（settling）一直轉；收齊或結算完出「已審核」，兩秒半後收起
 const syncEl = Object.assign(document.createElement('div'), {id: 'sync-chip', hidden: true}); document.body.appendChild(syncEl);
 let syncT = null, syncShown = false;
+// 戰鬥中（Alan 2026-10-14）：只在右上角轉一個小圈，同步到最新就消失；打完還在跑、會卡住後面的操作時（settling）才出完整的標籤
+let dotT = null;
+const syncDot = Object.assign(document.createElement('div'), {id: 'sync-dot', hidden: true, title: '伺服器同步中'}); document.body.appendChild(syncDot);
 function syncChip(state, n = 0) {
+  if (!settling && state !== 'done') { syncEl.hidden = true; syncShown = false; clearTimeout(syncT); clearTimeout(dotT); syncDot.classList.toggle('retry', state === 'retry');
+    if (state === 'ok') syncDot.hidden = true; else if (syncDot.hidden) dotT = setTimeout(() => { syncDot.hidden = false; }, 250); return; }   // 很快就同步好的那一步不出現
+  syncDot.hidden = true; clearTimeout(dotT);
   clearTimeout(syncT);
+  if (state === 'done' && !syncShown) { syncEl.hidden = true; return; }   // 打完很快就結算好了：什麼都不用出
   if (state === 'busy' || state === 'retry') {
     const show = () => { syncShown = true; syncEl.className = state; syncEl.innerHTML = state === 'retry' ? '<i class="spin"></i>連線不穩，重送中…' : `<i class="spin"></i>服務單簽核中…${n > 1 ? `<small>${n} 筆</small>` : ''}`; syncEl.hidden = false; };
     if (syncShown || state === 'retry' || settling) show(); else syncT = setTimeout(show, 500);
@@ -593,7 +600,9 @@ function renderOps() {
   const O = GV?.ops, el = $('ops-box'); if (!O || !el) return;
   const cur = O.cur, D = cur && O.defs.find(d => d.id === cur.def), h = GV.h, who2 = u => GV.roster.find(c => c.uid === u);
   const costTxt = d => Object.entries(d.cost).map(([m, n]) => `${MN[m]} ${n}`).join('・');
-  let html = `<h3 class="sec">行動 <span class="muted">隨時能打：一張路線圖，每一點一場，最後是王點。倒下是真的死，但遺體全數收回。前一組打贏了，後面的才能打。</span></h3>`;
+  // 說明文字 Alan 2026-10-14 說平常不要顯示，留在註解裡：
+  //   標題旁：「隨時能打：一張路線圖，每一點一場，最後是王點。倒下是真的死，但遺體全數收回。前一組打贏了，後面的才能打。」
+  let html = `<h3 class="sec">行動</h3>`;
   if (!cur) {
     // 行動的清單（Alan 2026-10-14：多幾組，照順序解鎖）；挑人用出擊編成（跟接案一樣的卡片）
     // 常駐和活動（Alan 2026-10-14）：暫時上下分開、加標籤，之後介面再區分
@@ -603,8 +612,9 @@ function renderOps() {
         <div class="row">${lock ? `<span class="mini">🔒 要先完成「${esc(req?.title || '')}」</span>` : ev && !d.live ? '<span class="mini">現在沒有開放</span>' : `<button class="primary" data-opsel="${d.id}"${!d.free && Object.entries(d.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled title="素材不夠"' : ''}>出發</button>`}</div></div>`; };
     const story = O.defs.filter(d => d.kind === 'story'), main = O.defs.filter(d => d.kind === 'main'), evs = O.defs.filter(d => d.kind === 'event');
     html += `${story.length ? `<h4 class="sec2">主線</h4><div class="oplist">${story.map(card).join('')}</div>` : ''}<h4 class="sec2">常駐行動</h4><div class="oplist">${main.map(card).join('')}</div>
-      <h4 class="sec2">活動行動</h4>${evs.length ? `<div class="oplist">${evs.map(card).join('')}</div>` : '<p class="mini muted">目前沒有活動。</p>'}
-      <div class="mini muted">一次一組；派一到四個人。沒有疲勞，付得出素材就能一直打；但報酬打不平素材，主要是練等級（每打贏一點每人 2 片記憶片段，王點 6 片）和撈模板（首通必掉，之後打下王點 ${Math.round(O.tplP * 100)}%）。</div>`;
+      <h4 class="sec2">活動行動</h4>${evs.length ? `<div class="oplist">${evs.map(card).join('')}</div>` : '<p class="mini muted">目前沒有活動。</p>'}`;
+    // 清單下面的說明（2026-10-14 起不顯示）：「一次一組；派一到四個人。沒有疲勞，付得出素材就能一直打；但報酬打不平素材，
+    //   主要是練等級（每打贏一點每人 2 片記憶片段，王點 6 片）和撈模板（首通必掉，之後打下王點 ${Math.round(O.tplP * 100)}%）。」
   } else {
     html += `<div class="optitle"><b>${esc(D.title)}</b>　<span class="mini muted">${esc(D.text)}</span></div>`;
     const next = new Set(cur.next), fightNode = cur.fight?.node, byId = Object.fromEntries(D.nodes.map(n => [n.id, n]));
@@ -622,7 +632,8 @@ function renderOps() {
       <div class="row">${cur.fight && cur.fight.ticket === settling ? '<span class="mini"><i class="spin"></i>服務單簽核中——伺服器正在審核剛才那一場，好了這裡會自己更新（超過一分鐘還是這樣，重新整理頁面）</span>' : cur.fight ? `<button class="primary" data-opfight="${esc(cur.fight.ticket)}">繼續這一場</button>` : `<button data-opresupply="1"${GV.cash < cur.resupply.cash || GV.mats.implant < cur.resupply.implant || GV.mats.neural < cur.resupply.neural ? ' disabled' : ''} title="全隊補滿生命和護甲板；同一次行動每用一次價錢加倍">整補（$${cur.resupply.cash}k・${MN.implant} ${cur.resupply.implant}・${MN.neural} ${cur.resupply.neural}）</button>`}<button data-opleave="1"${cur.fight ? ' disabled title="先把這一點打完（戰鬥裡可以撤出）"' : ''}>撤回基地（行動結束）</button></div>`;
   }
   if (!cur) storyAfter(O);
-  if (O.log.length) html += `<div class="mini muted" style="margin-top:6px">最近：${O.log.map(x => `第 ${Math.floor(x.h / 24) + 1} 天 ${x.ok ? '成功' : '結束'}（${x.nodes} 點・記憶片段 ${x.cells}）`).join('；')}</div>`;
+  // 最近幾次的紀錄（2026-10-14 起不顯示）：
+  // if (O.log.length) html += `<div class="mini muted" style="margin-top:6px">最近：${O.log.map(x => `第 ${Math.floor(x.h / 24) + 1} 天 ${x.ok ? '成功' : '結束'}（${x.nodes} 點・記憶片段 ${x.cells}）`).join('；')}</div>`;
   el.html = html;
   const mp = el.querySelector('.opmap'); if (mp) drawOpMap(mp);
 }
@@ -1673,7 +1684,8 @@ window.addEventListener('resize', () => { if (page !== 'map' && page !== 'rep' &
 let mission = null;
 const ash = import('./ash/chimera-boot.js').then(m => m.bootAsh()).then(E => {
   // 伺服器上的戰鬥由伺服器自己結算，這裡只要更新畫面；單人測試模式把戰果交給背景的核心
-  E.onresult = (id, result) => { if (mission && mission.id === id) { if (mission.arena) showTitle('測試戰鬥打完了（不結算）'); else if (result?.server) { settling = id; syncChip('busy'); for (const t of [0, 3000, 8000, 15000, 30000, 60000]) setTimeout(() => worker?.poll?.(), t); setTimeout(() => { if (settling === id && !syncShown) return; if (settling === id) { syncEl.className = 'retry'; syncEl.innerHTML = '<i class="spin"></i>簽核比平常久，重新整理頁面看看'; } }, 65000); } else send({type: 'submit', ticket: id, result}); mission = null; } };   // 伺服器結算可能要一點時間：多拉幾次（2026-10-14）
+  E.onresult = (id, result) => { if (mission && mission.id === id) { if (mission.arena) showTitle('測試戰鬥打完了（不結算）'); else if (result?.server) { settling = id; setTimeout(() => { if (settling === id) syncChip('busy'); }, 1500);   // 打完一下子就結算好的不出標籤；還在跑才出完整的「簽核中」
+      for (const t of [0, 3000, 8000, 15000, 30000, 60000]) setTimeout(() => worker?.poll?.(), t); setTimeout(() => { if (settling === id && !syncShown) return; if (settling === id) { syncEl.className = 'retry'; syncEl.innerHTML = '<i class="spin"></i>簽核比平常久，重新整理頁面看看'; } }, 65000); } else send({type: 'submit', ticket: id, result}); mission = null; } };   // 伺服器結算可能要一點時間：多拉幾次（2026-10-14）
   // 先不打：伺服器上的戰鬥留在伺服器，下次按親自打接著打；單人測試模式要讓時間恢復
   E.onSync = (state, n) => syncChip(state, n);   // 打的時候伺服器驗證輸入的狀態（chimera-entry.js uplink）
   E.onabort = id => { if (mission && mission.id === id) { if (mission.arena) showTitle(); else if (LOCAL) send({type: 'abort'}); mission = null; } };

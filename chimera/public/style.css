@@ -742,3 +742,6 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 #sync-chip.retry{border-color:#b0603a;color:#f4b48c}
 .spin{display:inline-block;width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-1px;margin-right:4px;font-style:normal}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* 戰鬥中的同步小圈（2026-10-14）：右上角，同步到最新就消失 */
+#sync-dot{position:fixed;top:10px;right:10px;z-index:900;width:14px;height:14px;border:2px solid #e0b870;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;pointer-events:none;opacity:.85}
+#sync-dot[hidden]{display:none}#sync-dot.retry{border-color:#e08a5a;border-right-color:transparent}
