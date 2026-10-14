@@ -105,7 +105,7 @@ export class SquadGame extends MissionGame{
   m.owned=[...guns,...innate];
   if(g.melee){const b=at(g.melee.base);if(b>=0&&WEAPONS[b].melee){const s=add(b,null);m.owned.push(s);m.meleeSlot=s;if(g.melee.legacy)(this.chimeraLegacySlots||=new Map()).set(s,g.melee.legacy);}}
   m.weapon=m.owned[0]??m.weapon;
-  const kits={meds:0,grenades:0,smoke:0,stun:0,emp:0};for(const it of g.kits||[])if(it&&it.base in kits)kits[it.base]+=it.n||0;Object.assign(m,kits);
+  const kits={meds:0,grenades:0,smoke:0,stun:0,emp:0,glowsticks:0,flares:0};for(const it of g.kits||[])if(it&&it.base in kits)kits[it.base]+=it.n||0;Object.assign(m,kits);   // 螢光棒、照明彈要自己買（2026-10-14；ASH 原本每場給兩支螢光棒）
   const P=({light:10,medium:20,heavy:30}[g.armor?.base]||0)+(g.armor?.plates||0);if(P)m.plates=Math.max(m.plates||0,P);   // 遺產級護甲多幾片
   // 護甲的詞條＝特性（來源 chimera-armor），和 ASH 的穿戴品同一套
   removeTraitSource(m,'chimera-armor');for(const id of ARMOR_TRAITS[g.armor?.affix]||[])grantTrait(m,id,'chimera-armor');
@@ -121,7 +121,7 @@ export class SquadGame extends MissionGame{
   const L=this.chimeraLegacySlots||new Map(),ms=m.owned.find(s=>w(s)?.melee&&!innate(s));
   return {guns:m.owned.filter(s=>w(s)&&!w(s).melee).slice(0,3).map(s=>({base:w(s).id,affix:m.affixes[s]||null,...(L.get(s)?{legacy:L.get(s)}:{})})),meleeLegacy:ms!=null&&L.get(ms)||null,
    melee:(m.owned.find(s=>w(s)?.melee&&!innate(s))!=null?w(m.owned.find(s=>w(s)?.melee&&!innate(s))).id:null),
-   kits:Object.fromEntries(['meds','grenades','smoke','stun','emp'].map(k=>[k,Math.max(0,(m[k]||0)-(m.chimeraBonusKits?.[k]||0))])),   // 性格技能、行動多給的先用掉（不會變成倉庫裡的東西）
+   kits:Object.fromEntries(['meds','grenades','smoke','stun','emp','glowsticks','flares'].map(k=>[k,Math.max(0,(m[k]||0)-(m.chimeraBonusKits?.[k]||0))])),   // 性格技能、行動多給的先用掉（不會變成倉庫裡的東西）
    ammoUsed:m.chimeraAmmo0?Object.fromEntries(Object.entries(this.ammoTotals(m)).map(([k,v])=>[k,Math.max(0,(m.chimeraAmmo0[k]||0)-v)])):{}};   // 補滿要多少（Alan 2026-10-09：算補滿的費用；撿到的補回來就不用錢）
  }
  // 到了 SKILL_LEVEL 級學會職業技能（升級當下也會檢查，見 settleLevels）

@@ -215,6 +215,16 @@ export class MissionGame extends Game{
    for(const e of mine){if(distance(e,p)<=16||(gr.role==='flank'&&distance(e,t)<=2)){if(!e.alert){e.alert=true;e.lastKnown={x:p.x,y:p.y};}continue;}step(e,t,B);}
   }
  }
+ // 殘敵反撲（Alan 2026-10-14：找最後幾個人太花時間，夜戰更嚴重）：剩下的不到四分之一（至少 2 個）、也沒有增援要來時，剩下的敵人全部警覺，
+ // 知道最近的隊員在哪；離得遠的（ASH 的敵人 16 格外不動）這裡帶著走，進到 12 格內交還 ASH
+ chimeraLastStand(o){
+  const foes=this.enemies.filter(e=>e.hp>0&&!isNoncombatant(e)),squad=(this.members||[this.player]).filter(m=>m.hp>0);if(!foes.length||!squad.length||o.waves?.length)return;
+  o.total??=foes.length;if(foes.length>Math.max(2,Math.ceil(o.total*.25)))return;
+  if(!o.lastStand){o.lastStand=true;this.log(`剩下的 ${foes.length} 個敵人朝你們摸過來了。`,true);}
+  const B=new Set([...foes,...squad].map(u=>`${u.x},${u.y}`));
+  for(const e of foes){const m=squad.reduce((a,b)=>distance(e,b)<distance(e,a)?b:a);e.alert=true;e.lastKnown={x:m.x,y:m.y};if(e.concealed||distance(e,m)<=12)continue;
+   const s=this.nextStep(e,m);if(!s||B.has(`${s.x},${s.y}`))continue;B.delete(`${e.x},${e.y}`);e.x=s.x;e.y=s.y;e.moved=true;B.add(`${s.x},${s.y}`);}
+ }
  // 據點的計分（每回合一次）
  chimeraPoints(o){
   const S=this.survival,ours=u=>u.hp>0&&u.x!==undefined,squad=(this.members||[this.player]).filter(ours),foe=pt=>this.enemies.some(e=>e.hp>0&&!e.concealed&&!isNoncombatant(e)&&e.x===pt.x&&e.y===pt.y);
@@ -281,6 +291,7 @@ export class MissionGame extends Game{
   if(o0&&o0.layout==='highway'&&this.status==='playing'&&this.turn!==o0.stepTurn){o0.stepTurn=this.turn;for(const [text,danger] of vehicleStep(this,convoyRng(o0)))this.log(text,danger);this.reveal?.();}
   if(o0?.waves?.length&&this.status==='playing'&&this.turn!==o0.waveTurn){o0.waveTurn=this.turn;this.chimeraWaves(o0);}
   if(o0?.groups&&this.status==='playing'&&this.turn!==o0.groupTurn){o0.groupTurn=this.turn;this.chimeraGroups(o0);}
+  if(o0&&!o0.deck&&this.status==='playing'&&this.turn!==o0.lastTurn){o0.lastTurn=this.turn;this.chimeraLastStand(o0);}
   if(this.survival&&o0?.mode&&this.status==='playing'&&this.turn!==o0.pointTurn){o0.pointTurn=this.turn;this.chimeraPoints(o0);}
   this.chimeraFalls();this.chimeraBossCheck();this.chimeraLegacyDrop();
   const o=this.chimeraOutdoor;

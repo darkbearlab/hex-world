@@ -159,10 +159,22 @@ export function outdoorMap(tk, floor = 1) {
   const room = {x: 1, y: 1, w: N - 2, h: N - 2, cx: mid, cy: mid, id: 0, cellIds: [0], footprint};
   const light = grid.map(row => row.map(() => tk.night ? 0 : 1));
   const enemySpots = spots.filter(p => free(p.x, p.y) && Math.max(Math.abs(p.x - start.x), Math.abs(p.y - start.y)) >= 6);
+  // 鹵素燈（Alan 2026-10-14）：夜戰時放在敵人陣地和我方前進路線之間——從敵人往出發點三成的地方，照著我方要走過去的那一段，
+  // 直直走過去會先被敵人看到、被搶先開火。是 ASH 的燈（可以打掉），照得比牆燈遠（補丁 0012：亮 4 格、昏暗到 6 格）
+  const lamps = [], floods = [];
+  if (tk.night && layout !== 'highway') {
+    let anchors = groups ? groups.filter(g => g.role === 'guard' || g.role === 'reserve').map(g => g.anchor) : [];
+    if (!anchors.length) { const pool = enemySpots.slice(); anchors = []; while (pool.length && anchors.length < (k > 1 ? 4 : 2)) {   // 沒有據點群：敵人站位裡挑幾個彼此離得遠的
+      const far = anchors.length ? pool.reduce((a, b) => Math.min(...anchors.map(q => Math.abs(q.x - b.x) + Math.abs(q.y - b.y))) > Math.min(...anchors.map(q => Math.abs(q.x - a.x) + Math.abs(q.y - a.y))) ? b : a) : pool[Math.floor(R() * pool.length)];
+      anchors.push(far); pool.splice(pool.indexOf(far), 1); } }
+    for (const a of anchors.slice(0, 4)) { const tx = Math.round(a.x + (start.x - a.x) * .3), ty = Math.round(a.y + (start.y - a.y) * .3);
+      let best = null; for (let r = 0; r <= 3 && !best; r++) for (let y = ty - r; y <= ty + r && !best; y++) for (let x = tx - r; x <= tx + r; x++) if (free(x, y) && !trench[y]?.[x] && !lamps.some(l => l.x === x && l.y === y)) { best = {x, y}; break; }
+      if (best) { const id = `lamp-${floor}-${lamps.length}`; lamps.push({id, x: best.x, y: best.y, hp: 1}); floods.push(id); } }
+  }
   // 地圖風格：牆的材質照生態；矮牆照布局（營地：原住民木柵、其他鐵皮）
   const lowArt = layout === 'camp' && tk.enemy?.units && Object.keys(tk.enemy.units).some(k => k.startsWith('native')) ? 'palisade' : layout === 'trench' ? 'palisade' : 'fence';
   return {map: {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items, props, hazards: [], marks: [], barriers,
-    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'chimera-outdoor-v2'}, lighting: light, slots: [], lamps: [], lightModel: 2},
+    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'chimera-outdoor-v2'}, lighting: light, slots: [], lamps, lightModel: 2},
     spots: enemySpots, style: `chimera-${bio.wall}-${lowArt}`,
-    outdoor: {layout, biome: tk.biome || '', groups, staging, goal: EXIT.has(tk.type) ? 'exit' : PLANT[tk.type] ? 'plant' : layout === 'ring' ? 'hold' : 'kill', plantN: PLANT[tk.type] || 0, plantAt, clear: CLEAR[tk.type] || null, waveFrom: tk.type === 'pursuit' ? 'south' : null, holdTurns: 30, ground, trench, night: !!tk.night}};   // hold：撐過 holdTurns 回合（或清光）
+    outdoor: {layout, biome: tk.biome || '', groups, staging, goal: EXIT.has(tk.type) ? 'exit' : PLANT[tk.type] ? 'plant' : layout === 'ring' ? 'hold' : 'kill', plantN: PLANT[tk.type] || 0, plantAt, clear: CLEAR[tk.type] || null, waveFrom: tk.type === 'pursuit' ? 'south' : null, holdTurns: 30, ground, trench, night: !!tk.night, floods}};   // hold：撐過 holdTurns 回合（或清光）
 }

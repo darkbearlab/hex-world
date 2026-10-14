@@ -326,7 +326,7 @@ function finishBuild(G, q, h, book = null) {
 export const GUNS = {rifle: {n: '突擊步槍', v: 40}, shotgun: {n: '霰彈槍', v: 35}, smg: {n: '衝鋒槍', v: 35}, sniper: {n: '精準步槍', v: 60}, lmg: {n: '輕機槍', v: 70}, launcher: {n: '榴彈發射器', v: 80}, plasma: {n: '電漿步槍', v: 120}, flamer: {n: '火焰發射器', v: 60}};
 export const MELEES = {knife: {n: '求生小刀', v: 10}, sabre: {n: '軍刀', v: 25}, spear: {n: '長矛', v: 25}, claws: {n: '手爪', v: 30}, chainsaw: {n: '鏈鋸', v: 50}};
 export const ARMORS = {light: {n: '輕型護甲', plates: 10, v: 20}, medium: {n: '中型護甲', plates: 20, v: 45}, heavy: {n: '重型護甲', plates: 30, v: 80}};
-export const KITS = {meds: {n: '醫療包', v: 5, max: 3}, grenades: {n: '破片彈', v: 6, max: 3}, smoke: {n: '煙霧彈', v: 4, max: 3}, stun: {n: '震撼彈', v: 5, max: 3}, emp: {n: 'EMP', v: 8, max: 2}};
+export const KITS = {meds: {n: '醫療包', v: 5, max: 3}, grenades: {n: '破片彈', v: 6, max: 3}, smoke: {n: '煙霧彈', v: 4, max: 3}, stun: {n: '震撼彈', v: 5, max: 3}, emp: {n: 'EMP', v: 8, max: 2}, glowsticks: {n: '螢光棒', v: 2, max: 6}, flares: {n: '照明彈', v: 4, max: 3}};   // 螢光棒、照明彈（2026-10-14 進市集）
 export const AFFIX_NAMES = {homemade: '土製', stable: '穩定', piercing: '穿甲', extended: '擴容', powerful: '強擊', longbarrel: '長管', shortbarrel: '短管', tracking: '追獵', flashhider: '消焰', lance: '貫穿', burst: '爆裂', rapid: '速射'};
 const DROP_ONLY = ['lance', 'burst', 'rapid'];
 // 護甲的詞條＝ASH 的特性（TRAITS），穿上時掛上、來源標成護甲（chimera-squad.js applyGear）。先用 ASH 現成的
