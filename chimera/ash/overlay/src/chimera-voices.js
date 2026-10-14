@@ -34,6 +34,8 @@ export const VOICES = {
     flank: ['欸欸，旁邊也有人？', '被包圍了～好刺激～'], grenade: ['炸彈～快跑～', '不要不要不要——'], kia: ['欸……沉下去了……', '……分我的那份……給大家吧……']},
   'portrait-15': {fire: ['……嗯。', '清掉了。'], contact: ['有東西。可能有毒，也可能是人。', '接觸。戴好面罩。'], boss: ['那個……比輻射還麻煩。', '頭目。嗯……麻煩。'],
     flank: ['側面也有。好煩。', '被包了。……我就知道。'], grenade: ['爆炸物，退開。', '手榴彈。別撿。'], kia: ['……啊……面罩……', '……早知道……就請假……']},
+  io: {fire: ['我來壓制，指揮官往前。', '這裡我守著。'], contact: ['有人闖進來了。跟那天一樣。', '敵人。指揮官，別離我太遠。'], boss: ['那個人……很危險。我會擋在前面。', '頭目。這次我不會讓你被暗算。'],   // 守密者伊歐（2026-10-14）
+    flank: ['側面也有人——我轉過去。', '被包了。靠到我身後。'], grenade: ['手榴彈，退開！', '趴下！'], kia: ['……我先回培養槽……很快就回來……', '撤退……指揮官，等我。']},
   'portrait-16': {fire: ['晚安。', '天還沒亮呢。'], contact: ['黑暗裡有人。我看得到。', '有人靠近了。'], boss: ['那個……很冷的感覺。', '頭目。今晚會很長。'],
     flank: ['旁邊也有……沒關係，我守著。', '被包圍了。大家靠緊一點。'], grenade: ['手榴彈，退開！', '小心！'], kia: ['……天……亮了嗎……', '……夜班……交給你們了……']},
 };
@@ -50,7 +52,7 @@ export function installVoices(Game) {
     if (!who) return null;
     const lines = VOICES[who.donor]?.[type] || GENERIC[type], text = lines[Math.floor(Math.random() * lines.length)];
     const name = who.callName || who.squadId || '';
-    return {text, name, short: name, ...(VOICES[who.donor] ? {face: `/donors/${who.donor}/portrait.png`} : {}), ...(type === 'kia' ? {} : {seconds: Math.min(4, 1.6 + text.length * .08)})};
+    return {text, name, short: name, ...(VOICES[who.donor] ? {face: `/donors/${who.art || who.donor}/portrait.png`} : {}), ...(type === 'kia' ? {} : {seconds: Math.min(4, 1.6 + text.length * .08)})};
   };
   // 開火：排進佇列，下一次 controller 說話時一起說。佇列、冷卻都放在遊戲狀態外面（伺服器重播驗證時，狀態不能因為隨機的台詞不一樣）
   const action = P.action;

@@ -13,7 +13,7 @@ export const donorSpritePath = k => `donors/${k}/sprite2.png`;
 export const DONOR_SPRITES = true;   // 2026-10-14 重新打開（只有做了 v2 的原主會換）
 export function donorSprite(u) {
   if (!DONOR_SPRITES) return null;
-  const k = u?.donor; if (!k || !have?.has(donorSpritePath(k))) return null;
+  const k = u?.art || u?.donor; if (!k || !have?.has(donorSpritePath(k))) return null;
   let im = cache.get(k); if (!im) { im = new Image(); im.src = '/' + donorSpritePath(k); cache.set(k, im); }
   return im.complete && im.naturalWidth ? im : null;
 }

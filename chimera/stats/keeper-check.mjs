@@ -10,6 +10,12 @@ const io = co.roster.find(c => c.keeper), io2 = co2.roster.find(c => c.keeper);
 ok(io && io.callsign === '守密者' && io.cls === 'engineer' && G.donorName(io) === '伊歐', `開張就有守密者伊歐：${io && G.label(io)}`);
 ok(io2 && io.id !== io2.id && /^IO-0000\d$/.test(io2.id) && co2.no === co.no + 1, `編號對著玩家流水號：${io.id}、${io2.id}`);
 const go = n => a.advanceTo(a.game.h + n);
+// 換裝（2026-10-14）：只換外觀，戰場拿到的是那套衣服的圖
+ok(cmd({type: 'outfit', uid: io.uid, id: 'combat'}) === null && G.artKey(io) === 'io/combat', `換上戰鬥服（${G.artKey(io)}）`);
+ok(cmd({type: 'outfit', uid: io.uid, id: 'bikini'}) !== null, '沒有的衣服不能換');
+ok(cmd({type: 'outfit', uid: io.uid, id: 'work'}) === null && G.artKey(io) === 'io' && io.outfit === undefined, '換回維修工作服（預設那套不記）');
+const other = co.roster.find(c => !c.keeper); ok(cmd({type: 'outfit', uid: other.uid, id: 'combat'}) !== null, '別人沒有這套衣服');
+cmd({type: 'outfit', uid: io.uid, id: 'combat'});
 // 倒下＝撤退：遺體不留在戰場，躺回培養槽 24 小時
 Object.assign(io, {alive: false, status: 'lost', downAs: 'lost', downAt: a.game.h, downTile: co.base}); (book.bodies ||= []).push({uid: io.uid, co: co.name, tile: co.base, at: a.game.h, value: 30, caseId: null});
 go(1);

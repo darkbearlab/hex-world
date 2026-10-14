@@ -12,11 +12,12 @@ PICK = {
   'portrait-12': (E('11'), .5, .17, .06, 0), 'portrait-15': (E('05'), .5, .14, 0, 0), 'portrait-16': (E('08'), .5, .14, .1, 0),
   'portrait-08': (F('22'), .5, .14, 0, 0), 'portrait-09': (F('19'), .5, .13, 0, 0), 'portrait-10': (F('20'), .5, .13, .34, -.14),
   'ember': (E('06'), .5, .13, 0, 0), 'onyx': (F('14'), .5, .13, 0, 0), 'silver': (E('10'), .5, .14, 0, 0), 'cedar': (E('01'), .5, .14, 0, 0),   # 原本用 ASH 頭像的四位（Alan 2026-10-12 也接上）
-  'io': (glob.glob(O + 'chimera_io_keeper_*_q16_preview.png')[0], .5, .14, 0, 0),   # 守密者伊歐（Alan 2026-10-14，gpt-image-2 low 試作 B，16 色）
+  'io': (glob.glob(O + 'chimera_io_keeper_*_q16_preview.png')[0], .5, .14, 0, 0),
+  'io/combat': (glob.glob(O + 'chimera_iocombat_keeper_*_q16_preview.png')[0], .5, .14, 0, 0),   # 伊歐的戰鬥服（換裝，2026-10-14；16 色用 FASTOCTREE，MEDIANCUT 會把膚色和橘色洗成灰）   # 守密者伊歐（Alan 2026-10-14，gpt-image-2 low 試作 B，16 色）
   'portrait-11': (F('15'), .5, .14, 0, 0), 'portrait-13': (F('16'), .5, .13, .12, 0), 'portrait-14': (F('23'), .42, .14, .08, 0),
 }
 # 眼睛（Alan 2026-10-12：兩眼連線的中點在頭像正中間，兩眼外側佔頭像寬的二分之一到三分之二）：(兩眼中點 x, y, 兩眼外眼角的距離)，原圖座標，看圖量的
-EYES = {"io": [489, 194, 105], "portrait-05": [497, 199, 100], "portrait-06": [507, 165, 82], "portrait-07": [436, 224, 99], "portrait-12": [508, 185, 98], "portrait-15": [494, 200, 96], "portrait-16": [496, 222, 100], "portrait-08": [497, 145, 89], "portrait-09": [485, 144, 81], "portrait-10": [473, 191, 87], "ember": [521, 188, 95], "onyx": [483, 179, 90], "silver": [527, 191, 104], "cedar": [514, 191, 100], "portrait-11": [503, 188, 98], "portrait-13": [524, 176, 95], "portrait-14": [500, 214, 100]}
+EYES = {"io": [489, 194, 105], "io/combat": [493, 196, 103], "portrait-05": [497, 199, 100], "portrait-06": [507, 165, 82], "portrait-07": [436, 224, 99], "portrait-12": [508, 185, 98], "portrait-15": [494, 200, 96], "portrait-16": [496, 222, 100], "portrait-08": [497, 145, 89], "portrait-09": [485, 144, 81], "portrait-10": [473, 191, 87], "ember": [521, 188, 95], "onyx": [483, 179, 90], "silver": [527, 191, 104], "cedar": [514, 191, 100], "portrait-11": [503, 188, 98], "portrait-13": [524, 176, 95], "portrait-14": [500, 214, 100]}
 EYE_SPAN = .58
 FULL_RATIO = .72   # 立繪 full.png 的寬高比（全部一樣）
 def figure_box(im):

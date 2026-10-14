@@ -128,6 +128,15 @@ export const DONORS = {
   io: {name: '伊歐', cls: 'engineer'},   // 守密者（不在 PORTRAITS 裡：培養槽抽不到她，每家公司只有一位）
 };
 export const donorName = c => DONORS[c.donor ?? c.portrait]?.name || '';
+// 換裝（Alan 2026-10-14）：同一位原主可以有好幾套衣服；第一套是預設，放在 donors/<原主>/，其他的放 donors/<原主>/<衣服>/（立繪、頭像、站姿、戰場 sprite 都換）。
+// 只換外觀；c.outfit 記穿哪一套，畫面和戰場用 artKey(c) 找圖
+export const OUTFITS = {io: [['work', '維修工作服'], ['combat', '戰鬥服']]};
+export const artKey = c => { const d = c.donor ?? c.portrait, o = c.outfit, L = OUTFITS[d]; return o && L && L.findIndex(([k]) => k === o) > 0 ? `${d}/${o}` : d; };
+export function setOutfit(G, uid, id) {
+  const c = G.roster.find(x => x.uid === uid); if (!c) return '找不到這個人';
+  const L = OUTFITS[c.donor ?? c.portrait]; if (!L?.some(([k]) => k === id)) return '沒有這套衣服';
+  if (id === L[0][0]) delete c.outfit; else c.outfit = id; return null;
+}
 // 綽號（call sign，Alan 2026-10-10）：每個人可以自己取；完整的叫法是「瑟琳 “人獵人” X-0910」
 export const label = c => `${donorName(c)}${c.callsign ? ` “${c.callsign}”` : ''} ${c.id}`;
 export function setCallsign(G, uid, name) {

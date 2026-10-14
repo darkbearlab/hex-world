@@ -23,6 +23,7 @@ LOOK = {   # 照立繪寫的長相（細節縮小會被吃掉，抓得到輪廓�
     'portrait-16': 'long white hair with a blue streak, a white hooded fur parka, a black bodysuit',
     'silver': 'long brown braids, a dark knit beanie, an olive parka',
     'io': 'short dark gray-green hair, goggles on her forehead and a headset, a long torn sand-beige work coat over a rust-orange jumpsuit, a tool pouch',   # 守密者伊歐（2026-10-14）
+    'io/combat': 'short dark gray-green hair, goggles on her forehead and a headset, a sleek form-fitting slate-gray and black armored combat bodysuit with rust-orange stripes',   # 伊歐的戰鬥服（換裝）
 }
 ROLE = {   # 職業：武器讓模型自己挑（Alan：動作和武器不用保留，之後要重繪）
     'soldier': 'She is a rifle soldier; give her an assault rifle in a pose that reads well at tiny size',
@@ -32,7 +33,7 @@ ROLE = {   # 職業：武器讓模型自己挑（Alan：動作和武器不用保
     'berserker': 'She is a melee berserker; choose any pose and any big melee weapon that suits her and reads well at tiny size',
 }
 CLS = {'ember': 'soldier', 'onyx': 'recon', 'silver': 'bulwark', 'cedar': 'berserker', 'portrait-05': 'engineer', 'portrait-06': 'soldier', 'portrait-07': 'recon', 'portrait-08': 'bulwark',
-       'portrait-09': 'berserker', 'portrait-10': 'engineer', 'portrait-11': 'soldier', 'portrait-12': 'recon', 'portrait-13': 'bulwark', 'portrait-14': 'berserker', 'portrait-15': 'engineer', 'portrait-16': 'soldier', 'io': 'engineer'}
+       'portrait-09': 'berserker', 'portrait-10': 'engineer', 'portrait-11': 'soldier', 'portrait-12': 'recon', 'portrait-13': 'bulwark', 'portrait-14': 'berserker', 'portrait-15': 'engineer', 'portrait-16': 'soldier', 'io': 'engineer', 'io/combat': 'engineer'}
 def prompt(k):
     return ("Use the three reference images: the first two are the game's existing sprites and define the STYLE and CAMERA only (overhead three-quarter front/down-facing camera, chunky SNES pixel-art proportions, strong dark outline, high-contrast shading). "
             f"The third image is the CHARACTER to draw: a young woman with {LOOK[k]}. {ROLE[CLS[k]]}. "
@@ -47,7 +48,7 @@ for k in keys:
     if os.path.exists(os.path.join(out, 'sprite-B.png')): print(k, '已經有了，略過'); continue
     t0 = time.time()
     r = subprocess.run([sys.executable, 'generate.py', prompt(k), '--edit', os.path.join(ASH, 'source-berserker-v3.png'), os.path.join(ASH, 'source-melee-dead-v3.png'), os.path.join(root, 'public', 'donors', k, 'full.png'),
-                        '--size', '1536x768', '--quality', 'low', '--n', '2', '--prefix', f'donor-{k}', '--json'], cwd=GEN, capture_output=True, text=True, encoding='utf-8')
+                        '--size', '1536x768', '--quality', 'low', '--n', '2', '--prefix', f'donor-{k.replace("/", "-")}', '--json'], cwd=GEN, capture_output=True, text=True, encoding='utf-8')
     try: files = [f['path'] for f in json.loads(r.stdout[r.stdout.index('{'):])['files']]
     except Exception: print(k, '生成失敗：', (r.stdout + r.stderr)[-400:]); break
     for tag, f in zip('AB', files):

@@ -1,5 +1,5 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
-import {CLS, MN, MATS, REVIVE_RECIPE, TAGS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES, TALENTS, TALENT_ROWS, growOf, SKILL_LV} from './company.js';
+import {CLS, MN, MATS, REVIVE_RECIPE, TAGS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES, TALENTS, TALENT_ROWS, growOf, SKILL_LV, OUTFITS, artKey} from './company.js';
 import {unitName, cellHas, cellCount, CELL_PITY} from './cases.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
@@ -494,10 +494,10 @@ const img = p => `portraits/${p}.png`;
 let ART = new Set();
 fetch('asset-manifest.json', {cache: 'no-cache'}).then(r => r.ok ? r.json() : null).then(d => { if (!d) return; ART = new Set(d.items.map(x => x.path)); if (GV) { try { renderPage(); renderRoster(); } catch {} } }).catch(() => {});
 const donorKey = c => c.donor ?? c.portrait;
-const face = c => ART.has(`donors/${donorKey(c)}/portrait.png`) ? `donors/${donorKey(c)}/portrait.png` : img(c.portrait);
+const face = c => ART.has(`donors/${artKey(c)}/portrait.png`) ? `donors/${artKey(c)}/portrait.png` : img(c.portrait);   // 換裝：圖照穿的那套找（artKey）
 // 主選單的站姿立繪：去背的 stand.png（chimera/scripts/stand-cutout.py），沒有就用一般的立繪
-const standArt = c => ART.has(`donors/${donorKey(c)}/stand.png`) ? `donors/${donorKey(c)}/stand.png` : fullArt(c);
-const fullArt = c => ART.has(`donors/${donorKey(c)}/full.png`) ? `donors/${donorKey(c)}/full.png` : `art/full/${c.portrait}.png`;
+const standArt = c => ART.has(`donors/${artKey(c)}/stand.png`) ? `donors/${artKey(c)}/stand.png` : fullArt(c);
+const fullArt = c => ART.has(`donors/${artKey(c)}/full.png`) ? `donors/${artKey(c)}/full.png` : `art/full/${c.portrait}.png`;
 const who = c => c.name || CLS[c.cls].n;   // 原主的名字（Alan 2026-10-10）；舊資料沒有就顯示職業
 // 綽號（call sign，Alan 2026-10-10）：有綽號就優先顯示。完整：瑟琳 “人獵人” X-0910；簡短：瑟琳 “人獵人”；最短：“人獵人”
 const csq = c => c.callsign ? `“${esc(c.callsign)}”` : '';
@@ -1124,6 +1124,7 @@ function personCard(c) {
     ${gearBox(c)}
     ${talentBox(c)}
     <div class="mini">技能：${(c.skills || []).length ? c.skills.map(k => (SKN[k] || k) + (k === c.prep ? '（預備）' : '')).join('、') : `還沒有（${SKILL_LV} 級學會職業技能）`}</div>
+    ${OUTFITS[donorKey(c)] && c.alive ? `<div class="mini" style="margin-top:8px">服裝</div><div class="row tags">${OUTFITS[donorKey(c)].map(([k, n], i) => `<button data-act="outfit" data-id="${c.uid}" data-o="${k}" class="${(c.outfit || OUTFITS[donorKey(c)][0][0]) === k ? 'on' : ''}">${n}</button>`).join('')}</div>` : ''}
     <div class="mini" style="margin-top:8px">分類（可以多選；「不出擊」的人不會被派出去）</div>
     <div class="row tags">${c.alive || c.status === 'recovered' ? [['keep', '不出擊'], ...Object.entries(TAGS)].map(([k, n]) => `<button data-act="tag" data-id="${c.uid}" data-tag="${k}" class="${k === 'keep' ? c.keep ? 'on' : '' : (c.tags || []).includes(k) ? 'on' : ''}">${n}</button>`).join('') : ''}</div>
     ${canRv ? `<div class="row"><button class="primary" data-act="revive" data-id="${c.uid}"${MATS.some(m => GV.mats[m] < rv[m]) ? ' disabled title="素材不夠"' : ''}>重新培養（${MATS.map(m => `${MN[m]} ${rv[m]}`).join('・')}）</button><button data-act="sellbody" data-id="${c.uid}" data-p="${c.bodyPrice}">賣掉遺體（時價 $${c.bodyPrice}k）</button></div><div class="mini muted">時價：最近 7 天全星球倒下 ${GV.deaths7 ?? 0} 人，死的人越多越便宜；金冠、銀冠、記憶片段多的比較值錢。賣掉前身上的裝備會先放進倉庫。</div>` : ''}
@@ -1413,6 +1414,7 @@ const coClick = e => {
   else if (A === 'claim') { revealAfter = GV.fresh ?? null; send({type: 'claim', slot: +b.dataset.vat}); }
   else if (A === 'keep') send({type: 'keep', uid: +id});
   else if (A === 'tag') send({type: 'tag', uid: +id, tag: b.dataset.tag});
+  else if (A === 'outfit') send({type: 'outfit', uid: +id, id: b.dataset.o});
   else if (A === 'sellbody') { const c = GV.roster.find(x => x.uid === +id); if (c && confirm(`賣掉 ${who(c)} ${c.id} 的遺體，$${b.dataset.p}k？\n賣掉之後就不能再重新培養了。`)) send({type: 'sellbody', uid: +id}); }
   else if (A === 'talent') { const c = GV.roster.find(x => x.uid === +id), o = TALENTS[c?.cls]?.rows[+b.dataset.row]?.[+b.dataset.k]; if (o && confirm(`替 ${who(c)} ${c.id} 選「${o.n}」？\n${o.text}\n\n選了就不能改。`)) send({type: 'talent', uid: +id, row: +b.dataset.row, k: +b.dataset.k}); }
   else if (A === 'callsign') { const c = GV.roster.find(x => x.uid === +id), v = prompt('綽號（最多 8 個字；清空就拿掉）', c?.callsign || ''); if (v !== null) send({type: 'callsign', uid: +id, name: v}); }
