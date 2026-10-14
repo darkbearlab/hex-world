@@ -138,6 +138,7 @@ dialog.imp[open]{display:flex}
 .acard{display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:6px!important;text-align:left}
 .athumb{display:flex;align-items:center;justify-content:center;height:96px;border-radius:6px;background:repeating-conic-gradient(#2a2d33 0 25%,#22252a 0 50%) 0 0/12px 12px;overflow:hidden}
 .athumb img{max-width:100%;max-height:100%;image-rendering:pixelated;object-fit:contain}
+.athumb img.small{width:100%;height:100%}   /* 小圖（例如 64×32 的戰場 sprite）放大填滿，像素照樣清楚（2026-10-15） */
 .aname{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .asize{font-size:11px}
 #assetSearch{width:min(220px,40vw)}
