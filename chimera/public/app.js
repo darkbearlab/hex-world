@@ -1,5 +1,7 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
 import {CLS, MN, MATS, REVIVE_RECIPE, TAGS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES, TALENTS, TALENT_ROWS, growOf, SKILL_LV, OUTFITS, artKey} from './company.js';
+import {playScene} from './story.js';
+import {REST_TALK, SOLO, IO} from './story-lines.js';
 import {unitName, cellHas, cellCount, CELL_PITY} from './cases.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
@@ -592,13 +594,30 @@ function renderOps() {
   el.html = html;
   const mp = el.querySelector('.opmap'); if (mp) drawOpMap(mp);
 }
+// 休整點的閒聊（Alan 2026-10-14：劇情還沒寫，先挑幾個人隨機說幾句）：story-lines.js 的台詞，story.js 演出
+function restScene(D, n, party) {
+  if (!party.length) return;
+  const io = party.find(c => c.keeper), pick = a => a[Math.floor(Math.random() * a.length)];
+  const rest = party.filter(c => c !== io).sort(() => Math.random() - .5);
+  let talk, who;
+  if (party.length === 1) { talk = pick(SOLO); who = party; }
+  else if (io && Math.random() < .5) { talk = pick(IO); who = [io, ...rest]; }
+  else { talk = pick(REST_TALK); who = [...party].sort(() => Math.random() - .5); }
+  const roles = ['A', 'B', 'C'].filter(r => talk.some(([k, t]) => k === r || t.includes(`{${r}}`)));
+  if (roles.length > who.length) { talk = pick(SOLO); who = [who[0]]; roles.length = 1; roles[0] = 'A'; }
+  const nm = c => c.callsign || c.name || c.id, pos = roles.length === 1 ? ['c'] : roles.length === 2 ? ['l', 'r'] : ['l', 'r', 'c'];
+  const cast = Object.fromEntries(roles.map((r, i) => [r, {name: nm(who[i]), art: standArt(who[i]), pos: pos[i]}]));
+  const fill = t => t.replace(/\{([ABCP])\}/g, (_, k) => k === 'P' ? n.name : cast[k]?.name || '');
+  playScene({place: n.name, sub: `${D.title}・${n.kind}`, cast, lines: talk.map(([k, t]) => ({who: k, text: fill(t)}))});
+}
 function opClick(e) {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   if (b.dataset.oppk) { send({type: 'opPick', uid: +b.dataset.oppk, id: b.dataset.id}); return; }
   if (b.dataset.opsel) { const d = GV.ops.defs.find(x => x.id === b.dataset.opsel); if (!d) return;
     sortie = {key: 'custom', tile: GV.base, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'op', lv: 3, one: true, min: 1, tile: GV.base, title: d.title, detail: `${d.text}　代價：${costTxt2(d)}`, go: uids => send({type: 'opStart', def: d.id, uids})}};
     renderSortie(); return; }
-  if (b.dataset.opgo) { const D = GV.ops.defs.find(d => d.id === GV.ops.cur.def), n = D.nodes.find(x => x.id === b.dataset.opgo); send({type: 'opGo', node: n.id}); if (n.type !== 'rest') showMissionLoading(); return; }
+  if (b.dataset.opgo) { const D = GV.ops.defs.find(d => d.id === GV.ops.cur.def), n = D.nodes.find(x => x.id === b.dataset.opgo); const party = GV.ops.cur.uids.map(u => GV.roster.find(c => c.uid === u)).filter(c => c?.alive);
+    send({type: 'opGo', node: n.id}); if (n.type !== 'rest') showMissionLoading(); else restScene(D, n, party); return; }
   if (b.dataset.opfight) { send({type: 'fight', ticket: b.dataset.opfight}); showMissionLoading(); return; }
   if (b.dataset.opresupply) { const c = GV.ops.cur.resupply; if (confirm(`花 $${c.cash}k、${MN.implant} ${c.implant}、${MN.neural} ${c.neural} 整補？\n全隊補滿生命和護甲板。這次行動下一次整補的價錢加倍。`)) send({type: 'opResupply'}); return; }
   if (b.dataset.opleave && confirm('撤回基地？這次行動就結束了（已經拿到的記憶片段不會收回）。')) send({type: 'opLeave'});
