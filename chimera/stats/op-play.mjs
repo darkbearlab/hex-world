@@ -37,6 +37,7 @@ while (co.op && step < 10) {
   if (fights) { ok(!g.pendingPerks && !g.perkChoices.length, `${n.name}：開場沒有三選一`); const mm = g.members.find(m => m.chimeraPicks.includes('med')); if (mm) ok(mm.chimeraBonusKits?.meds >= 2, '戰地補給：這一點多帶醫療包'); }
   let k = 0; while (g.status === 'playing' && k++ < 8000) botFor(g.player).step();
   const res = g.missionResult; fights++;
+  if (g.status === 'playing') console.log('  打不完：' + (d.night ? '夜戰・' : '白天・') + g.enemies.filter(e => e.hp > 0).map(e => `${e.type}(${e.x},${e.y})${e.alert ? "警覺" : "沒發現"}`).join(' ') + '・隊員 ' + g.members.filter(m => m.hp > 0).map(m => `(${m.x},${m.y})`).join(' '));
   const P = Object.values(res.progress), picks = P.reduce((x, p) => x + (p.picks?.length || 0), 0) / Math.max(1, P.length);   // 每人平均
   console.log(`  ${d.title}：${g.status}，${g.turn} 回合，敵人 ${res.kills}/${res.total}，倒下 ${res.dead.length}，局內強化共 ${picks}`);
   prevPicks = picks;

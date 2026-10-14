@@ -19,8 +19,9 @@ export const OPS = {
     {id: 'g', x: .55, y: .7, layer: 3, type: 'facility', kind: '室內', name: '礦坑', text: '從坑道繞進去，裡面又窄又暗。', next: ['h', 'i']},
     {id: 'h', x: .75, y: .22, layer: 4, type: 'rest', kind: '休整', name: '工寮', text: '最後一次休整：每人回復一半的生命、補滿護甲板。', next: ['j']},
     {id: 'i', x: .77, y: .6, layer: 4, type: 'probe', kind: '精英', name: '親衛巡邏隊', text: '鏽牙的親衛在礦場裡巡邏，人多、裝備好。', next: ['j'], elite: true},
-    {id: 'j', x: .92, y: .42, layer: 5, type: 'clear', kind: '王點', name: '鏽牙的堡壘', text: '礦主本人和他最後的手下。', next: [], boss: {ash: 'delisted_soldier', name: '礦主「鏽牙」', hp: 3}}]},
+    {id: 'j', x: .92, y: .42, layer: 5, type: 'clear', kind: '王點', name: '鏽牙的堡壘', text: '礦主本人和他最後的手下。', next: [], boss: {ash: 'arsonist', name: '礦主「鏽牙」'}}]},
   // 行動二～四（Alan 2026-10-14：多幾組，前一組打贏了後面的才能打；每組都是樹狀路線、多個點）
+  // 王點的頭目照 ASH 的強度分級（Alan 2026-10-14）：前期＝縱火犯、標定官、典獄官；中期＝火線官、焚線官、核心守衛；除名幹員是 ASH 後期才會出現的，留給更後面的行動
   well: {title: '行動二：枯井淨水廠', req: 'trial', tier: 1, foe: '佔廠的傭兵', text: '一夥傭兵佔了枯井的淨水廠，把水賣給出價最高的人。從乾河床摸過去，奪回廠區。', side: 'free', cost: {food: 60, water: 20, implant: 20}, cash: 100, nodes: [
     {id: 'a', x: .08, y: .5, layer: 1, type: 'probe', kind: '遭遇', name: '乾河床', text: '河床上的巡邏隊。', next: ['c', 'd']},
     {id: 'b', x: .12, y: .18, layer: 1, type: 'ambush', kind: '車隊', name: '運水車道', text: '攔下傭兵的運水車隊。', next: ['c']},
@@ -31,7 +32,7 @@ export const OPS = {
     {id: 'g', x: .52, y: .8, layer: 3, type: 'pursuit', kind: '潛入', name: '排水渠', text: '從排水渠鑽進去，被發現了就往前跑。', next: ['i']},
     {id: 'h', x: .72, y: .3, layer: 4, type: 'facility', kind: '室內', name: '過濾槽', text: '廠房裡又暗又窄。', next: ['j']},
     {id: 'i', x: .72, y: .66, layer: 4, type: 'rest', kind: '休整', name: '控制室', text: '最後一次休整。', next: ['j']},
-    {id: 'j', x: .92, y: .48, layer: 5, type: 'clear', kind: '王點', name: '水塔', text: '傭兵隊長守在水塔下。', next: [], boss: {ash: 'gunline', name: '傭兵隊長「渴」', hp: 3}}]},
+    {id: 'j', x: .92, y: .48, layer: 5, type: 'clear', kind: '王點', name: '水塔', text: '傭兵隊長守在水塔下。', next: [], boss: {ash: 'designator', name: '傭兵隊長「渴」'}}]},
   hive: {title: '行動三：鹽沼巢穴', req: 'well', tier: 2, foe: '蟲群', biome: '鹽沼', text: '鹽沼底下的舊設施被蟲群築了巢，附近的聚落一個個空了。一路往下，燒掉巢母。', side: 'hive', cost: {food: 60, water: 60, neural: 20}, cash: 150, nodes: [
     {id: 'a', x: .07, y: .3, layer: 1, type: 'clear', kind: '清剿', name: '空聚落', text: '被蟲群掏空的聚落。', next: ['c', 'd']},
     {id: 'b', x: .1, y: .74, layer: 1, type: 'hold', kind: '守住', name: '鹽田', text: '守住鹽田邊的高地，擋住湧上來的蟲。', next: ['d', 'e']},
