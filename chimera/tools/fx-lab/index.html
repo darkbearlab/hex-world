@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>武器特效試聽台</title>
+<style>
+:root{--bg:#16130f;--card:#211c16;--line:#3a3127;--fg:#e9e0d2;--mut:#a4977f;--acc:#e6c281;--on:#7fbf6a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 "Noto Sans TC","Microsoft JhengHei",sans-serif}
+header{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 16px;background:#0f0d0aee;border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0 8px 0 0;letter-spacing:.1em}header label{display:flex;gap:6px;align-items:center;color:var(--mut)}
+button{background:#2c251d;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:5px 10px;font:inherit;cursor:pointer}button:hover{border-color:var(--acc)}
+button.primary{background:var(--acc);color:#1b160f;border-color:var(--acc);font-weight:700}
+#status{color:var(--on);font-size:12px}
+main{padding:12px 16px 60px;display:flex;flex-direction:column;gap:14px;max-width:1500px;margin:0 auto}
+.weapon{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.whead{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.whead h2{font-size:15px;margin:0}.whead .mini{color:var(--mut);font-size:12px}
+.wbody{display:grid;grid-template-columns:minmax(320px,1.2fr) repeat(3,minmax(200px,1fr));gap:10px;margin-top:8px;align-items:start}
+canvas{width:100%;max-width:960px;max-height:300px;object-fit:contain;image-rendering:pixelated;background:#2a241c;border-radius:6px;display:block}
+.combo{border:1px solid var(--line);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:5px;font-size:12px}
+.combo.chosen{border-color:var(--on);box-shadow:0 0 0 1px var(--on) inset}
+.combo .ct{display:flex;justify-content:space-between;align-items:center;gap:6px}.combo .ct b{font-size:14px}
+.combo label{display:grid;grid-template-columns:3.6em 1fr;gap:4px;align-items:center;color:var(--mut)}
+.combo select,.combo input[type=range]{width:100%;background:#15120e;color:var(--fg);border:1px solid var(--line);border-radius:4px;font:inherit;padding:2px}
+.combo .row{display:flex;gap:6px;flex-wrap:wrap}.combo .row input[type=color]{width:32px;height:22px;padding:0;border:1px solid var(--line);background:none}
+.pick{display:flex;gap:4px;align-items:center;color:var(--on)}
+.note{color:var(--mut);font-size:12px}
+@media (max-width:1100px){.wbody{grid-template-columns:1fr 1fr}.wbody canvas{grid-column:1/-1}}
+@media (max-width:640px){.wbody{grid-template-columns:1fr}}
+</style></head><body>
+<header><h1>武器特效試聽台</h1>
+<label><input type="checkbox" id="pixel" checked>像素模式（照遊戲 32 像素的比例）</label>
+<label>音量 <input type="range" id="vol" min="0" max="1" step=".05" value=".6"></label>
+<label><input type="checkbox" id="loop">連續播放</label>
+<button class="primary" id="save">儲存選擇</button><span id="status"></span>
+<span class="note">每種武器有 A／B／C 三組，素材都可以換；勾「選這組」再按儲存（存在 picks.json）。槍聲是 Sonniss 授權，這一頁只在本機開。</span></header>
+<main id="list"></main>
+<script>
+const $ = s => document.querySelector(s), W = 320, H = 96, K = 3;   // 場景用遊戲的像素單位（角色 32 格），畫面放大 3 倍
+let A = null, picks = {};
+// 武器：射擊的方式（kind）、連發數、間隔（毫秒）
+const WEAPONS = [
+  {id: 'rifle', n: '突擊步槍', kind: 'bullet', burst: 3, gap: 95}, {id: 'smg', n: '衝鋒槍', kind: 'bullet', burst: 4, gap: 70}, {id: 'lmg', n: '輕機槍', kind: 'bullet', burst: 5, gap: 85},
+  {id: 'shotgun', n: '霰彈槍', kind: 'pellets', burst: 1, gap: 0}, {id: 'sniper', n: '精準步槍', kind: 'bullet', burst: 1, gap: 0}, {id: 'plasma', n: '電漿步槍', kind: 'bolt', burst: 1, gap: 0},
+  {id: 'launcher', n: '榴彈發射器', kind: 'lob', burst: 1, gap: 0}, {id: 'thunder', n: '爆破步槍', kind: 'bolt', burst: 3, gap: 140, boom: true}, {id: 'flamer', n: '火焰噴射器', kind: 'flame', burst: 1, gap: 0},
+  {id: 'grenade', n: '破片手榴彈', kind: 'lob', burst: 1, gap: 0, thrown: true}, {id: 'melee', n: '近戰（斧、刀、拳）', kind: 'melee', burst: 1, gap: 0}];
+// 三組預設（素材 id 見 /api/assets）：muzzle 槍口、trail 彈道、impact 擊中、sfx 槍聲、rate 播放速度
+const P = (muzzle, mSize, mTint, trail, tColor, impact, iSize, iTint, sfx, rate = 1) => ({muzzle, mSize, mTint, trail, tColor, impact, iSize, iTint, sfx, rate});
+const PRESETS = {
+  rifle: [P('kenney/muzzle_01', 14, '#ffb347', 'line', '#ffe6a0', 'kenney/spark_01', 12, '#ffd27a', '步槍/SVD_30m'), P('kenney/muzzle_03', 16, '#ffc066', 'kenney/trace_01', '#fff0c0', 'brackeys/impact_white_6x4', 16, '#ffe0a0', '室內/AK5_大廳連發'), P('kenney/muzzle_05', 12, '#ff9a3c', 'line', '#ffd890', 'kenney/dirt_01', 14, '#b89a70', '步槍/SVD_設計版')],
+  smg: [P('kenney/muzzle_02', 11, '#ffc266', 'line', '#ffe6a0', 'kenney/spark_02', 9, '#ffd27a', '室內/MP5_大廳連發'), P('kenney/muzzle_04', 10, '#ffb04d', 'line', '#fff0c0', 'kenney/spark_05', 10, '#ffe2a0', '手槍/Glock17_20m'), P('kenney/muzzle_01', 10, '#ffd37a', 'kenney/trace_02', '#ffeec0', 'brackeys/impact_white_6x4', 12, '#fff0c0', '手槍/Hammerli22LR_近距')],
+  lmg: [P('kenney/muzzle_03', 16, '#ffa640', 'line', '#ffe0a0', 'kenney/spark_03', 12, '#ffcc66', '室內/AK5_大廳連發'), P('kenney/muzzle_05', 18, '#ff9a3c', 'kenney/trace_03', '#ffe6b0', 'kenney/dirt_02', 16, '#a88a60', '步槍/SVD_30m'), P('kenney/muzzle_01', 16, '#ffb84d', 'line', '#fff0c0', 'brackeys/big_hit_6x5', 18, '#ffd890', '步槍/SVD_設計版')],
+  shotgun: [P('kenney/muzzle_04', 18, '#ffa040', 'line', '#ffe0a0', 'kenney/spark_04', 9, '#ffd070', '霰彈槍/Saiga12_近距'), P('kenney/muzzle_02', 20, '#ff9030', 'line', '#ffd890', 'kenney/dirt_03', 12, '#a88a60', '霰彈槍/SPAS12_泵動_20m'), P('kenney/flare_01', 20, '#ffc060', 'kenney/trace_04', '#fff0c0', 'brackeys/impact_white_6x4', 12, '#ffe0a0', '霰彈槍/Saiga12_設計版')],
+  sniper: [P('kenney/muzzle_05', 20, '#ffb347', 'kenney/trace_05', '#fff4d0', 'brackeys/big_hit_6x5', 22, '#ffe0a0', '狙擊槍/Lynx50_近距'), P('kenney/muzzle_03', 18, '#ffc066', 'line', '#ffffff', 'kenney/spark_06', 18, '#ffe6a0', '狙擊槍/Lynx50_遠距65m'), P('kenney/muzzle_01', 16, '#ffaa50', 'line', '#ffe6b0', 'kenney/dirt_01', 18, '#b89a70', '步槍/SVD_設計版')],
+  plasma: [P('kenney/light_01', 16, '#7ff0ff', 'kenney/light_02', '#6fe8ff', 'brackeys/electric_ring_6x5', 22, '#8af0ff', '手槍/DesertEagle_近距', 1.6), P('kenney/star_04', 14, '#a0f8ff', 'kenney/magic_01', '#80e0ff', 'kenney/spark_07', 16, '#a0f8ff', '手槍/Hammerli22LR_近距', 2), P('kenney/flare_01', 16, '#60e0ff', 'kenney/light_03', '#80f0ff', 'brackeys/impact_white_6x4', 18, '#9ff4ff', '重武器與爆炸/AK5_擊中裝甲板', 1.3)],
+  launcher: [P('kenney/smoke_01', 14, '#c8bca8', 'kenney/circle_05', '#444036', 'unity/Explosion02_5x5', 44, '#ffffff', '重武器與爆炸/RPG_擊穿車頂'), P('kenney/muzzle_02', 14, '#ffaa40', 'kenney/circle_05', '#444036', 'brackeys/explosion_6x5', 44, '#ffffff', '重武器與爆炸/FH77榴彈砲'), P('kenney/smoke_03', 16, '#b8ac98', 'kenney/circle_05', '#3a362e', 'unity/Explosion00_5x5', 48, '#ffffff', '重武器與爆炸/反戰車地雷_遠距')],
+  thunder: [P('kenney/muzzle_02', 14, '#ff9a3c', 'kenney/light_01', '#ffd070', 'unity/Explosion01-light_5x5', 24, '#ffffff', '霰彈槍/Saiga12_設計版'), P('kenney/flare_01', 14, '#ffb050', 'kenney/light_02', '#ffc060', 'brackeys/fire_point_6x5', 22, '#ffffff', '重武器與爆炸/RPG_擊穿車頂', 1.3), P('kenney/muzzle_04', 14, '#ff8a30', 'kenney/light_03', '#ffcc66', 'brackeys/star_explosion_6x5', 24, '#ffffff', '手槍/DesertEagle_近距', .8)],
+  flamer: [P('kenney/flame_01', 14, '#ff9a3c', 'unity/Flame02_16x4', '#ffffff', 'kenney/scorch_01', 18, '#3a2a1a', '重武器與爆炸/反戰車地雷_遠距', .6), P('kenney/fire_01', 14, '#ffb050', 'unity/SmallFlame01-smaller_16x4', '#ffffff', 'kenney/scorch_02', 18, '#3a2a1a', '室內/Mossberg12_走廊隔間', .5), P('kenney/flame_03', 14, '#ff8a30', 'brackeys/dithered_fire_6x5', '#ffffff', 'kenney/smoke_05', 18, '#5a5048', '', 1)],
+  grenade: [P('', 0, '#ffffff', 'kenney/circle_05', '#3a362e', 'unity/Explosion02_5x5', 52, '#ffffff', '重武器與爆炸/反戰車地雷_遠距'), P('', 0, '#ffffff', 'kenney/circle_05', '#3a362e', 'brackeys/explosion_6x5', 52, '#ffffff', '重武器與爆炸/RPG_擊穿車頂'), P('', 0, '#ffffff', 'kenney/circle_05', '#3a362e', 'unity/Explosion01_5x5', 56, '#ffffff', '重武器與爆炸/FH77榴彈砲')],
+  melee: [P('', 0, '#ffffff', 'kenney/slash_01', '#ffffff', 'kenney/spark_01', 12, '#ffd27a', ''), P('', 0, '#ffffff', 'kenney/slash_03', '#ffe0c0', 'brackeys/big_hit_6x5', 18, '#ffffff', '重武器與爆炸/AK5_擊中裝甲板', .9), P('', 0, '#ffffff', 'kenney/slash_04', '#ffd0a0', 'brackeys/impact_white_6x4', 16, '#ffffff', '')]};
+// ===== 素材 =====
+const imgs = new Map(), tinted = new Map();
+const img = src => { let i = imgs.get(src); if (!i) { i = new Image(); i.src = src; imgs.set(src, i); } return i; };
+const findSheet = id => A.sheets.find(s => s.id === id), findSprite = id => A.sprites.find(s => s.id === id);
+function tint(src, color) {   // Kenney 粒子是白色的：染成指定顏色（快取）
+  const key = src + color; let c = tinted.get(key); const i = img(src); if (c || !i.complete || !i.naturalWidth) return c || null;
+  c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight; const g = c.getContext('2d'); g.drawImage(i, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);
+  g.globalCompositeOperation = 'destination-over'; tinted.set(key, c); return c;
+}
+function playSfx(group, rate) {
+  const L = A.sfx[group]; if (!L?.length) return; const a = new Audio(L[Math.floor(Math.random() * L.length)]);
+  a.volume = +$('#vol').value; a.playbackRate = rate || 1; a.preservesPitch = false; a.play().catch(() => {});
+}
+// ===== 播放 =====
+// 粒子：{src|sheet, x, y, size, rot, t0, life, add, color, stretch:[x2,y2]}
+function run(cv, w, c, snap = null) {   // snap：只畫第 snap 毫秒那一幀（測試用，不放聲音、不排動畫）
+  const parts = [], t0 = snap == null ? performance.now() : 0, sx = 52, sy = 58, tx = w.kind === 'melee' ? 86 : 262, ty = 56, mx = sx + 12, my = sy - 4;
+  const add = (o, at = 0) => parts.push({...o, t0: t0 + at});
+  const burstFile = /連發/.test(c.sfx);
+  const shot = (at, i) => {
+    if (c.muzzle) add({src: c.muzzle, x: mx, y: my, size: c.mSize, rot: Math.random() * .6 - .3, life: 70, add: true, color: c.mTint}, at);
+    if (c.sfx && snap == null && (!burstFile || i === 0)) setTimeout(() => playSfx(c.sfx, c.rate), at);
+    const jit = () => (Math.random() - .5) * 8;
+    if (w.kind === 'bullet' || w.kind === 'pellets') {
+      const n = w.kind === 'pellets' ? 6 : 1;
+      for (let p = 0; p < n; p++) { const ex = tx + jit() * (n > 1 ? 2.2 : 1), ey = ty + jit() * (n > 1 ? 2 : 1);
+        add({trail: c.trail, x: mx, y: my, x2: ex, y2: ey, life: 60, add: true, color: c.tColor}, at);
+        add({src: c.impact, x: ex, y: ey, size: c.iSize * (n > 1 ? .7 : 1), rot: Math.random() * 6, life: 220, add: !/dirt|scorch|smoke/.test(c.impact), color: c.iTint}, at + 30); }
+    } else if (w.kind === 'bolt') {
+      add({proj: c.trail, x: mx, y: my, x2: tx, y2: ty, life: 220, add: true, color: c.tColor, size: w.boom ? 10 : 12}, at);
+      add({src: c.impact, x: tx + jit(), y: ty + jit(), size: c.iSize, rot: 0, life: 420, add: true, color: c.iTint}, at + 220);
+    } else if (w.kind === 'lob') {
+      add({proj: c.trail, arc: 34, x: w.thrown ? sx + 6 : mx, y: w.thrown ? sy - 10 : my, x2: tx, y2: ty + 6, life: 560, add: false, color: c.tColor, size: 6}, at);
+      add({src: c.impact, x: tx, y: ty, size: c.iSize, rot: 0, life: 700, add: true, color: c.iTint, shake: 1}, at + 560);
+    } else if (w.kind === 'flame') {
+      for (let k = 0; k < 18; k++) { const f = k / 18, ex = mx + (tx - mx) * Math.min(1, f * 1.3), ey = my + (ty - my) * f + jit() * .6;
+        add({src: c.trail, x: ex, y: ey, size: 10 + 14 * f, rot: Math.random() * 6, life: 420, add: true, color: c.tColor}, at + k * 30); }
+      add({src: c.impact, x: tx, y: ty + 10, size: c.iSize, rot: Math.random() * 6, life: 1400, add: false, color: c.iTint}, at + 400);
+    } else if (w.kind === 'melee') {
+      add({src: c.trail, x: tx - 2, y: ty - 2, size: 30, rot: -.6, life: 180, add: true, color: c.tColor}, at);
+      add({src: c.impact, x: tx, y: ty, size: c.iSize, rot: 0, life: 300, add: true, color: c.iTint}, at + 80);
+    }
+  };
+  for (let i = 0; i < w.burst; i++) shot(i * w.gap, i);
+  const end = t0 + (w.burst - 1) * w.gap + 1500, g = cv.getContext('2d'), low = document.createElement('canvas'); low.width = W; low.height = H;
+  const frame = now => {
+    const pix = $('#pixel').checked, k = pix ? 1 : K, ctx = pix ? low.getContext('2d') : g;
+    if (!pix) { cv.width = W * K; cv.height = H * K; } else { cv.width = W * K; cv.height = H * K; }
+    const shake = parts.some(p => p.shake && now >= p.t0 && now < p.t0 + 200) ? (Math.random() - .5) * 3 : 0;
+    ctx.setTransform(k, 0, 0, k, shake * k, 0); ctx.imageSmoothingEnabled = !pix;
+    ground(ctx); char(ctx, 'assets/chars/shooter.png', sx - 16, sy - 28, false); if (w.kind !== 'melee' || true) char(ctx, 'assets/chars/target.png', tx - 16, ty - 26, true);
+    for (const p of parts) { const u = (now - p.t0) / p.life; if (u < 0 || u > 1) continue; draw(ctx, p, u); }
+    if (pix) { g.imageSmoothingEnabled = false; g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(low, 0, 0, W * K, H * K); }
+    if (snap != null) return;
+    if (now < end) requestAnimationFrame(frame); else if ($('#loop').checked && cv.dataset.loop === '1') setTimeout(() => run(cv, w, c), 300); else cv.dataset.loop = '0';
+  };
+  if (snap != null) frame(snap); else requestAnimationFrame(frame);
+}
+window.fxSnap = (wid, i, ms) => { const sec = document.querySelector(`[data-w="${wid}"]`), w = WEAPONS.find(x => x.id === wid); run(sec.querySelector('canvas'), w, PRESETS[wid][i], ms); };
+function ground(ctx) {
+  ctx.fillStyle = '#4a4033'; ctx.fillRect(0, 0, W, H);
+  for (let x = 0; x < W; x += 16) for (let y = 0; y < H; y += 16) { ctx.fillStyle = (x / 16 + y / 16) % 2 ? '#51463a' : '#473d31'; ctx.fillRect(x, y, 16, 16); }
+}
+function char(ctx, src, x, y, flip) { const i = img(src); if (!i.complete) return; ctx.save(); if (flip) { ctx.translate(x + 32, y); ctx.scale(-1, 1); ctx.drawImage(i, 0, 0, 32, 32, 0, 0, 32, 32); } else ctx.drawImage(i, 0, 0, 32, 32, x, y, 32, 32); ctx.restore(); }
+function sheetFrame(s, u) { const n = s.cols * s.rows, f = Math.min(n - 1, Math.floor(u * n)); return {c: f % s.cols, r: Math.floor(f / s.cols)}; }
+function draw(ctx, p, u) {
+  ctx.save(); ctx.globalCompositeOperation = p.add ? 'lighter' : 'source-over';
+  const fade = 1 - u;
+  if (p.trail === 'line' || (p.trail && !p.proj && p.x2 != null)) {   // 彈道：一條線，或把 Kenney 的貼圖拉長
+    ctx.globalAlpha = fade;
+    if (p.trail === 'line') { ctx.strokeStyle = p.color; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x2, p.y2); ctx.stroke(); }
+    else { const t = tint(findSprite(p.trail)?.src || '', p.color); const dx = p.x2 - p.x, dy = p.y2 - p.y, L = Math.hypot(dx, dy); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(dy, dx)); ctx.globalAlpha = fade * .6; ctx.fillStyle = p.color; ctx.fillRect(0, -.5, L, 1); ctx.globalAlpha = fade; if (t) ctx.drawImage(t, 0, -4, L, 8); }   // 拉長的貼圖太淡：底下墊一條細線
+    ctx.restore(); return;
+  }
+  if (p.proj) {   // 飛行中的彈體（電漿、榴彈）
+    const x = p.x + (p.x2 - p.x) * u, y = p.y + (p.y2 - p.y) * u - (p.arc ? Math.sin(u * Math.PI) * p.arc : 0);
+    const sp = findSprite(p.proj), sh = findSheet(p.proj);
+    if (sp) { const t = tint(sp.src, p.color), s = p.size * 1.9; if (t) ctx.drawImage(t, x - s / 2, y - s / 2, s, s); }
+    else if (sh) drawSheet(ctx, sh, u, x, y, p.size);
+    ctx.restore(); return;
+  }
+  const id = p.src, sh = findSheet(id), sp = findSprite(id);
+  ctx.globalAlpha = sh ? 1 : Math.min(1, fade * 1.6);
+  ctx.translate(p.x, p.y); ctx.rotate(p.rot || 0);
+  if (sh) drawSheet(ctx, sh, u, 0, 0, p.size);
+  else if (sp) { const t = tint(sp.src, p.color); const s = p.size * 1.9 * (1 + .3 * u); if (t) ctx.drawImage(t, -s / 2, -s / 2, s, s); }   // Kenney 的圖四周留很多空白：照實際內容放大
+  ctx.restore();
+}
+function drawSheet(ctx, s, u, x, y, size) { const i = img(s.src); if (!i.complete || !i.naturalWidth) return; const fw = i.naturalWidth / s.cols, fh = i.naturalHeight / s.rows, {c, r} = sheetFrame(s, u), h = size * fh / fw; ctx.drawImage(i, c * fw, r * fh, fw, fh, x - size / 2, y - h / 2, size, h); }
+// ===== 畫面 =====
+function opts(list, cur, none = true) { return (none ? `<option value="">（無）</option>` : '') + list.map(x => `<option${x === cur ? ' selected' : ''}>${x}</option>`).join(''); }
+function render() {
+  const fx = [...A.sprites.map(s => s.id), ...A.sheets.map(s => s.id)], trails = ['line', ...fx], sfx = Object.keys(A.sfx);
+  $('#list').innerHTML = WEAPONS.map(w => `<section class="weapon" data-w="${w.id}"><div class="whead"><h2>${w.n}</h2><span class="mini">${w.kind === 'pellets' ? '一次 6 顆彈丸' : w.burst > 1 ? `連發 ${w.burst} 發` : '單發'}${w.id === 'flamer' ? '・素材庫沒有噴火聲，先借別的聲音放慢' : w.id === 'plasma' ? '・電漿沒有對應的錄音，借手槍聲調快' : w.id === 'melee' ? '・素材庫沒有揮砍聲，A、C 先不放聲音' : ''}</span></div>
+    <div class="wbody"><canvas width="${W * K}" height="${H * K}"></canvas>${PRESETS[w.id].map((c, i) => combo(w, c, i, fx, trails, sfx)).join('')}</div></section>`).join('');
+  for (const sec of document.querySelectorAll('.weapon')) { const w = WEAPONS.find(x => x.id === sec.dataset.w), cv = sec.querySelector('canvas'); idle(cv); }
+}
+function combo(w, c, i, fx, trails, sfx) {
+  const L = 'ABC'[i], chosen = picks[w.id]?.pick === L;
+  return `<div class="combo${chosen ? ' chosen' : ''}" data-i="${i}"><div class="ct"><b>${L}</b><button data-play="${i}">▶ 播放</button><label class="pick"><input type="radio" name="pick-${w.id}" value="${L}"${chosen ? ' checked' : ''}>選這組</label></div>
+    <label>槍口<select data-k="muzzle">${opts(fx, c.muzzle)}</select></label><div class="row"><input type="range" data-k="mSize" min="4" max="40" value="${c.mSize}" title="大小"><input type="color" data-k="mTint" value="${c.mTint}"></div>
+    <label>彈道<select data-k="trail">${opts(trails, c.trail)}</select></label><div class="row"><input type="color" data-k="tColor" value="${c.tColor}"></div>
+    <label>擊中<select data-k="impact">${opts(fx, c.impact)}</select></label><div class="row"><input type="range" data-k="iSize" min="4" max="80" value="${c.iSize}" title="大小"><input type="color" data-k="iTint" value="${c.iTint}"></div>
+    <label>聲音<select data-k="sfx">${opts(sfx, c.sfx)}</select></label><label>速度<input type="range" data-k="rate" min=".4" max="2.4" step=".05" value="${c.rate}"></label></div>`;
+}
+function idle(cv) { const g = cv.getContext('2d'), low = document.createElement('canvas'); low.width = W; low.height = H; const x = low.getContext('2d'); ground(x); char(x, 'assets/chars/shooter.png', 36, 30, false); char(x, 'assets/chars/target.png', 246, 30, true); g.imageSmoothingEnabled = false; g.drawImage(low, 0, 0, W * K, H * K); }
+document.addEventListener('input', e => { const t = e.target, box = t.closest('.combo'); if (!box || !t.dataset.k) return; const w = t.closest('.weapon').dataset.w, c = PRESETS[w][+box.dataset.i];
+  c[t.dataset.k] = t.type === 'range' ? +t.value : t.value; });
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-play]'); if (b) { const sec = b.closest('.weapon'), w = WEAPONS.find(x => x.id === sec.dataset.w), cv = sec.querySelector('canvas'); cv.dataset.loop = '1'; run(cv, w, PRESETS[w.id][+b.dataset.play]); }
+});
+document.addEventListener('change', e => { const t = e.target; if (t.type === 'radio' && t.name.startsWith('pick-')) { const w = t.name.slice(5); picks[w] = {pick: t.value}; for (const box of t.closest('.weapon').querySelectorAll('.combo')) box.classList.toggle('chosen', 'ABC'[+box.dataset.i] === t.value); } });
+$('#save').onclick = async () => {
+  const out = {saved: new Date().toISOString(), weapons: {}};
+  for (const w of WEAPONS) { const p = picks[w.id]?.pick; out.weapons[w.id] = {name: w.n, pick: p || null, combos: Object.fromEntries(PRESETS[w.id].map((c, i) => ['ABC'[i], c]))}; }
+  const r = await fetch('/api/picks', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(out)});
+  $('#status').textContent = r.ok ? `已儲存（${Object.values(out.weapons).filter(x => x.pick).length}／${WEAPONS.length} 種有選）` : '儲存失敗';
+};
+(async () => {
+  A = await (await fetch('/api/assets')).json();
+  const saved = await (await fetch('/api/picks')).json();
+  for (const [id, x] of Object.entries(saved.weapons || {})) { if (x.pick) picks[id] = {pick: x.pick}; if (x.combos && PRESETS[id]) PRESETS[id] = ['A', 'B', 'C'].map((L, i) => ({...PRESETS[id][i], ...x.combos[L]})); }   // 上次調過的設定接著用
+  for (const s of [...A.sprites, ...A.sheets]) img(s.src);   // 序列圖也先載（爆炸、火焰第一次播才看得到）
+  await Promise.all(['assets/chars/shooter.png', 'assets/chars/target.png'].map(s => img(s).decode().catch(() => {})));   // 角色圖先載好，靜止畫面才畫得到人
+  render();
+})();
+</script></body></html>
