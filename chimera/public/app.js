@@ -506,7 +506,7 @@ const nameShort = c => c.callsign ? `${esc(who(c))} ${csq(c)}` : `${esc(who(c))}
 const nameMin = c => c.callsign ? csq(c) : esc(who(c));
 const CROWN_N = {gold: '金冠', silver: '銀冠', tin: '錫冠', lead: '鉛冠'};   // 錫冠後 10%、鉛冠後 1%（Alan 2026-10-11）
 const pctText = c => c.pct >= .5 ? `前 ${Math.max(1, Math.round((1 - c.pct) * 100))}%` : `後 ${Math.max(1, Math.round(c.pct * 100))}%`;
-const crownTag = c => CROWN_N[c.crown] ? `<span class="crown ${c.crown}">${CROWN_N[c.crown]}</span>` : c.template ? '<span class="crown tpl">模板</span>' : '';
+const crownTag = c => c.keeper ? '<span class="crown keeper">守密者</span>' : c.ration ? '<span class="crown ration">配給</span>' : CROWN_N[c.crown] ? `<span class="crown ${c.crown}">${CROWN_N[c.crown]}</span>` : c.template ? '<span class="crown tpl">模板</span>' : '';   // 守密者伊歐、最低編制的配給型（2026-10-14）
 const chip = (c, on, key) => `<span class="chip${on ? ' on' : ''}${c.alive ? '' : ' dead'}${key ? '' : ' static'}"${key && c.alive ? ` data-${key}="${c.uid}"` : ''}><img src="${face(c)}" alt="">${nameShort(c)}</span>`;   // 金冠、銀冠只在詳細資料裡顯示（Alan 2026-10-09）
 const fmtH = x => x <= 0 ? '0 小時' : x < 48 ? `${Math.round(x)} 小時` : `${Math.floor(x / 24)} 天 ${Math.round(x % 24)} 小時`;
 // 倒數在本機跑（每秒更新；到點之後的結果仍以伺服器為準，伺服器結算完下一次拉資料才會出現）。單人測試模式的時鐘是加速的，照舊只顯示小時
@@ -535,7 +535,7 @@ setInterval(() => {
 }, 1000);
 // el.html = ...：內容（倒數的數字不算）和上次一樣就不重畫。整塊 innerHTML 重設會讓頭像重新載入、閃一下（Alan 2026-10-09 回報）
 Object.defineProperty(HTMLElement.prototype, 'html', {configurable: true, set(v) { const k = String(v).replace(/(<span class="cd"[^>]*>)[^<]*/g, '$1'); if (this._k === k && this.childNodes.length) return; this._k = k; this.innerHTML = v; }});
-const STATUS = {home: '待命', away: '出勤', op: '行動中', returning: '歸途', kia: '已除名', recovered: '遺體已收回', lost: '遺體沒能帶回', sold: '已除名'};   // 陣亡、遺體賣掉都算除名（Alan 2026-10-10）
+const STATUS = {home: '待命', away: '出勤', op: '行動中', returning: '歸途', regen: '在培養槽休養', kia: '已除名', recovered: '遺體已收回', lost: '遺體沒能帶回', sold: '已除名'};   // 陣亡、遺體賣掉都算除名（Alan 2026-10-10）
 function toast(t) { const el = $('toast'); el.textContent = t; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => el.hidden = true, 3200); }
 function found(base) { if (WATCH) return; send({type: 'found', base}); }
 function onGame(m) {
@@ -566,8 +566,8 @@ function renderOps() {
     // 常駐和活動（Alan 2026-10-14）：暫時上下分開、加標籤，之後介面再區分
     const card = d => { const lock = !d.open, req = d.req && O.defs.find(x => x.id === d.req), ev = d.kind === 'event';
       return `<div class="opcard${lock ? ' lock' : ''}${d.cleared ? ' cleared' : ''}"><div class="opct"><span class="optag ${ev ? 'ev' : 'main'}">${ev ? '活動' : '常駐'}</span><b>${esc(d.title)}</b>${d.cleared ? `<span class="tagok">完成 ${d.cleared} 次</span>` : ''}</div><div class="mini">${esc(d.text)}</div>
-        <div class="mini muted">代價：${costTxt(d)}・${d.cleared ? `再打 $${d.again}k` : `首通 $${d.cash}k＋模板`}・${d.nodes.length} 個點${ev && d.to != null ? `・${cd(d.to)}後結束` : ''}</div>
-        <div class="row">${lock ? `<span class="mini">🔒 要先完成「${esc(req?.title || '')}」</span>` : ev && !d.live ? '<span class="mini">現在沒有開放</span>' : `<button class="primary" data-opsel="${d.id}"${Object.entries(d.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled title="素材不夠"' : ''}>出發</button>`}</div></div>`; };
+        <div class="mini muted">代價：${d.free ? '<b>免費（最低編制，不給現金、不掉模板）</b>' : costTxt(d)}・${d.paid ? `再打 $${d.again}k` : `首通 $${d.cash}k＋模板`}・${d.nodes.length} 個點${ev && d.to != null ? `・${cd(d.to)}後結束` : ''}</div>
+        <div class="row">${lock ? `<span class="mini">🔒 要先完成「${esc(req?.title || '')}」</span>` : ev && !d.live ? '<span class="mini">現在沒有開放</span>' : `<button class="primary" data-opsel="${d.id}"${!d.free && Object.entries(d.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled title="素材不夠"' : ''}>出發</button>`}</div></div>`; };
     const main = O.defs.filter(d => d.kind !== 'event'), evs = O.defs.filter(d => d.kind === 'event');
     html += `<h4 class="sec2">常駐行動</h4><div class="oplist">${main.map(card).join('')}</div>
       <h4 class="sec2">活動行動</h4>${evs.length ? `<div class="oplist">${evs.map(card).join('')}</div>` : '<p class="mini muted">目前沒有活動。</p>'}
@@ -653,9 +653,9 @@ let coverPick = false;
 const HOME_LINES = [['深夜了。指揮官也該睡一下吧？', 0, 5], ['早。今天的委託板我看過了。', 5, 11], ['午安。外面的風沙又變大了。', 11, 17], ['晚上好。槍我都擦過了。', 17, 24]];
 function renderHome() {
   const P = $('pane-home'); if (!P) return; if (!GV) { P.innerHTML = ''; return; }
-  const R = GV.roster, c = R.find(x => x.uid === GV.cover) || R.find(x => x.alive) || R[0], O = GV.ops?.cur, D = O && GV.ops.defs.find(d => d.id === O.def);
+  const R = GV.roster, c = R.find(x => x.uid === GV.cover) || R.find(x => x.keeper) || R.find(x => x.alive) || R[0], O = GV.ops?.cur, D = O && GV.ops.defs.find(d => d.id === O.def);
   const opLine = O ? `進行中・打下 ${O.done.length} 點${O.fight ? '・有一場沒打完' : ''}${Object.keys(O.drafts || {}).length ? '・有強化沒選' : ''}` : '路線圖・王點';
-  const hr = new Date().getHours(), line = (HOME_LINES.find(([, a, b]) => hr >= a && hr < b) || HOME_LINES[1])[0];
+  const hr = new Date().getHours(), line = GV.relief ? '人手不夠了。我把企業留下的緊急程式打開了——別讓我後悔。' : (HOME_LINES.find(([, a, b]) => hr >= a && hr < b) || HOME_LINES[1])[0];   // 最低編制啟動中：封面角色提醒
   const news = (GM.inbox || [])[0];
   P.innerHTML = `<div class="home2">
     <div class="hbg"><span>CHIMERA</span></div>
@@ -704,7 +704,7 @@ function renderCo() {
   }
   const G = GV, h = G.h;
   const active = G.cases.filter(c => !c.settled), alive = G.roster.filter(c => c.alive);
-  $('co-head').html = `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div></div>
+  $('co-head').html = (G.relief ? `<div class="relief"><b>最低編制啟動中</b>　人手和素材都不夠了：每 12 小時免費出一個配給型（補到能出擊 2 人）、行動一免費、每日清運順便撿回總部附近的自己人。素材補回來就結束。</div>` : '') + `<div><div class="mini">${esc(G.name)}・總部 <a href="#" data-center="${G.base}">${esc(G.baseName)}</a></div></div>
     <div class="kpi">待命<b>${alive.filter(c => c.status === 'home' && !c.keep).length}</b></div><div class="kpi">出勤<b>${alive.filter(c => c.status === 'away' || c.status === 'returning').length}</b></div>
     <div class="kpi">不出擊<b>${alive.filter(c => c.keep).length}</b></div><div class="kpi">已除名<b>${G.roster.filter(c => c.status === 'kia' || c.status === 'sold').length}</b></div>
     <div class="kpi">進行中<b>${active.filter(c => !c.own).length} 案・${active.filter(c => c.own).length} 車隊</b></div><div class="kpi">待打的服務單<b>${G.tickets.length}</b></div>

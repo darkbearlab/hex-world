@@ -125,6 +125,7 @@ export const DONORS = {
   'portrait-05': {name: '蕾雅', cls: 'engineer'}, 'portrait-06': {name: '米菈', cls: 'soldier'}, 'portrait-07': {name: '塔莉亞', cls: 'recon'}, 'portrait-08': {name: '艾琳', cls: 'bulwark'},
   'portrait-09': {name: '薇拉', cls: 'berserker'}, 'portrait-10': {name: '諾娃', cls: 'engineer'}, 'portrait-11': {name: '茵格', cls: 'soldier'}, 'portrait-12': {name: '菲歐', cls: 'recon'},
   'portrait-13': {name: '瑟琳', cls: 'bulwark'}, 'portrait-14': {name: '朵拉', cls: 'berserker'}, 'portrait-15': {name: '雅絲', cls: 'engineer'}, 'portrait-16': {name: '露恩', cls: 'soldier'},
+  io: {name: '伊歐', cls: 'engineer'},   // 守密者（不在 PORTRAITS 裡：培養槽抽不到她，每家公司只有一位）
 };
 export const donorName = c => DONORS[c.donor ?? c.portrait]?.name || '';
 // 綽號（call sign，Alan 2026-10-10）：每個人可以自己取；完整的叫法是「瑟琳 “人獵人” X-0910」
@@ -185,6 +186,42 @@ export function newCompany(w, base, name = '我的公司', seed = 7, book = null
 function rnd(G) { let a = G.rs | 0; a = a + 0x6D2B79F5 | 0; G.rs = a; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
 function pickW(r, odds) { let x = r(); for (const k in odds) { x -= odds[k]; if (x <= 0) return k; } return 'soldier'; }
 function note(G, h, text) { G.log.push({h, text}); if (G.log.length > 200) G.log.shift(); }
+// 守密者伊歐（Alan 2026-10-14）：受命守住這台 Rover 的複製人，玩家的鏡子——編號對著玩家的流水號（G.no）。
+// 玩家本來是闖進基地的掠奪者，被同夥暗算、九死一生時伊歐醒來打跑了掠奪者；她認定玩家在保護基地，認了這個新指揮官。
+// 不會死：倒下只算撤退，躺回培養槽（不佔槽、不花素材），KEEPER.REGEN_H 小時後回來。不能賣、不能合成。
+export const KEEPER = {REGEN_H: 24, U: .6};
+export function makeKeeper(G, book, h = 0) {
+  const c = makeClone(G, () => .5, 'engineer', 'io', [KEEPER.U, KEEPER.U, KEEPER.U, KEEPER.U], {uid: nextUid(book), born: h});
+  Object.assign(c, {id: `IO-${String(G.no ?? 0).padStart(5, '0')}`, keeper: true, callsign: '守密者'}); c.crown = '';
+  C.rec(c, {h, t: 'born', co: G.name, tile: G.base}); G.roster.unshift(c); return c;
+}
+export const KEEPER_INTRO = '你本來是闖進這座基地的掠奪者，卻被同夥從背後暗算。倒在地上、九死一生的時候，基地深處的培養槽亮了——守密者伊歐醒過來，把那夥人打跑了。她認定你是在保護基地的人，於是叫你「指揮官」。公司就這樣開張了。';
+function keeperHour(G, book, h) {
+  for (const c of G.roster) if (c.keeper) {
+    if (!c.alive || ['kia', 'lost', 'recovered', 'sold'].includes(c.status)) {   // 倒下＝撤退：遺體不留在戰場，名單上拿掉，直接躺回培養槽
+      if (book.bodies) book.bodies = book.bodies.filter(b => !(b.co === G.name && b.uid === c.uid));
+      for (const sq of Object.values(book.squads || {})) { const i = sq.clones.indexOf(c); if (i >= 0) sq.clones.splice(i, 1); }
+      G.returning = (G.returning || []).filter(x => x.uid !== c.uid);
+      Object.assign(c, {alive: true, status: 'regen', regenAt: h + KEEPER.REGEN_H, hp: 20}); delete c.downAs; delete c.downAt; delete c.downTile; delete c.diedH;
+      C.rec(c, {h, t: 'regen', co: G.name}); note(G, h, `${label(c)} 撤回基地，躺回培養槽。${KEEPER.REGEN_H} 小時後回來（不花素材）。`);
+    } else if (c.status === 'regen' && h >= c.regenAt) { c.status = 'home'; delete c.regenAt; note(G, h, `${label(c)} 從培養槽出來了：「我回來了，指揮官。」`); }
+  }
+}
+// 最低編制（Alan 2026-10-14：玩得太爛、一直犧牲人又沒辦法重新培養的救濟）：企業撤走時留下的培養槽緊急程式。
+// 卡住＝能出擊的人不到 2、素材湊不出最便宜的一份配方（某一種不到 GCFG.MIN）、現金不到 RELIEF.CASH。卡住時：
+// 每 RELIEF.EVERY 小時免費出一個配給型（數值偏低、不能賣、不能合成），補到能出擊的有 2 人；行動一不用付素材（不給現金、不掉模板）；每日清運順便撿回總部附近的自己人
+export const RELIEF = {CASH: 50, EVERY: 12, READY: 2, U: .3, NEAR: 6};
+const readyN = G => G.roster.filter(c => c.alive && c.status === 'home' && !c.keep).length;
+const poor = G => MATS.some(m => (G.mats[m] || 0) < GCFG.MIN) && G.cash < RELIEF.CASH;
+function reliefHour(G, book, h) {
+  if (G.npc) return; const R = G.relief ||= {on: false, next: 0};
+  const stuck = poor(G);
+  if (!R.on && stuck && readyN(G) < RELIEF.READY) { R.on = true; R.next = h; R.since = h; note(G, h, '伊歐：「人手不夠了。我把企業留下的緊急程式打開了——別讓我後悔。」（最低編制啟動）'); }
+  else if (R.on && !stuck) { R.on = false; note(G, h, '伊歐：「素材夠了，緊急程式我關掉了。」（最低編制結束）'); return; }
+  if (R.on && h >= R.next && readyN(G) < RELIEF.READY) { R.next = h + RELIEF.EVERY; const r = () => rnd(G), cls = pickW(r, classOdds({food: 30, water: 30, implant: 30, neural: 30}));
+    const c = makeClone(G, r, cls, pickPortrait(r, cls), [RELIEF.U, RELIEF.U, RELIEF.U, RELIEF.U], {uid: nextUid(book), born: h}); c.ration = true; c.crown = '';
+    C.rec(c, {h, t: 'born', co: G.name, tile: G.base, ration: true}); G.roster.push(c); G.fresh = c.uid; note(G, h, `緊急程式出了一個配給型：${CLS[c.cls].n} ${label(c)}（數值偏低、不能賣、不能合成）。`); }
+}
 export function mkTemplate(G, r) {
   const cls = Object.keys(CLS)[Math.floor(r() * 5)], portrait = pickPortrait(r, cls);
   const lean = {soldier: {food: 60, water: 80, implant: 60, neural: 60}, recon: {food: 50, water: 50, implant: 50, neural: 120}, bulwark: {food: 60, water: 50, implant: 120, neural: 50},
@@ -578,6 +615,7 @@ export function hour(G, book, w, h) {
   if (book.relQ?.length) for (const q of book.relQ.splice(0)) { if (q.co === G.name) relAdd(G, q.f, q.v, q.why, h); else (book.relQ2 ||= []).push(q); }
   if (book.relQ2?.length) { book.relQ = book.relQ2; book.relQ2 = []; }
   for (const q of G.queue) if (!q.ready && h >= q.done) readyBuild(G, q, h);
+  keeperHour(G, book, h); reliefHour(G, book, h);
   // 駐軍剩不到兩人（有人在護送時倒下）：撤回總部。不到兩人不能出動，留著只會在車隊來的時候違約（soak 測試 2026-10-12）
   for (const sq of Object.values(book.squads)) if (sq.player === G.name && sq.garrison != null && !sq.caseId && sq.clones.filter(x => x.alive && x.status === 'away').length < 2) {
     const left = sq.clones.filter(x => x.alive && x.status === 'away'); if (left.length) sendHome(G, w, left, sq.garrison, h, book, sq.name, G.base, sq.van ? sq.id : null); unpack(G, sq, h); delete book.squads[sq.id];
@@ -688,7 +726,7 @@ function cleanDone(G, book, w, j, h) {
   const waste = W[j.tile] || 0, take = Math.min(waste, CLEAN.CAP);
   if (take > 0) { got.implant = (got.implant || 0) + Math.round(take * CLEAN.YIELD); got.neural = (got.neural || 0) + Math.round(take * CLEAN.YIELD); W[j.tile] = waste - take; if (W[j.tile] < 1) delete W[j.tile]; }
   for (const [m, n] of Object.entries(got)) G.mats[m] = Math.min(GCFG.MAX * 10, (G.mats[m] || 0) + n);
-  let bodies = 0; for (const b of book.bodies || []) if (!b.takenBy && h < b.at + C.CFG.BODY_H && hdist(b.tile, j.tile) <= 1) { b.takenBy = G.name; b.takenAt = h; bodies++; }
+  let bodies = 0; for (const b of book.bodies || []) if (!b.takenBy && h < b.at + C.CFG.BODY_H && (hdist(b.tile, j.tile) <= 1 || j.daily && G.relief?.on && b.co === G.name && hdist(b.tile, j.tile) <= RELIEF.NEAR)) { b.takenBy = G.name; b.takenAt = h; bodies++; }   // 最低編制：每日清運順便撿回總部附近的自己人
   note(G, h, `清運車從${nm(j.tile)}回來了：${Object.entries(got).filter(([, n]) => n).map(([m, n]) => `${MN[m]} ${n}`).join('、') || '沒撈到什麼'}${bodies ? `，還撿到 ${bodies} 具遺體` : ''}。`);
 }
 
@@ -935,6 +973,7 @@ export function merge(G, keepUid, feedUid, now = G.h, book = null) {
   if (!K || !F || K === F) return '要選兩個不同的人';
   if (!K.alive || !F.alive || K.status !== 'home' || F.status !== 'home') return '兩個人都要在總部待命';
   if ((K.donor ?? K.portrait) !== (F.donor ?? F.portrait)) return '只有同一位原主的人才能合成';
+  if (F.keeper || F.ration || K.ration) return F.keeper ? '守密者不能拿去合成' : '配給型不能合成';
   const g = gearOf(G, F); G.store ||= []; for (const s of SLOTS) { const it = slotGet(g, s); if (it && !it.homemade && !/^土製/.test(itemName(it))) G.store.push(it); slotSet(g, s, null); }
   const lv0 = K.lv || 1, gain = C.mergeCells(K, F); K.lv = C.cellLevel(K);
   C.rec(K, {h: now, t: 'merge', co: G.name, fed: F.id, gain});
@@ -954,6 +993,7 @@ export function bodyPrice(book, c, h) {
 }
 export function sellBody(G, book, uid, now = G.h) {
   const c = G.roster.find(x => x.uid === uid); if (!c || c.status !== 'recovered') return '沒有可以處置的遺體';
+  if (c.ration) return '配給型的遺體不能賣';
   if (G.queue.some(q => q.revive === uid)) return '遺體在培養槽裡';
   const price = bodyPrice(book, c, now), g = gearOf(G, c); G.store ||= [];
   for (const s of SLOTS) { const it = slotGet(g, s); if (it && !it.homemade && !/^土製/.test(itemName(it))) G.store.push(it); slotSet(g, s, null); }
@@ -1044,7 +1084,7 @@ export function view(G, book, w) {
   const K = w.sim.peek(), rel = K.fac.map((f, i) => ({f: i, n: f.n, c: f.c, alive: f.alive !== false, v: Math.round(relOf(G, i)), trait: w.sim.pmc.trait ? w.sim.pmc.trait(i) : ''})).filter(x => x.alive);
   const payable = Object.values(book.squads).filter(sq => sq.player === G.name && sq.caseId).reduce((s, sq) => s + (sq.due || 0), 0);
   return {payable, rel, relLog: (G.relLog || []).slice(-40).reverse().map(e => ({...e, n: K.fac[e.f]?.n || ''})), relRefuse: REL.REFUSE, relBlack: REL.BLACK, deaths7: deaths7(book, G.h), retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
-    templates: G.templates, packs, reports: (G.reports || []).slice(-30), roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', field: c.alive && c.status === 'away' && packs[sqOf[c.uid]?.id] ? sqOf[c.uid].id : null, record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid), bodyPrice: c.status === 'recovered' ? bodyPrice(book, c, G.h) : null})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
+    templates: G.templates, relief: G.relief?.on ? {since: G.relief.since, next: G.relief.next} : null, packs, reports: (G.reports || []).slice(-30), roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', field: c.alive && c.status === 'away' && packs[sqOf[c.uid]?.id] ? sqOf[c.uid].id : null, record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid), bodyPrice: c.status === 'recovered' ? bodyPrice(book, c, G.h) : null})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 
 // 地圖上要標的：每一支派出去的人馬現在在哪、往哪走

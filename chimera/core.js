@@ -95,6 +95,8 @@ export class Core {
     this.log.push({h: this.game.h, year: this.sim.year, who: name, cmd: {type: 'found', base, name}});
     const g = G.newCompany(this.w, base, name, base * 17 + 3 + Object.keys(this.game.cos).length * 7919, this.game.book);
     g.h = this.game.h; this.game.cos[name] = g;
+    // 守密者伊歐（Alan 2026-10-14）：玩家的公司一開張就有她，編號對著玩家的流水號
+    const B = this.game.book; g.no = B.coSeq = (B.coSeq || 0) + 1; G.makeKeeper(g, B, g.h); g.log.push({h: g.h, text: G.KEEPER_INTRO});
     return null;
   }
   // ---- 後台：上帝視角（Alan 2026-10-09）。整顆星球的現況，只給管理員看（server/worker.js admin/world） ----
@@ -602,6 +604,10 @@ export class Core {
     // 前哨的補給線（2026-10-13）：謠言事件當下立的前哨補上標記
     if (!mig.east1013) { mig.east1013 = true; if (this.sim.rumor) for (const e of this.w.events) if (e.tile != null && /立起前哨/.test(e.text)) this.sim.markOutpost(e.tile); }
     // 成長改版（Alan 2026-10-13）：ASH 的升級三選一拿掉，改成在角色詳細裡選性格技能；之前選的強化清掉，等級、記憶片段不動
+    // 守密者伊歐（Alan 2026-10-14）：玩家的公司照開張順序編流水號，每家補一位伊歐
+    if (!mig.keeper1014) { mig.keeper1014 = true; const B = g.book;
+      for (const co of Object.values(g.cos)) { if (co.npc || co.roster.some(c => c.keeper)) continue; co.no = B.coSeq = (B.coSeq || 0) + 1; G.makeKeeper(co, B, g.h ?? 0);
+        B.inbox.push({t: g.h ?? 0, player: co.name, kind: 'log', text: `${G.KEEPER_INTRO}（守密者伊歐加入名冊：她倒下只會撤退，躺回培養槽 ${G.KEEPER.REGEN_H} 小時就回來。）`, ref: null}); } }
     if (!mig.tal1013) { mig.tal1013 = true;
       for (const co of Object.values(g.cos)) { let n = 0; for (const c of co.roster) { if ((c.picks || []).length) n++; Object.assign(c, {picks: [], perkPicks: 0, classPerkMisses: 0, legacyPerkPicks: 0}); c.tal ||= {}; }
         const can = co.roster.filter(c => (c.lv || 1) >= 4 && c.status !== 'sold').length;

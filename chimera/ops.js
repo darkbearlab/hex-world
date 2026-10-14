@@ -108,10 +108,10 @@ export function start(G, h, def, uids, book) {
   if (pick.length < 1 || pick.length > 4) return '一次行動派一到四個人（在基地裡、沒有標「不出擊」的）';
   if (!isOpen(D, h)) return '這個活動行動現在沒有開放';
   if (D.req && !(G.opClear || {})[D.req]) return `要先完成「${OPS[D.req].title}」`;   // 前一組打贏了後面的才能打
-  for (const [m, n] of Object.entries(D.cost)) if ((G.mats[m] || 0) < n) return '素材不夠';
-  for (const [m, n] of Object.entries(D.cost)) G.mats[m] -= n;
+  const free = def === 'trial' && !!G.relief?.on;   // 最低編制：行動一不用付素材（不給現金、不掉模板）
+  if (!free) { for (const [m, n] of Object.entries(D.cost)) if ((G.mats[m] || 0) < n) return '素材不夠'; for (const [m, n] of Object.entries(D.cost)) G.mats[m] -= n; }
   G.opSeq = (G.opSeq || 0) + 1; const serial = book.nextId++;   // 編號用全星球的流水號：伺服器上的戰鬥照編號開，兩家公司不能撞
-  G.op = {def, id: `OP-${serial}`, seed: ((h * 2654435761) ^ serial * 40503) >>> 0, started: h, at: null, done: [], uids: pick.map(c => c.uid), picks: {}, carry: {}, fight: null, cells: 0};
+  G.op = {def, id: `OP-${serial}`, seed: ((h * 2654435761) ^ serial * 40503) >>> 0, started: h, at: null, done: [], uids: pick.map(c => c.uid), picks: {}, carry: {}, fight: null, cells: 0, ...(free ? {free: true} : {})};
   for (const c of pick) { c.status = 'op'; C.rec(c, {h, t: 'op', co: G.name, title: D.title}); }
   (G.log ||= []).push({h, text: `出發：${D.title}（${pick.map(c => c.id).join('、')}）。`});
   return null;
@@ -163,9 +163,9 @@ export function settle(G, book, w, h, ticket, res) {
   // 獎勵：每打贏一點，活著的人各抽 2 片記憶片段；王點再多 4 片、加現金
   const k = n.boss ? 6 : 2; for (const c of alive) { const lv0 = c.lv || 1; C.drawCells(c, k, r); c.lv = C.cellLevel(c); if (c.lv > lv0) lines.push(`${c.id} 升到 ${c.lv} 級`); }
   op.cells += k * alive.length;
-  if (n.boss) { const first = !(G.opClear || {})[op.def], cash = first ? D.cash : D.again || 0;   // 首通給一筆，之後重打只給一點（打不平素材）
-    if (cash) C.pay(book, h, G.name, cash, 'op', `${D.title}：${first ? '首次完成' : '完成'}`, null); (G.opClear ||= {})[op.def] = ((G.opClear || {})[op.def] || 0) + 1;
-    let tpl = ''; if (first || r() < TEMPLATE_P) { const t = mkTemplate(G, r); (G.templates ||= []).push(t); tpl = `；拿到一張${CLS[t.cls].n}模板`; }
+  if (n.boss) { const F = G.opFirst ||= {...(G.opClear || {})}, first = !op.free && !F[op.def], cash = op.free ? 0 : first ? D.cash : D.again || 0;   // 首通給一筆，之後重打只給一點（打不平素材）
+    if (cash) C.pay(book, h, G.name, cash, 'op', `${D.title}：${first ? '首次完成' : '完成'}`, null); (G.opClear ||= {})[op.def] = ((G.opClear || {})[op.def] || 0) + 1; if (!op.free) F[op.def] = 1;   // 首通獎勵記在 opFirst，只給一次（最低編制免費打的不算；舊存檔從 opClear 抄）
+    let tpl = ''; if (!op.free && (first || r() < TEMPLATE_P)) { const t = mkTemplate(G, r); (G.templates ||= []).push(t); tpl = `；拿到一張${CLS[t.cls].n}模板`; }
     return finish(G, book, h, true, `拿下${n.name}${lines.length ? '，' + lines.join('、') : ''}；獎勵 $${cash}k${tpl}`); }
   book.inbox.push({t: h, player: G.name, kind: 'result', text: `${D.title}：拿下${n.name}${lines.length ? '，' + lines.join('、') : ''}。選下一點繼續，或撤回基地。`, ref: null});
   return null;
@@ -193,7 +193,7 @@ export function leave(G, book, h) { const op = G.op; if (!op) return '沒有進�
 export const isOpen = (D, h) => D.kind !== 'event' || (h >= (D.from ?? -Infinity) && h < (D.to ?? Infinity));
 // 畫面
 export function view(G, h) {
-  const op = G.op, C2 = G.opClear || {}, defs = Object.entries(OPS).map(([id, D]) => ({id, kind: D.kind || 'main', live: isOpen(D, h), to: D.to ?? null, title: D.title, text: D.text, cost: D.cost, cash: D.cash, again: D.again || 0, req: D.req || null, open: !D.req || !!C2[D.req], cleared: C2[id] || 0, nodes: D.nodes.map(({boss, ...n}) => ({...n, boss: !!boss}))}));
+  const op = G.op, C2 = G.opClear || {}, defs = Object.entries(OPS).map(([id, D]) => ({id, kind: D.kind || 'main', live: isOpen(D, h), to: D.to ?? null, title: D.title, text: D.text, cost: D.cost, cash: D.cash, again: D.again || 0, req: D.req || null, open: !D.req || !!C2[D.req], cleared: C2[id] || 0, paid: !!(G.opFirst || C2)[id], free: id === 'trial' && !!G.relief?.on, nodes: D.nodes.map(({boss, ...n}) => ({...n, boss: !!boss}))}));
   return {defs, tplP: TEMPLATE_P, log: (G.opLog || []).slice(-5).reverse(),
     cur: op ? {def: op.def, at: op.at, done: op.done, uids: op.uids, next: nextNodes(op).map(n => n.id), fight: op.fight, cells: op.cells, carry: op.carry, picks: op.picks, resupply: resupplyCost(op),
       drafts: Object.fromEntries(op.uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c?.alive && pendingOf(op, c)).map(c => [c.uid, {left: pendingOf(op, c), ids: draft(op, c)}]))} : null,

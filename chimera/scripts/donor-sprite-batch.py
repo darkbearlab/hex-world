@@ -22,6 +22,7 @@ LOOK = {   # 照立繪寫的長相（細節縮小會被吃掉，抓得到輪廓�
     'portrait-15': 'pale green short hair, a yellow raincoat with reflective stripes, a gas mask hanging on her chest',
     'portrait-16': 'long white hair with a blue streak, a white hooded fur parka, a black bodysuit',
     'silver': 'long brown braids, a dark knit beanie, an olive parka',
+    'io': 'short dark gray-green hair, goggles on her forehead and a headset, a long torn sand-beige work coat over a rust-orange jumpsuit, a tool pouch',   # 守密者伊歐（2026-10-14）
 }
 ROLE = {   # 職業：武器讓模型自己挑（Alan：動作和武器不用保留，之後要重繪）
     'soldier': 'She is a rifle soldier; give her an assault rifle in a pose that reads well at tiny size',
@@ -31,7 +32,7 @@ ROLE = {   # 職業：武器讓模型自己挑（Alan：動作和武器不用保
     'berserker': 'She is a melee berserker; choose any pose and any big melee weapon that suits her and reads well at tiny size',
 }
 CLS = {'ember': 'soldier', 'onyx': 'recon', 'silver': 'bulwark', 'cedar': 'berserker', 'portrait-05': 'engineer', 'portrait-06': 'soldier', 'portrait-07': 'recon', 'portrait-08': 'bulwark',
-       'portrait-09': 'berserker', 'portrait-10': 'engineer', 'portrait-11': 'soldier', 'portrait-12': 'recon', 'portrait-13': 'bulwark', 'portrait-14': 'berserker', 'portrait-15': 'engineer', 'portrait-16': 'soldier'}
+       'portrait-09': 'berserker', 'portrait-10': 'engineer', 'portrait-11': 'soldier', 'portrait-12': 'recon', 'portrait-13': 'bulwark', 'portrait-14': 'berserker', 'portrait-15': 'engineer', 'portrait-16': 'soldier', 'io': 'engineer'}
 def prompt(k):
     return ("Use the three reference images: the first two are the game's existing sprites and define the STYLE and CAMERA only (overhead three-quarter front/down-facing camera, chunky SNES pixel-art proportions, strong dark outline, high-contrast shading). "
             f"The third image is the CHARACTER to draw: a young woman with {LOOK[k]}. {ROLE[CLS[k]]}. "

@@ -120,6 +120,7 @@ body.game .play,body.game .timeline{display:none}
 .chip.static{cursor:default}
 .crown{font-size:10px;padding:0 5px;border-radius:8px;margin-left:2px}
 .crown.gold{background:#e0a64a;color:#1b140a}.crown.silver{background:#9aa3a8;color:#111}.crown.tin{background:#5d6a6e;color:#d6dde0}.crown.lead{background:#3a3e44;color:#9aa0a8;border:1px solid #555b63}.crown.tpl{background:#2d5b5f;color:#cdeff2}
+.crown.keeper{background:#c4622d;color:#fff4e6}.crown.ration{background:#4a5560;color:#cfd8de}.cohead .relief{flex-basis:100%;padding:6px 10px;margin-bottom:6px;border:1px solid #a8683a;background:#2a1d12;color:#f0c890;font-size:12px;border-radius:6px}   /* 守密者、配給型、最低編制（2026-10-14） */
 .roster{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .cl{display:grid;grid-template-columns:48px 1fr;gap:2px 8px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px;font-size:12px;position:relative}
 .cl img{width:48px;height:48px;grid-row:1/4}
