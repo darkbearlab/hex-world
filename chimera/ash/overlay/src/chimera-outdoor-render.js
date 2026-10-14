@@ -34,6 +34,17 @@ function blit(c, atlas, n, cx, cy, size) {
   c.restore();
 }
 const edge = (x, y) => x === 0 || y === 0 || x === SIZE - 1 || y === SIZE - 1;
+// 地面 v2（Alan 2026-10-14）：六種地形換成無縫材質（/ash-outdoor/ground2/，chimera/scripts/ground-v2.py），一張 8×8 格，照格子位置切，相鄰的格子接得起來。
+// 只換那個地形本來的「底」（BASE2）；路、戰壕、油污、別的地形混進來的格子照舊用 ground.png。鹼灘、鹼海保留原本的龜裂乾泥
+const G2 = {沙海: 'sand', 礫丘: 'gravel', 寒漠: 'gravel', 岩山: 'rock', 斷崖: 'rock', 旱原: 'scrub', 油棘林: 'scrub', 鹽沼: 'mud', 總督府: 'city'};
+const BASE2 = {沙海: [0, 1, 2], 礫丘: [6, 2, 4], 寒漠: [6, 10], 岩山: [10, 6, 2], 斷崖: [10, 6], 旱原: [9, 8, 4], 油棘林: [8, 9], 鹽沼: [13, 4], 總督府: [14, 11]};
+const G2IMG = {}; for (const k of new Set(Object.values(G2))) G2IMG[k] = img(`/ash-outdoor/ground2/${k}.png`);   // 先載好，開場不會閃一下舊的地面
+function groundCell(c, o, x, y, cx, cy, size) {
+  const n = o.ground?.[y]?.[x] ?? 0, k = G2[o.biome];
+  if (k && BASE2[o.biome].includes(n)) { const im = G2IMG[k] ||= img(`/ash-outdoor/ground2/${k}.png`);
+    if (ready(im)) { c.save(); c.imageSmoothingEnabled = false; c.drawImage(im, (x % 8) * 32, (y % 8) * 32, 32, 32, Math.round(cx - size / 2), Math.round(cy - size / 2), size, size); c.restore(); return; } }
+  blit(c, ATLAS.ground, n, cx, cy, size);
+}
 // 戰壕下沉（Alan 2026-10-09）：全身格下沉半格、半身格下沉四分之一格（像 ASH 的牆高反過來）。溝的北側露出斷面（貼斷面材質），
 // 溝底貼溝底材質；站在溝裡的人也跟著往下畫。trench.png：斷面 0 沙／1 黏土／2 岩／3 泥土、護壁 4 木板／5 枝條／6 鐵皮／7 沙包、
 // 8 濕泥／9 鹽殼／10 瓦礫／11 油土；溝底 12 踏板／13 泥／14 水坑／15 碎石
@@ -113,7 +124,7 @@ export function installOutdoor(renderer) {
     if (o?.deck && role === 'floor' && point && ready(ATLAS.truck)) { highwayFloor(this, o, point, a, size); this.terrainReady = true; return true; }
     if (o && role === 'floor' && point && ready(ATLAS.ground)) {
       const lv = o.trench?.[point.y]?.[point.x] || 0;
-      if (!lv || !ready(ATLAS.trench)) blit(this.ctx, ATLAS.ground, o.ground[point.y]?.[point.x] ?? 0, a.x, a.y, size);
+      if (!lv || !ready(ATLAS.trench)) groundCell(this.ctx, o, point.x, point.y, a.x, a.y, size);
       else {
         const c = this.ctx, t = size, l = Math.round(a.x - t / 2), tp = Math.round(a.y - t / 2), depth = TRENCH_DEPTH[lv];
         const at = (dx, dy) => TRENCH_DEPTH[o.trench[point.y + dy]?.[point.x + dx] || 0];
@@ -138,7 +149,7 @@ export function installOutdoor(renderer) {
     const t = Math.round(this.tile);
     if (this.game.chimeraOutdoor.deck && !edge(x, y) && ready(ATLAS.truck)) { cab(this, this.game.chimeraOutdoor, x, y, a, t); return null; }
     if (this.game.chimeraOutdoor.deck && edge(x, y) && ready(ATLAS.truck)) { road(this, this.game.chimeraOutdoor, {x, y}, a, t); darkWall(this, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t}); return null; }
-    if (edge(x, y) && ready(ATLAS.ground)) { blit(this.ctx, ATLAS.ground, this.game.chimeraOutdoor.ground?.[y]?.[x] ?? 0, a.x, a.y, t);   // 地圖邊緣跟一般地板同一種材質（Alan 2026-10-11）
+    if (edge(x, y) && ready(ATLAS.ground)) { groundCell(this.ctx, this.game.chimeraOutdoor, x, y, a.x, a.y, t);   // 地圖邊緣跟一般地板同一種材質（Alan 2026-10-11）
       darkWall(this, x, y, {left: Math.round(a.x - t / 2), top: Math.round(a.y - t / 2), width: t, height: t}); return null; }
     const q = wall.call(this, a, x, y);
     if (q) darkWall(this, x, y, {left: q.left, top: q.capTop, width: q.width, height: q.bottom - q.capTop});

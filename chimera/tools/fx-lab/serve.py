@@ -27,7 +27,7 @@ class H(SimpleHTTPRequestHandler):
         return super().do_GET()
     def do_POST(self):
         if self.path.startswith('/api/snap'):   # 測試用：頁面把拼好的截圖傳上來存成 snap.png（不進 git）
-            import base64; n = int(self.headers.get('content-length') or 0); d = self.rfile.read(n).decode(); open(os.path.join(here, 'snap.png'), 'wb').write(base64.b64decode(d.split(',', 1)[1])); return self._json({'ok': True})
+            import base64; n = int(self.headers.get('content-length') or 0); d = self.rfile.read(n).decode(); open(os.path.join(here, 'snap' + (re.sub(r'[^a-z0-9]', '', self.path.split('n=')[-1]) if 'n=' in self.path else '') + '.png'), 'wb').write(base64.b64decode(d.split(',', 1)[1])); return self._json({'ok': True})
         if not self.path.startswith('/api/picks'): return self._json({'error': 'no'}, 404)
         n = int(self.headers.get('content-length') or 0); data = json.loads(self.rfile.read(n) or b'{}')
         json.dump(data, open(PICKS, 'w', encoding='utf-8'), ensure_ascii=False, indent=2); return self._json({'ok': True})
