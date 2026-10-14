@@ -1631,6 +1631,10 @@ $('enterBtn').onclick = enter;
 let vhsOn = true; try { vhsOn = localStorage.getItem('chimera-vhs') !== 'off'; } catch {}
 function applyVhs() { document.documentElement.classList.toggle('vhs', vhsOn); try { localStorage.setItem('chimera-vhs', vhsOn ? 'on' : 'off'); localStorage.setItem('ash-vhs', vhsOn ? 'on' : 'off'); } catch {} }
 applyVhs();
+// 版本號（2026-10-15）：放在 manifest.webmanifest 的 version，標題畫面和 ⚙ 系統顯示
+let APP_VERSION = '';
+fetch('manifest.webmanifest', {cache: 'no-store'}).then(r => r.json()).then(j => { APP_VERSION = j.version || ''; if ($('appVer')) $('appVer').textContent = APP_VERSION ? `v${APP_VERSION}` : ''; }).catch(() => {});
+const isApp = () => matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches || navigator.standalone === true;
 function openSys() {
   const email = account(), co = GV?.name;
   $('sysBody').innerHTML = `<p class="mini">${LOCAL ? '單人測試模式' : email ? `已用 ${esc(email)} 登入` : '訪客（這個瀏覽器）'}${co ? `・公司：${esc(co)}` : ''}</p>
@@ -1638,7 +1642,8 @@ function openSys() {
     <button data-sys="vhs">畫面濾鏡（VHS）：${vhsOn ? '開' : '關'}</button>
     ${LOCAL ? '' : '<button data-sys="watch">觀看世界生成</button>'}
     ${LOCAL ? '' : '<button data-sys="title">回標題畫面</button>'}
-    ${!LOCAL && email ? '<button data-sys="logout">登出</button>' : ''}`;
+    ${!LOCAL && email ? '<button data-sys="logout">登出</button>' : ''}
+    <p class="mini muted">版本 ${esc(APP_VERSION || '—')}${isApp() ? '・主畫面捷徑（全螢幕）' : ''}</p>`;
   $('sys').hidden = false;
 }
 $('sysBtn').onclick = e => { e.stopPropagation(); $('mail').hidden = true; openSys(); };

@@ -9,6 +9,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<!-- 加到桌面／手機主畫面（2026-10-15）：manifest.webmanifest 的 version 是遊戲的版本號（標題畫面、⚙ 系統顯示），改版時改這裡 -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#14100c">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Chimera">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 </head>
 <body>
 <header class="bar">
@@ -111,6 +120,7 @@
     <p id="acctNote" class="muted"></p>
     <button id="enterBtn" class="primary">以訪客身分進入</button>
     <button id="devlogBtn">開發日誌</button>
+    <p class="appver muted" id="appVer"></p>
     <div id="arenaBox" class="arenabox" hidden>
       <b>戰鬥測試場（開發用）</b>
       <p class="muted">隨機地圖、四名 3 級隊員（士兵、偵察兵、重裝兵、狂戰士），在伺服器上跑，打完不結算。</p>

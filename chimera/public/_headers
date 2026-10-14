@@ -2,6 +2,9 @@
 /ash/sw.js
   Service-Worker-Allowed: /
 # 像素工作室（studio.darkbearlab.workers.dev）要讀得到 Chimera 的點陣圖和清單，畫進 canvas 不能被當成跨網域的髒圖（Alan 2026-10-10）
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: no-cache
 /asset-manifest.json
   Access-Control-Allow-Origin: *
   Cache-Control: no-cache
