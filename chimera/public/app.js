@@ -903,7 +903,7 @@ function renderTrade() {
 // ───── 名冊：任務管制、培養槽、交易共用的底部面板（Alan 2026-10-09）。平常收著，點了往上展開；點人看詳細資料 ─────
 let drawerOpen = false, personSel = null;
 const RF = {home: '待命', away: '出勤', keep: '不出擊', ...Object.fromEntries(Object.entries(TAGS).map(([k, n]) => ['t:' + k, n])), recovered: '遺體', kia: '已除名', all: '全部'};
-const inF = (c, f = rosterF) => f === 'all' || (f.startsWith('t:') ? (c.tags || []).includes(f.slice(2)) && (c.alive || c.status === 'recovered') : f === 'keep' ? c.keep && c.alive : f === 'home' ? c.status === 'home' && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : f === 'kia' ? c.status === 'kia' || c.status === 'sold' : f === 'recovered' ? c.status === 'recovered' || c.status === 'lost' : c.status === f);   // 遺體＝收回的＋還沒撿回的；已除名＝陣亡＋賣掉
+const inF = (c, f = rosterF) => f === 'all' || (f.startsWith('t:') ? (c.tags || []).includes(f.slice(2)) && (c.alive || c.status === 'recovered') : f === 'keep' ? c.keep && c.alive : f === 'home' ? (c.status === 'home' || c.status === 'regen') && !c.keep : f === 'away' ? c.status === 'away' || c.status === 'returning' : f === 'kia' ? c.status === 'kia' || c.status === 'sold' : f === 'recovered' ? c.status === 'recovered' || c.status === 'lost' : c.status === f);   // 遺體＝收回的＋還沒撿回的；已除名＝陣亡＋賣掉
 // 簽收時跳出新人的卡片（Alan 2026-10-09：對標艦隊收藏）：簽收送出後，等伺服器回來、最新的人換了就秀出來
 let revealAfter;
 // 簽收（Alan 2026-10-10：對標艦隊收藏的建造完成）：全版立繪＋名字、兵種、編號；數值、素質、金冠銀冠依序淡入；下面的對話框打出入伍台詞。
@@ -1116,7 +1116,7 @@ function rosterBody() {
   const G = GV, n = k => G.roster.filter(c => inF(c, k)).length;
   const R = G.roster.filter(x => inF(x)).sort((a, b) => b.pct - a.pct);
   return `<div class="filters">${Object.entries(RF).map(([k, v]) => `<button data-rf="${k}" class="${rosterF === k ? 'on' : ''}">${v} <span class="muted">${n(k)}</span></button>`).join('')}</div>
-    <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${face(x)}" alt=""><b>${nameMin(x)}</b><span>${x.callsign ? esc(who(x)) + '・' : ''}${x.id}・${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;
+    <div class="faces">${R.map(x => `<button class="face${x.alive ? '' : ' kia'}${x.status === 'regen' ? ' resting' : ''}${x.uid === G.fresh ? ' fresh' : ''}" data-person="${x.uid}"><img src="${face(x)}" alt=""><b>${nameMin(x)}</b><span>${x.callsign ? esc(who(x)) + '・' : ''}${x.id}・${CLS[x.cls].n} ${x.lv || 1}級</span>${x.keep ? '<i class="kept">供</i>' : ''}${x.status === 'regen' ? `<i class="regen">休養 ${cd(x.regenAt)}</i>` : ''}</button>`).join('') || '<p class="muted">沒有。</p>'}</div>`;   // 守密者撤退後在培養槽休養：照樣列出來、標剩多久
 }
 // 裝備欄（Alan 2026-10-09）：槍 ×3、近戰、護甲、預備品 ×2。在總部待命時可以換：點「換」從倉庫挑，原本那件回倉庫
 const SLOT_N = {gun0: '武器 1', gun1: '武器 2', gun2: '武器 3', melee: '近戰', armor: '護甲', kit0: '預備品 1', kit1: '預備品 2'};
@@ -1175,7 +1175,7 @@ function talentBox(c) {
     <div class="mini muted">選了就固定，可以跨性格選。3、5、7、9、11 級自動長數值。</div>`;
 }
 function personCard(c) {
-  const st = c.alive ? (STATUS[c.status] || c.status) + (c.squad ? `・${esc(c.squad)}` : '') : c.status === 'recovered' ? (c.reviving ? '遺體在培養槽裡，重新培養中' : '遺體已收回，可以重新培養（等級、技能從頭來）')
+  const st = c.alive ? (STATUS[c.status] || c.status) + (c.status === 'regen' && c.regenAt != null ? `（撤退回基地，${cd(c.regenAt)}後回來，不花素材）` : '') + (c.squad ? `・${esc(c.squad)}` : '') : c.status === 'recovered' ? (c.reviving ? '遺體在培養槽裡，重新培養中' : '遺體已收回，可以重新培養（等級、技能從頭來）')
     : c.status === 'sold' ? '已除名'
     : c.status === 'lost' ? `遺體沒能從${esc(c.downPlace)}帶回來・約 ${cd((c.downAt ?? 0) + 168)}後確認戰死（有人在那一帶打贏就可能撿回來）` : '已除名';
   const rv = REVIVE_RECIPE[c.cls], canRv = c.status === 'recovered' && !c.reviving;
