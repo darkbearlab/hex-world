@@ -105,12 +105,13 @@ function uplink(start,id){
  const pending=()=>start+all.length-sent;
  async function kick(){
   if(busy)return;if(!pending()){for(const r of idle.splice(0))r();return;}
+  E.onSync?.('busy',pending(),id);   // 簽核狀態（Alan 2026-10-14：讓玩家看得到伺服器在做什麼）：busy 送出中、ok 伺服器收齊了、retry 送不到在重送
   busy=true;const from=sent,entries=all.slice(from-start,from-start+300),last=from+entries.length===start+all.length;
   try{
    const d=await post('log',{from,entries,fp:last?fp:null},id);retry=0;
-   sent=Math.min(d.next,start+all.length);
+   sent=Math.min(d.next,start+all.length);if(!pending())E.onSync?.('ok',0,id);
    if(d.desync){console.warn('[戰鬥] 和伺服器不同步，以伺服器為準重新接回');reportDesync(d,from+entries.length);for(const r of idle.splice(0))r();if(current?.id===id&&E.uplink?.id===id){E.uplink=null;resync(id);}busy=false;return;}   // 已經不是畫面上這一場：只放行，不去動現在的戰鬥   // 等著收尾的先放行（結果以伺服器為準）
-  }catch(e){retry++;console.warn('[戰鬥] 送不到伺服器，稍後重送',e?.message||e);await new Promise(r=>setTimeout(r,Math.min(8000,600*retry)));}
+  }catch(e){retry++;E.onSync?.('retry',pending(),id);console.warn('[戰鬥] 送不到伺服器，稍後重送',e?.message||e);await new Promise(r=>setTimeout(r,Math.min(8000,600*retry)));}
   busy=false;kick();
  }
  return {id,push(e,f){all.push(e);fp=f;kick();},idle:()=>pending()?new Promise(r=>{idle.push(r);kick();}):Promise.resolve(),get pending(){return pending();}};
