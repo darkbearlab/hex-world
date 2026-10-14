@@ -185,7 +185,7 @@ export function newCompany(w, base, name = '我的公司', seed = 7, book = null
 function rnd(G) { let a = G.rs | 0; a = a + 0x6D2B79F5 | 0; G.rs = a; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }
 function pickW(r, odds) { let x = r(); for (const k in odds) { x -= odds[k]; if (x <= 0) return k; } return 'soldier'; }
 function note(G, h, text) { G.log.push({h, text}); if (G.log.length > 200) G.log.shift(); }
-function mkTemplate(G, r) {
+export function mkTemplate(G, r) {
   const cls = Object.keys(CLS)[Math.floor(r() * 5)], portrait = pickPortrait(r, cls);
   const lean = {soldier: {food: 60, water: 80, implant: 60, neural: 60}, recon: {food: 50, water: 50, implant: 50, neural: 120}, bulwark: {food: 60, water: 50, implant: 120, neural: 50},
     berserker: {food: 130, water: 60, implant: 50, neural: 40}, engineer: {food: 40, water: 50, implant: 100, neural: 100}}[cls];

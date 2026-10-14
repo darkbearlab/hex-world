@@ -72,7 +72,7 @@ function botHour(bot, h) {
     else cmd(bot, {type: 'resolve', ticket: tk.id});
   }
   // 行動（2026-10-13，ops.js）：亂出發、亂選點、假戰果、偶爾中途撤回
-  if (!g.op && r() < .03) { const pk = home().filter(x => (x.restUntil || 0) <= h).slice(0, 1 + Math.floor(r() * 4)); if (pk.length) { g.mats.food = Math.max(g.mats.food || 0, 40); g.mats.water = Math.max(g.mats.water || 0, 40); cmd(bot, {type: 'opStart', def: 'trial', uids: pk.map(x => x.uid)}); } }
+  if (!g.op && r() < .03) { const pk = home().slice(0, 1 + Math.floor(r() * 4)); if (pk.length) { g.mats.food = Math.max(g.mats.food || 0, 40); g.mats.water = Math.max(g.mats.water || 0, 40); cmd(bot, {type: 'opStart', def: 'trial', uids: pk.map(x => x.uid)}); } }
   if (g.op && r() < .3) {
     if (g.op.fight) { const alive = g.op.uids.map(u => g.roster.find(x => x.uid === u)).filter(x => x?.alive), win = r() < .7;
       cmd(bot, {type: 'fight', ticket: g.op.fight.ticket});

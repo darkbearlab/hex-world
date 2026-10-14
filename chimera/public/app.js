@@ -366,7 +366,7 @@ function renderSortie() {
   const K = OK[o.kind] || {n: '行動', c: '#e6c281'}, s = hist[cur], fn = id => s?.fac?.find(f => f.id === id)?.n || '';
   const sides = o.joined || sortie.custom ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'outpost' ? [['a', '替 ' + fn(o.a) + ' 守'], ['b', '替 ' + fn(o.b) + ' 搶']] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
   const chosen = new Set(sortieUids()), n = chosen.size, bad = !sortie.custom?.min && sortie.sq.some(q => q.filter(u => u != null).length === 1);
-  const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid) && (!sortie.custom?.avail || sortie.custom.avail(c)));   // 行動：休息中的人不列
+  const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep && !chosen.has(c.uid) && (!sortie.custom?.avail || sortie.custom.avail(c)));   
   const groups = [...Object.entries(TAGS).map(([k, nm]) => [nm, av.filter(c => (c.tags || []).includes(k))]), ['沒分類', av.filter(c => !(c.tags || []).length)]].filter(([, L]) => L.length);
   // 選人：另一張卡片疊在編成畫面上（Alan 2026-10-10）；一列一個人，照分類分組
   const row = c => `<button class="sprow" data-sp="${c.uid}"><img src="${face(c)}" alt=""><span class="sprn"><b>${c.callsign ? csq(c) : esc(who(c))}</b> <span class="mini">${c.callsign ? esc(who(c)) + ' ' : ''}${c.id}</span><br><span class="mini">${CLS[c.cls].n}・${c.lv || 1} 級・記憶片段 ${cellCount(c)}${c.crown === 'gold' ? '・金冠' : c.crown === 'silver' ? '・銀冠' : ''}${(c.tags || []).length ? '・' + c.tags.map(t => TAGS[t]).join('、') : ''}</span></span></button>`;
@@ -563,11 +563,15 @@ function renderOps() {
   let html = `<h3 class="sec">行動 <span class="muted">隨時能打：一張路線圖，每一點一場，最後是王點。倒下是真的死，但遺體全數收回。前一組打贏了，後面的才能打。</span></h3>`;
   if (!cur) {
     // 行動的清單（Alan 2026-10-14：多幾組，照順序解鎖）；挑人用出擊編成（跟接案一樣的卡片）
-    html += `<div class="oplist">${O.defs.map(d => { const lock = !d.open, req = d.req && O.defs.find(x => x.id === d.req);
-      return `<div class="opcard${lock ? ' lock' : ''}${d.cleared ? ' cleared' : ''}"><div class="opct"><b>${esc(d.title)}</b>${d.cleared ? `<span class="tagok">完成 ${d.cleared} 次</span>` : ''}</div><div class="mini">${esc(d.text)}</div>
-        <div class="mini muted">代價：${costTxt(d)}・完成 $${d.cash}k・${d.nodes.length} 個點</div>
-        <div class="row">${lock ? `<span class="mini">🔒 要先完成「${esc(req?.title || '')}」</span>` : `<button class="primary" data-opsel="${d.id}"${Object.entries(d.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled title="素材不夠"' : ''}>出發</button>`}</div></div>`; }).join('')}</div>
-      <div class="mini muted">一次一組；派一到四個人。打完的人休息 ${O.rest} 小時。每打贏一點每人 2 片記憶片段（王點 6 片）。</div>`;
+    // 常駐和活動（Alan 2026-10-14）：暫時上下分開、加標籤，之後介面再區分
+    const card = d => { const lock = !d.open, req = d.req && O.defs.find(x => x.id === d.req), ev = d.kind === 'event';
+      return `<div class="opcard${lock ? ' lock' : ''}${d.cleared ? ' cleared' : ''}"><div class="opct"><span class="optag ${ev ? 'ev' : 'main'}">${ev ? '活動' : '常駐'}</span><b>${esc(d.title)}</b>${d.cleared ? `<span class="tagok">完成 ${d.cleared} 次</span>` : ''}</div><div class="mini">${esc(d.text)}</div>
+        <div class="mini muted">代價：${costTxt(d)}・${d.cleared ? `再打 $${d.again}k` : `首通 $${d.cash}k＋模板`}・${d.nodes.length} 個點${ev && d.to != null ? `・${cd(d.to)}後結束` : ''}</div>
+        <div class="row">${lock ? `<span class="mini">🔒 要先完成「${esc(req?.title || '')}」</span>` : ev && !d.live ? '<span class="mini">現在沒有開放</span>' : `<button class="primary" data-opsel="${d.id}"${Object.entries(d.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled title="素材不夠"' : ''}>出發</button>`}</div></div>`; };
+    const main = O.defs.filter(d => d.kind !== 'event'), evs = O.defs.filter(d => d.kind === 'event');
+    html += `<h4 class="sec2">常駐行動</h4><div class="oplist">${main.map(card).join('')}</div>
+      <h4 class="sec2">活動行動</h4>${evs.length ? `<div class="oplist">${evs.map(card).join('')}</div>` : '<p class="mini muted">目前沒有活動。</p>'}
+      <div class="mini muted">一次一組；派一到四個人。沒有疲勞，付得出素材就能一直打；但報酬打不平素材，主要是練等級（每打贏一點每人 2 片記憶片段，王點 6 片）和撈模板（首通必掉，之後打下王點 ${Math.round(O.tplP * 100)}%）。</div>`;
   } else {
     html += `<div class="optitle"><b>${esc(D.title)}</b>　<span class="mini muted">${esc(D.text)}</span></div>`;
     const next = new Set(cur.next), fightNode = cur.fight?.node, byId = Object.fromEntries(D.nodes.map(n => [n.id, n]));
@@ -592,7 +596,7 @@ function opClick(e) {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   if (b.dataset.oppk) { send({type: 'opPick', uid: +b.dataset.oppk, id: b.dataset.id}); return; }
   if (b.dataset.opsel) { const d = GV.ops.defs.find(x => x.id === b.dataset.opsel); if (!d) return;
-    sortie = {key: 'custom', tile: GV.base, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'op', lv: 3, one: true, min: 1, tile: GV.base, title: d.title, detail: `${d.text}　代價：${costTxt2(d)}`, avail: c => (c.restUntil || 0) <= GV.h, go: uids => send({type: 'opStart', def: d.id, uids})}};
+    sortie = {key: 'custom', tile: GV.base, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'op', lv: 3, one: true, min: 1, tile: GV.base, title: d.title, detail: `${d.text}　代價：${costTxt2(d)}`, go: uids => send({type: 'opStart', def: d.id, uids})}};
     renderSortie(); return; }
   if (b.dataset.opgo) { const D = GV.ops.defs.find(d => d.id === GV.ops.cur.def), n = D.nodes.find(x => x.id === b.dataset.opgo); send({type: 'opGo', node: n.id}); if (n.type !== 'rest') showMissionLoading(); return; }
   if (b.dataset.opfight) { send({type: 'fight', ticket: b.dataset.opfight}); showMissionLoading(); return; }

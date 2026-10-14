@@ -15,6 +15,7 @@ co.mats.food = 200; co.mats.water = 200;
 const home = co.roster.filter(c => c.alive && c.status === 'home').slice(0, 4);
 for (const c of home) { c.lv = 5; }   // 有一點等級（2 級學會職業技能）
 if (DEF !== 'trial') { ok(String(cmd({type: 'opStart', def: DEF, uids: home.map(c => c.uid)})).startsWith('要先完成'), '前一組還沒完成不能出發'); co.opClear = {trial: 1, well: 1, hive: 1}; co.mats.implant = 200; co.mats.neural = 200; }
+const tpl0 = co.templates.length;
 ok(cmd({type: 'opStart', def: DEF, uids: home.map(c => c.uid)}) === null, `出發：${OPS[DEF].title}`);
 ok(home.every(c => c.status === 'op') && co.mats.food === 200 - OPS[DEF].cost.food, `行動中、付了素材（熱量 ${co.mats.food}）`);
 ok(cmd({type: 'opStart', def: DEF, uids: home.map(c => c.uid)}) === '已經有一個行動在進行中', '不能同時開兩個');
@@ -47,6 +48,8 @@ while (co.op && step < 10) {
 }
 ok(!co.op, '行動結束');
 const L = co.opLog?.at(-1); console.log(`結果：${L?.ok ? '成功' : '失敗'}，走了 ${L?.nodes} 點，記憶片段 ${L?.cells}，${L?.why}`);
-ok(home.every(c => !c.alive ? c.status === 'recovered' : c.status === 'home' && c.restUntil > a.game.h), '活著的回基地、休息中；倒下的遺體收回');
-if (home.some(c => c.alive)) ok(cmd({type: 'opStart', def: 'trial', uids: home.filter(c => c.alive).map(c => c.uid)})?.includes('還在休息'), '休息中不能再出發');
+ok(home.every(c => !c.alive ? c.status === 'recovered' : c.status === 'home'), '活著的回基地；倒下的遺體收回');
+if (L?.ok && DEF === 'trial') ok(co.templates.length > tpl0, `首通掉模板（${co.templates.length - tpl0} 張）`);
+// 沒有疲勞（Alan 2026-10-14）：付得出素材就能馬上再出發
+if (home.some(c => c.alive)) { co.mats.food = 200; co.mats.water = 200; ok(cmd({type: 'opStart', def: 'trial', uids: home.filter(c => c.alive).map(c => c.uid)}) === null, '打完馬上能再出發'); }
 console.log(bad ? `有 ${bad} 項不對` : '全部正常'); process.exit(bad ? 1 : 0);
