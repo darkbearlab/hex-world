@@ -10,6 +10,8 @@
   Cache-Control: no-cache
 /portraits/*
   Access-Control-Allow-Origin: *
+/donors/*
+  Access-Control-Allow-Origin: *
 /ash-outdoor/*
   Access-Control-Allow-Origin: *
 /ash/assets/*
