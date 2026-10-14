@@ -1,5 +1,5 @@
 // 奇美拉：戰場上的台詞由小隊的隊員自己說（Alan 2026-10-12：開火、發現敵人、發現頭目、被包夾、戰死都換成每個人自己的台詞，頭像也換上）。
-// ASH 原本由當班的管制員說（src/comms.js）；補丁 0010 讓 controller-comms 先問 game.chimeraVoice(事件, 細節)，回傳 null 就不說。
+// ASH 原本由當班的管制員說（src/comms.js）；補丁 0001-embed-shell 讓 controller-comms 先問 game.chimeraVoice(事件, 細節)，回傳 null 就不說。
 // 每位原主每種事件兩句（placeholder），隨機挑；頭像用 /donors/<原主>/portrait.png。沒有原主的人照通用台詞、不放頭像（SOUND ONLY）。
 // 開火：ASH 沒有這個事件，這裡在開火之後排進 chimeraVoiceQueue（一位隊員至少隔 FIRE_CD 回合、機率 FIRE_P，才不會每一槍都講話）
 const FIRE_P = .35, FIRE_CD = 5;

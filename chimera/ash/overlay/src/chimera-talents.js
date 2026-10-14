@@ -2,7 +2,7 @@
 // 名字與說明在策略層 chimera/company.js TALENTS（照 id）；這裡是戰場上的規則。ticket.squad[i].tal 是選好的 id。
 // - 跟 ASH 現成的職業強化一樣的（✓）：直接給那個強化的階數（PERK_RANKS），規則照 ASH。
 // - 新的：包在 SquadGame 的方法外面（命中 accuracy、打中 hitTarget、受傷 damagePlayer、擊倒 hurt、敵人行動 enemyAct、一個行動 action），
-//   每回合結束（世界推進之後）跑 talentRound。ASH 本體只改兩個地方（補丁 0011）：著彈修正多一層、定點砲台射程。
+//   每回合結束（世界推進之後）跑 talentRound。ASH 本體只改兩個地方（補丁 0004-talents）：著彈修正多一層、定點砲台射程。
 // 存檔：伺服器每個行動後把整場 JSON 存起來再接回，所以這裡記在隊員身上的東西都是陣列與數字（m.chimeraTal、m.tX＝上次用的回合）。
 // 亂數一律用 this.rng()，伺服器重播的結果才會一樣。
 import {skillValues,skillActive} from './skills.js';

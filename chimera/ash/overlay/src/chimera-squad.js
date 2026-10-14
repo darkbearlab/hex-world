@@ -278,4 +278,4 @@ export class SquadGame extends MissionGame{
  }
 }
 installVoices(SquadGame);
-installTalents(SquadGame);   // 性格技能（Alan 2026-10-13）   // 戰場上的台詞改由隊員自己說（chimera-voices.js、補丁 0010）
+installTalents(SquadGame);   // 性格技能（Alan 2026-10-13）   // 戰場上的台詞改由隊員自己說（chimera-voices.js、補丁 0001-embed-shell）

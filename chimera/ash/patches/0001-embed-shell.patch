@@ -1,8 +1,73 @@
+奇美拉補丁：ASH 的殼（controller*、comms）。嵌入奇美拉頁面（ASH_EMBED）、擋掉 ASH 自己的結算畫面、隊員倒下的演出收尾、奇美拉的通訊台詞。
+原本的 0003-embed、0007-member-kia（comms 部分）、0008-no-ash-result、0010-chimera-voices。
+每個 ASH 檔案只屬於一個補丁，彼此不相依。重新產生：.work 套好後 git diff <ASH_COMMIT> --output=... -- <這包的檔案>
+
+diff --git a/src/comms.js b/src/comms.js
+index 71022da..e642b1c 100644
+--- a/src/comms.js
++++ b/src/comms.js
+@@ -147,7 +147,7 @@ export function resolveComms(message,context={},speakers=COMMS_SPEAKERS){
+  const speaker=speakers[id]||{name:''},expression=m.expression||DEFAULT_EXPRESSION;
+  const cell=speaker.expressions?.[expression]??speaker.expressions?.[DEFAULT_EXPRESSION]??0;
+  const ms=Number.isFinite(m.seconds)&&m.seconds>0?Math.round(Math.min(COMMS_TUNING.maxSeconds,m.seconds)*1000):null;
+- return {speaker:id,name:m.name??speaker.name,short:m.short??m.name??speaker.short??speaker.name,expression,portrait:speaker.sheet?{sheet:speaker.sheet,cell,face:speaker.face||[0,0]}:null,text:m.text??(m.line?t(m.line,m.vars):''),ms};
++ return {speaker:id,name:m.name??speaker.name,short:m.short??m.name??speaker.short??speaker.name,expression,portrait:m.face?{url:m.face}:speaker.sheet?{sheet:speaker.sheet,cell,face:speaker.face||[0,0]}:null,text:m.text??(m.line?t(m.line,m.vars):''),ms};
+ }
+ 
+ // `compact` (3.173.0, user's pick from the mockups): the slim box over the battle header, as tall as the header and
+@@ -156,8 +156,8 @@ export function resolveComms(message,context={},speakers=COMMS_SPEAKERS){
+ export function commsMarkup(message,{timer=true,context={},speakers=COMMS_SPEAKERS,compact=false}={}){
+  const c=resolveComms(message,context,speakers);
+  // The face is one cell of a 4x4 sheet, shown as a background so the whole sheet loads once per speaker.
+- const [fx,fy]=compact&&c.portrait?c.portrait.face:[0,0];
+- const face=c.portrait?`<span class="comms-portrait" style="background-image:url('${c.portrait.sheet}');background-position:-${c.portrait.cell%4*64+fx}px -${Math.floor(c.portrait.cell/4)*64+fy}px"></span>`:'<span>SOUND</span><span>ONLY</span>';
++ const [fx,fy]=compact&&c.portrait?.face?c.portrait.face:[0,0];   // 奇美拉（補丁 0010）：完整頭像（url）沒有格子座標，原本在這裡丟例外，對話卡住、戰鬥畫面凍結
++ const face=c.portrait?.url?`<span class="comms-portrait" style="background-image:url('${c.portrait.url}');background-size:cover;background-position:50% 50%;image-rendering:pixelated"></span>`:c.portrait?`<span class="comms-portrait" style="background-image:url('${c.portrait.sheet}');background-position:-${c.portrait.cell%4*64+fx}px -${Math.floor(c.portrait.cell/4)*64+fy}px"></span>`:'<span>SOUND</span><span>ONLY</span>';   // 奇美拉（補丁 0010）：m.face 是一張完整的頭像
+  if(compact)return `<div class="comms compact" role="group" aria-label="${t('comms.aria')}" data-speaker="${c.speaker}" data-expression="${c.expression}" data-ms="${c.ms??commsDuration(c.text)}"><div class="comms-face" aria-hidden="true">${face}</div><p class="comms-line"><span class="comms-who">${c.short}</span>${c.text}</p>${timer?'<span class="comms-timer" aria-hidden="true"></span>':''}</div>`;
+  return `<div class="comms" role="group" aria-label="${t('comms.aria')}" data-speaker="${c.speaker}" data-expression="${c.expression}"${c.ms?` data-ms="${c.ms}"`:''}><div class="comms-face" aria-hidden="true">${face}</div><div class="comms-body"><p class="comms-name">${c.name}</p><p class="comms-line">${c.text}</p></div>${timer?'<span class="comms-timer" aria-hidden="true"></span>':''}</div>`;
+ }
 diff --git a/src/controller-comms.js b/src/controller-comms.js
-index ed7e8da..61bd47f 100644
+index ed7e8da..7f5e691 100644
 --- a/src/controller-comms.js
 +++ b/src/controller-comms.js
-@@ -184,6 +184,8 @@ let outro=null;
+@@ -97,7 +97,10 @@ export function sayCommsEvents(entries){
+   const speaker=dutySpeaker({game});
+   // 3.204.0: a boss seen for the first time plays its intro (src/boss-scenes.js) ahead of this action's other remarks.
+   const intro=event=>Boolean(event.actor),events=commsEvents({game,before:commsBefore,logs:entries,memory:commsMemory}).sort((a,b)=>Number(intro(b))-Number(intro(a)));
+-  for(const event of events){if(intro(event)){startBossIntro(event,speaker);continue;}const message=commsLine(speaker,event.type,event.vars);if(message)sayComms(message);}
++  // 奇美拉（hex-world chimera/ash 的補丁 0010）：戰場上的台詞改由小隊的隊員自己說（game.chimeraVoice；沒有就照舊是管制員），另外接上奇美拉自己排的台詞（開火等）
++  const voice=game.chimeraVoice?.bind(game);
++  for(const event of events){if(intro(event)){startBossIntro(event,speaker);if(voice){const m=voice('boss',event);if(m)sayComms(m);}continue;}const message=voice?voice(event.type,event):commsLine(speaker,event.type,event.vars);if(message)sayComms(message);}
++  if(voice)for(const event of game.chimeraVoiceTake?.()||[]){const m=voice(event.type,event);if(m)sayComms(m);}
+ }
+ // Killed in action (3.174.0, user design; docs/STORY.md 8; timing and burst in src/kia.js). It starts when the
+ // operative's fall plays: the world freezes and slows (renderer.pace), the camera pushes in, blood and light burst
+@@ -111,7 +114,7 @@ export function startKia(fall){
+   clearComms();resetCourse();
+   // 3.198.0: the training course voices its deaths (src/course.js courseDeathLines); the rest of the kill house stays quiet.
+   const quiet=Boolean(replay)||isSimulation(game)&&!courseActive(game),seed=(Number(game.seed)||0)*31+game.turn;
+-  kia={start:performance.now(),times:kiaTimes(),quiet,voiced:false,resultAt:Infinity,resultPending:false,shown:false};
++  kia={start:performance.now(),times:kiaTimes(),quiet,voiced:false,resultAt:Infinity,resultPending:false,shown:false,member:!!fall.member,fall};
+   renderer.kia={start:renderer.time,at:{x:fall.to.x,y:fall.to.y},blow:fall.blow||null,burst:kiaBurst(seed,fall.blow||null),frozen:true};
+   renderer.pace=()=>{if(!kia)return null;const since=performance.now()-kia.start;renderer.kia.frozen=since<KIA_TUNING.freezeMs;return {scale:kiaTimeScale(since),zoom:kiaZoom(since,kia.times.voiceAt)};};
+ }
+@@ -124,12 +127,14 @@ export function kiaTick(){
+     const lines=!kia.quiet&&courseActive(game)?courseDeathLines(game):null,k=kia;
+     if(lines?.length)lines.forEach((m,i)=>sayComms(i===lines.length-1?{...m,then:()=>{if(kia===k)k.resultAt=performance.now()-k.start;}}:m));
+     else{
+-    const message=kia.quiet||lines?null:commsLine(dutySpeaker({game}),'kia');
++    const message=kia.quiet||lines?null:game.chimeraVoice?game.chimeraVoice('kia',{fall:kia.fall}):commsLine(dutySpeaker({game}),'kia');   // 奇美拉（補丁 0010）：倒下的人自己的最後一句
+     if(message){const seconds=kiaSeconds(t(message.line,message.vars));sayComms({...message,seconds,tap:false});kia.resultAt=since+seconds*1000+KIA_TUNING.closeMs;}
+     else kia.resultAt=since;
+     }
+   }
+   if(since>=kia.resultAt&&kia.resultPending&&!playback){kia.shown=true;renderer.pace=null;renderer.kia.frozen=false;endRun();}
++  // 奇美拉（hex-world chimera/ash 的補丁）：小隊的隊員倒下（或操作中的人倒下、別人接手），戲演完就收掉、戰鬥接著打；血留在地上
++  else if(since>=kia.resultAt&&(kia.member||game.status==='playing')&&!playback){const k=renderer.kia;if(k?.burst)(renderer.gore||=[]).push({burst:k.burst,at:k.at,start:k.start});kia=null;renderer.kia=null;renderer.pace=null;}
+ }
+ // A new run, a loaded save or a replay clears the scene; the fallen body and the blood stay until then, so the last
+ // battlefield still shows them.
+@@ -184,6 +189,8 @@ let outro=null;
  export function endOutro(){outro=null;outroShade.classList.remove('on');renderer.extraction=null;}
  export const ending=()=>Boolean(outro)||Boolean(kia&&!kia.shown);
  export function endRun(){
@@ -27,6 +92,22 @@ index b4cce15..d260a1c 100644
    else if(entered&&courseActive(game)&&game.status==='playing'){if(!$('#modal').open)playCourse();}
    else if(entered&&isSimulation(game)&&game.status==='playing'&&!$('#modal').open&&promptDue(game,promptLog(game)))showRoomPrompt();
    else if(entered&&game.pendingPerks&&game.status==='playing'&&!bossScene)showLevelUp();   // 3.204.0: a level-up waits for a boss scene
+diff --git a/src/controller-screens.js b/src/controller-screens.js
+index ac47473..e39adb4 100644
+--- a/src/controller-screens.js
++++ b/src/controller-screens.js
+@@ -135,7 +135,10 @@ function runRecordMarkup(g){
+   const note=!log?t('controller.runLog.none'):log.partial?t('controller.runLog.partial',{turn:log.partial}):'';
+   return `<p class="result-record">${escapeHTML(line)}${note?`<br>${escapeHTML(note)}`:''}</p>${log?`<div class="modal-row"><button class="modal-button secondary" data-modal="runLog">${t('controller.runLog.download')}</button></div>`:''}`;
+ }
+-export function showResult(){endOutro();setTitleFlow(true);if(isSimulation(game)){showSimulationResult();return;}const won=game.status==='won',abandoned=game.status==='abandoned',p=game.player,copy=resultCopy(game);modal(`<div class="eyebrow">${copy.eyebrow} / RUN ${game.seed}${game.realMode?' / REAL':''}</div><h2>${copy.title}</h2><p>${copy.body}</p><p>${game.missionSummary}</p><div class="operator-identity result-identity">${portraitMarkup(p.portrait,game.status)}<p>${characterName(p.character)}<br>${t('controller.result.stats',{damage:p.stats.damage,grenades:p.stats.grenades,loreLength:p.lore.length})}</p></div>${purgeReportMarkup(game)}${resultStoriesMarkup(game,profile())}${isEndless(game)?`<div class="result-stats"><div><b>${pad(game.floor)}</b>${t('controller.result.depth')}</div><div><b>${pad(p.level)}</b>${t('controller.result.level')}</div><div><b>${p.kills}</b>${t('controller.result.kills')}</div></div>${endlessResult(p,abandoned)}<p>${t('controller.result.turns',{turn:game.turn})}</p>`:`<div class="result-stats"><div><b>${pad(game.deepestFloor)}</b>${t('controller.result.deepest')}</div><div><b>${p.kills}</b>${t('controller.result.kills')}</div><div><b>${game.turn}</b>${t('controller.result.turnCount')}</div></div>`}<p>${t('controller.result.protocolTotal',{v:game.realMode?`${t('controller.result.realProtocol',{v:protocolSettlement(game).base,v2:protocolSettlement(game).bonus})}`:`${t('controller.result.protocol',{earned:game.protocol.earned})}`,v2:profile().protocol.balance})}</p>${runRecordMarkup(game)}<div class="modal-footer"><button class="modal-button secondary" data-modal="lastBattle">${t('controller.result.lastBattle')}</button>${game.status==='dead'?t('controller.result.deadButtons'):t('controller.result.redeploy')}</div>`);}
++export function showResult(){endOutro();
++  // 奇美拉（hex-world chimera/ash 的補丁）：任務的收尾一律交給奇美拉的入口（chimera-entry.js 的 finish，只會送一次），不出 ASH 本身的「火種已熄滅」結算
++  if(globalThis.ASH_EMBED){globalThis.ASH_EMBED.finish?.(game);return;}   // 例如陣亡演出（KIA）播完之後才來的結算
++  setTitleFlow(true);if(isSimulation(game)){showSimulationResult();return;}const won=game.status==='won',abandoned=game.status==='abandoned',p=game.player,copy=resultCopy(game);modal(`<div class="eyebrow">${copy.eyebrow} / RUN ${game.seed}${game.realMode?' / REAL':''}</div><h2>${copy.title}</h2><p>${copy.body}</p><p>${game.missionSummary}</p><div class="operator-identity result-identity">${portraitMarkup(p.portrait,game.status)}<p>${characterName(p.character)}<br>${t('controller.result.stats',{damage:p.stats.damage,grenades:p.stats.grenades,loreLength:p.lore.length})}</p></div>${purgeReportMarkup(game)}${resultStoriesMarkup(game,profile())}${isEndless(game)?`<div class="result-stats"><div><b>${pad(game.floor)}</b>${t('controller.result.depth')}</div><div><b>${pad(p.level)}</b>${t('controller.result.level')}</div><div><b>${p.kills}</b>${t('controller.result.kills')}</div></div>${endlessResult(p,abandoned)}<p>${t('controller.result.turns',{turn:game.turn})}</p>`:`<div class="result-stats"><div><b>${pad(game.deepestFloor)}</b>${t('controller.result.deepest')}</div><div><b>${p.kills}</b>${t('controller.result.kills')}</div><div><b>${game.turn}</b>${t('controller.result.turnCount')}</div></div>`}<p>${t('controller.result.protocolTotal',{v:game.realMode?`${t('controller.result.realProtocol',{v:protocolSettlement(game).base,v2:protocolSettlement(game).bonus})}`:`${t('controller.result.protocol',{earned:game.protocol.earned})}`,v2:profile().protocol.balance})}</p>${runRecordMarkup(game)}<div class="modal-footer"><button class="modal-button secondary" data-modal="lastBattle">${t('controller.result.lastBattle')}</button>${game.status==='dead'?t('controller.result.deadButtons'):t('controller.result.redeploy')}</div>`);}
+ // Cards already shown in this session; tutorial cards fire on the tile before a door, before the room's own entry event.
+ export const promptLogs=new WeakMap(),promptLog=g=>{if(!promptLogs.has(g))promptLogs.set(g,new Set());return promptLogs.get(g);};
+ export function showRoomPrompt(){const prompt=nextPrompt(game,game.takeRoomEvents(),promptLog(game));if(!prompt)return;if(prompt.modal)modal(roomPromptMarkup(prompt));else notify(prompt.text);}
 diff --git a/src/controller.js b/src/controller.js
 index 088a406..8d20ccc 100644
 --- a/src/controller.js

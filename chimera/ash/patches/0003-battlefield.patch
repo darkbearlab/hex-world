@@ -1,3 +1,22 @@
+奇美拉補丁：戰場。地圖大小每場設定（setSize）、敵人手電筒由伺服器標好（chimeraFlashlight）、鹵素燈照得遠、戰壕裡的照明彈／螢光棒只照戰壕（ditchCells）。
+原本的 0006-flashlight、0009-map-size、0012-chimera-lights。
+每個 ASH 檔案只屬於一個補丁，彼此不相依。重新產生：.work 套好後 git diff <ASH_COMMIT> --output=... -- <這包的檔案>
+
+diff --git a/src/data.js b/src/data.js
+index a47fcf7..c1987f6 100644
+--- a/src/data.js
++++ b/src/data.js
+@@ -1,7 +1,9 @@
+ import {t} from './i18n.js';
+ import {DEFAULT_FACTION,factionBoss} from './faction-catalog.js';
+ // Content and balance live here. IDs are persisted in saves: append, never reorder.
+-export const SIZE = 27;
++export let SIZE = 27;
++// 奇美拉（Alan 2026-10-11）：戰場大小改成每場戰鬥開打前設定（戶外戰場可以比 27 大；室內設施維持 27）
++export function setSize(n){SIZE=n;}
+ // Grid cells: 0 wall, 1 floor, VOID a pit (3.164.0, src/pits.js) — nobody walks on it but flyers; sight, shots and
+ // blasts cross it. seeThrough is what a line of sight may pass over or end on.
+ export const VOID = 2;
 diff --git a/src/flares.js b/src/flares.js
 index 7697ccd..6e18938 100644
 --- a/src/flares.js
@@ -20,7 +39,7 @@ index 7697ccd..6e18938 100644
    if(!lineOfSight(objectSightGrid(game,flare,point),flare,point,game.barriers||[],'blast'))return false;
    const target={x:point.x,y:point.y},source={x:flare.x,y:flare.y};
 diff --git a/src/lighting.js b/src/lighting.js
-index 019a250..7c5d721 100644
+index 3b1cbc9..7c5d721 100644
 --- a/src/lighting.js
 +++ b/src/lighting.js
 @@ -5,7 +5,7 @@ import {objectSightGrid} from './scenery.js';
@@ -32,7 +51,15 @@ index 019a250..7c5d721 100644
  import {t} from './i18n.js';
  
  export const DARK_PENALTY=40;
-@@ -168,23 +168,24 @@ export function sourceCells(game,src,{core,reach,accept,cap=LIGHT.lit,floor}={})
+@@ -96,6 +96,7 @@ export const playerLightOn=p=>Boolean(p?.flashlight||p?.lightLingers);
+ // it is never stored and never rolled twice.
+ export const ENEMY_FLASHLIGHT=Object.freeze({share:1/3});
+ export function carriesFlashlight(game,e){
++ if(typeof e?.chimeraFlashlight==='boolean')return e.chimeraFlashlight;   // 奇美拉（hex-world chimera/ash 的補丁）：伺服器上的戰鬥不送種子，由伺服器標好
+  const kind=enemyDef(e)?.flashlight;
+  if(!kind||!e||e.kind||e.faction==='swarm'||hasEnemyTag(e,'infected'))return false;
+  return kind==='always'||fnv(`${game.seed}:${game.floor}:flashlight:${e.id}`)/4294967296<ENEMY_FLASHLIGHT.share;
+@@ -167,23 +168,24 @@ export function sourceCells(game,src,{core,reach,accept,cap=LIGHT.lit,floor}={})
  // A flare, both models: the lit radius as judged before (walls, doors and full cover cast shadows); the new model adds a
  // dim ring beyond it.
  export function flareLightCells(game,fl,legacy=!newLighting(game)){

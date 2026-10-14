@@ -231,7 +231,7 @@
 - 線上模式裡的 NPC 旅人（獵人、樵夫、礦工）還是舊的奇幻文字；奇美拉不用它（`startLive(0)`）。
 
 ## 親自打：ASH 任務戰鬥（階段 1，`chimera/ash/`）
-- ASH PROTOCOL 是插拔進來的，不動 ash_protocol 本身：`ash/ASH_COMMIT` 固定版本（3.223.0），`ash/patches/` 三個小補丁，`ash/overlay/` 新增的檔案。`node chimera/ash/build.mjs` 建置到 `public/ash/`（部署時自動跑）。
+- ASH PROTOCOL 是插拔進來的，不動 ash_protocol 本身：`ash/ASH_COMMIT` 固定版本（3.223.0），`ash/patches/` 四包補丁（殼、小隊、戰場、天賦；每個 ASH 檔只屬於一包，2026-10-14 整合），`ash/overlay/` 新增的檔案。`node chimera/ash/build.mjs` 建置到 `public/ash/`（部署時自動跑）。
 - **不用 iframe（2026-10-08 Alan）：ASH 直接跑在奇美拉的頁面裡。** `public/ash/chimera-boot.js` 把 ASH 的畫面元素（建置時從 ASH 的 index.html 取出，`battle-dom.html`）放進 `#ash-root`，載入改寫成只作用在 `#ash-root` 裡的樣式（`chimera.css`，`ash/scope-css.mjs`），再載入 ASH。頁面一打開就在背景載好，`#ash-root` 平常藏著；藏著時 ASH 掛在整個頁面上的鍵盤、點擊、選取、右鍵、縮放、捲動鎖定、音樂、繪圖都不作用。ASH 改掉的分頁標題、加在 body 底下的元素，載好後改回、收進 `#ash-root`。奇美拉自己的按鈕與輸入框樣式不套進戰鬥畫面（`:where(:not(#ash-root *))`）。單獨測一場：`ash/battle-test.html#任務票JSON`。
   - 補丁：嵌入版控制器（0003：接收外面建好的遊戲 `globalThis.ASH_EMBED`、換下一場 `EMBED.load`、顯示切換 `EMBED.setActive`、藏著時全域事件不作用、不擋橫向、不讀寫存檔、不記 ASH 戰績、結束時交給入口）；`action()` 的兩個小隊掛鉤（0004）；動畫快照的掛鉤（0005）。
   - overlay：`chimera-boot.js`（載入器）、`chimera-wide.css`（戰鬥畫面樣式）、`battle-test.html`、`src/chimera-mission.js`（`MissionGame`）、`src/chimera-squad.js`、`src/chimera-squad-ui.js`、`src/chimera-wide.js`、`src/chimera-entry.js`（入口）、`tools/clear-bot/`（從本機 clear-bot 分支複製的通關機器人）、`tools/chimera/full-squad.mjs`（隊員機器人）、`tools/chimera/full-sim.mjs`（無頭模擬，交棒壞掉會報錯）。

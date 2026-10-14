@@ -1,3 +1,7 @@
+奇美拉補丁：天賦。哨戒砲射程（chimeraSentryRange）、「修正到底」多一層、換目標只掉一層（chimeraTrack）。
+原本的 0011-chimera-talents。
+每個 ASH 檔案只屬於一個補丁，彼此不相依。重新產生：.work 套好後 git diff <ASH_COMMIT> --output=... -- <這包的檔案>
+
 diff --git a/src/allies.js b/src/allies.js
 index 0c96729..9d0b220 100644
 --- a/src/allies.js

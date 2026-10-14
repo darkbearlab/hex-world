@@ -160,7 +160,7 @@ export function outdoorMap(tk, floor = 1) {
   const light = grid.map(row => row.map(() => tk.night ? 0 : 1));
   const enemySpots = spots.filter(p => free(p.x, p.y) && Math.max(Math.abs(p.x - start.x), Math.abs(p.y - start.y)) >= 6);
   // 鹵素燈（Alan 2026-10-14）：夜戰時放在敵人陣地和我方前進路線之間——從敵人往出發點三成的地方，照著我方要走過去的那一段，
-  // 直直走過去會先被敵人看到、被搶先開火。是 ASH 的燈（可以打掉），照得比牆燈遠（補丁 0012：亮 4 格、昏暗到 6 格）
+  // 直直走過去會先被敵人看到、被搶先開火。是 ASH 的燈（可以打掉），照得比牆燈遠（補丁 0003-battlefield：亮 4 格、昏暗到 6 格）
   const lamps = [], floods = [];
   if (tk.night && layout !== 'highway') {
     let anchors = groups ? groups.filter(g => g.role === 'guard' || g.role === 'reserve').map(g => g.anchor) : [];

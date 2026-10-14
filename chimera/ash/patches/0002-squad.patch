@@ -1,0 +1,55 @@
+奇美拉補丁：小隊。隊員在隊長那一格各做一個動作（soloTurn／squadAfterPlayer）、快照以操作中的隊員為玩家（presentView）、沒在操作的隊員倒下也演出。
+原本的 0004-squad-turn、0005-present-view、0007-member-kia（presentation 部分）。
+每個 ASH 檔案只屬於一個補丁，彼此不相依。重新產生：.work 套好後 git diff <ASH_COMMIT> --output=... -- <這包的檔案>
+
+diff --git a/src/game-actions.js b/src/game-actions.js
+index 895b5af..6c005e5 100644
+--- a/src/game-actions.js
++++ b/src/game-actions.js
+@@ -218,6 +218,8 @@ export class GameActions {
+       else if(type==='meleeChoice'){p.meleeSlot=arg;this.log(arg===null?t('game.meleeChoiceDefault'):t('game.meleeChoice',{weapon:this.weaponAt(arg).name}));return true;}
+       return true;
+     }
++    // 奇美拉（hex-world chimera/ash 的補丁）：小隊的其他隊員在隊長那一格裡各做一個動作（soloTurn），不推進世界。
++    if(this.soloTurn)return this.soloPaid(type,arg);
+     if(this.pursuit&&!p.recovery&&['fire','blindFire','launch','bumpMelee','grenade','grapple','hookBlade','suppressiveFire'].includes(type)){
+       this.pursuit=0;const intent=type==='fire'?{id:this.target,x:this.targeted.x,y:this.targeted.y}:arg;
+       const success=this.executePlayer(type,intent);p.guard=false;p.focus=false;p.evasive=false;p.moved=success&&['grapple','hookBlade','fire'].includes(type)&&p.moved;
+@@ -263,6 +265,7 @@ export class GameActions {
+         p.guard=success&&type==='wait';p.moved=success&&(type==='move'||['grapple','hookBlade','fire'].includes(type)&&p.moved);p.focus=success&&type==='wait';p.evasive=success&&type==='wait';
+         // 3.209.0 (src/game-damage.js settleAttackNotes): what your step taught the enemies, once it is over.
+         this.settleAttackNotes();petReactions(this);this.reveal();checkMines(this);this.settleAttackNotes();
++        this.squadAfterPlayer?.();   // 奇美拉：輪到其他隊員
+       }else if(actor.kind){const wasIn=inToxic(this,actor);presentStep(this,()=>{if(isMunition(actor))munitionAct(this,actor);else if(isBomber(actor))bomberAct(this,actor);else allyAct(this,actor);this.settleAttackNotes();this.reveal();},actor);toxicAllyTurn(this,actor,wasIn);}
+       else if(actor.hp>0&&(actor.alert||actor.concealed))presentStep(this,()=>{this.enemyAct(actor);checkMines(this);this.settleAttackNotes();},speed!==0||playerSpeed!==0||phase!==null?actor:null);   // concealed: 3.217.0, a hidden unit watches for you
+       if(immunityBefore&&!anchorExtra)actor.control.immune=Math.max(0,actor.control.immune-1);
+diff --git a/src/presentation.js b/src/presentation.js
+index 3d9ce7c..42a80a2 100644
+--- a/src/presentation.js
++++ b/src/presentation.js
+@@ -10,7 +10,8 @@ import {enemyDef} from './enemy-data.js';
+ const observers=new WeakMap(),activeSteps=new WeakSet();
+ export function snapshot(game){
+   const {rng,effects,onEnemyCallout,...data}=game;
+-  return Object.assign(Object.create(Object.getPrototypeOf(game)),structuredClone(data),{effects:[]});
++  const view=Object.assign(Object.create(Object.getPrototypeOf(game)),structuredClone(data),{effects:[]});
++  return game.presentView?game.presentView(view):view;   // 奇美拉（hex-world chimera/ash 的補丁）：小隊的快照以操作中的隊員為玩家
+ }
+ export function presentStep(game,action,quietActor=null){
+   const steps=observers.get(game);
+@@ -122,12 +123,14 @@ export function planPresentation(steps,{reduceMotion=false}={}){
+     // 3.219.0 裝死 (src/concealed.js): a unit that drops as a body falls as one.
+     const deaths=[...step.after.enemies,...(step.after.allies||[])].filter(e=>e.kind!=='pet'&&(e.hp<=0||downed(e))&&[...step.before.enemies,...(step.before.allies||[])].some(b=>b.id===e.id&&b.hp>0&&!downed(b)));
+     if(step.before.player.hp>0&&step.after.player.hp<=0)deaths.push({...step.after.player,type:'player'});
++    // 奇美拉（hex-world chimera/ash 的補丁）：小隊裡沒在操作的隊員倒下，也照玩家戰死演出（快照的 squadMembers，見 chimera-squad.js presentView）
++    {const mb=step.before.squadMembers||[];for(const m of step.after.squadMembers||[])if(m.hp<=0&&mb.some(b=>b.id===m.id&&b.hp>0))deaths.push({...m,type:'player',member:true});}
+     // A brief impact flash precedes the grey corpse's settling motion.
+     // 3.174.0: the operative's fall carries the killing blow's direction for the killed-in-action scene (src/kia.js);
+     // 3.175.0: every other fall carries it too, with what the body is made of, for kill gore (src/gore.js).
+     // 3.204.0: and whose body it is (`actorId`), and `enemy` for an enemy's (your own units share the boss chassis), so an
+     // enemy boss's fall plays its scene once (src/boss-scenes.js bossFallOf).
+-    for(const dead of deaths)impacts.push({type:'fall',actorType:dead.type,from:{x:dead.x,y:dead.y},to:{x:dead.x,y:dead.y},damage:0,...(dead.type==='player'?{blow:killingBlow(step.effects,dead)}:{actorId:dead.id,...(step.after.enemies.some(e=>e.id===dead.id)?{enemy:true}:{}),blow:killingBlow(step.effects,dead,ENEMY_BLOWS),force:goreForce(step.effects,dead,ENEMY_BLOWS),gore:goreKind(dead),size:goreSize(dead.maxHp||enemyDef(dead)?.hp),elite:Boolean(dead.elite)})});
++    for(const dead of deaths)impacts.push({type:'fall',actorType:dead.type,from:{x:dead.x,y:dead.y},to:{x:dead.x,y:dead.y},damage:0,...(dead.type==='player'?{blow:killingBlow(step.effects,dead),member:!!dead.member}:{actorId:dead.id,...(step.after.enemies.some(e=>e.id===dead.id)?{enemy:true}:{}),blow:killingBlow(step.effects,dead,ENEMY_BLOWS),force:goreForce(step.effects,dead,ENEMY_BLOWS),gore:goreKind(dead),size:goreSize(dead.maxHp||enemyDef(dead)?.hp),elite:Boolean(dead.elite)})});
+     // 3.176.0 hit gore: a harmful hit on a body that lives through it carries what the renderer needs for a small
+     // spray (src/gore.js hitBurst). Hits on props and on bodies that fell this step (their fall bursts) carry nothing.
+     for(let i=0;i<impacts.length;i++){const e=impacts[i],body=e.type==='impact'&&e.damage>0?livingBody(step.after,e.to):null;if(body)impacts[i]={...e,hit:hitInfo(step.effects,e.to,body)};}
