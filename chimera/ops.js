@@ -11,6 +11,16 @@ import {CLS, mkTemplate} from './company.js';
 export const TEMPLATE_P = .25;   // 打下王點掉模板的機率（首通必掉）
 // 試玩路線圖（Alan 2026-10-13：先做骨架，沒有故事）。layer 1～5，next 是接得上的點；type 對上現有的戰鬥類型，rest 是休整；x、y 是在區域地圖上的位置（0～1）
 export const OPS = {
+  // 第一幕（Alan 2026-10-14）：主線的開場。三場戰鬥、兩個整補點，開始之前和結束之後有劇情（public/story-lines.js STORY.prologue）。
+  // 原則上伊歐一個人過得了（scale）；路線圖是 Rover 的平面圖（plan：房間的矩形，x、y、w、h 都是 0～1）
+  prologue: {title: '第一幕：守密者', kind: 'story', tier: 0, scale: .6, foe: '蠍尾的掠奪者', text: '你被同夥從背後開了一槍，倒在 Rover 的貨艙裡。培養槽的燈亮了——守密者伊歐醒了過來。把闖進基地的掠奪者趕出去。', side: 'warlord', biome: '礫丘', cost: {}, cash: 30, again: 0,
+    plan: [{x: .03, y: .18, w: .23, h: .64, name: '貨艙'}, {x: .28, y: .1, w: .17, h: .34, name: '醫務室'}, {x: .47, y: .1, w: .17, h: .34, name: '培養槽室'}, {x: .28, y: .56, w: .36, h: .34, name: '機房'}, {x: .66, y: .22, w: .3, h: .56, name: '控制室'}, {x: .26, y: .44, w: .4, h: .12, name: '主走廊', hall: true}],
+    nodes: [
+    {id: 'a', x: .14, y: .5, layer: 1, type: 'facility', kind: '室內', name: '貨艙', text: '你倒下的地方。蠍尾留了幾個人在這裡搬東西，先把他們清掉。', next: ['b']},
+    {id: 'b', x: .365, y: .27, layer: 2, type: 'rest', kind: '休整', name: '醫務室', text: '伊歐幫你把傷口包好：每人回復一半的生命、補滿護甲板。', next: ['c']},
+    {id: 'c', x: .46, y: .73, layer: 3, type: 'facility', kind: '室內', name: '機房', text: '掠奪者想拆走 Rover 的發電機。管線之間又窄又暗。', next: ['d']},
+    {id: 'd', x: .555, y: .27, layer: 4, type: 'rest', kind: '休整', name: '培養槽室', text: '伊歐醒來的地方。最後一次休整：每人回復一半的生命、補滿護甲板。', next: ['e']},
+    {id: 'e', x: .81, y: .5, layer: 5, type: 'facility', kind: '王點', name: '控制室', text: '蠍尾和剩下的人想打開基地的核心。', next: [], boss: {ash: 'squad_leader', name: '掠奪者頭子「蠍尾」', hp: 2}}]},
   trial: {title: '行動一：鏽牙礦場', tier: 0, foe: '鏽牙的人', text: '礦主「鏽牙」帶著一夥掠奪者佔了北邊的舊礦場。從外圍一路打進去，拿下他的堡壘。', side: 'warlord', cost: {food: 40, water: 40}, cash: 60, again: 8, nodes: [
     {id: 'a', x: .1, y: .34, layer: 1, type: 'clear', kind: '突破', name: '外圍營地', text: '木柵圍起來的營地，清掉裡面的人。', next: ['c', 'd']},
     {id: 'b', x: .12, y: .72, layer: 1, type: 'pursuit', kind: '潛入', name: '油料庫', text: '油料庫已經點著了，追兵從後面追上來：跑到另一頭的撤離點。', next: ['d', 'e']},
@@ -132,7 +142,7 @@ export function go(G, h, nodeId) {
 export function battle(G, w) {
   const op = G.op, f = op?.fight; if (!f) return null;
   const D = OPS[op.def], n = nodeOf(op, f.node), r = lcg(op.seed ^ f.n * 7919);
-  const power = (n.boss ? 32 : 14 + 7 * n.layer) * (n.elite ? 1.4 : 1) * (1 + .25 * Math.max(0, op.uids.length - 2)) * (1 + .3 * (D.tier || 0));   // 後面的行動更難
+  const power = (n.boss ? 32 : 14 + 7 * n.layer) * (n.elite ? 1.4 : 1) * (1 + .25 * Math.max(0, op.uids.length - 2)) * (1 + .3 * (D.tier || 0)) * (D.scale || 1);   // 後面的行動更難；第一幕整體打折（scale）
   const units = C.opUnits({rs: op.seed ^ f.n}, D.side, power, n.type === 'facility' ? 'clear' : n.type, 26);
   const facility = n.type === 'facility';
   return {id: f.ticket, title: `${D.title}・${n.kind}：${n.name}`, type: facility ? 'hunting' : n.type, facility, floors: facility ? 1 : 0, biome: D.biome || '礫丘', night: r() < .3,
@@ -193,7 +203,7 @@ export function leave(G, book, h) { const op = G.op; if (!op) return '沒有進�
 export const isOpen = (D, h) => D.kind !== 'event' || (h >= (D.from ?? -Infinity) && h < (D.to ?? Infinity));
 // 畫面
 export function view(G, h) {
-  const op = G.op, C2 = G.opClear || {}, defs = Object.entries(OPS).map(([id, D]) => ({id, kind: D.kind || 'main', live: isOpen(D, h), to: D.to ?? null, title: D.title, text: D.text, cost: D.cost, cash: D.cash, again: D.again || 0, req: D.req || null, open: !D.req || !!C2[D.req], cleared: C2[id] || 0, paid: !!(G.opFirst || C2)[id], free: id === 'trial' && !!G.relief?.on, nodes: D.nodes.map(({boss, ...n}) => ({...n, boss: !!boss}))}));
+  const op = G.op, C2 = G.opClear || {}, defs = Object.entries(OPS).map(([id, D]) => ({id, kind: D.kind || 'main', plan: D.plan || null, live: isOpen(D, h), to: D.to ?? null, title: D.title, text: D.text, cost: D.cost, cash: D.cash, again: D.again || 0, req: D.req || null, open: !D.req || !!C2[D.req], cleared: C2[id] || 0, paid: !!(G.opFirst || C2)[id], free: id === 'trial' && !!G.relief?.on, nodes: D.nodes.map(({boss, ...n}) => ({...n, boss: !!boss}))}));
   return {defs, tplP: TEMPLATE_P, log: (G.opLog || []).slice(-5).reverse(),
     cur: op ? {def: op.def, at: op.at, done: op.done, uids: op.uids, next: nextNodes(op).map(n => n.id), fight: op.fight, cells: op.cells, carry: op.carry, picks: op.picks, resupply: resupplyCost(op),
       drafts: Object.fromEntries(op.uids.map(u => G.roster.find(c => c.uid === u)).filter(c => c?.alive && pendingOf(op, c)).map(c => [c.uid, {left: pendingOf(op, c), ids: draft(op, c)}]))} : null,

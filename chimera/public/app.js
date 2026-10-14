@@ -1,7 +1,7 @@
 // 奇美拉沙盒觀看頁：背景的 worker 一年一年推演，畫面照選好的速度播放；開了公司之後改用小時推進
 import {CLS, MN, MATS, REVIVE_RECIPE, TAGS, classOdds, GCFG, GUNS, MELEES, ARMORS, KITS, SLOTS, slotKind, itemName, shopPrice, MOD_AFFIXES, AFFIX_NAMES, modCost, ARMOR_AFFIXES, TALENTS, TALENT_ROWS, growOf, SKILL_LV, OUTFITS, artKey} from './company.js';
 import {playScene} from './story.js';
-import {REST_TALK, SOLO, IO} from './story-lines.js';
+import {REST_TALK, SOLO, IO, STORY} from './story-lines.js';
 import {unitName, cellHas, cellCount, CELL_PITY} from './cases.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
@@ -566,12 +566,12 @@ function renderOps() {
   if (!cur) {
     // 行動的清單（Alan 2026-10-14：多幾組，照順序解鎖）；挑人用出擊編成（跟接案一樣的卡片）
     // 常駐和活動（Alan 2026-10-14）：暫時上下分開、加標籤，之後介面再區分
-    const card = d => { const lock = !d.open, req = d.req && O.defs.find(x => x.id === d.req), ev = d.kind === 'event';
-      return `<div class="opcard${lock ? ' lock' : ''}${d.cleared ? ' cleared' : ''}"><div class="opct"><span class="optag ${ev ? 'ev' : 'main'}">${ev ? '活動' : '常駐'}</span><b>${esc(d.title)}</b>${d.cleared ? `<span class="tagok">完成 ${d.cleared} 次</span>` : ''}</div><div class="mini">${esc(d.text)}</div>
-        <div class="mini muted">代價：${d.free ? '<b>免費（最低編制，不給現金、不掉模板）</b>' : costTxt(d)}・${d.paid ? `再打 $${d.again}k` : `首通 $${d.cash}k＋模板`}・${d.nodes.length} 個點${ev && d.to != null ? `・${cd(d.to)}後結束` : ''}</div>
+    const card = d => { const lock = !d.open, req = d.req && O.defs.find(x => x.id === d.req), ev = d.kind === 'event', st = d.kind === 'story';
+      return `<div class="opcard${lock ? ' lock' : ''}${d.cleared ? ' cleared' : ''}"><div class="opct"><span class="optag ${st ? 'story' : ev ? 'ev' : 'main'}">${st ? '主線' : ev ? '活動' : '常駐'}</span><b>${esc(d.title)}</b>${d.cleared ? `<span class="tagok">完成 ${d.cleared} 次</span>` : ''}</div><div class="mini">${esc(d.text)}</div>
+        <div class="mini muted">代價：${d.free ? '<b>免費（最低編制，不給現金、不掉模板）</b>' : Object.keys(d.cost).length ? costTxt(d) : '免費'}・${d.paid ? `再打 $${d.again}k` : `首通 $${d.cash}k＋模板`}・${d.nodes.length} 個點${ev && d.to != null ? `・${cd(d.to)}後結束` : ''}</div>
         <div class="row">${lock ? `<span class="mini">🔒 要先完成「${esc(req?.title || '')}」</span>` : ev && !d.live ? '<span class="mini">現在沒有開放</span>' : `<button class="primary" data-opsel="${d.id}"${!d.free && Object.entries(d.cost).some(([m, n]) => GV.mats[m] < n) ? ' disabled title="素材不夠"' : ''}>出發</button>`}</div></div>`; };
-    const main = O.defs.filter(d => d.kind !== 'event'), evs = O.defs.filter(d => d.kind === 'event');
-    html += `<h4 class="sec2">常駐行動</h4><div class="oplist">${main.map(card).join('')}</div>
+    const story = O.defs.filter(d => d.kind === 'story'), main = O.defs.filter(d => d.kind === 'main'), evs = O.defs.filter(d => d.kind === 'event');
+    html += `${story.length ? `<h4 class="sec2">主線</h4><div class="oplist">${story.map(card).join('')}</div>` : ''}<h4 class="sec2">常駐行動</h4><div class="oplist">${main.map(card).join('')}</div>
       <h4 class="sec2">活動行動</h4>${evs.length ? `<div class="oplist">${evs.map(card).join('')}</div>` : '<p class="mini muted">目前沒有活動。</p>'}
       <div class="mini muted">一次一組；派一到四個人。沒有疲勞，付得出素材就能一直打；但報酬打不平素材，主要是練等級（每打贏一點每人 2 片記憶片段，王點 6 片）和撈模板（首通必掉，之後打下王點 ${Math.round(O.tplP * 100)}%）。</div>`;
   } else {
@@ -590,11 +590,25 @@ function renderOps() {
     html += `      <div class="mini">隊伍：${cur.uids.map(u => { const c = who2(u), k = cur.carry[u]; return c ? `${esc(who(c))} ${c.id}${!c.alive ? '（倒下）' : k?.hp != null ? `（生命 ${k.hp}${k.maxHp ? '／' + k.maxHp : ''}・局內強化 ${(cur.picks[u] || []).length}）` : ''}` : ''; }).join('、')}・這次已拿記憶片段 ${cur.cells}</div>
       <div class="row">${cur.fight ? `<button class="primary" data-opfight="${esc(cur.fight.ticket)}">繼續這一場</button>` : `<button data-opresupply="1"${GV.cash < cur.resupply.cash || GV.mats.implant < cur.resupply.implant || GV.mats.neural < cur.resupply.neural ? ' disabled' : ''} title="全隊補滿生命和護甲板；同一次行動每用一次價錢加倍">整補（$${cur.resupply.cash}k・${MN.implant} ${cur.resupply.implant}・${MN.neural} ${cur.resupply.neural}）</button>`}<button data-opleave="1"${cur.fight ? ' disabled title="先把這一點打完（戰鬥裡可以撤出）"' : ''}>撤回基地（行動結束）</button></div>`;
   }
+  if (!cur) storyAfter(O);
   if (O.log.length) html += `<div class="mini muted" style="margin-top:6px">最近：${O.log.map(x => `第 ${Math.floor(x.h / 24) + 1} 天 ${x.ok ? '成功' : '結束'}（${x.nodes} 點・記憶片段 ${x.cells}）`).join('；')}</div>`;
   el.html = html;
   const mp = el.querySelector('.opmap'); if (mp) drawOpMap(mp);
 }
 // 休整點的閒聊（Alan 2026-10-14：劇情還沒寫，先挑幾個人隨機說幾句）：story-lines.js 的台詞，story.js 演出
+// 主線的劇情（Alan 2026-10-14）：story-lines.js 的 STORY[行動].before／after
+function storyScene(d, part) {
+  const S = STORY[d.id], L = S?.[part]; if (!L) return Promise.resolve();
+  const cast = Object.fromEntries(Object.entries(S.cast || {}).map(([k, c]) => [k, {...c}]));
+  return playScene({place: part === 'before' ? d.title : `${d.title}・終`, sub: part === 'before' ? '主線' : '主線・完', reveal: true, cast, lines: L.map(([who, text]) => ({who, text}))});
+}
+// 打完主線行動（opLog 最新一筆成功、還沒演過）演結束之後的劇情；記在瀏覽器，同一次只演一次
+function storyAfter(O) {
+  const L = O.log?.[0]; if (!L?.ok || !STORY[L.def]?.after) return;
+  const key = `${GV.name}:${L.def}:${L.h}`; let seen = ''; try { seen = localStorage.getItem('chimera.storyAfter') || ''; } catch {}
+  if (seen === key) return; try { localStorage.setItem('chimera.storyAfter', key); } catch {}
+  const d = O.defs.find(x => x.id === L.def); if (d && GV.h - L.h < 48) storyScene(d, 'after');
+}
 function restScene(D, n, party) {
   if (!party.length) return;
   const io = party.find(c => c.keeper), pick = a => a[Math.floor(Math.random() * a.length)];
@@ -614,8 +628,11 @@ function opClick(e) {
   const b = e.target.closest('button'); if (!b || b.disabled) return;
   if (b.dataset.oppk) { send({type: 'opPick', uid: +b.dataset.oppk, id: b.dataset.id}); return; }
   if (b.dataset.opsel) { const d = GV.ops.defs.find(x => x.id === b.dataset.opsel); if (!d) return;
+    const pick = () => {
     sortie = {key: 'custom', tile: GV.base, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'op', lv: 3, one: true, min: 1, tile: GV.base, title: d.title, detail: `${d.text}　代價：${costTxt2(d)}`, go: uids => send({type: 'opStart', def: d.id, uids})}};
-    renderSortie(); return; }
+    renderSortie(); };
+    if (STORY[d.id]?.before) storyScene(d, 'before').then(pick); else pick();   // 主線：開始之前先演劇情，演完再挑人
+    return; }
   if (b.dataset.opgo) { const D = GV.ops.defs.find(d => d.id === GV.ops.cur.def), n = D.nodes.find(x => x.id === b.dataset.opgo); const party = GV.ops.cur.uids.map(u => GV.roster.find(c => c.uid === u)).filter(c => c?.alive);
     send({type: 'opGo', node: n.id}); if (n.type !== 'rest') showMissionLoading(); else restScene(D, n, party); return; }
   if (b.dataset.opfight) { send({type: 'fight', ticket: b.dataset.opfight}); showMissionLoading(); return; }
@@ -628,6 +645,7 @@ const opTerrain = new Map();
 function drawOpMap(box) {
   const cv = box.querySelector('canvas'), W = box.clientWidth, H = box.clientHeight; if (!cv || !W || !H) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1); cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const plan = GV?.ops?.defs.find(d => d.id === box.dataset.def)?.plan; if (plan) { drawPlan(cv.getContext('2d'), dpr, W, H, plan); return; }   // 第一幕：基地的平面圖
   const key = box.dataset.def + ':' + W + 'x' + H; let T = opTerrain.get(key);
   if (!T) {
     let seed = 7; for (const ch of box.dataset.def) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
@@ -659,8 +677,24 @@ function drawOpMap(box) {
   // 外框
   g.strokeStyle = 'rgba(230,194,129,.35)'; g.strokeRect(.5, .5, W - 1, H - 1);
 }
+// 平面圖（Alan 2026-10-14：第一幕的路線圖是基地的平面圖）：藍圖底、細格線、外殼（Rover 的車身）、房間（走廊淡一點）、房名
+function drawPlan(g, dpr, W, H, plan) {
+  g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#0d171c'; g.fillRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(120,190,210,.07)'; g.lineWidth = 1;
+  for (let x = 0; x < W; x += 16) { g.beginPath(); g.moveTo(x + .5, 0); g.lineTo(x + .5, H); g.stroke(); }
+  for (let y = 0; y < H; y += 16) { g.beginPath(); g.moveTo(0, y + .5); g.lineTo(W, y + .5); g.stroke(); }
+  const px = r => [r.x * W, r.y * H, r.w * W, r.h * H];
+  const x0 = Math.min(...plan.map(r => r.x)) * W - 10, y0 = Math.min(...plan.map(r => r.y)) * H - 10, x1 = Math.max(...plan.map(r => r.x + r.w)) * W + 10, y1 = Math.max(...plan.map(r => r.y + r.h)) * H + 10;
+  g.strokeStyle = 'rgba(140,210,230,.55)'; g.lineWidth = 2; g.beginPath(); if (g.roundRect) g.roundRect(x0, y0, x1 - x0, y1 - y0, 18); else g.rect(x0, y0, x1 - x0, y1 - y0); g.stroke();
+  g.fillStyle = 'rgba(140,210,230,.35)'; for (const fx of [.18, .42, .66, .88]) { const cx = x0 + (x1 - x0) * fx; g.fillRect(cx - 14, y1 + 2, 28, 7); g.fillRect(cx - 14, y0 - 9, 28, 7); }   // 履帶／輪組
+  for (const r of plan) { const [x, y, w, h] = px(r);
+    g.fillStyle = r.hall ? 'rgba(120,190,210,.06)' : 'rgba(120,190,210,.11)'; g.fillRect(x, y, w, h);
+    g.strokeStyle = r.hall ? 'rgba(140,210,230,.25)' : 'rgba(140,210,230,.6)'; g.lineWidth = r.hall ? 1 : 1.5; g.setLineDash(r.hall ? [4, 4] : []); g.strokeRect(x + .5, y + .5, w - 1, h - 1); g.setLineDash([]);
+    g.fillStyle = 'rgba(160,220,235,.75)'; g.font = '11px monospace'; g.fillText(r.name, x + 6, y + 14); }
+  g.fillStyle = 'rgba(160,220,235,.5)'; g.font = '10px monospace'; g.textAlign = 'right'; g.fillText('ROVER／平面圖　企業財產・未經授權禁止進入', W - 8, H - 8); g.textAlign = 'left';
+}
 addEventListener('resize', () => { const mp = document.querySelector('#ops-box .opmap'); if (mp) drawOpMap(mp); });
-const costTxt2 = d => Object.entries(d.cost).map(([m, n]) => `${MN[m]} ${n}`).join('・');
+const costTxt2 = d => Object.entries(d.cost).map(([m, n]) => `${MN[m]} ${n}`).join('・') || '免費';
 function renderOpsPage() {
   const P = $('pane-ops'); if (!P) return; if (!GV) { P.innerHTML = '<p class="muted">開了公司之後才有行動。</p>'; return; }
   if (!$('ops-box')) { P.innerHTML = '<div class="box" id="ops-box"></div>'; $('ops-box').onclick = opClick; }

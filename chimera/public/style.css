@@ -723,3 +723,6 @@ td.acts{text-align:right;white-space:nowrap}td.acts button{margin-left:4px}
 .chs-story.auto .st-menubtn::after,.chs-story.fast .st-menubtn::after{content:'';position:absolute;top:4px;right:4px;width:6px;height:6px;border-radius:50%;background:var(--accent,#e0a64a)}
 @media (max-width:640px){.st-slot{width:72%;height:62%;bottom:96px}.st-l{left:-16%}.st-c{left:14%}.st-r{right:-16%}.st-text{font-size:15px}.st-box{min-height:112px;padding:24px 14px 14px}}
 .chs-story [hidden]{display:none!important}
+.st-slot img.later{opacity:0;transform:translateY(12px)}.st-slot img{transition:filter .2s,transform .35s,opacity .35s}
+.opsec{margin:10px 0 4px}.optag.story{color:#7fc4d8;border-color:#3f7486}
+/* 第一幕的路線圖：Rover 的平面圖 */

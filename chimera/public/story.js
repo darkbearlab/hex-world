@@ -1,7 +1,8 @@
 // 劇情演出（Alan 2026-10-14，參考碧藍幻想）：蓋在整個畫面上的一層。
 // 上方左邊是地點（地名＋小字），右上角是選單（自動、快轉、對話紀錄、跳過）；中間左、中、右三個位置放立繪，背景鋪滿；下方是對話框（名字＋台詞）。
 // 點畫面、空白鍵、Enter 下一句（字還在打就先打完）；Esc 開選單。純演出：不動遊戲狀態。
-// playScene({place, sub, bg, cast: {key: {name, art, pos: 'l'|'c'|'r'}}, lines: [{who: key|null, text, pos?}]}) → Promise（播完或跳過時 resolve）
+// playScene({place, sub, bg, reveal, cast: {key: {name, art, pos: 'l'|'c'|'r'}}, lines: [{who: key|null, text, pos?}]}) → Promise（播完或跳過時 resolve）
+// reveal：立繪等那個人第一次開口才出現（劇情裡中途登場的人）
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
 const CPS = 40, AUTO_MS = 1400;   // 打字速度（字／秒）、自動播放時一句打完後停多久
 let live = null;
@@ -19,7 +20,7 @@ export function playScene(S) {
     const $q = s => root.querySelector(s), box = $q('.st-box'), nameEl = $q('.st-name'), textEl = $q('.st-text'), menu = $q('.st-menu'), logEl = $q('.st-log');
     const slots = Object.fromEntries(['l', 'c', 'r'].map(p => [p, $q('.st-' + p)]));
     const cast = S.cast || {}, shown = {};
-    for (const [k, c] of Object.entries(cast)) if (c.art && c.pos) { const im = document.createElement('img'); im.src = c.art; im.alt = ''; im.dataset.k = k; slots[c.pos].appendChild(im); shown[k] = im; }
+    for (const [k, c] of Object.entries(cast)) if (c.art && c.pos) { const im = document.createElement('img'); im.src = c.art; im.alt = ''; im.dataset.k = k; if (S.reveal) im.classList.add('later'); slots[c.pos].appendChild(im); shown[k] = im; }
     let i = -1, typing = null, auto = false, fast = false, autoT = null, done = false;
     const history = [];
     const finish = () => { if (done) return; done = true; clearInterval(typing); clearTimeout(autoT); document.removeEventListener('keydown', key, true); root.classList.add('out'); setTimeout(() => root.remove(), 250); live = null; resolve(); };
@@ -30,6 +31,7 @@ export function playScene(S) {
       if (++i >= S.lines.length) { finish(); return; }
       const L = S.lines[i], c = cast[L.who];
       if (c && L.pos && L.pos !== c.pos && shown[L.who]) { slots[L.pos].appendChild(shown[L.who]); c.pos = L.pos; }
+      if (shown[L.who]) shown[L.who].classList.remove('later');
       for (const [k, im] of Object.entries(shown)) im.classList.toggle('dim', !!L.who && k !== L.who);   // 說話的人亮、其他人暗；旁白全部亮
       nameEl.textContent = c?.name || ''; nameEl.hidden = !c; box.classList.toggle('narr', !c); box.classList.remove('ready');
       history.push(`${c ? c.name + '：' : ''}${L.text}`);

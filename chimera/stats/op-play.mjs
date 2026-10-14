@@ -12,12 +12,13 @@ const out = [], a = new Core(m => out.push(m)); a.start(process.argv[3] || '奇�
 const K = a.sim.peek(), base = Object.keys(K.markets).map(Number).find(t => K.owner[t] >= 0);
 a.found(base, '測試公司'); const co = a.co('測試公司'), cmd = m => a.command(m, '測試公司');
 co.mats.food = 200; co.mats.water = 200;
-const home = co.roster.filter(c => c.alive && c.status === 'home').slice(0, 4);
-for (const c of home) { c.lv = 5; }   // 有一點等級（2 級學會職業技能）
-if (DEF !== 'trial') { ok(String(cmd({type: 'opStart', def: DEF, uids: home.map(c => c.uid)})).startsWith('要先完成'), '前一組還沒完成不能出發'); co.opClear = {trial: 1, well: 1, hive: 1}; co.mats.implant = 200; co.mats.neural = 200; }
+// 第一幕（Alan 2026-10-14）：伊歐一個人、1 級要過得了
+const home = DEF === 'prologue' ? co.roster.filter(c => c.keeper) : co.roster.filter(c => c.alive && c.status === 'home' && !c.keeper).slice(0, 4);
+if (DEF !== 'prologue') for (const c of home) { c.lv = 5; }   // 有一點等級（2 級學會職業技能）
+if (DEF !== 'trial' && DEF !== 'prologue') { ok(String(cmd({type: 'opStart', def: DEF, uids: home.map(c => c.uid)})).startsWith('要先完成'), '前一組還沒完成不能出發'); co.opClear = {trial: 1, well: 1, hive: 1}; co.mats.implant = 200; co.mats.neural = 200; }
 const tpl0 = co.templates.length;
 ok(cmd({type: 'opStart', def: DEF, uids: home.map(c => c.uid)}) === null, `出發：${OPS[DEF].title}`);
-ok(home.every(c => c.status === 'op') && co.mats.food === 200 - OPS[DEF].cost.food, `行動中、付了素材（熱量 ${co.mats.food}）`);
+ok(home.every(c => c.status === 'op') && co.mats.food === 200 - (OPS[DEF].cost.food || 0), `行動中、付了素材（熱量 ${co.mats.food}）`);
 ok(cmd({type: 'opStart', def: DEF, uids: home.map(c => c.uid)}) === '已經有一個行動在進行中', '不能同時開兩個');
 let step = 0, fights = 0, prevPicks = 0, restLast = false;
 while (co.op && step < 10) {
