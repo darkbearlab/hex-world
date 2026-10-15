@@ -249,6 +249,15 @@ export function generate(seed, opt = {}) {
       cells.forEach(([cx, cy], i) => dset(cx, cy, i === 0 || i === cells.length - 1 ? 1 : 2));
       made++;
     }
+    // 散兵坑（Alan 2026-10-16）：一兩格的半身深小坑，散在交戰路線上——不擋視線，推進途中可以搶進去的掩體。每半邊 3–5 個，彼此和戰壕隔 3 格以上
+    const farFromD = (x, y) => { for (let yy = y - 2; yy <= y + 2; yy++) for (let xx = x - 2; xx <= x + 2; xx++) if (D[yy]?.[xx]) return false; return true; };
+    for (let k = 0, made = 0, want = ri(3, 5); k < 150 && made < want; k++) {
+      const two = r() < .5, horiz = r() < .5, x = ri(2, N - 4), y = ri(2, C - 2), cells = two ? [[x, y], horiz ? [x + 1, y] : [x, y + 1]] : [[x, y]];
+      if (!cells.every(([cx, cy]) => cy < C && T[cy][cx] === FLOOR && band(cx, cy) && farFromD(cx, cy) && !onP(cx, cy) && D4.every(([dx, dy]) => T[cy + dy]?.[cx + dx] !== WALL)
+        && Math.abs(cx - A[0]) + Math.abs(cy - A[1]) >= 4 && Math.abs(cx - B[0]) + Math.abs(cy - B[1]) >= 4)) continue;
+      for (const [cx, cy] of cells) dset(cx, cy, 1);
+      made++;
+    }
     // 少量木箱（第一版的 c：擋路、擋一部分子彈、可以打壞），不放在一格寬的地方
     const narrow = (x, y) => (T[y][x - 1] !== FLOOR && T[y][x + 1] !== FLOOR) || (T[y - 1][x] !== FLOOR && T[y + 1][x] !== FLOOR);
     for (let k = 0, made = 0, want = ri(2, 4); k < 80 && made < want; k++) {
@@ -288,8 +297,24 @@ export function generate(seed, opt = {}) {
     if (!ventCand.length) continue;
     ventCand.sort((a, b) => b[2] - a[2]);
     const v = pick(ventCand.slice(0, Math.max(1, Math.ceil(ventCand.length / 3)))), vents = [[v[0], v[1]], rot(v[0], v[1])];
+    // 8. 搶奪點（Alan 2026-10-16）：戰場兩側各一個高階武器箱（離雙方一樣遠、離雙方連線最遠的地方；一個電漿步槍、一個精準步槍）；正中央一個三倍傷害。都不會重生
+    const ax = B[0] - A[0], ay = B[1] - A[1], L2 = Math.hypot(ax, ay) || 1, side2 = (x, y) => Math.abs((x - A[0]) * ay - (y - A[1]) * ax) / L2;
+    const taken = q => vents.some(w => w[0] === q[0] && w[1] === q[1]) || lamps.some(w => w[0] === q[0] && w[1] === q[1]) || D[q[1]][q[0]];
+    const crateCand = [];
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+      if (T[y][x] !== FLOOR || taken([x, y]) || dA[y][x] < 0 || Math.abs(dA[y][x] - dB[y][x]) > 2) continue;
+      if (D4.filter(([dx, dy]) => T[y + dy]?.[x + dx] === FLOOR).length < 2 || (x === C && y === C)) continue;
+      crateCand.push([x, y, side2(x, y)]);
+    }
+    if (!crateCand.length) continue;
+    crateCand.sort((a, b) => b[2] - a[2]);
+    const cr = pick(crateCand.slice(0, Math.min(4, crateCand.length))), crates = [[cr[0], cr[1], 'plasma'], [...rot(cr[0], cr[1]), 'sniper']];
+    if (crates[0][0] === crates[1][0] && crates[0][1] === crates[1][1]) continue;
+    // 三倍傷害：正中央那一格（轉 180 度不動的唯一一格）；是牆或坑就換成地板（再確認連通）
+    T[C][C] = FLOOR; D[C][C] = 0; if (!connected(T)) continue;
+    const power = [C, C];
     const g = graphOf(T);
-    return {T, L, A, B, P, D, lamps, vents, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length, trench: D.flat().filter(Boolean).length}};
+    return {T, L, A, B, P, D, lamps, vents, crates, power, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length, trench: D.flat().filter(Boolean).length}};
   }
   return null;
 }

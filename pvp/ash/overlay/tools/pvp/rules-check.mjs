@@ -82,4 +82,21 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   ok(r.ok && A1.vaultExposed && A1.chimeraTrenchExposed, `A1 從平地直接跳進全身深：破綻（${r.msg}）`);
   g.pvpTrench = null;
 }
+// 搶奪點（Alan 2026-10-16）：中央的三倍傷害（必中、三倍、只算一個動作、拿著的時候暴露）；兩側的武器箱（打開掉出高階武器）
+{
+  for (const m of [...g.sides.A, ...g.sides.B]) { m.hp = m.maxHp; m.guard = false; m.pvpExposed = false; }
+  g.enter('A'); g.swap(A1); g.items = [{x: A1.x, y: A1.y, type: 'pvp_power', amount: 1}]; g.pickup();
+  ok(A1.pvpPower && A1.pvpExposed && !g.items.some(o => o.type === 'pvp_power'), 'A1 撿到三倍傷害：拿著、暴露、地上沒了');
+  g.enter('A'); ok(A1.pvpExposed, 'A1 自己的階段開始：拿著三倍傷害還是暴露');
+  g.swap(A1); A1.pvpPowerActive = true; let e = px(); const h0 = e.hp; g.hurt(e, 10, A1); A1.pvpPowerActive = false;
+  ok(h0 - e.hp === 30, `三倍傷害：10 變成 ${h0 - e.hp}`);
+  A1.pvpPowerActive = true; ok(g.accuracy(A1, e).chance === 100, '三倍傷害：必定命中'); A1.pvpPowerActive = false;
+  A1.pvpPower = false; g.syncProxies();
+  // 武器箱：放在 A1 旁邊，打開後地上有電漿步槍
+  const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => ({x: A1.x + dx, y: A1.y + dy})).find(q => g.grid[q.y]?.[q.x] === 1);
+  const crate = {id: 'pvp-crate-t', type: 'container', kind: 'field', x: nb.x, y: nb.y, opened: false, indestructible: true, contents: [{type: 'weapon', weapon: 4}]};
+  g.props.push(crate); g.enter('A'); g.focusUnit(A1); g.pvp.left = ['A1']; const r = g.actAs('A1', 'openContainer', 'pvp-crate-t');
+  ok(r.ok && crate.opened && g.items.some(o => o.type === 'weapon'), `打開武器箱：掉出武器（${r.msg}）`);
+  g.props = g.props.filter(o => o !== crate);
+}
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');

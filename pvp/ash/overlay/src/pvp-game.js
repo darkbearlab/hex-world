@@ -62,7 +62,11 @@ function ashMap(M) {
   const barriers = (M.P || []).map(([a, b], i) => makeBarrier('low_partition', {x: a[0], y: a[1]}, {x: b[0], y: b[1]}, `edge-pvp-${i}`));
   const lamps = (M.lamps || []).map(([x, y], i) => ({id: `lamp-1-${i}`, x, y, hp: 1}));
   const vents = (M.vents || []).map(([x, y], i) => ({id: `vent-1-${i}`, x, y, kind: i % 2 ? 'haze' : 'smoke', phase: (i * 3) % 7}));
-  return {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items: [], props, hazards: [], marks: [], barriers,
+  // 搶奪點（Alan 2026-10-16）：兩側的高階武器箱＝ASH 的補給箱（相鄰格打開＝一個動作，武器掉在腳邊再撿；一人最多三把）；中央的三倍傷害走上去就撿到。都不會重生
+  const W = id => WEAPONS.findIndex(w => w.id === id);
+  for (const [i, [x, y, w]] of (M.crates || []).entries()) props.push({id: `pvp-crate-${i}`, type: 'container', kind: 'field', x, y, opened: false, indestructible: true, contents: [{type: 'weapon', weapon: W(w)}]});
+  const items = M.power ? [{x: M.power[0], y: M.power[1], type: 'pvp_power', amount: 1}] : [];
+  return {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items, props, hazards: [], marks: [], barriers,
     cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting, slots: [], lamps, vents, lightModel: 2, pvpTrench: M.D ? M.D.map(r => r.slice()) : null};
 }
 
@@ -155,7 +159,7 @@ export class PvpGame extends SquadGame {
   enter(side) {
     if (this.pvp.side) this.pvpSeen[this.pvp.side] = this.seen;
     this.pvp.side = side; this.seen = this.pvpSeen[side]; this.park(side);
-    for (const m of this.sides[side]) m.pvpExposed = false;   // 自己的階段開始：上一階段開火的暴露結束
+    for (const m of this.sides[side]) m.pvpExposed = !!m.pvpPower;   // 自己的階段開始：上一階段開火的暴露結束（拿著三倍傷害的一直暴露）
     this.members = this.sides[side]; const lead = this.alive(side)[0]; if (!lead) return false;
     this.swap(lead); this.controlled = lead;
     this.enemies = this.proxies(this.other(side)); this.target = null;
@@ -257,8 +261,17 @@ export class PvpGame extends SquadGame {
     u.vaultExposed = true; u.chimeraTrenchExposed = true; applySuppression(u, 3);
     this.log(b > a ? '直接跳進壕溝：至下次行動前被射擊命中 +20，壓制 +3。' : '從壕溝直接爬出來：至下次行動前被射擊命中 +20，壓制 +3。', true);
   }
+  // 三倍傷害（像 Quake 的四倍傷害；Alan 2026-10-16）：走上中央那一格撿到；下一次攻擊必定命中、傷害三倍（只算那一個動作；下錨的第二輪不算）。
+  // 撿到的人一直到用掉都是暴露的（全場都看得到他在哪）
+  pickup() {
+    const p = this.player, i = (this.items || []).findIndex(o => o.type === 'pvp_power' && o.x === p.x && o.y === p.y);
+    if (i >= 0) { this.items.splice(i, 1); p.pvpPower = true; p.pvpExposed = true; this.log('撿到三倍傷害：下一次攻擊必定命中、傷害三倍（拿著的時候全場都看得到你）。', true); this.pvp.log.push(`第 ${this.pvp.round} 回合：${p.squadId} 撿到三倍傷害`); }
+    return super.pickup();
+  }
+  accuracy(attacker, target) { const r = super.accuracy(attacker, target); return attacker?.pvpPowerActive ? {...r, chance: 100} : r; }
+  meleeAccuracy(attacker, target, base) { return attacker?.pvpPowerActive ? 100 : super.meleeAccuracy(attacker, target, base); }
   // 待機（防禦姿態）：ASH 給玩家的「直接傷害減半」，替身也照算
-  hurt(e, damage, ...rest) { if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }
+  hurt(e, damage, ...rest) { if (rest[0]?.pvpPowerActive && damage > 0) damage *= 3; if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }
   // 看得到對方嗎：暴露中的到處都看得到；不然要從我（可以探頭）看得到他那一格的中心——他貼著牆探頭不算
   sight(a, b) {
     if (!b?.pvpOf) return super.sight(a, b);
@@ -279,7 +292,10 @@ export class PvpGame extends SquadGame {
     if (type === 'fire' && this.targeted?.pvpExposed && !this.nativeSight(p, this.targeted)) return this.fail('他暴露中，只知道位置；你沒有視線（牆、轉角或煙霧）');
     const quiet = this.weapon?.noFlash && isBlack(this, p);   // 消焰器、站在全黑的地方：開火不暴露
     this.pvpHow = type === 'grenade' ? {grenade: arg?.grenade || p.prepared?.grenade, x: arg?.x, y: arg?.y} : {type, weapon: this.weapon?.name};   // 受傷的人看得到「被什麼打」（看不到是誰）
-    let ok = super.soloPaid(type, arg);
+    const attack = ['fire', 'blindFire', 'bumpMelee', 'hookBlade', 'suppressiveFire', 'grapple'].includes(type), power = attack && p.pvpPower;
+    if (power) p.pvpPowerActive = true;
+    let ok; try { ok = super.soloPaid(type, arg); } finally { p.pvpPowerActive = false; }
+    if (power && ok) { p.pvpPower = false; this.log('三倍傷害用掉了。'); }
     // 下錨：ASH 在一般和慢速階段各打一次（action() 的行動佇列）；soloTurn 不經過佇列，這裡補第二次
     if (ok && skillActive(p, 'anchor') && ['fire', 'blindFire', 'bumpMelee', 'suppressiveFire'].includes(type) && p.hp > 0 && this.status === 'playing' && (type !== 'fire' || this.targeted?.hp > 0)) super.soloPaid(type, arg);
     for (const a of this.allies) a.pvpSide ||= this.pvp.side;   // 這個動作部署出來的無人機、砲台是這一隊的

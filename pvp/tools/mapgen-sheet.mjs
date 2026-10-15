@@ -34,6 +34,8 @@ export function sheet(maps, S = 14, cols = 3) {
     for (const [[ax, ay], [bx, by]] of M.P || []) { const vert = ax !== bx, mx = Math.max(ax, bx), my = Math.max(ay, by);
       for (let t = 0; t < S; t++) for (let w = -1; w <= 0; w++) put(ox + (vert ? mx * S + w : Math.min(ax, bx) * S + t), oy + (vert ? Math.min(ay, by) * S + t : my * S + w), [240, 200, 60]); }
     for (const [x, y] of M.lamps || []) for (let j = 4; j < S - 4; j++) for (let i = 4; i < S - 4; i++) put(ox + x * S + i, oy + y * S + j, [255, 245, 150]);
+    for (const [x, y] of M.crates || []) for (let j = 2; j < S - 2; j++) for (let i = 2; i < S - 2; i++) put(ox + x * S + i, oy + y * S + j, (i + j) % 3 ? [200, 90, 220] : [255, 255, 255]);   // 武器箱：紫
+    if (M.power) for (let j = 1; j < S - 1; j++) for (let i = 1; i < S - 1; i++) put(ox + M.power[0] * S + i, oy + M.power[1] * S + j, [255, 60, 60]);   // 三倍傷害：紅
     for (const [x, y] of M.vents || []) for (let j = 3; j < S - 3; j++) for (let i = 3; i < S - 3; i++) if ((i + j) % 2) put(ox + x * S + i, oy + y * S + j, [80, 220, 230]);
   });
   return png(W, H, px);

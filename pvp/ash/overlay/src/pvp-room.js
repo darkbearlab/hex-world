@@ -32,6 +32,8 @@ export const HELP = `PVP 文字對戰：兩隊各 4 人，XCOM 式輪流——�
   A1 plate                 用護甲噴劑補護甲板
   A1 skill <技能 id> [B2]  用技能（grapple 鉤爪要給目標）
   A1 deploy [0]            工兵：部署生產線上的無人機
+  A1 open                  打開旁邊的武器箱（戰場兩側各一個：電漿步槍、精準步槍；掉在地上，走上去撿）
+  （地圖正中央的「三倍傷害」走上去就撿到：下一次攻擊必定命中、傷害三倍；拿著的時候全場都看得到你）
   A1 flashlight            開關手電筒（免費）
   A1 wait                  待機（下一個對方階段比較難被打中）
   A1 raw <ASH 動作> <JSON> 進階：直接送 ASH 的動作
@@ -186,6 +188,7 @@ export function createRoom(opts = {}) {
         break; }
       case 'skill': { const sid = rest[0]; if (!sid) return `${id} skill 要接技能 id`; if (sid === 'workshop') return `${id}：workshop 在文字介面用 deploy（部署生產線上的無人機：${(m.productionLines || []).map(l => l.blueprint).join(',') || '生產線是空的'}）`; type = 'skill'; a = sid; const t = foeTarget(rest[1]); if (t) opt.target = t; break; }
       case 'deploy': type = 'deployUnit'; a = {line: +(rest[0] || 0)}; break;
+      case 'open': { const c = g.props.find(o => o.type === 'container' && !o.opened && Math.abs(o.x - m.x) + Math.abs(o.y - m.y) === 1); if (!c) return `${id} 旁邊沒有沒開過的箱子`; type = 'openContainer'; a = c.id; break; }
       case 'raw': { type = rest[0]; try { a = rest.length > 1 ? JSON.parse(rest.slice(1).join(' ')) : undefined; } catch { return `${id} raw 的參數要是 JSON`; } break; }
       default: return `看不懂動作「${verb}」（help 看指令）`;
     }
