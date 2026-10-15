@@ -58,7 +58,7 @@ export function createRoom(opts = {}) {
   // 座位：{token, name, seen}；對戰結束後保留（同一個人可以再打一場）
   const seats = {A: null, B: null};
   // 現在這個階段：{no, side, at}（計時與斷線用）
-  let phaseNo = 0, phaseInfo = null;
+  let phaseNo = 0, phaseInfo = null, lastMatch = null;
   // ASH 介面（pvp/web 的 play）：每一方現在操作的人、最後一次的畫面（對方的階段裡給的就是這個）
   const focus = {A: null, B: null}, lastView = {A: null, B: null};
   // 對方的階段裡，這一方看得到的動作（Alan 2026-10-15：「敵人在我方視線內，過程還是要有演出」）：每個動作一格 {n, before, after, effects}
@@ -95,7 +95,10 @@ export function createRoom(opts = {}) {
   function finish() {
     if (!g || lastResult?.match === matchNo) return;
     phaseInfo = null; lastResult = {match: matchNo, seed, status: g.status, winner: g.pvp.winner, rounds: g.pvp.round, kills: g.pvp.kills, A: picks.A, B: picks.B, log: g.pvp.log};
-    log('results.jsonl', lastResult); seed++; picks = {A: null, B: null};
+    log('results.jsonl', lastResult);
+    // 儲存戰鬥過程用（Alan 2026-10-16）：這一場的完整紀錄（從選角開始）＋種子＋座位；同一個種子照順序重播就是同一場（pvp-replay.js）
+    lastMatch = {match: matchNo, seed, journal: journal.slice(), bots: {...BOT}, seats: {A: seats.A && {...seats.A}, B: seats.B && {...seats.B}}, result: lastResult, at: Date.now()};
+    seed++; picks = {A: null, B: null};
     wake('A'); wake('B');
   }
   const wake = side => { const w = waiters[side]; waiters[side] = []; for (const f of w) f(); onWake?.(side); };
@@ -288,9 +291,10 @@ export function createRoom(opts = {}) {
   // 從 side 的角度拍一張（對方的階段裡用，不改局面）
   const observe = side => g.viewAs(side, () => filter(snapshot(g), side, visibleTo(side)));
   // 對方階段開始：清掉上一輪的格子，拍一張起點
-  function watchStart(acting) { const O = g.other(acting); if (BOT[O] || !seats[O] || replaying) return; watch[O].frames = []; watch[O].last = observe(O); }
+  function watchStart(acting) { opts.onPhase?.(acting); const O = g.other(acting); if (BOT[O] || !seats[O] || replaying) return; watch[O].frames = []; watch[O].last = observe(O); }
   // acting 那一方剛做完一個動作（steps＝ASH 錄的動畫）：換成 O 看得到的樣子記一格
   function watchRecord(acting, unitId, steps) {
+    opts.onSteps?.(acting, unitId, steps);   // 重播儲存的戰鬥（pvp-replay.js）：每個動作的原始動畫
     const O = g.other(acting), w = watch[O]; if (BOT[O] || !seats[O] || replaying) return;
     const before = w.last || observe(O), after = observe(O), pid = unitId ? `px-${unitId}` : null;
     const seenActor = pid && [before, after].some(s => s.enemies?.some(e => e.id === pid && e.hp > 0));
@@ -374,7 +378,7 @@ export function createRoom(opts = {}) {
   // 對戰結束以後，紀錄可以清掉（下一場從新的種子開始）
   function settle() { if (g && g.status !== 'playing') { journal = []; return true; } return false; }
   return {
-    seat, leave, replay, settle, setBot, seats, get phase() { return phaseInfo; }, get seed() { return seed; }, get journal() { return journal; },
+    seat, leave, replay, settle, setBot, get lastMatch() { return lastMatch; }, seats, get phase() { return phaseInfo; }, get seed() { return seed; }, get journal() { return journal; },
     handle, render, json, waitTurn, myTurn, HELP, bots: BOT,
     get game() { return g; }, get match() { return matchNo; }, get result() { return lastResult; },
   };

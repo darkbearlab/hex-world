@@ -48,6 +48,7 @@ button.on{outline:2px solid var(--warn)}
  <div class="row" style="margin-top:12px"><button id="seatA" class="primary">坐 A（先動）</button><button id="seatB" class="primary">坐 B</button></div>
  <div id="seatMsg" class="small" style="margin-top:10px"></div>
  <p style="margin-top:24px"><a href="watch.html" style="color:#8fc7ff">觀戰：機器人對打（alpha 對 beta）→</a></p>
+ <h3 style="margin-top:20px;font-size:14px;color:var(--dim)">儲存的戰鬥</h3><div id="replays" class="small">讀取中⋯</div>
 </div>
 <div id="pickView" class="center" hidden>
  <div class="row" id="botRow" style="margin-bottom:8px"></div>
@@ -79,9 +80,12 @@ async function api(p,body){const r=await fetch('/api'+p+(p.includes('?')?'&':'?'
 async function refresh(){if(!side){S=null;return drawSeat();}S=JSON.parse(await api('/json'));if(S.seats&&S.seats[side]===null&&!S.local){side='';store.set('pvp-side','');return drawSeat();}draw();}
 async function drawSeat(){
  $('seatView').hidden=false;$('pickView').hidden=true;$('playView').hidden=true;$('hSide').textContent='還沒坐下';
- $('name').value=store.get('pvp-name')||'';
+ $('name').value=store.get('pvp-name')||'';loadReplays();
  try{const st=JSON.parse(await (await fetch('/api/seats')).text());$('seatA').textContent=st.A?`A：${st.A}`:'坐 A（先動）';$('seatB').textContent=st.B?`B：${st.B}`:'坐 B';$('seatMsg').textContent=st.playing?'對戰進行中。':'';}catch{}
 }
+async function loadReplays(){try{const L=await (await fetch('/api/replays')).json();$('replays').innerHTML=L.length?'':'還沒有人存過';
+ for(const m of L){const a=document.createElement('a');a.href=`watch.html?replay=${m.id}`;a.style.cssText='display:block;color:#8fc7ff;margin:4px 0';
+  a.textContent=`${new Date(m.at).toLocaleString()}　${m.names?.A||'?'}（${(m.A||[]).map(c=>NAMES[c]||c).join('・')}）對 ${m.names?.B||'?'}（${(m.B||[]).map(c=>NAMES[c]||c).join('・')}）　${m.winner?m.winner+' 隊贏':'平手'}・${m.rounds||'?'} 回合`;$('replays').append(a);}}catch{$('replays').textContent='';}}
 async function sit(s){const name=$('name').value.trim()||'訪客';store.set('pvp-name',name);
  const r=await fetch('/api/seat?side='+s,{method:'POST',body:JSON.stringify({name}),headers:{'x-seat':token}});const o=JSON.parse(await r.text());
  if(!o.ok){$('seatMsg').textContent=o.msg;return;}side=s;store.set('pvp-side',s);$('seatView').hidden=true;await refresh();loop();}

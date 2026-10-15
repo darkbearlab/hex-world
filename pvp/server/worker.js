@@ -9,6 +9,7 @@ import {createRoom} from '../ash/.work/src/pvp-room.js';
 import {generate} from '../tools/mapgen.mjs';
 import {installPvpBots} from '../ash/.work/tools/pvp/match.mjs';
 import {watchMatch} from '../ash/.work/src/pvp-spectate.js';
+import {replayMatch} from '../ash/.work/src/pvp-replay.js';
 import {PVP_CLASSES} from '../ash/.work/src/pvp-game.js';
 import Alpha from '../ash/.work/tools/pvp/bots/alpha.mjs';
 import Beta from '../ash/.work/tools/pvp/bots/beta.mjs';
@@ -44,6 +45,8 @@ export class Room extends DurableObject {
   }
   async save() {
     const R = this.room, S = this.ctx.storage;
+    const done = R.game && R.game.status !== 'playing' && R.lastMatch;
+    if (done) await S.put('last', R.lastMatch);   // 打完的那一場：玩家可以選擇存起來（/save）
     if (R.settle()) { const keys = [...(await S.list({prefix: 'j:'})).keys()]; for (let i = 0; i < keys.length; i += 128) await S.delete(keys.slice(i, i + 128)); this.saved = 0; }
     const J = R.journal, put = {};
     for (let i = this.saved; i < J.length; i++) put['j:' + String(i).padStart(6, '0')] = J[i];
@@ -53,6 +56,16 @@ export class Room extends DurableObject {
     if (R.game?.status === 'playing' && !await S.getAlarm()) await S.setAlarm(Date.now() + 5000);
   }
   // 觀戰（pvp-spectate.js）：/watch?seed=S&i=N 回傳第 N 格；同一場往下算，倒回去或換一場就從頭重算。只放記憶體（被回收了就重算，同種子一模一樣）
+  // 儲存的戰鬥（Alan 2026-10-16）：replay:<id> ＝ {meta, journal}；replays ＝ 最近 60 場的清單（meta）
+  async replayFrame(id, i) {
+    let w = this.watch;
+    if (!w || w.key !== 'r:' + id || i < w.i - 1) {
+      const saved = await this.ctx.storage.get('replay:' + id); if (!saved) return {error: '找不到這場戰鬥'};
+      w = this.watch = {key: 'r:' + id, i: 0, A: saved.meta.A, B: saved.meta.B, names: saved.meta.names, it: replayMatch({saved, generate, installBots: (g, o) => installPvpBots(g, {...o, bots: {A: Beta, B: Beta}})}), frame: null, done: false};
+    }
+    while (!w.done && w.i <= i) { const n = w.it.next(); if (n.done) { w.done = true; break; } w.frame = n.value; w.i++; }
+    return {replay: id, i: w.i - 1, A: w.A, B: w.B, names: w.names, done: w.done || w.frame?.kind === 'over', ...w.frame};
+  }
   watchFrame(seed, i) {
     let w = this.watch;
     if (!w || w.seed !== seed || i < w.i - 1) {   // w.i＝已經算出的格數，w.frame＝第 w.i-1 格
@@ -82,6 +95,24 @@ export class Room extends DurableObject {
     try {
       if (p === '/seat') { let name = ''; try { name = JSON.parse(body || '{}').name; } catch {} const r = R.seat(side, token, name); await this.save(); return json(r, r.ok ? 200 : 409); }
       if (p === '/leave') { const ok = R.leave(side, token); await this.save(); return json({ok}); }
+      if (p === '/save') {
+        const last = R.lastMatch || await this.ctx.storage.get('last');
+        if (!last) return json({ok: false, msg: '沒有剛打完的戰鬥'}, 404);
+        const who = ['A', 'B'].find(k => last.seats?.[k]?.token && last.seats[k].token === token);
+        if (!who) return json({ok: false, msg: '只有這一場的玩家可以儲存'}, 403);
+        if (last.savedId) return json({ok: true, id: last.savedId});
+        const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6), r = last.result || {};
+        const meta = {id, at: last.at, match: last.match, A: r.A, B: r.B, winner: r.winner, rounds: r.rounds, names: {A: last.seats.A?.name || (last.bots?.A ? '機器人' : '?'), B: last.seats.B?.name || (last.bots?.B ? '機器人' : '?')}, by: who};
+        await this.ctx.storage.put('replay:' + id, {meta, seed: last.seed, bots: last.bots, journal: last.journal, result: r});
+        const list = (await this.ctx.storage.get('replays')) || []; list.unshift(meta); await this.ctx.storage.put('replays', list.slice(0, 60));
+        last.savedId = id; if (R.lastMatch) R.lastMatch.savedId = id; await this.ctx.storage.put('last', last);
+        return json({ok: true, id});
+      }
+      if (p === '/replays') return json((await this.ctx.storage.get('replays')) || []);
+      if (p === '/watch' && url.searchParams.get('replay')) {
+        const f = await this.replayFrame(url.searchParams.get('replay'), Math.max(0, +(url.searchParams.get('i') || 0)));
+        return new Response(JSON.stringify(f, tag), {status: f.error ? 404 : 200, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
+      }
       if (p === '/watch') {
         const seed = +(url.searchParams.get('seed') || 0) || Math.floor(Math.random() * 1e6) + 1, i = Math.max(0, +(url.searchParams.get('i') || 0));
         return new Response(JSON.stringify(this.watchFrame(seed, i), tag), {headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});

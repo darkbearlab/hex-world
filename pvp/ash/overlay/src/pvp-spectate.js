@@ -3,12 +3,13 @@
 // - 邊播邊算（generator）：一場的快照全部存起來太大（每一步幾百 KB），觀眾要第幾格就往下算到第幾格；倒回去就從頭重算（同一個種子，一模一樣）
 import {PvpGame} from './pvp-game.js';
 import {captureAction, snapshot} from './presentation.js';
+import {LOOK} from './pvp-room.js';
 
 // 全場可見的快照：看過的格子＝全部、看得到的格子＝全部地板、敵人（對方的替身）全部留著；替身的種類換回一般的替身（瀏覽器沒有 pvp-proxy-* 這些種類）
-function full(s, proxy) {
+export function full(s, proxy) {
   const N = s.grid?.length || 0, all = Array.from({length: N}, () => Array(N).fill(true)), vis = new Set();
   for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (s.grid[y][x]) vis.add(`${x},${y}`);
-  const out = {...s, seen: all, visibleTiles: vis, enemies: (s.enemies || []).map(e => /^pvp-proxy-/.test(e.type) ? {...e, type: proxy} : e)};
+  const out = {...s, seen: all, visibleTiles: vis, enemies: (s.enemies || []).map(e => /^pvp-proxy-/.test(e.type) || e.pvpAlly != null ? {...e, type: LOOK[e.pvpCls] || (e.pvpAlly != null ? 'drone' : proxy)} : e)};
   for (const k of ['pvpSeen', 'pvpParked', 'pvpActor', 'pvpHow', 'pvpFlashes']) delete out[k];
   return out;
 }

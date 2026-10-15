@@ -32,6 +32,8 @@ const {bootAsh}=await import('./ash/pvp-boot.js');
 const E=await bootAsh();
 E.remote=async()=>({success:false,steps:[]});   // 觀戰不能操作
 let seed=+(new URLSearchParams(location.search).get('seed')||0),i=0,paused=false,started=false,run=0;
+// 重播儲存的戰鬥（?replay=id）：人類玩家打完存下來的那一場；播完不自動換下一場
+const replayId=new URLSearchParams(location.search).get('replay');if(replayId){document.title='PVP 重播';document.querySelector('#pvpbar b').textContent='重播';$('bNew').hidden=true;}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 $('bPause').onclick=()=>{paused=!paused;$('bPause').textContent=paused?'繼續':'暫停';};
 $('bNew').onclick=()=>{seed=0;i=0;started=false;run++;play(run);};
@@ -42,16 +44,17 @@ document.getElementById('battle')?.addEventListener('pointermove',e=>{if(e.butto
 const look=(st,id)=>{if(!follow)return;const m=(st?.members||[]).find(u=>u.squadId===id)||st?.player;if(m)E.camera?.center(m);};
 function feed(t){const f=$('feed');f.textContent=t;}
 // 開場的狀態給 startRemote 原始的 JSON（它自己還原 Set／Map；先還原再轉一次 JSON，Set 就變成空物件）
-async function frame(n){const r=await fetch(`/api/watch?seed=${seed}&i=${n}`),t=await r.text(),f=JSON.parse(t,revive);f.raw=JSON.parse(t).state;return f;}
+async function frame(n){const r=await fetch(replayId?`/api/watch?replay=${encodeURIComponent(replayId)}&i=${n}`:`/api/watch?seed=${seed}&i=${n}`),t=await r.text(),f=JSON.parse(t,revive);f.raw=JSON.parse(t).state;return f;}
 async function play(me){
  $('cover').hidden=false;$('coverText').textContent='準備一場機器人對戰⋯';
  while(me===run){
   while(paused&&me===run)await sleep(200);
   let f;try{f=await frame(i);}catch(e){$('coverText').textContent='連不上伺服器，重試中⋯';$('cover').hidden=false;await sleep(2000);continue;}
   if(me!==run)return;
-  if(!seed){seed=f.seed;history.replaceState(null,'',`?seed=${seed}`);}
+  if(f.error){$('cover').hidden=false;$('coverText').textContent=f.error;return;}
+  if(!seed&&!replayId){seed=f.seed;history.replaceState(null,'',`?seed=${seed}`);}
   $('bWho').innerHTML='';$('bWho').className='pill';
-  $('bWho').textContent=`A（alpha）${f.A.map(c=>NAMES[c]).join('・')}　對　B（beta）${f.B.map(c=>NAMES[c]).join('・')}`;
+  $('bWho').textContent=replayId?`A（${f.names?.A||'?'}）${(f.A||[]).map(c=>NAMES[c]).join('・')}　對　B（${f.names?.B||'?'}）${(f.B||[]).map(c=>NAMES[c]).join('・')}`:`A（alpha）${f.A.map(c=>NAMES[c]).join('・')}　對　B（beta）${f.B.map(c=>NAMES[c]).join('・')}`;
   $('bRound').textContent=`第 ${f.round||'?'} 回合`;$('bPhase').textContent=f.side?`${f.side} 隊行動`:'';$('bPhase').className='pill '+(f.side==='A'?'a':f.side==='B'?'b':'');
   if(f.state&&(!started||f.kind==='phase')){E.startRemote({state:f.raw});E.remote=async()=>({success:false,steps:[]});started=true;$('cover').hidden=true;look(f.state,f.state.player?.squadId);}
   else if(f.steps?.length){
@@ -62,7 +65,7 @@ async function play(me){
    await sleep(50);while(E.busy()&&me===run)await sleep(60);
   }
   if(f.log?.length)feed(f.log.slice(-3).join('\n'));
-  if(f.kind==='over'){$('cover').hidden=false;$('coverText').innerHTML=`${f.winner?f.winner+' 隊（'+(f.winner==='A'?'alpha':'beta')+'）獲勝':'平手'}・${f.round} 回合<br><small>${(f.log||[]).join('<br>')}</small><br><br>5 秒後換下一場`;await sleep(5000);if(me===run){seed=0;i=0;started=false;continue;}return;}
+  if(f.kind==='over'){$('cover').hidden=false;$('coverText').innerHTML=`${f.winner?f.winner+' 隊（'+(f.winner==='A'?'alpha':'beta')+'）獲勝':'平手'}・${f.round} 回合<br><small>${(f.log||[]).join('<br>')}</small><br>${replayId?'':'<br>5 秒後換下一場'}`;if(replayId)return;await sleep(5000);if(me===run){seed=0;i=0;started=false;continue;}return;}
   i++;await sleep(f.kind==='act'?250:120);
  }
 }

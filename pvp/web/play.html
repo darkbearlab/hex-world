@@ -75,10 +75,18 @@ async function wait(){
    if(!rp.frames.length){const j=await api('jwait?t=20');deadline=j.deadline;$('bRound').textContent=j.round?`第 ${j.round}/300 回合`:'';if(j.phase==='pick'){location.replace('./');return;}}
   }
   const v=await api('view');
-  if(v.phase==='over'){$('cover').hidden=false;$('coverText').innerHTML=`對戰結束：${v.winner===side?'你贏了':'你輸了'}<br><a href="./" style="color:#8fc7ff">回到大廳</a>`;$('since').textContent=(v.log||[]).join('\n');return;}
+  if(v.phase==='over'){over(v);return;}
   hud(v);E.startRemote(v);shown=true;$('cover').hidden=true;
   $('since').textContent='';if(v.since?.length)note('對方階段：'+v.since.join('；'));
  }finally{waiting=false;}
+}
+// 對戰結束：結果＋「儲存這場的戰鬥過程」（Alan 2026-10-16：打完可以選擇存在線上，之後在觀戰頁重播）
+function over(v){
+ $('cover').hidden=false;
+ $('coverText').innerHTML=`對戰結束：${v.winner===side?'你贏了':v.winner?'你輸了':'平手'}<br><br><button id="bSave" style="font:inherit;padding:8px 14px;border-radius:6px;background:#2f5d3a;color:#e6e8ec;border:1px solid #3f7a4c;cursor:pointer">儲存這場的戰鬥過程</button> <a href="./" style="color:#8fc7ff;margin-left:12px">回到大廳</a><div id="saveMsg" style="font-size:13px;margin-top:10px;color:#8b93a1"></div>`;
+ $('since').textContent=(v.log||[]).join('\n');
+ $('bSave').onclick=async()=>{$('bSave').disabled=true;const r=await fetch('/api/save?side='+side,{method:'POST',headers:{'x-seat':token}});const o=await r.json();
+  if(o.ok){const u=new URL(`watch.html?replay=${o.id}`,location.href).href;$('saveMsg').innerHTML=`存好了：<a href="${u}" style="color:#8fc7ff">${u}</a>（大廳的「儲存的戰鬥」也看得到）`;}else{$('saveMsg').textContent=o.msg||'存不了';$('bSave').disabled=false;}};
 }
 // 對方階段的傷害提示（ASH 的紀錄面板之外，短暫顯示在上方）
 function note(t){const d=document.createElement('div');d.textContent=t;d.style.cssText='position:fixed;top:calc(var(--bar-h,40px) + 8px);left:50%;transform:translateX(-50%);z-index:1001;background:#3a1c1ccc;color:#ffd0c8;padding:6px 12px;border-radius:6px;max-width:90vw;font-size:13px';document.body.append(d);setTimeout(()=>d.remove(),8000);}
