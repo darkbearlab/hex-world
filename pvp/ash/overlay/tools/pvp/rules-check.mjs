@@ -66,4 +66,20 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   g.enter('A'); g.swap(A1); e = px(); e.control = {...e.control, disabled: 3}; g.syncProxies(); ok(B1.control?.disabled === 3, '打在替身上的失能同步回 B1');
   B1.control = {disabled: 0, immune: 0};
 }
+// 戰壕（地圖第二版第二步）：溝裡的人被溝外的人打＝中間有掩護（全身深＝牆）；直接從平地跳進全身深＝破綻
+{
+  const N = g.grid.length; g.pvpTrench = Array.from({length: N}, () => Array(N).fill(0));
+  g.enter('A'); g.swap(A1);
+  // 找一段空曠的橫排：B1 旁邊沒有真的牆（不然 ASH 本來就算那道牆）
+  let spot = null; for (let y = 2; y < N - 2 && !spot; y++) for (let x = 2; x < N - 7 && !spot; x++) { let fine = true; for (let i = 0; i <= 5; i++) for (const dy of [0]) if (g.grid[y + dy][x + i] !== 1 || g.props.some(o => o.x === x + i && o.y === y + dy)) fine = false; if (fine) spot = {x, y}; }
+  Object.assign(A1, {x: spot.x, y: spot.y}); Object.assign(B1, {x: spot.x + 4, y: spot.y}); g.pvpTrench[spot.y][spot.x + 4] = 2; g.enemies = g.proxies('B');
+  const cv = g.protectingCover(px(), A1); ok(cv?.trench && cv.type === 'wall', `B1 在全身深的戰壕裡：A1 從溝外打，中間算牆（${JSON.stringify(cv)}）`);
+  g.pvpTrench[spot.y][spot.x] = 2; ok(!g.protectingCover(px(), A1)?.trench, '兩個人都在溝裡：沒有戰壕掩護');
+  g.pvpTrench[spot.y][spot.x] = 0;
+  const occupied = (x, y) => [...g.sides.A, ...g.sides.B].some(m => m !== A1 && m.hp > 0 && m.x === x && m.y === y) || g.props.some(o => o.x === x && o.y === y && o.hp > 0);
+  const step = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => g.grid[A1.y + dy]?.[A1.x + dx] === 1 && !occupied(A1.x + dx, A1.y + dy));
+  g.pvpTrench[A1.y + step[1]][A1.x + step[0]] = 2; g.focusUnit(A1); g.pvp.left = ['A1']; const r = g.actAs('A1', 'move', step);
+  ok(r.ok && A1.vaultExposed && A1.chimeraTrenchExposed, `A1 從平地直接跳進全身深：破綻（${r.msg}）`);
+  g.pvpTrench = null;
+}
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');

@@ -140,7 +140,8 @@ function metrics(T, g, A, B) {
  * - 出煙口：上下各一個（對稱），放在長直線視線上；週期噴煙（ASH 的 vents，種類 smoke／haze，不用會燙傷的 steam）。
  * - 暗區與鹵素燈：主牆隔出的每一區亮或停電（對稱，開場那區一定亮）；停電的區照原作放鹵素燈（靠牆、約每 20 格一盞、至少一盞、分散）。
  * - 檢查：全部連通；「瓶頸」＝一格寬的格子，堵住它雙方要多繞 8 步以上（或過不去），有就重生。
- * 回傳 {T, L, A, B, P（矮隔板：[[x,y],[x2,y2]] 兩格之間）, lamps, vents, zones, seed, spawn, m}
+ * - 戰壕：一到兩段（中間全身深 2、兩頭半身 1），規則照奇美拉戶外（pvp-game.js 的 protectingCover、trenchStep）。
+ * 回傳 {T, L, A, B, P（矮隔板：[[x,y],[x2,y2]] 兩格之間）, D（戰壕深度 0/1/2）, lamps, vents, zones, seed, spawn, m}
  */
 export function generate(seed, opt = {}) {
   const r = rng((seed * 2654435761 >>> 0) ^ 0x9e3779b9 || 1), pick = a => a[Math.floor(r() * a.length)], ri = (a, b) => a + Math.floor(r() * (b - a + 1));
@@ -220,11 +221,25 @@ export function generate(seed, opt = {}) {
       for (const [a, b] of segs) for (const [p, q] of [[a, b], [rot(...a), rot(...b)]]) if (!edgeSet.has(ek(p, q))) { P.push([p, q]); edgeSet.add(ek(p, q)); }
       made++;
     }
+    // 戰壕（第二步，照奇美拉戶外的規則）：一到兩段，中間全身深（2）、兩頭半身（1）當台階（一層一層走下去不會露破綻，直接從平地跳進全身深的才會）
+    // 放在空曠處（不貼牆、不碰矮隔板、離開場 4 格以上），一段 5–8 格，偶爾拐一個彎；上半部放，轉 180 度
+    const D = Array.from({length: N}, () => Array(N).fill(0)), dset = (x, y, v) => { D[y][x] = v; const [a, b] = rot(x, y); D[b][a] = v; };
+    const onP = (x, y) => P.some(([a, b]) => (a[0] === x && a[1] === y) || (b[0] === x && b[1] === y));
+    for (let k = 0, made = 0, want = ri(1, 2); k < 120 && made < want; k++) {
+      const len = ri(5, 8), horiz = r() < .5, turn = r() < .35 ? ri(2, len - 3) : -1, x0 = ri(2, N - 3), y0 = ri(2, C - 2);
+      const cells = []; let x = x0, y = y0, dir = horiz ? [1, 0] : [0, 1];
+      for (let i = 0; i < len; i++) { cells.push([x, y]); if (i === turn) dir = [dir[1], dir[0]]; x += dir[0]; y += dir[1]; }
+      const fine = cells.every(([cx, cy]) => cy >= 1 && cy < C && cx >= 1 && cx < N - 1 && T[cy][cx] === FLOOR && !D[cy][cx] && !onP(cx, cy)
+        && D4.every(([dx, dy]) => T[cy + dy]?.[cx + dx] !== WALL) && Math.abs(cx - A[0]) + Math.abs(cy - A[1]) >= 4 && Math.abs(cx - B[0]) + Math.abs(cy - B[1]) >= 4);
+      if (!fine) continue;
+      cells.forEach(([cx, cy], i) => dset(cx, cy, i === 0 || i === cells.length - 1 ? 1 : 2));
+      made++;
+    }
     // 少量木箱（第一版的 c：擋路、擋一部分子彈、可以打壞），不放在一格寬的地方
     const narrow = (x, y) => (T[y][x - 1] !== FLOOR && T[y][x + 1] !== FLOOR) || (T[y - 1][x] !== FLOOR && T[y + 1][x] !== FLOOR);
     for (let k = 0, made = 0, want = ri(2, 4); k < 80 && made < want; k++) {
       const x = ri(2, N - 3), y = ri(2, C - 1);
-      if (!open(x, y) || narrow(x, y) || D4.some(([dx, dy]) => narrow(x + dx, y + dy)) || P.some(([a, b]) => [a, b].some(q => q[0] === x && q[1] === y))) continue;
+      if (!open(x, y) || D[y][x] || narrow(x, y) || D4.some(([dx, dy]) => narrow(x + dx, y + dy)) || P.some(([a, b]) => [a, b].some(q => q[0] === x && q[1] === y))) continue;
       set(x, y, COVER); if (!connected(T)) { set(x, y, FLOOR); continue; } made++;
     }
     // 6. 亮暗與鹵素燈：每一區亮或停電（上下對稱），開場的區一定亮
@@ -248,7 +263,7 @@ export function generate(seed, opt = {}) {
     const run = (x, y, dx, dy) => { let n = 0; for (let X = x, Y = y; T[Y]?.[X] && seeThrough(T[Y][X]); X += dx, Y += dy) n++; return n; };
     const ventCand = [];
     for (let y = 2; y < C; y++) for (let x = 2; x < N - 2; x++) {
-      if (T[y][x] !== FLOOR || Math.abs(x - A[0]) + Math.abs(y - A[1]) < 5 || Math.abs(x - B[0]) + Math.abs(y - B[1]) < 5) continue;
+      if (T[y][x] !== FLOOR || D[y][x] || Math.abs(x - A[0]) + Math.abs(y - A[1]) < 5 || Math.abs(x - B[0]) + Math.abs(y - B[1]) < 5) continue;
       const lane = Math.max(run(x, y, 1, 0) + run(x, y, -1, 0), run(x, y, 0, 1) + run(x, y, 0, -1)) - 1;
       if (lane >= 8 && D4.filter(([dx, dy]) => T[y + dy][x + dx] === FLOOR).length >= 3) ventCand.push([x, y, lane]);
     }
@@ -256,7 +271,7 @@ export function generate(seed, opt = {}) {
     ventCand.sort((a, b) => b[2] - a[2]);
     const v = pick(ventCand.slice(0, Math.max(1, Math.ceil(ventCand.length / 3)))), vents = [[v[0], v[1]], rot(v[0], v[1])];
     const g = graphOf(T);
-    return {T, L, A, B, P, lamps, vents, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length}};
+    return {T, L, A, B, P, D, lamps, vents, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length, trench: D.flat().filter(Boolean).length}};
   }
   return null;
 }

@@ -28,6 +28,8 @@ export function sheet(maps, S = 14, cols = 3) {
         put(ox + x * S + i, oy + y * S + j, edge ? c.map(v => v * .85 | 0) : M.T[y][x] === 'c' && (i < 2 || j < 2 || i > S - 3 || j > S - 3) ? [196, 186, 160] : c);
       }
     }
+    // 戰壕：半身深暗棕、全身深更暗
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const d = M.D?.[y]?.[x]; if (!d) continue; const c = d === 2 ? [70, 50, 30] : [120, 90, 55]; for (let j = 2; j < S - 2; j++) for (let i = 2; i < S - 2; i++) put(ox + x * S + i, oy + y * S + j, c); }
     // 第二版：矮隔板（黃線，畫在兩格之間）、鹵素燈（亮黃點）、出煙口（青色）
     for (const [[ax, ay], [bx, by]] of M.P || []) { const vert = ax !== bx, mx = Math.max(ax, bx), my = Math.max(ay, by);
       for (let t = 0; t < S; t++) for (let w = -1; w <= 0; w++) put(ox + (vert ? mx * S + w : Math.min(ax, bx) * S + t), oy + (vert ? Math.min(ay, by) * S + t : my * S + w), [240, 200, 60]); }
@@ -40,7 +42,7 @@ export function sheet(maps, S = 14, cols = 3) {
 if (process.argv[1]?.endsWith('mapgen-sheet.mjs')) {
   const n = +(process.argv[2] || 6), s0 = +(process.argv[3] || 1), maps = [];
   for (let s = s0; maps.length < n && s < s0 + 200; s++) { const M = generate(s); if (M) maps.push(M); }
-  for (const [i, M] of maps.entries()) { const m = M.m; console.log(`#${i + 1} 種子 ${M.seed}：${M.version === 2 ? `矮隔板 ${m.partitions} 段、鹵素燈 ${m.lamps}、出煙口 ${m.vents}、` : `房間 ${m.rooms}、通道 ${m.doors}、環路 ${m.loops}、`}雙方最短 ${m.dist} 步、開場到中央 ${m.center} 步、視線（短／中／長）${m.runs.短}/${m.runs.中}/${m.runs.長}${M.tries ? `（重生 ${M.tries} 次）` : ''}`); }
+  for (const [i, M] of maps.entries()) { const m = M.m; console.log(`#${i + 1} 種子 ${M.seed}：${M.version === 2 ? `矮隔板 ${m.partitions} 段、戰壕 ${m.trench} 格、鹵素燈 ${m.lamps}、出煙口 ${m.vents}、` : `房間 ${m.rooms}、通道 ${m.doors}、環路 ${m.loops}、`}雙方最短 ${m.dist} 步、開場到中央 ${m.center} 步、視線（短／中／長）${m.runs.短}/${m.runs.中}/${m.runs.長}${M.tries ? `（重生 ${M.tries} 次）` : ''}`); }
   const out = join(dirname(fileURLToPath(import.meta.url)), 'out'); mkdirSync(out, {recursive: true});
   writeFileSync(join(out, 'maps.png'), sheet(maps)); console.log('預覽：' + join(out, 'maps.png'));
 }

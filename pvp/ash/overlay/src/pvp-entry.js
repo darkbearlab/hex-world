@@ -91,5 +91,6 @@ E.renderer=renderer;
 const pause=renderer.isPaused;renderer.isPaused=()=>!E.active||pause?.();
 const {installSquadUI}=await import('./chimera-squad-ui.js');installSquadUI();
 const {installWide}=await import('./chimera-wide.js');installWide();
+const {installTrenchRender}=await import('./pvp-trench-render.js');installTrenchRender(renderer);   // 室內的戰壕
 const {installFreeCamera}=await import('./pvp-camera.js');E.camera=installFreeCamera(renderer,document.getElementById('battle'));   // 自由鏡頭（擊殺鏡頭照原本）
 resolveLoaded(E);

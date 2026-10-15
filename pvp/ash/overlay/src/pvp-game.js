@@ -30,6 +30,7 @@ import {initialSkillState} from './skills.js';
 import {anchors} from './combat.js';
 import {objectSightGrid} from './scenery.js';
 import {makeBarrier} from './barriers.js';
+import {applySuppression} from './suppression.js';
 import {lineOfSight} from './world.js';
 import {isBlack} from './lighting.js';
 import {allyAct, currentAllies} from './allies.js';
@@ -62,7 +63,7 @@ function ashMap(M) {
   const lamps = (M.lamps || []).map(([x, y], i) => ({id: `lamp-1-${i}`, x, y, hp: 1}));
   const vents = (M.vents || []).map(([x, y], i) => ({id: `vent-1-${i}`, x, y, kind: i % 2 ? 'haze' : 'smoke', phase: (i * 3) % 7}));
   return {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items: [], props, hazards: [], marks: [], barriers,
-    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting, slots: [], lamps, vents, lightModel: 2};
+    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting, slots: [], lamps, vents, lightModel: 2, pvpTrench: M.D ? M.D.map(r => r.slice()) : null};
 }
 
 export class PvpGame extends SquadGame {
@@ -246,6 +247,15 @@ export class PvpGame extends SquadGame {
       this.swap(m); try { this.damagePlayer(Math.max(1, damage - distance(origin, m) * 10), '爆炸', null, true); } finally { this.swap(keep); }
     }
     return r;
+  }
+  // 戰壕（地圖第二版第二步）：規則就是奇美拉戶外的（chimera-mission.js 的 MissionGame：protectingCover 溝外打溝裡算掩護／牆、
+  // executePlayer 走完呼叫 trenchStep、破綻到下次行動為止），只是戰壕在 PVP 地圖的 pvpTrench，不在戶外地圖的 chimeraOutdoor
+  trenchAt(x, y) { return this.pvpTrench?.[y]?.[x] || 0; }
+  trenchStep(u, from) {
+    if (!this.pvpTrench || !u || u.hp <= 0) return;
+    const a = this.trenchAt(from.x, from.y), b = this.trenchAt(u.x, u.y); if (Math.abs(a - b) < 2) return;
+    u.vaultExposed = true; u.chimeraTrenchExposed = true; applySuppression(u, 3);
+    this.log(b > a ? '直接跳進壕溝：至下次行動前被射擊命中 +20，壓制 +3。' : '從壕溝直接爬出來：至下次行動前被射擊命中 +20，壓制 +3。', true);
   }
   // 待機（防禦姿態）：ASH 給玩家的「直接傷害減半」，替身也照算
   hurt(e, damage, ...rest) { if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }

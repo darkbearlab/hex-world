@@ -273,6 +273,7 @@ export function createRoom(opts = {}) {
       // 地圖的其他資料也會洩漏沒看過的地方：房間的地板清單、光線（哪裡是暗房）、煙霧、地雷、痕跡、照明，都只留看過的
       rooms: (s.rooms || []).map(r => ({...r, footprint: (r.footprint || []).filter(q => seen(q.x, q.y))})),
       lighting: s.lighting?.map((row, y) => row.map((v, x) => near(x, y) ? v : 2)),
+      pvpTrench: s.pvpTrench?.map((row, y) => row.map((v, x) => seen(x, y) ? v : 0)),
       smoke: (s.smoke || []).map(c => ({...c, cells: (c.cells || []).filter(q => seen(q.x, q.y))})).filter(c => c.cells.length),
       mines: (s.mines || []).filter(m => m.owner === side || seen(m.x, m.y)), traces: (s.traces || []).filter(t => seen(t.x, t.y)),
       flares: (s.flares || []).filter(f => seen(f.x, f.y)), glowsticks: (s.glowsticks || []).filter(f => seen(f.x, f.y)),
