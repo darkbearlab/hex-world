@@ -15,6 +15,9 @@
 // - 不離開戰場：沒有敵情時跑太前面的人等隊友、落後的人歸隊（leash）；到過對方開場之後只探索、巡邏地圖中央或隊伍附近（zone）。
 // - 地形：矮隔板、戰壕的掩護 ClearBot 本來就從 protectingCover 算；在對方射手面前翻隔板、直接跳進／爬出全身深戰壕扣分（vault）；
 //   打碎照亮我方、沒照到對方的鹵素燈（對方有人沒夜視時）；出煙口快噴煙時，接近途中先等（engage，預設關：量過反而輸）。
+// 第三版（搶奪點，2026-10-16；alpha-loot.mjs）：箱子先派人往兩側看、看到就派最近的人去開（忍者用免費的脫離繩一回合就到），撿到電漿／精準步槍就換上、當主武器；
+//   中央的三倍傷害只派 8 步內的人去撿；拿著的人攻擊選項加分；對方拿著的話威脅三倍。附近 12 格內有已知的對方就不去搶（先打）。
+//   陣容固定重裝兵、忍者、狂戰士、工程師（pick）：新規則（壓制會消退）下量過最好。
 // 參數在 T（ALPHA_* 環境變數只給實驗用；預設值是測過的最好組合）。
 import {PvpBot} from '../match.mjs';
 import {WEAPONS, ENEMY_TYPES} from '../../../src/data.js';
@@ -55,6 +58,7 @@ const T = {
   engage: process.env.ALPHA_ENGAGE === '1', engageCost: +(process.env.ALPHA_ECOST ?? 40),
   leash: +(process.env.ALPHA_LEASH ?? 5), zone: +(process.env.ALPHA_ZONE ?? 8),
   vault: +(process.env.ALPHA_VAULT ?? 10), vent: process.env.ALPHA_VENT !== '0',
+  lootCalm: +(process.env.ALPHA_LCALM ?? 12),
   powerUse: +(process.env.ALPHA_PUSE ?? 30),
   lamp: process.env.ALPHA_LAMP !== '0', remote: process.env.ALPHA_REMOTE !== '0', qfrag: +(process.env.ALPHA_QFRAG ?? 10), lampMin: +(process.env.ALPHA_LAMPMIN ?? 14), nvReal: process.env.ALPHA_NVREAL === '1',
 };
@@ -278,7 +282,7 @@ export default class Alpha extends PvpBot {
       const foes = [...hostile, ...(T.intel ? this.knownFoes(view) : [])];
       const threatened = q => foes.some(f => !f.melee && distance(f, q) <= (f.range || 8) && this.g.sight({x: f.x, y: f.y}, q));
       const li = lootIntent(this, view, {threatened, fighting: hostile.length > 0});
-      if (li && (li.type === 'weapon' || !hostile.length) && !this.isRefused(li)) return li;
+      if (li && (li.type === 'weapon' || !hostile.length && !(T.lootCalm && foes.some(f => distance(f, view.me) <= T.lootCalm))) && !this.isRefused(li)) return li;
     }
     if (T.smoke && hostile.length) { const sm = this.smokeOption(view); if (sm && !this.isRefused(sm)) return sm; }
     // 破片：看得到的，加上隊友這個階段看到的（位置是準的：對方在我方的階段不會動）
@@ -392,3 +396,13 @@ Alpha.prototype.stance = function (view, opts) {
   }
   return baseStance.call(this, view, opts);
 };
+
+// 陣容（duel.mjs：export pick(seed, defaultComp) 回傳 4 個不重複的職業；回傳 null 就用預設那一組）
+// ALPHA_PICK=職業,職業,…（固定一組）或 ALPHA_PICK=keep（照預設）只給實驗用
+export function pick(seed, comp) {
+  const env = process.env.ALPHA_PICK;
+  if (env === 'keep') return null;
+  if (env) return env.split(',');
+  return PICK ? PICK(seed, comp) : null;
+}
+const PICK = () => ['bulwark', 'ninja', 'berserker', 'engineer'];   // 量過最好（見檔頭）

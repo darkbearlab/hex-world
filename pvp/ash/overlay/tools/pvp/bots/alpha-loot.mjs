@@ -10,7 +10,7 @@ import {WEAPONS} from '../../../src/data.js';
 export const LT = {
   crate: process.env.ALPHA_CRATE !== '0', power: process.env.ALPHA_POW !== '0', rope: process.env.ALPHA_ROPE !== '0',
   ropeKeep: +(process.env.ALPHA_RKEEP ?? 1), redeployGain: +(process.env.ALPHA_RGAIN ?? 5), flank: process.env.ALPHA_FLANK !== '0',
-  powerMax: +(process.env.ALPHA_PMAX ?? 99), crateMax: +(process.env.ALPHA_CMAX ?? 99),
+  powerMax: +(process.env.ALPHA_PMAX ?? 8), crateMax: +(process.env.ALPHA_CMAX ?? 99),
 };
 const D4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const LOOT = new WeakMap();
