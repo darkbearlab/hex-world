@@ -75,6 +75,8 @@ E.startRemote=view=>{
  };
  E.show();
 };
+// 觀戰頁（watch.html）用：把快照接成遊戲物件、把狀態套到畫面上的遊戲
+E.hydrate=hydrate;E.applyState=st=>{if(E.game&&st)apply(E.game,st);};
 // 頁面的按鈕（結束階段、投降）
 E.op=async op=>{const d=await post({op});if(d.state&&E.game)apply(E.game,d.state);E.onView?.(d);return d;};
 E.remote=null;

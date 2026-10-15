@@ -53,4 +53,17 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   g.gunFlashes = [{x: 7, y: 8}]; ok(g.teamVisible(px()), 'B1 開槍的火光照亮那一格：看得到');
   g.gunFlashes = []; g.lighting[8][7] = 2;
 }
+// 替身帶著本人的防禦（代理回報 2026-10-15）：護甲、閃避、待機減傷、失能同步回本人
+{
+  const {enemyArmor} = await import('../../src/enemy-affixes.js'), {actorStat} = await import('../../src/actor-stats.js');
+  for (const m of [...g.sides.A, ...g.sides.B]) { m.hp = m.maxHp; m.guard = false; }
+  g.enter('A'); g.swap(A1);
+  const b3 = g.enemies.find(e => e.pvpOf === 'B3'), b2 = g.enemies.find(e => e.pvpOf === 'B2');
+  ok(enemyArmor(b3) === g.unit('B3').armor && enemyArmor(b3) > 0, `重裝兵的替身護甲 ${enemyArmor(b3)}（本人 ${g.unit('B3').armor}）`);
+  ok(actorStat(b2, 'rangedEvasion') === actorStat(g.unit('B2'), 'rangedEvasion') && actorStat(b2, 'rangedEvasion') > 0, `偵察兵的替身閃避 ${actorStat(b2, 'rangedEvasion')}`);
+  B1.guard = true; g.enter('A'); g.swap(A1); let e = px(); const h0 = e.hp; g.hurt(e, 40, A1); ok(h0 - e.hp === 20, `B1 待機中：40 傷害只吃 ${h0 - e.hp}`);
+  g.syncProxies(); B1.guard = false;
+  g.enter('A'); g.swap(A1); e = px(); e.control = {...e.control, disabled: 3}; g.syncProxies(); ok(B1.control?.disabled === 3, '打在替身上的失能同步回 B1');
+  B1.control = {disabled: 0, immune: 0};
+}
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PVP 觀戰</title>
+<style>
+:root{--bg:#0d1010;--bar:#161a1f;--line:#2c313a;--ink:#e6e8ec;--dim:#8b93a1;--ok:#7fd48b;--a:#5fb3ff;--b:#ff8a5f}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,"Noto Sans TC",sans-serif}
+#pvpbar{position:fixed;top:0;left:0;right:0;z-index:1000;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 12px;background:var(--bar);border-bottom:1px solid var(--line)}
+#pvpbar .pill{padding:2px 8px;border-radius:99px;background:var(--line);color:var(--dim);font-size:13px}
+#pvpbar .pill.a{background:#1c3550;color:var(--a)}#pvpbar .pill.b{background:#4a2a1c;color:var(--b)}
+#pvpbar button,#pvpbar select{background:#2a3040;color:var(--ink);border:1px solid #3a4256;border-radius:6px;padding:4px 10px;font:inherit;font-size:13px;cursor:pointer}
+#cover{position:fixed;left:0;right:0;bottom:0;top:40px;z-index:900;display:grid;place-items:center;background:#0d1010cc;font-size:16px;text-align:center;padding:16px}
+#cover[hidden]{display:none}
+#feed{position:fixed;right:8px;bottom:8px;z-index:1001;max-width:min(360px,80vw);font-size:12px;color:#d8dde6;background:#000a;border-radius:6px;padding:6px 10px;white-space:pre-wrap;pointer-events:none}
+#feed:empty{display:none}
+</style>
+</head>
+<body>
+<div id="pvpbar"><b>觀戰</b><span id="bWho" class="pill"></span><span id="bRound" class="pill"></span><span id="bPhase" class="pill"></span>
+ <span style="flex:1"></span><button id="bFollow" title="鏡頭跟著現在行動的人；拖曳畫面就停止跟隨">跟隨：開</button>
+ <button id="bPause">暫停</button><button id="bNew">換一場</button><a href="./" style="color:#8fc7ff;font-size:13px">大廳</a></div>
+<div id="cover"><div id="coverText">載入 ASH 戰鬥畫面⋯</div></div>
+<div id="feed"></div>
+<script type="module">
+// 觀戰：機器人 alpha（A 隊）對 beta（B 隊）。伺服器一格一格算（/api/watch?seed&i），這裡用 ASH 的畫面播（補丁 0005 的 EMBED.present）
+const $=id=>document.getElementById(id);
+const NAMES={soldier:'士兵',recon:'偵察兵',bulwark:'重裝兵',berserker:'狂戰士',ninja:'忍者',engineer:'工兵'};
+const revive=(k,v)=>v&&typeof v==='object'?(Array.isArray(v.$set)?new Set(v.$set):Array.isArray(v.$map)?new Map(v.$map):v):v;
+const {bootAsh}=await import('./ash/pvp-boot.js');
+const E=await bootAsh();
+E.remote=async()=>({success:false,steps:[]});   // 觀戰不能操作
+let seed=+(new URLSearchParams(location.search).get('seed')||0),i=0,paused=false,started=false,run=0;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+$('bPause').onclick=()=>{paused=!paused;$('bPause').textContent=paused?'繼續':'暫停';};
+$('bNew').onclick=()=>{seed=0;i=0;started=false;run++;play(run);};
+// 觀戰的鏡頭：預設跟著行動中的人（玩的時候是自由鏡頭）；拖曳畫面就關掉跟隨
+let follow=true;const setFollow=on=>{follow=on;$('bFollow').textContent=`跟隨：${on?'開':'關'}`;};
+$('bFollow').onclick=()=>{setFollow(!follow);if(follow)E.camera?.center(E.game?.player);};
+document.getElementById('battle')?.addEventListener('pointermove',e=>{if(e.buttons)setFollow(false);});
+const look=(st,id)=>{if(!follow)return;const m=(st?.members||[]).find(u=>u.squadId===id)||st?.player;if(m)E.camera?.center(m);};
+function feed(t){const f=$('feed');f.textContent=t;}
+// 開場的狀態給 startRemote 原始的 JSON（它自己還原 Set／Map；先還原再轉一次 JSON，Set 就變成空物件）
+async function frame(n){const r=await fetch(`/api/watch?seed=${seed}&i=${n}`),t=await r.text(),f=JSON.parse(t,revive);f.raw=JSON.parse(t).state;return f;}
+async function play(me){
+ $('cover').hidden=false;$('coverText').textContent='準備一場機器人對戰⋯';
+ while(me===run){
+  while(paused&&me===run)await sleep(200);
+  let f;try{f=await frame(i);}catch(e){$('coverText').textContent='連不上伺服器，重試中⋯';$('cover').hidden=false;await sleep(2000);continue;}
+  if(me!==run)return;
+  if(!seed){seed=f.seed;history.replaceState(null,'',`?seed=${seed}`);}
+  $('bWho').innerHTML='';$('bWho').className='pill';
+  $('bWho').textContent=`A（alpha）${f.A.map(c=>NAMES[c]).join('・')}　對　B（beta）${f.B.map(c=>NAMES[c]).join('・')}`;
+  $('bRound').textContent=`第 ${f.round||'?'} 回合`;$('bPhase').textContent=f.side?`${f.side} 隊行動`:'';$('bPhase').className='pill '+(f.side==='A'?'a':f.side==='B'?'b':'');
+  if(f.state&&(!started||f.kind==='phase')){E.startRemote({state:f.raw});E.remote=async()=>({success:false,steps:[]});started=true;$('cover').hidden=true;look(f.state,f.state.player?.squadId);}
+  else if(f.steps?.length){
+   look(f.steps[0]?.before,f.unit);   // 先看向行動的人
+   E.applyState(f.state);   // 結束後的狀態（播完畫面停在這裡）
+   const st=f.steps.map(s=>({before:E.hydrate(s.before),after:E.hydrate(s.after),effects:s.effects}));
+   E.present(st);
+   await sleep(50);while(E.busy()&&me===run)await sleep(60);
+  }
+  if(f.log?.length)feed(f.log.slice(-3).join('\n'));
+  if(f.kind==='over'){$('cover').hidden=false;$('coverText').innerHTML=`${f.winner?f.winner+' 隊（'+(f.winner==='A'?'alpha':'beta')+'）獲勝':'平手'}・${f.round} 回合<br><small>${(f.log||[]).join('<br>')}</small><br><br>5 秒後換下一場`;await sleep(5000);if(me===run){seed=0;i=0;started=false;continue;}return;}
+  i++;await sleep(f.kind==='act'?250:120);
+ }
+}
+play(run);
+</script>
+</body>
+</html>

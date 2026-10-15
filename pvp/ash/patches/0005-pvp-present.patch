@@ -1,0 +1,11 @@
+--- a/src/controller.js	2026-10-15 21:09:05.393174600 +0800
++++ b/src/controller.js	2026-10-15 21:09:05.452236400 +0800
+@@ -675,6 +675,8 @@
+ window.addEventListener('pagehide',()=>{if(entered&&!EMBED){saveGame(game);persistRunLog(game);}});update();
+ // 奇美拉嵌入版：同一個頁面換下一場任務（不重新載入、不重新初始化），做法同 startSimulation
+ if(EMBED)EMBED.load=next=>{game=next;entered=true;playback=null;renderer.game=game;renderer.camera={x:game.player.x,y:game.player.y};renderer.effects=[];renderer.callouts.clear();resetKia();cancelAim();lastStatus='playing';previousFloor=game.floor;if($('#modal').open)$('#modal').close();update();};
++// PVP（hex-world pvp/ash 的補丁 0005）：觀戰時由頁面餵動畫快照（EMBED.present），EMBED.busy() 告訴頁面還在不在播
++if(EMBED){EMBED.present=steps=>{const oldLog=game.logs[0];presentAction('wait',undefined,true,steps,oldLog);};EMBED.busy=()=>Boolean(playback)||Boolean(kia);}
+ if(EMBED)EMBED.setActive=on=>{EMBED.active=Boolean(on);if(on){fitLayout();update();}syncMusic();};
+ if(EMBED)EMBED.ready?.();else showIntro();
+ // The title modal is open by now, so revealing the shell cannot flash the battle UI.

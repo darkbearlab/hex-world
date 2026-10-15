@@ -14,7 +14,8 @@
 // 爆炸：ASH 原本只會傷到「目前操作的那個人」，同隊其他人站在範圍裡也沒事；PVP 補上同一套傷害。
 import {SquadGame} from './chimera-squad.js';
 import {makeEnemy, distance} from './world.js';
-import {setSize, WEAPONS} from './data.js';
+import {setSize, WEAPONS, ENEMY_TYPES} from './data.js';
+import {actorStat} from './actor-stats.js';
 import {weaponStats} from './weapons.js';
 import {tickSkills, skillActive} from './skills.js';
 import {expireExposure} from './corner.js';
@@ -36,6 +37,13 @@ import {isMunition, munitionAct, isBomber, bomberAct} from './workshop.js';
 export const PVP = {KILLS: 2, ROUNDS: 300, PROXY: 'raider'};
 // PVP 的數值調整（ASH 的數值是一隊精英打一群雜兵；對等互打要調）。統計見 pvp/DESIGN.md
 export const PVP_TUNING = {bulwark: {plates: 60, plateCapacity: 60}};
+// 替身的敵人種類：ASH 打敵人時的護甲看種類（enemy-affixes.js 的 enemyArmor＝ENEMY_TYPES[type].armor），每種護甲值一個替身種類
+// （外觀和原本的替身一樣；送給瀏覽器的快照換回 PVP.PROXY，pvp-room.js）
+export const proxyType = armor => { const k = `pvp-proxy-${armor | 0}`; if (!ENEMY_TYPES[k]) ENEMY_TYPES[k] = {...ENEMY_TYPES[PVP.PROXY], armor: armor | 0}; return k; };
+// 替身帶著本人的防禦（代理回報 2026-10-15：原本每個階段重建的替身沒有本人的護甲、閃避、待機、下錨、失能）
+const DEFENSE = m => ({traits: structuredClone(m.traits || []), combatModifiers: Object.fromEntries(['rangedEvasion', 'meleeEvasion', 'rangedAccuracy', 'meleeAccuracy'].map(k => [k, actorStat(m, k)])),
+  perks: {...(m.perks || {})}, moved: !!m.moved, evasive: !!m.evasive, pvpGuard: !!m.guard, vaultExposed: !!m.vaultExposed, skillState: structuredClone(m.skillState || {}),
+  control: {...(m.control || {disabled: 0, immune: 0})}, poison: m.poison || 0, plates: m.plates || 0, facing: m.facing});
 export const PVP_CLASSES = ['soldier', 'recon', 'bulwark', 'berserker', 'ninja', 'engineer'];   // 德魯伊、死靈法師還在調整
 let building = null;   // generateFloor 在建構子裡就被叫到，那時 this 還沒有自己的欄位
 
@@ -87,7 +95,7 @@ export class PvpGame extends SquadGame {
   proxies(side) {
     const allies = this.allAllies.filter(a => a.pvpSide === side && a.status === 'active' && a.hp > 0 && a.floor === this.floor).map(a => Object.assign(makeEnemy(PVP.PROXY, a.x, a.y, `pa-${a.id}`, 1, this.difficultySpec, this.facilityFaction), {hp: a.hp, maxHp: a.maxHp || a.hp, alert: true, courseName: a.name || a.kind, pvpAlly: a.id}));
     return [...allies, ...this.alive(side).map(m => {
-      const e = makeEnemy(PVP.PROXY, m.x, m.y, `px-${m.squadId}`, 1, this.difficultySpec, this.facilityFaction);
+      const e = makeEnemy(proxyType(m.armor), m.x, m.y, `px-${m.squadId}`, 1, this.difficultySpec, this.facilityFaction); Object.assign(e, DEFENSE(m));
       return Object.assign(e, {hp: m.hp + (m.plates || 0), maxHp: m.maxHp + (m.plates || 0), alert: true, courseName: m.squadId, pvpOf: m.squadId, pvpExposed: !!m.pvpExposed});
     })];
   }
@@ -100,10 +108,13 @@ export class PvpGame extends SquadGame {
     for (const e of this.enemies) {
       if (e.pvpOf == null) continue;
       const m = this.members.length ? this.unit(e.pvpOf) : null; if (!m || m.hp <= 0) continue;
+      // 狀態同步回本人（失能、標記、燃燒、中毒…都是打在替身上的）
+      m.traits = structuredClone(e.traits || []); m.control = {...(e.control || m.control)}; m.poison = e.poison || 0;
       const total = m.hp + (m.plates || 0), now = Math.max(0, e.hp); if (now >= total) continue;
       let lost = total - now; const by = this.pvpActor || null;
       (this.pvp.events ||= []).push({round: this.pvp.round, target: m.squadId, dmg: lost, by: by?.id || null, byVisible: !!by?.exposed, how: this.pvpHow || null, killed: now <= 0, left: now});
-      const p = Math.min(m.plates || 0, lost); m.plates = (m.plates || 0) - p; lost -= p; m.hp -= lost;
+      // 護甲板：重裝兵（plate_life）全部吃，其他人吃一半（同 ASH 的 damagePlayer）
+      const p = Math.min(m.plates || 0, m.traits?.some(t => t.id === 'plate_life') ? lost : Math.floor(lost / 2)); m.plates = (m.plates || 0) - p; lost -= p; m.hp -= lost; e.hp = Math.max(0, m.hp) + (m.plates || 0);
       if (m.hp <= 0 || e.hp <= 0) { m.hp = 0; e.hp = 0; this.pvp.kills[this.other(m.pvpSide)]++; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId}（${m.character}）倒下${by?.id ? `，${by.id} 擊倒` : ''}`); }
     }
   }
@@ -189,7 +200,7 @@ export class PvpGame extends SquadGame {
     const seen = new Set(); this.gunFlashes = (this.pvpFlashes || []).filter(f => { const k = f.x + ',' + f.y; if (seen.has(k)) return false; seen.add(k); return true; }); this.pvpFlashes = [];
     tickDecoy(this);
     expireExposure([...this.members, ...this.enemies, ...this.allies], this.turn);
-    for (const a of [...this.members, ...this.enemies, ...this.activeAllies]) tickTraits(a);
+    for (const a of [...this.members, ...this.activeAllies, ...this.enemies.filter(e => e.pvpOf == null)]) tickTraits(a);   // 替身不跑：本人的狀態在自己那一隊的階段跑（不然一回合跑兩次）
     this.settleAttackNotes(); this.reveal();
   }
   judge() {
@@ -211,6 +222,8 @@ export class PvpGame extends SquadGame {
     }
     return r;
   }
+  // 待機（防禦姿態）：ASH 給玩家的「直接傷害減半」，替身也照算
+  hurt(e, damage, ...rest) { if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }
   // 看得到對方嗎：暴露中的到處都看得到；不然要從我（可以探頭）看得到他那一格的中心——他貼著牆探頭不算
   sight(a, b) {
     if (!b?.pvpOf) return super.sight(a, b);

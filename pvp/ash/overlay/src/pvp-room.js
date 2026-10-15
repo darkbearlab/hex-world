@@ -2,7 +2,7 @@
 // 本機的 tools/pvp/arena.mjs（HTTP）和之後的 Worker（Durable Object）共用這一份。
 // createRoom({generate, installBots, bots: {A, B}, seed, match, seats, log, onWake})：seats＝true 時下指令要帶座位的 token（線上版）；generate＝地圖產生器、installBots＝機器人（只有機器人座位用）、
 //   log(file, obj)＝紀錄、onWake(side)＝輪到 side 或對戰結束時通知（WebSocket 推播用）
-import {PvpGame, PVP_CLASSES} from './pvp-game.js';
+import {PvpGame, PVP_CLASSES, PVP} from './pvp-game.js';
 import {sideState, MAP_LEGEND} from './pvp-view.js';
 import {CHARACTERS} from './characters.js';
 import {SKILLS} from './skills.js';
@@ -259,7 +259,7 @@ export function createRoom(opts = {}) {
   // 對方的迷霧、收起來的對方無人機、種子都不送（畫面上的外觀用一個跟真種子無關的外觀種子）
   function filter(s, side, vis) {
     const seen = (x, y) => Boolean(s.seen?.[y]?.[x]), near = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (seen(x + dx, y + dy)) return true; return false; };
-    const out = {...s, seed: (seed * 7919 + 17) % 100000, enemies: (s.enemies || []).filter(e => e.hp > 0 ? vis.has(e.id) : seen(e.x, e.y)),
+    const out = {...s, seed: (seed * 7919 + 17) % 100000, enemies: (s.enemies || []).filter(e => e.hp > 0 ? vis.has(e.id) : seen(e.x, e.y)).map(e => /^pvp-proxy-/.test(e.type) ? {...e, type: PVP.PROXY} : e),
       grid: s.grid?.map((row, y) => row.map((v, x) => near(x, y) ? v : 0)), items: (s.items || []).filter(i => seen(i.x, i.y)),
       props: (s.props || []).filter(o => o.x === undefined || seen(o.x, o.y)), hazards: (s.hazards || []).filter(h => seen(h.x, h.y)),
       end: {x: -99, y: -99}, pvpSide: side,

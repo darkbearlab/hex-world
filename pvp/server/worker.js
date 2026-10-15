@@ -8,6 +8,14 @@ import {DurableObject} from 'cloudflare:workers';
 import {createRoom} from '../ash/.work/src/pvp-room.js';
 import {generate} from '../tools/mapgen.mjs';
 import {installPvpBots} from '../ash/.work/tools/pvp/match.mjs';
+import {watchMatch} from '../ash/.work/src/pvp-spectate.js';
+import {PVP_CLASSES} from '../ash/.work/src/pvp-game.js';
+import Alpha from '../ash/.work/tools/pvp/bots/alpha.mjs';
+import Beta from '../ash/.work/tools/pvp/bots/beta.mjs';
+const tag = (k, v) => v instanceof Set ? {$set: [...v]} : v instanceof Map ? {$map: [...v]} : v;
+// 觀戰的陣容：用種子抽（同一個種子一模一樣，倒回去重算才對得上）
+const lcg = s => () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296);
+const pick4 = r => { const L = PVP_CLASSES.slice(); for (let i = L.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [L[i], L[j]] = [L[j], L[i]]; } return L.slice(0, 4); };
 
 const text = (t, status = 200) => new Response(t + '\n', {status, headers: {'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store'}});
 const json = (o, status = 200) => new Response(JSON.stringify(o), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
@@ -43,6 +51,17 @@ export class Room extends DurableObject {
     await S.put(put);
     if (R.game?.status === 'playing' && !await S.getAlarm()) await S.setAlarm(Date.now() + 5000);
   }
+  // 觀戰（pvp-spectate.js）：/watch?seed=S&i=N 回傳第 N 格；同一場往下算，倒回去或換一場就從頭重算。只放記憶體（被回收了就重算，同種子一模一樣）
+  watchFrame(seed, i) {
+    let w = this.watch;
+    if (!w || w.seed !== seed || i < w.i - 1) {   // w.i＝已經算出的格數，w.frame＝第 w.i-1 格
+      let map = null; for (let s = seed; !map; s++) map = generate(s);
+      const r = lcg(seed * 7 + 3), A = pick4(r), B = pick4(r);
+      w = this.watch = {seed, i: 0, A, B, it: watchMatch({seed, map, A, B, bots: {A: Alpha, B: Beta}, installBots: installPvpBots}), frame: null, done: false};
+    }
+    while (!w.done && w.i <= i) { const n = w.it.next(); if (n.done) { w.done = true; break; } w.frame = n.value; w.i++; }
+    return {seed, i: w.i - 1, A: w.A, B: w.B, bots: {A: 'alpha', B: 'beta'}, done: w.done || w.frame?.kind === 'over', ...w.frame};
+  }
   // 計時與斷線
   async alarm() {
     const R = this.room, g = R.game;
@@ -62,6 +81,10 @@ export class Room extends DurableObject {
     try {
       if (p === '/seat') { let name = ''; try { name = JSON.parse(body || '{}').name; } catch {} const r = R.seat(side, token, name); await this.save(); return json(r, r.ok ? 200 : 409); }
       if (p === '/leave') { const ok = R.leave(side, token); await this.save(); return json({ok}); }
+      if (p === '/watch') {
+        const seed = +(url.searchParams.get('seed') || 0) || Math.floor(Math.random() * 1e6) + 1, i = Math.max(0, +(url.searchParams.get('i') || 0));
+        return new Response(JSON.stringify(this.watchFrame(seed, i), tag), {headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
+      }
       if (p === '/seats') return json({A: R.seats.A?.name || (R.bots.A ? '機器人' : null), B: R.seats.B?.name || (R.bots.B ? '機器人' : null), playing: R.game?.status === 'playing'});
       if (p === '/bot') { if (!Object.values(R.seats).some(s => s?.token === token)) return json({ok: false, msg: '先坐下'}, 403); const r = JSON.parse(R.handle('/bot', side, url.searchParams.get('on') === '1' ? '1' : '0', token)); await this.save(); return json(r, r.ok ? 200 : 409); }
       if (p === '/json') return json(withTimer(R.json(side)));
