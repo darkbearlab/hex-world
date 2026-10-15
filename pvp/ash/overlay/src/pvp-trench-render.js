@@ -25,16 +25,40 @@ export function installTrenchRender(renderer) {
       if (d === 1) { c.fillStyle = '#c8b88040'; for (let i = 1; i <= 2; i++) c.fillRect(l + 6, top + t * i / 3, t - 12, 2); }   // 台階
       c.restore();
     }
-    // 中央的三倍傷害（pvp_power）：紅色光圈＋「3×」，閃爍，看過的格子才畫
-    for (const it of g.items || []) {
-      if (it.type !== 'pvp_power' || !g.mapped?.(it.x, it.y)) continue;
-      const a = this.project(it.x, it.y), pulse = .6 + .4 * Math.sin((time || 0) / 220);
-      c.save(); c.globalAlpha = .35 * pulse; c.fillStyle = '#ff3b30'; c.beginPath(); c.arc(a.x, a.y, t * .48, 0, 7); c.fill();
-      c.globalAlpha = 1; c.fillStyle = '#2a0b09'; c.beginPath(); c.arc(a.x, a.y, t * .3, 0, 7); c.fill();
-      c.strokeStyle = '#ff6b5f'; c.lineWidth = 2; c.stroke();
-      c.fillStyle = '#ffd7d2'; c.font = `bold ${Math.round(t * .32)}px system-ui`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('3×', a.x, a.y + 1);
-      c.restore();
-    }
     return cells;
   };
+  // 中央的三倍傷害（pvp_power）：ASH 標題的標誌（assets/icon.svg、標題畫面的 title-mark）浮在空中轉——Alan 2026-10-16：像 Quake 的四倍傷害用 Quake 的標誌。
+  // 接手 ASH 畫地上物品的那一步（不然它會把不認得的東西畫成「?」方塊）
+  const item = renderer.item.bind(renderer);
+  // 地上物品是畫在快取的那一層（不是每格重畫），會轉的標誌要在每格畫完之後另外疊上去
+  renderer.item = function (a, it, time) { if (it?.type === 'pvp_power') return; return item(a, it, time); };
+  const draw = renderer.draw.bind(renderer);
+  renderer.draw = function (...args) {
+    const out = draw(...args), g = this.game, c = this.ctx;
+    for (const it of g?.items || []) {
+      if (it.type !== 'pvp_power' || !g.mapped?.(it.x, it.y)) continue;
+      c.save(); c.setTransform(this.dpr || 1, 0, 0, this.dpr || 1, 0, 0); drawPower(c, this.project(it.x, it.y), this.tile, this.time || 0); c.restore();
+    }
+    return out;
+  };
+}
+
+
+// ASH 的標誌（assets/icon.svg 的兩條路徑，128×128）：橙色的 A 字、白色的小三角
+const MARK = typeof Path2D === 'function' ? [new Path2D('M23 99 58 24h15l34 75H85L65 50 44 99Z'), new Path2D('m56 85 9-21 9 21Z')] : null;
+// 繞直軸轉（橫向縮放＝cos，轉到背面變暗）、上下浮、外圍一圈脈動的光、地上一個影子
+function drawPower(c, a, t, time) {
+  if (!MARK) return;
+  const bob = Math.sin(time / 380) * t * .06, spin = Math.cos(time / 600), pulse = .55 + .45 * Math.sin(time / 200), cx = a.x, cy = a.y - t * .14 + bob, size = t * 1.0;
+  c.save();
+  c.globalAlpha = .35; c.fillStyle = '#000'; c.beginPath(); c.ellipse(a.x, a.y + t * .32, t * .22 - bob * .5, t * .07, 0, 0, 7); c.fill();
+  const glow = c.createRadialGradient(cx, cy, size * .1, cx, cy, size * .75);
+  glow.addColorStop(0, `rgba(250,140,75,${.8 * pulse})`); glow.addColorStop(1, 'rgba(250,140,75,0)');
+  c.globalAlpha = 1; c.fillStyle = glow; c.beginPath(); c.arc(cx, cy, size * .75, 0, 7); c.fill();
+  c.translate(cx, cy); c.scale(Math.max(.06, Math.abs(spin)) * size / 128, size / 128); c.translate(-64, -62);
+  const back = spin < 0;
+  c.shadowColor = '#fa8c4b'; c.shadowBlur = 16 * pulse;
+  c.fillStyle = back ? '#a8582c' : '#fa8c4b'; c.fill(MARK[0]);
+  c.shadowBlur = 0; c.fillStyle = back ? '#8fa29a' : '#d9e5df'; c.fill(MARK[1]);
+  c.restore();
 }
