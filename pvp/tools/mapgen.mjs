@@ -182,6 +182,13 @@ export function generate(seed, opt = {}) {
       if (!free) continue;
       for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) set(xx, yy, WALL); made++;
     }
+    // 高牆連續不超過 6 格（Alan 2026-10-15）：地圖裡面（外框不算）任何一橫排或一直排的厚牆超過 6 格，就在中間開一個 2 格的口（偶爾改成一段窗）
+    for (let pass = 0; pass < 3; pass++) for (const vert of [false, true]) for (let a = 1; a < N - 1; a++) {
+      let run = [];
+      const flush = () => { if (run.length > (opt.maxWall ?? 6)) { const mid = Math.floor(run.length / 2) - 1, win = r() < .25; for (const [x, y] of run.slice(mid, mid + 2)) set(x, y, win ? WINDOW : FLOOR); } run = []; };
+      for (let b = 1; b < N - 1; b++) { const x = vert ? a : b, y = vert ? b : a; if (T[y][x] === WALL) run.push([x, y]); else flush(); }
+      flush();
+    }
     if (!connected(T)) continue;
     // 區：用主牆那一列／行當邊界切開的連通塊（開口算進兩邊之一）——只用來分亮暗、放燈；上半部編號、下半部 +100
     const Z = Array.from({length: N}, () => Array(N).fill(-1));
@@ -210,6 +217,11 @@ export function generate(seed, opt = {}) {
       if (d < 0 || d - d0 >= 8) choke = true;
     }
     if (choke) continue;
+    // 交戰路線（Alan 2026-10-15：地形要放在會打起來的地方）：雙方開場的距離圖。
+    // band＝接近最短的路線上（A 距離＋B 距離 ≤ 最短＋6）；front＝路線中段、兩邊差不多同時到的地方（|A 距離－B 距離| ≤ 5）＝最可能交火
+    const dA = bfs(T, A).D, dB = bfs(T, B).D;
+    const band = (x, y) => dA[y]?.[x] >= 0 && dB[y]?.[x] >= 0 && dA[y][x] + dB[y][x] <= d0 + 6;
+    const front = (x, y) => band(x, y) && Math.abs(dA[y][x] - dB[y][x]) <= 5;
     // 5. 半掩體（矮隔板，在格子之間的邊上）：空曠處一段 2–3 格，離開場 3 格以上；先放上半部，再轉 180 度
     const P = [], edgeSet = new Set(), ek = (a, b) => [a, b].map(p => p.join(',')).sort().join('|');
     const open = (x, y) => T[y]?.[x] === FLOOR && Math.abs(x - A[0]) + Math.abs(y - A[1]) > 2 && Math.abs(x - B[0]) + Math.abs(y - B[1]) > 2;
@@ -218,6 +230,7 @@ export function generate(seed, opt = {}) {
       const horiz = r() < .5, len = ri(2, 3), x = ri(2, N - 3 - (horiz ? len : 1)), y = ri(2, C - 1 - (horiz ? 1 : len));
       const segs = []; for (let i = 0; i < len; i++) segs.push(horiz ? [[x + i, y], [x + i, y + 1]] : [[x, y + i], [x + 1, y + i]]);
       if (!segs.every(([a, b]) => open(...a) && open(...b) && lonely(a) && lonely(b) && !edgeSet.has(ek(a, b)))) continue;
+      if (k < 140 && !segs.some(([a, b]) => band(...a) || band(...b))) continue;   // 先試交戰路線上，放不下才放別處
       for (const [a, b] of segs) for (const [p, q] of [[a, b], [rot(...a), rot(...b)]]) if (!edgeSet.has(ek(p, q))) { P.push([p, q]); edgeSet.add(ek(p, q)); }
       made++;
     }
@@ -225,12 +238,13 @@ export function generate(seed, opt = {}) {
     // 放在空曠處（不貼牆、不碰矮隔板、離開場 4 格以上），一段 5–8 格，偶爾拐一個彎；上半部放，轉 180 度
     const D = Array.from({length: N}, () => Array(N).fill(0)), dset = (x, y, v) => { D[y][x] = v; const [a, b] = rot(x, y); D[b][a] = v; };
     const onP = (x, y) => P.some(([a, b]) => (a[0] === x && a[1] === y) || (b[0] === x && b[1] === y));
-    for (let k = 0, made = 0, want = ri(1, 2); k < 120 && made < want; k++) {
+    for (let k = 0, made = 0, want = ri(1, 2); k < 200 && made < want; k++) {
       const len = ri(5, 8), horiz = r() < .5, turn = r() < .35 ? ri(2, len - 3) : -1, x0 = ri(2, N - 3), y0 = ri(2, C - 2);
       const cells = []; let x = x0, y = y0, dir = horiz ? [1, 0] : [0, 1];
       for (let i = 0; i < len; i++) { cells.push([x, y]); if (i === turn) dir = [dir[1], dir[0]]; x += dir[0]; y += dir[1]; }
       const fine = cells.every(([cx, cy]) => cy >= 1 && cy < C && cx >= 1 && cx < N - 1 && T[cy][cx] === FLOOR && !D[cy][cx] && !onP(cx, cy)
-        && D4.every(([dx, dy]) => T[cy + dy]?.[cx + dx] !== WALL) && Math.abs(cx - A[0]) + Math.abs(cy - A[1]) >= 4 && Math.abs(cx - B[0]) + Math.abs(cy - B[1]) >= 4);
+        && D4.every(([dx, dy]) => T[cy + dy]?.[cx + dx] !== WALL) && Math.abs(cx - A[0]) + Math.abs(cy - A[1]) >= 4 && Math.abs(cx - B[0]) + Math.abs(cy - B[1]) >= 4)
+        && (k >= 170 || cells.filter(([cx, cy]) => k < 90 ? front(cx, cy) : band(cx, cy)).length >= Math.ceil(cells.length / 2));   // 至少一半在交火區（試不出來才放寬到路線上）
       if (!fine) continue;
       cells.forEach(([cx, cy], i) => dset(cx, cy, i === 0 || i === cells.length - 1 ? 1 : 2));
       made++;
@@ -246,15 +260,19 @@ export function generate(seed, opt = {}) {
     // 暗的總面積在全部地板的 15–35%（一整區太大就不暗；能暗的話至少暗一區）
     const L = T.map(row => row.map(() => 2)), zoneDark = new Map(), spawnZ = new Set([Z[A[1]][A[0]] % 100, Z[B[1]][B[0]] % 100]), size = new Map();
     let floorN = 0; for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0) { floorN++; const z = Z[y][x] % 100; size.set(z, (size.get(z) || 0) + 1); }
-    const order = [...size.keys()].filter(z => !spawnZ.has(z)).sort(() => r() - .5); let darkN = 0;
+    const frontN = new Map(); for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0 && front(x, y)) { const z = Z[y][x] % 100; frontN.set(z, (frontN.get(z) || 0) + 1); }
+    // 交火區占比高的區先暗（暗房要在會打起來的地方才有意義），同分隨機
+    const order = [...size.keys()].map(z => [z, (frontN.get(z) || 0) / size.get(z) + r() * .05]).sort((a, b) => b[1] - a[1]).map(([z]) => z); let darkN = 0;
     for (const z of order) { const n = size.get(z); if ((darkN + n) / floorN > (opt.darkMax ?? .35)) continue; if (darkN / floorN >= .15 && r() > (opt.dark ?? .4)) continue; zoneDark.set(z, true); darkN += n; }
-    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0 && zoneDark.get(Z[y][x] % 100)) L[y][x] = 0;
+    // 開場的區也可以暗，只有開場 4 格內一定亮
+    const nearSpawn = (x, y) => Math.abs(x - A[0]) + Math.abs(y - A[1]) <= 4 || Math.abs(x - B[0]) + Math.abs(y - B[1]) <= 4;
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0 && zoneDark.get(Z[y][x] % 100) && !nearSpawn(x, y)) L[y][x] = 0;
     const lamps = [];
     for (const [z, dark] of zoneDark) {
       if (!dark) continue;
-      const tiles = []; for (let y = 1; y <= C; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] === z && T[y][x] === FLOOR) tiles.push([x, y]);
+      const tiles = []; for (let y = 1; y <= C; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] === z && T[y][x] === FLOOR && L[y][x] === 0) tiles.push([x, y]);
       const byWall = tiles.filter(([x, y]) => D4.some(([dx, dy]) => T[y + dy][x + dx] === WALL));
-      const pool = byWall.length ? byWall : tiles, want = Math.max(1, Math.round(tiles.length / 20)), got = [];
+      const near = byWall.filter(([x, y]) => band(x, y)), pool = near.length ? near : byWall.length ? byWall : tiles, want = Math.max(1, Math.round(tiles.length / 20)), got = [];   // 燈也先掛在路線旁的牆上
       if (pool.length) got.push(pick(pool));
       while (got.length < Math.min(want, pool.length)) got.push(pool.reduce((best, p) => { const d = Math.min(...got.map(q => Math.abs(q[0] - p[0]) + Math.abs(q[1] - p[1]))); return d > best.d ? {p, d} : best; }, {p: null, d: -1}).p);
       for (const p of got) lamps.push(p, rot(...p));
@@ -263,7 +281,7 @@ export function generate(seed, opt = {}) {
     const run = (x, y, dx, dy) => { let n = 0; for (let X = x, Y = y; T[Y]?.[X] && seeThrough(T[Y][X]); X += dx, Y += dy) n++; return n; };
     const ventCand = [];
     for (let y = 2; y < C; y++) for (let x = 2; x < N - 2; x++) {
-      if (T[y][x] !== FLOOR || D[y][x] || Math.abs(x - A[0]) + Math.abs(y - A[1]) < 5 || Math.abs(x - B[0]) + Math.abs(y - B[1]) < 5) continue;
+      if (T[y][x] !== FLOOR || D[y][x] || !band(x, y) || Math.abs(x - A[0]) + Math.abs(y - A[1]) < 5 || Math.abs(x - B[0]) + Math.abs(y - B[1]) < 5) continue;
       const lane = Math.max(run(x, y, 1, 0) + run(x, y, -1, 0), run(x, y, 0, 1) + run(x, y, 0, -1)) - 1;
       if (lane >= 8 && D4.filter(([dx, dy]) => T[y + dy][x + dx] === FLOOR).length >= 3) ventCand.push([x, y, lane]);
     }
