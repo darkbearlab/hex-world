@@ -15,6 +15,7 @@ header b{font-size:16px}
 .pill.me{background:#244a2c;color:var(--ok)}
 main{display:grid;grid-template-columns:minmax(0,648px) minmax(260px,360px);gap:16px;padding:16px;align-items:start}
 @media (max-width:900px){main{grid-template-columns:1fr}}
+@media (max-width:600px){header{gap:6px;padding:8px 12px}header b{font-size:14px}.pill{font-size:12px;padding:1px 6px}header button{padding:4px 8px;font-size:13px}main{padding:10px 12px}}
 #boardWrap{max-width:100%;min-width:0}
 canvas{display:block;width:100%;max-width:648px;height:auto;image-rendering:pixelated;border:1px solid var(--line);touch-action:manipulation;cursor:crosshair}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px}
@@ -48,6 +49,7 @@ button.on{outline:2px solid var(--warn)}
  <div id="seatMsg" class="small" style="margin-top:10px"></div>
 </div>
 <div id="pickView" class="center" hidden>
+ <div class="row" id="botRow" style="margin-bottom:8px"></div>
  <h2>選 4 個職業</h2><p class="small">同隊不能重複。對方看不到你選什麼，兩邊都選好就開打。拿下對方 2 人獲勝，倒地就是死。</p>
  <div class="pick" id="pickGrid"></div><button id="bPick" class="primary" disabled>確定</button>
  <div id="pickMsg" class="small" style="margin-top:10px"></div><div id="result" class="panel" hidden style="margin-top:16px"></div>
@@ -111,7 +113,8 @@ function draw(){
  $('hSide').textContent=`你是 ${side} 隊${S.seats?.[side]?'・'+S.seats[side]:''}`;
  const pick=S.phase==='pick';$('pickView').hidden=!pick;$('playView').hidden=pick;
  if(S.result){$('result').hidden=false;$('result').innerHTML=`<b>${S.result.status==='won'?(S.result.winner===side?'你贏了':'你輸了'):'平手'}</b>（${S.result.rounds} 回合）<div class="small">${S.result.log.join('<br>')}</div>`;}
- if(pick){$('pickMsg').textContent=S.picked?'等對方選⋯':'';$('hPhase').textContent='選角';$('hRound').textContent='';$('hScore').textContent='';$('bEnd').disabled=true;return;}
+ if(pick){const o=side==='A'?'B':'A';$('botRow').innerHTML='';if(!S.local&&(!S.seats?.[o]||S.bots?.[o])){const b=document.createElement('button');b.textContent=S.bots?.[o]?`${o} 是機器人（按這裡換回等真人）`:`沒人陪？讓機器人坐 ${o} 練習`;b.onclick=async()=>{await fetch(`/api/bot?side=${o}&on=${S.bots?.[o]?0:1}`,{method:'POST',headers:{'x-seat':token}});refresh();};$('botRow').append(b);}
+  $('pickMsg').textContent=S.picked?'等對方選⋯':'';$('hPhase').textContent='選角';$('hRound').textContent='';$('hScore').textContent='';$('bEnd').disabled=true;return;}
  if(S.phase==='wait'){$('hPhase').textContent='對方的階段⋯';$('hPhase').className='pill';$('hRound').textContent=`第 ${S.round} 回合`;$('bEnd').disabled=true;$('hint').textContent='等對方行動。';if(S.state)return;return drawBoard();}
  const st=S.state;
  $('hRound').textContent=`第 ${st.round}/${st.maxRounds} 回合`;$('hPhase').textContent='你的階段';$('hPhase').className='pill me';

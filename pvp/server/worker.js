@@ -3,9 +3,11 @@
 // - 存檔：座位與種子（meta）＋這一場所有改變狀態的請求（j:000001…）；Durable Object 被回收後重播回同一個局面
 // - 計時：每個階段 PHASE_MS（預設 60 秒），時間到自動結束階段（沒動的人待機）；對戰中座位 GRACE_MS（預設 2 分鐘）沒有任何請求＝投降
 // - 身分：先用訪客代碼（瀏覽器自己產生的 token，存在 localStorage）；Google 登入之後再接
+import './shim.js';   // 機器人的工具要 process（一定要第一個）
 import {DurableObject} from 'cloudflare:workers';
 import {createRoom} from '../ash/.work/src/pvp-room.js';
 import {generate} from '../tools/mapgen.mjs';
+import {installPvpBots} from '../ash/.work/tools/pvp/match.mjs';
 
 const text = (t, status = 200) => new Response(t + '\n', {status, headers: {'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store'}});
 const json = (o, status = 200) => new Response(JSON.stringify(o), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
@@ -25,8 +27,8 @@ export class Room extends DurableObject {
     ctx.blockConcurrencyWhile(() => this.load());
   }
   async load() {
-    const meta = await this.ctx.storage.get('meta') || {seed: 1, match: 0, seats: {A: null, B: null}};
-    this.room = createRoom({generate, seed: meta.seed, match: meta.match, seats: true, log: (file, o) => { if (file === 'errors.jsonl' || file === 'reports.jsonl') console.log(file, JSON.stringify(o)); }});
+    const meta = await this.ctx.storage.get('meta') || {seed: 1, match: 0, seats: {A: null, B: null}, bots: {}};
+    this.room = createRoom({generate, installBots: installPvpBots, bots: meta.bots || {}, seed: meta.seed, match: meta.match, seats: true, log: (file, o) => { if (file === 'errors.jsonl' || file === 'reports.jsonl') console.log(file, JSON.stringify(o)); }});
     Object.assign(this.room.seats, meta.seats || {});
     const entries = [...(await this.ctx.storage.list({prefix: 'j:'})).values()];
     this.room.replay(entries); this.saved = entries.length;
@@ -37,7 +39,7 @@ export class Room extends DurableObject {
     const J = R.journal, put = {};
     for (let i = this.saved; i < J.length; i++) put['j:' + String(i).padStart(6, '0')] = J[i];
     this.saved = J.length;
-    put.meta = {seed: R.seed, match: R.match, seats: R.seats};
+    put.meta = {seed: R.seed, match: R.match, seats: R.seats, bots: {...R.bots}};
     await S.put(put);
     if (R.game?.status === 'playing' && !await S.getAlarm()) await S.setAlarm(Date.now() + 5000);
   }
@@ -46,7 +48,7 @@ export class Room extends DurableObject {
     const R = this.room, g = R.game;
     if (!g || g.status !== 'playing') return;
     const now = Date.now(), ph = R.phase;
-    for (const side of ['A', 'B']) { const s = R.seats[side]; if (!s || now - s.seen > this.GRACE_MS) { R.handle('/cmd', side, 'surrender', s?.token); break; } }
+    for (const side of ['A', 'B']) { if (R.bots[side]) continue; const s = R.seats[side]; if (!s || now - s.seen > this.GRACE_MS) { R.handle('/cmd', side, 'surrender', s?.token); break; } }
     if (g.status === 'playing' && ph && now - ph.at > this.PHASE_MS && R.phase?.no === ph.no) R.handle('/cmd', ph.side, 'end', R.seats[ph.side]?.token);
     await this.save();
     if (R.game?.status === 'playing') await this.ctx.storage.setAlarm(Date.now() + 5000);
@@ -60,7 +62,8 @@ export class Room extends DurableObject {
     try {
       if (p === '/seat') { let name = ''; try { name = JSON.parse(body || '{}').name; } catch {} const r = R.seat(side, token, name); await this.save(); return json(r, r.ok ? 200 : 409); }
       if (p === '/leave') { const ok = R.leave(side, token); await this.save(); return json({ok}); }
-      if (p === '/seats') return json({A: R.seats.A?.name || null, B: R.seats.B?.name || null, playing: R.game?.status === 'playing'});
+      if (p === '/seats') return json({A: R.seats.A?.name || (R.bots.A ? '機器人' : null), B: R.seats.B?.name || (R.bots.B ? '機器人' : null), playing: R.game?.status === 'playing'});
+      if (p === '/bot') { if (!Object.values(R.seats).some(s => s?.token === token)) return json({ok: false, msg: '先坐下'}, 403); const r = JSON.parse(R.handle('/bot', side, url.searchParams.get('on') === '1' ? '1' : '0', token)); await this.save(); return json(r, r.ok ? 200 : 409); }
       if (p === '/json') return json(withTimer(R.json(side)));
       if (p === '/jwait') { const t = Math.min(50, +(url.searchParams.get('t') || 25)); if (mine) await R.waitTurn(side, t); return json(withTimer(R.json(side))); }
       if (p === '/wait') { const t = Math.min(50, +(url.searchParams.get('t') || 25)); return text(await R.waitTurn(side, t)); }

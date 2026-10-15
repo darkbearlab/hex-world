@@ -90,7 +90,7 @@ export function createRoom(opts = {}) {
   // 真人介面用的 JSON（pvp/web/）：同一份「看得到的」局面
   function json(side) {
     const r = lastResult && lastResult.match === matchNo && g?.status !== 'playing' ? lastResult : null;
-    const base = {side, match: matchNo, seats: {A: seats.A?.name || null, B: seats.B?.name || null}, picked: !!picks[side], classes: PVP_CLASSES, result: r && {winner: r.winner, status: r.status, rounds: r.rounds, log: r.log}};
+    const base = {side, match: matchNo, seats: {A: seats.A?.name || (BOT.A ? '機器人' : null), B: seats.B?.name || (BOT.B ? '機器人' : null)}, bots: {...BOT}, picked: !!picks[side], classes: PVP_CLASSES, result: r && {winner: r.winner, status: r.status, rounds: r.rounds, log: r.log}};
     if (!g || r) return {...base, phase: 'pick'};
     if (!myTurn(side)) return {...base, phase: 'wait', round: g.pvp.round, active: g.pvp.side};
     return {...base, phase: 'play', since: since[side], state: sideState(g, mem[side])};
@@ -187,7 +187,8 @@ export function createRoom(opts = {}) {
   function handle(p, side, body = '', token = null) {
     side = (side || '').toUpperCase();
     if (opts.seats && ['/pick', '/cmd', '/report'].includes(p) && ['A', 'B'].includes(side) && (!seats[side] || seats[side].token !== token)) return '你沒有坐這個座位（先坐下：/seat）';
-    if (['/pick', '/cmd'].includes(p) && !replaying) journal.push({p, side, body});
+    if (['/pick', '/cmd', '/bot'].includes(p) && !replaying) journal.push({p, side, body});
+    if (p === '/bot') return JSON.stringify(setBot(side, body === '1'));
     if (seats[side] && token && seats[side].token === token) seats[side].seen = Date.now();
     if (p === '/help') return HELP;
     if (!['A', 'B'].includes(side)) return '要給 side=A 或 side=B';
@@ -200,7 +201,7 @@ export function createRoom(opts = {}) {
       const L = body.split(/[\s,，、]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
       if (L.length !== 4 || new Set(L).size !== 4 || !L.every(c => PVP_CLASSES.includes(c))) return `要選 4 個不同的職業：${PVP_CLASSES.join('、')}`;
       picks[side] = L;
-      for (const s of ['A', 'B']) if (BOT[s] && !picks[s]) picks[s] = [...PVP_CLASSES].sort(() => Math.random() - .5).slice(0, 4);
+      for (const s of ['A', 'B']) if (BOT[s] && !picks[s]) picks[s] = botPick(seed * 2 + (s === 'B'));   // 用種子選（重播時一樣）
       
       if (picks.A && picks.B) { lastResult = null; startMatch(); }
       return `選好了：${L.join('、')}。` + (picks.A && picks.B ? '開打！用 /wait 等輪到你。' : '等對方選。');
@@ -245,12 +246,22 @@ export function createRoom(opts = {}) {
     if (g?.status === 'playing') handle('/cmd', side, 'surrender', token);
     seats[side] = null; if (!g || g.status !== 'playing') picks[side] = null; return true;
   }
+  // 練習：讓機器人坐一個空位（對戰中不能換）
+  function setBot(side, on) {
+    side = (side || '').toUpperCase(); if (!['A', 'B'].includes(side) || !installBots) return {ok: false, msg: '這裡沒有機器人'};
+    if (g?.status === 'playing') return {ok: false, msg: '對戰進行中'};
+    if (on && seats[side]) return {ok: false, msg: `${side} 已經有人坐了`};
+    BOT[side] = !!on; if (!on) picks[side] = null;
+    else if (!picks[side]) { picks[side] = botPick(seed * 2 + (side === 'B')); if (picks.A && picks.B) { lastResult = null; startMatch(); } }
+    return {ok: true};
+  }
+  function botPick(s) { let x = s >>> 0 || 1; const r = () => ((x = Math.imul(x, 1664525) + 1013904223 >>> 0) / 4294967296), L = [...PVP_CLASSES]; for (let i = L.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [L[i], L[j]] = [L[j], L[i]]; } return L.slice(0, 4); }
   // 重播紀錄（Durable Object 重建時）
   function replay(entries) { replaying = true; try { for (const e of entries) handle(e.p, e.side, e.body, seats[e.side]?.token); } finally { replaying = false; } journal = entries.slice(); }
   // 對戰結束以後，紀錄可以清掉（下一場從新的種子開始）
   function settle() { if (g && g.status !== 'playing') { journal = []; return true; } return false; }
   return {
-    seat, leave, replay, settle, seats, get phase() { return phaseInfo; }, get seed() { return seed; }, get journal() { return journal; },
+    seat, leave, replay, settle, setBot, seats, get phase() { return phaseInfo; }, get seed() { return seed; }, get journal() { return journal; },
     handle, render, json, waitTurn, myTurn, HELP, bots: BOT,
     get game() { return g; }, get match() { return matchNo; }, get result() { return lastResult; },
   };
