@@ -37,7 +37,7 @@ export function sideState(g, memory = {}) {
     if (m.pvpExposed) status.push('exposed');
     return {id: m.squadId, n: i + 1, cls: m.character, x: m.x, y: m.y, hp: Math.max(0, m.hp), maxHp: m.maxHp, plates: m.plates || 0, armor: m.armor || 0, alive: m.hp > 0,
       acted: m.hp > 0 && !g.pvp.left.includes(m.squadId), weapon: m.weapon, slots, meds: m.meds || 0, sprays: m.sprays || 0, throwables, skills, status,
-      lines: (m.productionLines || []).map(l => l.blueprint), contacts: m === keep ? (g.sensorContacts || []).map(q => ({x: q.x, y: q.y})) : (g.stash?.get(m)?.sensorContacts || []).map(q => ({x: q.x, y: q.y}))};
+      lines: (m.productionLines || []).map(l => l.blueprint), contacts: !(m.hp > 0 && (m.skillState?.early_warning?.remaining || 0) > 0) ? [] : m === keep ? (g.sensorContacts || []).map(q => ({x: q.x, y: q.y})) : (g.stash?.get(m)?.sensorContacts || []).map(q => ({x: q.x, y: q.y}))};
   });
   // 對方：任何一個我方活人看得到的（暴露中的牆後也看得到）。每個我方活人：能不能開火、命中率；不能的寫原因
   // （ASH 的 visible／teamVisible 只看「目前操作的那個人」，同一階段裡換人就會跳，所以這裡每個人都換過去算一次）
@@ -47,7 +47,7 @@ export function sideState(g, memory = {}) {
     const acted = !g.pvp.left.includes(u.squadId); seenBy.get(e)[u.squadId] = why ? {why, d} : acted ? {why: `已經動過（可開火 ${Math.round(g.fireChance(e))}%）`, d} : {chance: Math.round(g.fireChance(e)), d}; } } finally { g.swap(keep); } }
   const foes = [...seenBy].map(([e, by]) => {
     const m = e.pvpOf ? g.unit(e.pvpOf) : null;
-    return {id: e.pvpOf || e.id, target: e.id, cls: m?.character || 'drone', x: e.x, y: e.y, hp: Math.max(0, e.hp), exposed: !!e.pvpExposed,
+    return {id: e.pvpOf || e.id, target: e.id, cls: m?.character || 'drone', x: e.x, y: e.y, hp: Math.max(0, e.hp), exposed: !!e.pvpExposed, anchored: !!m?.skillState?.anchor?.remaining, camo: !!m?.skillState?.camouflage?.remaining,
       chance: Object.fromEntries(Object.entries(by).filter(([, v]) => v.chance != null).map(([k, v]) => [k, v.chance])), by};
   });
   // 記憶：最後一次看到對方每個人的位置
