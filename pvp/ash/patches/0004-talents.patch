@@ -1,0 +1,43 @@
+奇美拉補丁：天賦。哨戒砲射程（chimeraSentryRange）、「修正到底」多一層、換目標只掉一層（chimeraTrack）。
+原本的 0011-chimera-talents。
+每個 ASH 檔案只屬於一個補丁，彼此不相依。重新產生：.work 套好後 git diff <ASH_COMMIT> --output=... -- <這包的檔案>
+
+diff --git a/src/allies.js b/src/allies.js
+index 0c96729..9d0b220 100644
+--- a/src/allies.js
++++ b/src/allies.js
+@@ -69,11 +69,11 @@ export function allyWeapon(a,player=null){
+  // modifier and fire control. The player's own perks and traits stay with the player.
+  if(a.kind==='drone'&&Number.isInteger(a.weapon)&&player){
+   const rank=classPerkRank(player,'engineer_firecontrol'),sentry=a.sourceId==='drone_sentry',w=weaponStats(player.weaponBases[a.weapon],player.affixes[a.weapon]),bonus=(player.upgrades[a.weapon]||0)*5+rank*CLASS_PERK_TUNING.fireDamage;
+-  return {...w,min:w.min+bonus,max:w.max+bonus,...(w.closeRange?{closeMin:w.closeMin+bonus,closeMax:w.closeMax+bonus}:{}),accuracyBonus:w.accuracyBonus+rank*CLASS_PERK_TUNING.fireAccuracy,mounted:true};
++  return {...w,min:w.min+bonus,max:w.max+bonus,...(w.closeRange?{closeMin:w.closeMin+bonus,closeMax:w.closeMax+bonus}:{}),...(sentry&&player?.chimeraSentryRange?{range:w.range+player.chimeraSentryRange}:{}),accuracyBonus:w.accuracyBonus+rank*CLASS_PERK_TUNING.fireAccuracy,mounted:true};   // 奇美拉「砲台延伸」
+  }
+  if(a.kind==='drone'){const rank=classPerkRank(player,'engineer_firecontrol'),sentry=a.sourceId==='drone_sentry',damage=(sentry?14:12)+rank*CLASS_PERK_TUNING.fireDamage;
+   // The magazine stays in the shape so older saves still validate; with builtIn nothing is spent or reloaded.
+-  return {id:'rifle',range:7,min:damage,max:damage,mag:sentry?8:12,ammoType:null,builtIn:true,accuracyBonus:rank*CLASS_PERK_TUNING.fireAccuracy};}
++  return {id:'rifle',range:7+(sentry?player?.chimeraSentryRange||0:0),min:damage,max:damage,mag:sentry?8:12,ammoType:null,builtIn:true,accuracyBonus:rank*CLASS_PERK_TUNING.fireAccuracy};}
+  const summonBonus=a.kind==='summon'?classPerkRank(player,'necro_blades')*CLASS_PERK_TUNING.blades:0,def=ENEMY_TYPES[a.type],melee=def.range===1,damage=Math.max(8,def.damage)+summonBonus;
+  return {id:melee?'melee':a.type===ALLY_BASE_TYPES.drone?'plasma':'rifle',range:def.range,min:damage,max:damage,melee,hitChance:90,accuracyBonus:-22,ammoType:null,mag:0};
+ }
+diff --git a/src/traits.js b/src/traits.js
+index 8d55482..7abd2cd 100644
+--- a/src/traits.js
++++ b/src/traits.js
+@@ -121,13 +121,13 @@ export function removeTraitSource(actor,source){actor.traits=(actor.traits||[]).
+ 
+ export function correctionBonus(actor,targetId,turn){
+   const c=actor.fireChain;
+-  return activeTrait(actor,'correction')&&c&&c.targetId===targetId&&(c.turn===turn||c.turn===turn-1)?Math.min(c.count*8,24):0;
++  return activeTrait(actor,'correction')&&c&&c.targetId===targetId&&(c.turn===turn||c.turn===turn-1)?Math.min(c.count*8,8*correctionLimit(actor)):0;
+ }
+-export const correctionLimit=()=>3;   // 3.159.0: 架槍精通 is gone, the chain caps at three again
++export const correctionLimit=actor=>3+(actor?.chimeraTrack?1:0);   // 3.159.0: 架槍精通 is gone, the chain caps at three again; 奇美拉「修正到底」多一層
+ export function recordShot(actor,targetId,turn){
+   if(!activeTrait(actor,'correction')){actor.fireChain=null;return;}
+   const c=actor.fireChain;
+-  actor.fireChain={targetId,turn,count:c?.targetId===targetId&&c.turn===turn-1?Math.min(correctionLimit(actor),c.count+1):1};
++  actor.fireChain={targetId,turn,count:c?.targetId===targetId&&c.turn===turn-1?Math.min(correctionLimit(actor),c.count+1):actor.chimeraTrack&&c&&c.turn===turn-1?Math.max(1,c.count-1):1};   // 奇美拉「修正到底」：換目標只掉一層
+ }
+ export function sidestepPenalty(attacker,target){
+   if(!target.moved||!activeTrait(target,'sidestep')||!target.moveDelta)return 0;

@@ -1,0 +1,91 @@
+奇美拉補丁：戰場。地圖大小每場設定（setSize）、敵人手電筒由伺服器標好（chimeraFlashlight）、鹵素燈照得遠、戰壕裡的照明彈／螢光棒只照戰壕（ditchCells）。
+原本的 0006-flashlight、0009-map-size、0012-chimera-lights。
+每個 ASH 檔案只屬於一個補丁，彼此不相依。重新產生：.work 套好後 git diff <ASH_COMMIT> --output=... -- <這包的檔案>
+
+diff --git a/src/data.js b/src/data.js
+index a47fcf7..c1987f6 100644
+--- a/src/data.js
++++ b/src/data.js
+@@ -1,7 +1,9 @@
+ import {t} from './i18n.js';
+ import {DEFAULT_FACTION,factionBoss} from './faction-catalog.js';
+ // Content and balance live here. IDs are persisted in saves: append, never reorder.
+-export const SIZE = 27;
++export let SIZE = 27;
++// 奇美拉（Alan 2026-10-11）：戰場大小改成每場戰鬥開打前設定（戶外戰場可以比 27 大；室內設施維持 27）
++export function setSize(n){SIZE=n;}
+ // Grid cells: 0 wall, 1 floor, VOID a pit (3.164.0, src/pits.js) — nobody walks on it but flyers; sight, shots and
+ // blasts cross it. seeThrough is what a line of sight may pass over or end on.
+ export const VOID = 2;
+diff --git a/src/flares.js b/src/flares.js
+index 7697ccd..6e18938 100644
+--- a/src/flares.js
++++ b/src/flares.js
+@@ -16,8 +16,16 @@ import {coverEffects} from './cover.js';
+ // dim ring of 2 tiles beyond it on floors with real lighting.
+ export const FLARE_TUNING=Object.freeze({range:7,radius:3,duration:8,maxActive:16});
+ 
++// 奇美拉（Alan 2026-10-14）：落在戰壕裡的照明彈、螢光棒，光出不去，只照亮跟它相連的那一段戰壕
++export function ditchCells(game,src,reach){
++  const T=game.chimeraOutdoor?.trench;if(!T?.[src.y]?.[src.x])return null;
++  const seen=new Set([src.x+','+src.y]),q=[src];
++  for(let i=0;i<q.length;i++){const c=q[i];for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=c.x+dx,y=c.y+dy,k=x+','+y;if(seen.has(k)||!T[y]?.[x]||Math.max(Math.abs(x-src.x),Math.abs(y-src.y))>reach)continue;seen.add(k);q.push({x,y});}}
++  return seen;
++}
+ export function flareLights(game,flare,point){
+   if(!flare||!point||distance(flare,point)>FLARE_TUNING.radius)return false;
++  {const D=ditchCells(game,flare,FLARE_TUNING.radius);if(D&&!D.has(point.x+','+point.y))return false;}
+   if(game.grid?.[point.y]?.[point.x]!==1)return false;
+   if(!lineOfSight(objectSightGrid(game,flare,point),flare,point,game.barriers||[],'blast'))return false;
+   const target={x:point.x,y:point.y},source={x:flare.x,y:flare.y};
+diff --git a/src/lighting.js b/src/lighting.js
+index 3b1cbc9..7c5d721 100644
+--- a/src/lighting.js
++++ b/src/lighting.js
+@@ -5,7 +5,7 @@ import {objectSightGrid} from './scenery.js';
+ import {barrierBetween,edgeBlocks} from './barriers.js';
+ import {enemyDef,hasEnemyTag} from './enemy-data.js';
+ import {ENEMY_TYPES,VOID} from './data.js';
+-import {FLARE_TUNING,flareLights} from './flares.js';
++import {FLARE_TUNING,flareLights,ditchCells} from './flares.js';
+ import {t} from './i18n.js';
+ 
+ export const DARK_PENALTY=40;
+@@ -96,6 +96,7 @@ export const playerLightOn=p=>Boolean(p?.flashlight||p?.lightLingers);
+ // it is never stored and never rolled twice.
+ export const ENEMY_FLASHLIGHT=Object.freeze({share:1/3});
+ export function carriesFlashlight(game,e){
++ if(typeof e?.chimeraFlashlight==='boolean')return e.chimeraFlashlight;   // 奇美拉（hex-world chimera/ash 的補丁）：伺服器上的戰鬥不送種子，由伺服器標好
+  const kind=enemyDef(e)?.flashlight;
+  if(!kind||!e||e.kind||e.faction==='swarm'||hasEnemyTag(e,'infected'))return false;
+  return kind==='always'||fnv(`${game.seed}:${game.floor}:flashlight:${e.id}`)/4294967296<ENEMY_FLASHLIGHT.share;
+@@ -167,23 +168,24 @@ export function sourceCells(game,src,{core,reach,accept,cap=LIGHT.lit,floor}={})
+ // A flare, both models: the lit radius as judged before (walls, doors and full cover cast shadows); the new model adds a
+ // dim ring beyond it.
+ export function flareLightCells(game,fl,legacy=!newLighting(game)){
+- const out=[],r=FLARE_TUNING.radius+(legacy?0:LIGHT_TUNING.flareFade);
++ const out=[],r=FLARE_TUNING.radius+(legacy?0:LIGHT_TUNING.flareFade),D=ditchCells(game,fl,r);   // 奇美拉：戰壕裡的照明彈只照戰壕
+  for(let y=fl.y-r;y<=fl.y+r;y++)for(let x=fl.x-r;x<=fl.x+r;x++){
+-  const pt={x,y},d=distance(fl,pt);if(d>r||game.grid[y]?.[x]===undefined)continue;
++  const pt={x,y},d=distance(fl,pt);if(d>r||game.grid[y]?.[x]===undefined||D&&!D.has(x+','+y))continue;
+   if(d<=FLARE_TUNING.radius){if(flareLights(game,fl,pt))out.push({x,y,level:LIGHT.lit});}
+   else if(reaches(game,fl,pt))out.push({x,y,level:LIGHT.dim});
+  }
+  return out;
+ }
+-export const glowstickCells=(game,pos)=>sourceCells(game,pos,{core:LIGHT_TUNING.glowstickRadius,reach:LIGHT_TUNING.glowstickRadius,cap:LIGHT.dim});
++const ditchOnly=(game,src,reach)=>{const D=ditchCells(game,src,reach);return D?pt=>D.has(pt.x+','+pt.y):undefined;};   // 奇美拉：戰壕裡的螢光棒只照戰壕
++export const glowstickCells=(game,pos)=>sourceCells(game,pos,{core:LIGHT_TUNING.glowstickRadius,reach:LIGHT_TUNING.glowstickRadius,accept:ditchOnly(game,pos,LIGHT_TUNING.glowstickRadius),cap:LIGHT.dim});
+ function computeSources(game){
+  const L=game.grid.map(row=>row.map(()=>LIGHT.black));
+  const raise=(x,y,v)=>{if(L[y]?.[x]!==undefined&&L[y][x]<v)L[y][x]=v;};
+  const shine=(src,core,reach,accept,cap)=>{for(const c of sourceCells(game,src,{core,reach,accept,cap,floor:L}))raise(c.x,c.y,c.level);};
+  for(const fl of game.flares||[])for(const c of flareLightCells(game,fl,false))raise(c.x,c.y,c.level);
+- for(const lamp of game.lamps||[])if(lamp.hp>0)shine(lamp,LIGHT_TUNING.lampCore,LIGHT_TUNING.lampCore+LIGHT_TUNING.lampFade);
++ for(const lamp of game.lamps||[])if(lamp.hp>0){const flood=game.chimeraOutdoor?.floods?.includes(lamp.id);shine(lamp,flood?4:LIGHT_TUNING.lampCore,flood?6:LIGHT_TUNING.lampCore+LIGHT_TUNING.lampFade);}   // 奇美拉：戶外的鹵素燈照得比較遠（亮 4 格、昏暗到 6 格）
+  for(const pt of game.survival?.points||[])shine(pt,LIGHT_TUNING.pointCore,LIGHT_TUNING.pointCore+LIGHT_TUNING.pointFade);
+- for(const stick of game.glowsticks||[])shine(stick,LIGHT_TUNING.glowstickRadius,LIGHT_TUNING.glowstickRadius,undefined,LIGHT.dim);   // dim within its radius, never lit
++ for(const stick of game.glowsticks||[])shine(stick,LIGHT_TUNING.glowstickRadius,LIGHT_TUNING.glowstickRadius,ditchOnly(game,stick,LIGHT_TUNING.glowstickRadius),LIGHT.dim);   // dim within its radius, never lit
+  for(const fire of fireSources(game))shine(fire,LIGHT_TUNING.fireCore,LIGHT_TUNING.fireCore+LIGHT_TUNING.fireFade);   // 3.203.0
+  const p=game.player;
+  // An enemy's flashlight: a cone either side of its direction, lit 3 and dim at 4; its holder shows (B7).

@@ -1,0 +1,285 @@
+// 奇美拉：隊友是完整的玩家角色（DESIGN.md「隊友＝另一個玩家角色」，可行性驗證）。
+// 「輪值主角」：members 是四個完整的玩家物件，g.player 永遠指向現在輪到的那一位。
+//   - 回合：被操作的隊員（controlled）照常 action()；輪到他那一格做完後（game-actions.js 補丁的 squadAfterPlayer），
+//     其他活著的隊員依序把 g.player 換成自己，由大腦（brains）各做一個動作（soloTurn：只做自己的那一格，不推進世界）。
+//   - 敵人：每個敵人行動前挑一位看得到的隊員當「玩家」（最近的），整個行動期間 g.player 指向他，傷害照玩家的規則算。
+//   - 視野：每位隊員都揭露地圖、驚動敵人。
+//   - 交棒：被操作的隊員倒下、還有人活著，就換下一位接手（不判敗）；全員倒下才結束。
+// 跟著遊戲走、其實屬於個人的狀態（鎖定的目標、影步、追擊、待選升級……）換人時一起換（PERSONAL）。
+import {installVoices} from './chimera-voices.js';
+import {Game} from './game.js';
+import {MissionGame,applyStats,character} from './chimera-mission.js';
+import {CHARACTERS} from './characters.js';
+import {validPortrait,pickPortrait} from './portraits.js';
+import {distance} from './world.js';
+import {ENEMY_TYPES} from './data.js';
+import {isNoncombatant} from './enemy-data.js';
+import {presentStep} from './presentation.js';
+import {checkMines} from './field-gear.js';
+import {tickSkills} from './skills.js';
+import {expireExposure} from './corner.js';
+import {t} from './i18n.js';
+import {addPoison,tickPoison} from './poison.js';
+import {SWARM_TUNING} from './swarm.js';
+import {toxicPlayerTurn} from './swarm-fields.js';
+import {scalding} from './vents.js';
+import {VENT_TUNING} from './vent-map.js';
+import {FIRE_TUNING,burningAt} from './fire.js';
+import {AFFIXES,weaponStats} from './weapons.js';
+import {WEAPONS,PERKS} from './data.js';
+import {perkDef,drawPerks,eligiblePerks,recordPerkOffer,applyPerk} from './perks.js';
+import {perkLimit} from './endless.js';
+import {initialSkillState,SKILLS} from './skills.js';
+import {initializeAllies} from './allies.js';
+import {grantTrait,removeTraitSource} from './traits.js';
+import {installTalents,setupMember,setupSquad} from './chimera-talents.js';
+
+// 土製（DESIGN.md「本輪規劃」B）：ASH 的詞條都是一好一壞，土製只取壞的那一面。出生配發的槍都帶著；到終端改裝換掉詞條，
+// 就是把土製槍升級成正規槍。職業天生的近戰武器（動力拳、斧頭）不套。dropOnly:[] 讓它不會隨機出現在掉落與商店裡。
+// 護甲詞條對應的特性（和 chimera/company.js ARMOR_AFFIXES 一致）
+const ARMOR_TRAITS={nightvision:['night_vision'],infrared:['infrared'],steady:['suppression_resistance'],antitox:['poison_resistance']};
+AFFIXES.homemade??={name:'土製',text:'土法拼裝：傷害 −10%、彈匣 −25%、命中 −8。到終端改裝可以換掉。',damage:.9,mag:.75,accuracy:-8,dropOnly:[]};
+// 技能跟著人走（C）：出生沒有技能；職業技能在 SKILL_LEVEL 級學會（跨戰役的等級）。技能可插拔：學會的放在 skills，預備欄放一個。
+export const CLASS_SKILL={soldier:'early_warning',recon:'signal_break',bulwark:'anchor',berserker:'grapple',engineer:'workshop'};
+export const SKILL_LEVEL=2;   // Alan 2026-10-13：2 級學會（原本 3 級）
+// 升級三選一（2026-10-08～10-13）已經拿掉：成長改成策略層選的性格技能（chimera-talents.js）。PERMANENT 留著給舊的任務資料
+const PERMANENT={weapon:(p,o)=>{p.perkWeaponBonus+=o.amount;},health:(p,o)=>{p.maxHp+=o.amount;p.hp+=o.amount;},stat:(p,o)=>{p[o.stat]+=o.amount;},
+ scavenger:(p,o)=>{p.scavenger+=o.amount;},medic:(p,o)=>{p.healBonus+=o.amount;},hazmat:(p,o)=>{p.hazmat+=o.amount;},
+ combat:(p,o)=>{p.combatModifiers={...p.combatModifiers};for(const k of o.stats)p.combatModifiers[k]=Math.min(100,(p.combatModifiers[k]||0)+o.amount);}};
+const COUNTERS=['perkPicks','classPerkMisses','legacyPerkPicks'];
+
+const PERSONAL=['target','shadowSteps','pursuit','pursuitPending','pursuitBlocked','pendingPerks','perkDraft','perkPicks','classPerkMisses','legacyPerkPicks','sensorContacts','refusal'];
+
+export const CHIMERA_RETREAT={range:6,hit:.5,min:8,max:18};
+// 戰場上的名字（Alan 2026-10-10）：有綽號用綽號，沒有用原主名字，都沒有用編號
+const callName=c=>c.callsign?`“${c.callsign}”`:c.name||c.id;
+export class SquadGame extends MissionGame{
+ static fullSquad=true;
+ constructor(ticket){
+  super(ticket);
+  const lead=this.player;lead.squadId=ticket.squad[0].id;lead.id=`squad-${lead.squadId}`;lead.callName=callName(ticket.squad[0]);lead.donor=ticket.squad[0].donor||null;lead.art=ticket.squad[0].art||null;   // art：穿哪套衣服的圖（換裝，2026-10-14）
+
+  this.equip(lead,ticket.squad[0]);for(const k of COUNTERS)this[k]=ticket.squad[0][k]||0;
+  // 格子收集（Alan 2026-10-10）：等級在戰場外決定；這一級該有、還沒挑的升級，進場時補給（照 ASH 的 perkLimit：每升一級一個）
+  // Alan 2026-10-13：一般的戰鬥不再跳升級；行動（ticket.squad[i].run，chimera/ops.js）裡每打贏一點多一次局內的三選一
+  this.chimeraRun=ticket.squad.some(c=>c.run);const run0=ticket.squad[0].run;this.pendingPerks=run0?.pending||0;if(run0)this.perkPicks=run0.picks.length;
+  // brains（函式）與 stash 不可列舉：ASH 每一步動畫前用 structuredClone 複製遊戲（presentation.js snapshot）
+  for(const [k,v]of [['stash',new Map([[lead,{}]])],['brains',new Map()]])Object.defineProperty(this,k,{configurable:true,writable:true,enumerable:false,value:v});
+  this.members=[lead];this.controlled=lead;
+  for(const c of ticket.squad.slice(1)){
+   // 一位完整的玩家角色：借一個同種子的新遊戲建出來，只拿它的 player
+   const cls=character(c.cls),spare=new Game(this.seed,[],0,cls,validPortrait(c.portrait)?c.portrait:pickPortrait(),'extraction',{facilityFaction:this.facilityFaction,simulation:{kind:'chimera'}});
+   const m=spare.player;m.squadId=c.id;m.id=`squad-${c.id}`;m.callName=callName(c);m.donor=c.donor||null;m.art=c.art||null;applyStats(m,c,CHARACTERS[cls]);
+   this.shareArmory(m,lead);this.equip(m,c);
+   const cell=this.freeCellNear(lead);if(!cell)continue;Object.assign(m,{x:cell.x,y:cell.y});
+   this.members.push(m);this.stash.set(m,{target:null,shadowSteps:0,pursuit:0,pendingPerks:c.run?.pending||0,perkDraft:null,perkPicks:c.run?c.run.picks.length:c.perkPicks||0,classPerkMisses:c.classPerkMisses||0,legacyPerkPicks:c.legacyPerkPicks||0,sensorContacts:[],refusal:null});
+   this.chimera.units[c.id]=m;
+  }
+  this.chimera.units[ticket.squad[0].id]=lead;
+  setupSquad(this);
+  this.reveal();
+ }
+ // 複製人的成長帶進戰鬥（ticket 的 c：lv、xp、picks、skills、prep）；槍套上土製
+ equip(m,c){
+  if(!this.applyGear(m,c))for(const slot of m.owned)if(!WEAPONS[m.weaponBases[slot]]?.melee){m.affixes[slot]='homemade';m.ammo[slot]=Math.min(m.ammo[slot],weaponStats(m.weaponBases[slot],'homemade',m).mag);}
+  m.level=Math.max(1,c.lv||1);m.xp=Math.max(0,c.xp||0);m.chimeraPicks=[];
+  setupMember(this,m,c);   // 性格技能、等級成長、工兵的廢料（chimera-talents.js）
+  // 行動：局內的強化（只在這次行動有效，永久的效果每一點重新套）、帶過來的生命與護甲板
+  if(c.run){m.chimeraPicks=[...(c.run.picks||[])];
+   for(const id of m.chimeraPicks){const o=perkDef(this,PERKS.find(x=>x.id===id));if(!o)continue;PERMANENT[o.effect]?.(m,o);m.perks[o.id]=(m.perks[o.id]||0)+1;}
+   if(c.run.hp!=null)m.hp=Math.max(1,Math.min(m.maxHp,c.run.hp));if(c.run.plates!=null)m.plates=Math.max(0,c.run.plates);
+   // 「每一點多帶」（戰地補給、急救訓練、資源回收）：進場時給，打完寫回裝備時先扣掉（不會變成倉庫裡的東西）
+   const n=id=>m.chimeraPicks.filter(x=>x===id).length,bonus={meds:2*n('med')+n('medic'),grenades:2*n('med')};
+   const B=m.chimeraBonusKits||={};for(const [k,v] of Object.entries(bonus))if(v){m[k]=(m[k]||0)+v;B[k]=(B[k]||0)+v;}if(n('scavenger'))m.scrap=(m.scrap||0)+15*n('scavenger');}
+  m.skills=(c.skills||[]).filter(id=>SKILLS[id]);if(m.chimeraTal.includes('sol_supp')&&!m.skills.includes('suppressive_fire'))m.skills.push('suppressive_fire');m.skillState=initialSkillState(m.skills);
+  m.prepared={...m.prepared,skill:m.skills.includes(c.prep)?c.prep:m.skills[0]||null};
+  if(!m.skills.includes('workshop'))m.productionLines=[];
+  this.learnClassSkill(m);
+ }
+ // 奇美拉的裝備（c.gear，chimera/company.js）帶進戰鬥：槍照身上的三格（種類＋詞條，彈匣裝滿）、隨身近戰、護甲（裝甲板）、預備品（醫療包、破片彈⋯）。
+ // 天生的近戰（狂戰斧、忍刀、動力拳套）留著。沒有 c.gear（舊的任務資料）回傳 false，照舊配土製
+ applyGear(m,c){
+  const g=c.gear;if(!g)return false;
+  const at=id=>WEAPONS.findIndex(w=>w.id===id),add=(b,affix)=>{const s=m.weaponBases.length;m.weaponBases.push(b);m.affixes.push(affix);m.ammo.push(WEAPONS[b].melee?0:weaponStats(b,affix,m).mag);m.upgrades.push(0);return s;};
+  const innate=m.owned.filter(s=>{const w=WEAPONS[m.weaponBases[s]];return w?.melee&&(w.locked||w.integrated);});
+  const guns=[];for(const it of g.guns||[]){if(!it)continue;const b=at(it.base);if(b<0||WEAPONS[b].melee)continue;const s=add(b,it.affix||null);if(it.legacy)(this.chimeraLegacySlots||=new Map()).set(s,it.legacy);guns.push(s);}
+  m.owned=[...guns,...innate];
+  if(g.melee){const b=at(g.melee.base);if(b>=0&&WEAPONS[b].melee){const s=add(b,null);m.owned.push(s);m.meleeSlot=s;if(g.melee.legacy)(this.chimeraLegacySlots||=new Map()).set(s,g.melee.legacy);}}
+  m.weapon=m.owned[0]??m.weapon;
+  const kits={meds:0,grenades:0,smoke:0,stun:0,emp:0,glowsticks:0,flares:0};for(const it of g.kits||[])if(it&&it.base in kits)kits[it.base]+=it.n||0;Object.assign(m,kits);   // 螢光棒、照明彈要自己買（2026-10-14；ASH 原本每場給兩支螢光棒）
+  const P=({light:10,medium:20,heavy:30}[g.armor?.base]||0)+(g.armor?.plates||0);if(P)m.plates=Math.max(m.plates||0,P);   // 遺產級護甲多幾片
+  // 護甲的詞條＝特性（來源 chimera-armor），和 ASH 的穿戴品同一套
+  removeTraitSource(m,'chimera-armor');for(const id of ARMOR_TRAITS[g.armor?.affix]||[])grantTrait(m,id,'chimera-armor');
+  m.chimeraAmmo0=this.ammoTotals(m);   // 開戰時的彈藥，戰後算補滿要多少（彈藥費）
+  return true;
+ }
+ // 每種彈藥的總量：背包裡的＋彈匣裡的
+ ammoTotals(m){const K={rifle:'reserve',pistol:'pistol',shell:'shell',energy:'energy',ordnance:'ordnance'},t={pistol:m.pistol||0,reserve:m.reserve||0,shell:m.shell||0,energy:m.energy||0,ordnance:m.ordnance||0};
+  for(const s of m.owned){const k=K[WEAPONS[m.weaponBases[s]]?.ammoType];if(k)t[k]+=m.ammo[s]||0;}return t;}
+ // 戰後身上剩下的（撿到的槍也算）：寫回奇美拉的裝備（company.js gearAfterBattle）
+ gearOf(m){
+  const w=s=>WEAPONS[m.weaponBases[s]],innate=s=>w(s)?.melee&&(w(s).locked||w(s).integrated);
+  const L=this.chimeraLegacySlots||new Map(),ms=m.owned.find(s=>w(s)?.melee&&!innate(s));
+  return {guns:m.owned.filter(s=>w(s)&&!w(s).melee).slice(0,3).map(s=>({base:w(s).id,affix:m.affixes[s]||null,...(L.get(s)?{legacy:L.get(s)}:{})})),meleeLegacy:ms!=null&&L.get(ms)||null,
+   melee:(m.owned.find(s=>w(s)?.melee&&!innate(s))!=null?w(m.owned.find(s=>w(s)?.melee&&!innate(s))).id:null),
+   kits:Object.fromEntries(['meds','grenades','smoke','stun','emp','glowsticks','flares'].map(k=>[k,Math.max(0,(m[k]||0)-(m.chimeraBonusKits?.[k]||0))])),   // 性格技能、行動多給的先用掉（不會變成倉庫裡的東西）
+   ammoUsed:m.chimeraAmmo0?Object.fromEntries(Object.entries(this.ammoTotals(m)).map(([k,v])=>[k,Math.max(0,(m.chimeraAmmo0[k]||0)-v)])):{}};   // 補滿要多少（Alan 2026-10-09：算補滿的費用；撿到的補回來就不用錢）
+ }
+ // 到了 SKILL_LEVEL 級學會職業技能（升級當下也會檢查，見 settleLevels）
+ learnClassSkill(m){
+  const id=CLASS_SKILL[m.character];if(!id||m.level<SKILL_LEVEL||m.skills.includes(id))return false;
+  m.skills=[...m.skills,id];m.skillState={...m.skillState,[id]:{remaining:0,cooldown:0}};if(!m.prepared.skill)m.prepared={...m.prepared,skill:id};
+  if(this.members&&id==='workshop'){const keep=this.player;this.swap(m);try{initializeAllies(this);}finally{this.swap(keep);}}
+  return true;
+ }
+ // 格子收集取代經驗（Alan 2026-10-10）：戰場上打倒敵人不再升級（等級由戰後的積分抽格子決定），經驗直接歸零
+ settleLevels(){this.player.xp=0;}
+ // 多層設施（狩獵場）不再有交易終端（Alan 2026-10-13：廢料只有工兵進場時給）
+ generateFloor(){const map=super.generateFloor();if(map?.props)map.props=map.props.filter(o=>o.type!=='terminal');return map;}
+ // 局內的三選一（行動才有）：照 ASH 的抽法，但不受等級限制（ASH 是一級一個）
+ get perkChoices(){if(!this.chimeraRun)return [];if(!this.pendingPerks){this.perkDraft=null;return [];}if(!this.perkDraft)this.perkDraft=drawPerks(this);return this.perkDraft.ids.map(id=>perkDef(this,PERKS.find(o=>o.id===id)));}
+ choosePerk(id){
+  if(!this.chimeraRun||this.status!=='playing'||!this.pendingPerks)return false;
+  const offer=this.perkChoices.find(o=>o.id===id);if(!offer||!eligiblePerks(this).some(o=>o.id===id))return false;
+  recordPerkOffer(this);applyPerk(this,offer);this.pendingPerks--;this.perkPicks++;this.perkDraft=null;
+  this.log(t('game.perkInstalled',{perk:offer.name}));(this.player.chimeraPicks||=[]).push(id);return true;
+ }
+ // 戰後寫回名冊的成長
+ progressOf(m){const own=m===this.player,st=this.stash?.get(m)||{};return {gear:this.gearOf(m),lv:m.level,xp:m.xp,hp:Math.max(0,m.hp),maxHp:m.maxHp,plates:m.plates||0,picks:[...(m.chimeraPicks||[])],skills:[...m.skills],prep:m.prepared?.skill||null,...Object.fromEntries(COUNTERS.map(k=>[k,own?this[k]:st[k]||0]))};}
+ // 武器登錄表（weaponBases／affixes／ammo／upgrades，地上的武器用它的編號）全隊共用同一份；
+ // 隊員的初始武器各自登錄成新的一把，同職業才不會共用彈匣
+ shareArmory(m,lead){
+  const remap=new Map();
+  for(const slot of m.owned){const n=lead.weaponBases.length;lead.weaponBases.push(m.weaponBases[slot]);lead.affixes.push(m.affixes[slot]);lead.ammo.push(m.ammo[slot]);lead.upgrades.push(m.upgrades[slot]||0);remap.set(slot,n);}
+  m.owned=m.owned.map(s=>remap.get(s));m.weapon=remap.get(m.weapon)??m.owned[0];if(Number.isInteger(m.meleeSlot))m.meleeSlot=remap.get(m.meleeSlot)??null;
+  for(const k of ['weaponBases','affixes','ammo','upgrades'])m[k]=lead[k];
+ }
+ get living(){return this.members.filter(m=>m.hp>0);}
+ freeCellNear(p){
+  for(let r=1;r<=3;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){const q={x:p.x+dx,y:p.y+dy};
+   if(Math.max(Math.abs(dx),Math.abs(dy))===r&&super.passable(q.x,q.y)&&!this.memberAt(q)&&!this.enemies.some(e=>e.hp>0&&e.x===q.x&&e.y===q.y))return q;}
+  return null;
+ }
+ memberAt(q,except=null){return (this.members||[]).find(m=>m!==except&&m.hp>0&&m.x===q.x&&m.y===q.y)||null;}
+ // 只有操作中的隊員能和隊友換位；機器人隊員互相換位會在走廊裡來回換、誰都走不動（2026-10-08 Alan 回報），所以當牆
+ passable(x,y,actor){if(!super.passable(x,y,actor))return false;if(!this.members||!actor&&!this.soloTurn)return true;const m=this.memberAt({x,y},this.player);return !m||m===actor;}
+ executePlayer(type,arg){
+  const p=this.player,from={x:p.x,y:p.y},other=type==='move'&&Array.isArray(arg)&&this.members?this.memberAt({x:p.x+arg[0],y:p.y+arg[1]},p):null;
+  // 自己行動時隊員不算友軍（ASH 的友軍換位要查兵種卡）；換位用下面這行
+  this.membersHidden=true;let ok;try{ok=super.executePlayer(type,arg);}finally{this.membersHidden=false;}
+  if(ok&&other&&p.x===other.x&&p.y===other.y)Object.assign(other,from);
+  return ok;
+ }
+ // 換人：個人狀態跟著換
+ swap(m){
+  if(!this.members||m===this.player)return;
+  const out={};for(const k of PERSONAL)out[k]=this[k];this.stash.set(this.player,out);
+  this.player=m;const inn=this.stash.get(m)||{};for(const k of PERSONAL)this[k]=inn[k]??(k==='sensorContacts'?[]:k==='target'||k==='perkDraft'||k==='refusal'?null:0);
+ }
+ // 被操作的隊員那一格做完：其他活著的隊員各做一個動作
+ squadAfterPlayer(){
+  if(this.soloTurn)return;
+  const keep=this.player;
+  for(const m of this.members){
+   if(m===keep||m.hp<=0||this.status!=='playing')continue;
+   const brain=this.brains.get(m);if(!brain)continue;
+   // action() 一開頭會清掉 effects（這一步的動畫）；隊員的動作接在後面，不能把前面的清掉
+   const fx=this.effects;
+   this.swap(m);this.soloTurn=true;this.soloDone=false;
+   try{for(let i=0;i<6&&!this.soloDone&&this.status==='playing'&&m.hp>0;i++)brain(this,m);}
+   finally{this.effects=[...fx,...this.effects.filter(e=>!fx.includes(e))];this.soloTurn=false;tickSkills(m);expireExposure([m],this.turn);m.lightLingers=false;this.swap(keep);}
+  }
+ }
+ // soloTurn 裡的付費動作：只做這位隊員自己那一格（照 action() 裡 actor===p 的處理）
+ soloPaid(type,arg){
+  const p=this.player,target=type==='fire'?this.targeted:null,intent=type==='fire'?{id:this.target,x:target?.x,y:target?.y}:arg;
+  const success=type==='move'?presentStep(this,()=>this.executePlayer(type,arg)):this.executePlayer(type,intent);
+  p.guard=success&&type==='wait';p.moved=success&&(type==='move'||['grapple','hookBlade','fire'].includes(type)&&p.moved);p.focus=success&&type==='wait';p.evasive=success&&type==='wait';
+  this.settleAttackNotes();this.reveal();checkMines(this);this.settleAttackNotes();
+  if(success)this.soloDone=true;return success;
+ }
+ // 敵人：挑一位看得到的隊員（最近的）當這次行動的「玩家」
+ enemyAct(e){
+  if(!this.members||this.soloTurn)return super.enemyAct(e);
+  const reach=Math.max(10,ENEMY_TYPES[e.type]?.range||0),seen=this.living.filter(m=>distance(e,m)<=reach&&this.sight(e,m)).sort((a,b)=>distance(e,a)-distance(e,b));
+  const m=seen[0];if(!m||m===this.player)return super.enemyAct(e);
+  const keep=this.player;this.swap(m);try{return super.enemyAct(e);}finally{this.swap(keep);}
+ }
+ // 視野：每位隊員都揭露、都會被看到。reveal 會記下「玩家看得到的格子」（visibleTiles，畫面的視野與光線用它），
+ // 所以其他隊員先揭露，操作中的那位最後揭露。
+ // 畫面的視野是全隊的聯集（Alan 2026-10-14：隊伍拉長後迷霧一直狂閃——原本只記最後揭露的那位，隊員輪流行動時「玩家」換人，看得到的那一圈就跟著跳）。
+ // 瞄準、開火照舊看開火的那個人自己的視線（visible／sight），這裡只影響畫面和「點了看不到的格子＝盲射」
+ reveal(opts){
+  if(!this.members||this.revealing)return super.reveal(opts);
+  this.revealing=true;const keep=this.player,team=new Set();
+  try{for(const m of this.living)if(m!==keep){this.swap(m);super.reveal({warnings:false});for(const k of this.visibleTiles||[])team.add(k);}}finally{this.swap(keep);this.revealing=false;}
+  const r=super.reveal(opts);if(this.visibleTiles)for(const k of team)this.visibleTiles.add(k);
+  return r;
+ }
+ // 交棒：還有人活著就不算結束（ASH 在「玩家」倒下時會判死，這位玩家可能是被敵人借去的其他隊員）
+ // 每個行動之後檢查交棒（隊員在 soloTurn 裡的行動不算，那時「玩家」是他自己）
+ // 撤出戰場（Alan 2026-10-10）：這一場算敗北、活著的人撤出；撤的當下每個還站著的敵人往最近的隊員（6 格內）追擊一下（五成命中、8～18 傷害）。
+ // 是一個行動（chimeraRetreat），照常記進紀錄、伺服器重播得到一樣的結果
+ chimeraRetreat(){
+  if(this.status!=='playing')return false;
+  const R=CHIMERA_RETREAT,foes=this.enemies.filter(e=>e.hp>0&&!isNoncombatant(e)),members=this.members||[this.player];let shots=0,hits=0;
+  for(const e of foes){const L=members.filter(m=>m.hp>0);if(!L.length)break;const m=L.reduce((a,b)=>distance(e,b)<distance(e,a)?b:a);if(distance(e,m)>R.range)continue;shots++;
+   if(this.rng()>=R.hit)continue;hits++;m.hp-=R.min+Math.floor(this.rng()*(R.max-R.min+1));if(m.hp<=0){m.hp=0;this.log(`${m.callName||m.squadId} 在撤退時倒下了。`,true);}}
+  this.log(`撤出戰場：敵人追擊 ${shots} 次、打中 ${hits} 次。`,true);
+  this.status='retreated';return true;
+ }
+ // 狩獵場（Alan 2026-10-11）：到了電梯口，選往下一層（狀態不恢復、整隊一起下去）或帶著收穫撤離。都是行動，照常記進紀錄、伺服器重播一樣
+ chimeraDeeper(){
+  if(this.status!=='playing'||!this.chimeraAtExit)return false;this.chimeraAtExit=false;
+  const keep=this.player;this.floor++;this.turn++;this.loadFloor();
+  for(const m of this.members||[]){if(m===keep||m.hp<=0)continue;const c=this.freeCellNear(keep);if(c)Object.assign(m,{x:c.x,y:c.y,moveDelta:[0,0]});}
+  this.reveal();this.log(`往下到第 ${this.floor} 層。這一層更深、更兇${this.floor>=(this.ticket.floors||1)?'，是最下面一層':''}。`,true);return true;
+ }
+ chimeraLeave(){if(this.status!=='playing'||!this.chimeraAtExit)return false;this.chimeraAtExit=false;this.status='won';this.log(`帶著打下的 ${this.floor} 層撤離。`,true);return true;}
+ action(type,arg){
+  if(type==='chimeraRetreat')return this.chimeraRetreat();
+  if(type==='chimeraDeeper')return this.chimeraDeeper();
+  if(type==='chimeraLeave')return this.chimeraLeave();
+  const up=this.members?new Set(this.members.filter(m=>m.hp>0&&m!==this.controlled).map(m=>m.id)):null;
+  const r=super.action(type,arg);
+  // 沒在操作的隊員倒下：寫一行戰報（演出由 presentation.js 補丁照玩家戰死的做）
+  if(up)for(const m of this.members)if(up.has(m.id)&&m.hp<=0)this.log(`${m.callName||m.squadId} 倒下了。`,true);
+  if(!this.soloTurn&&this.members)this.handOver();
+  return r;
+ }
+ handOver(){
+  const next=this.living[0];if(!next)return false;
+  if(this.status==='dead')this.status='playing';
+  if(this.player.hp>0)return false;
+  this.player.hp=0;this.swap(next);this.controlled=next;this.log(`${next.callName||next.squadId} 接手指揮。`,true);return true;
+ }
+ // 動畫快照（presentation.js 補丁）：隊員行動那幾步的快照裡，「玩家」換回操作中的隊員，鏡頭和狀態列才不會跳
+ // 沒在操作的隊員另外列在 squadMembers（presentation.js 補丁照這份判斷誰倒下、做戰死演出）
+ presentView(v){const c=v.members?.find(m=>m.id===this.controlled?.id);if(c&&v.player!==c)v.player=c;if(v.members)v.squadMembers=v.members.filter(m=>m!==v.player).map(m=>({id:m.id,x:m.x,y:m.y,hp:m.hp,character:m.character}));return v;}
+ setControlled(m){if(!this.members.includes(m)||m.hp<=0||this.soloTurn)return false;this.swap(m);this.controlled=m;return true;}
+ cycleControlled(){const L=this.living;if(L.length<2)return false;return this.setControlled(L[(L.indexOf(this.player)+1)%L.length]);}
+ descend(){if(this.status!=='playing'||this.player.hp<=0)return false;const og=this.chimeraOutdoor?.goal;if(og==='plant'&&this.chimeraOutdoor.clear)return this.fail(`這一場要把${this.chimeraOutdoor.clear.what}${this.chimeraOutdoor.clear.verb}掉，不能撤離`);if(og==='plant'&&!this.chimeraOutdoor.armed)return this.fail('炸藥還沒裝完，不能撤離');if(this.chimeraOutdoor&&og!=='exit'&&og!=='plant')return this.fail('這一場要把敵人清掉，不能撤離');if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);
+  if(!this.chimeraOutdoor&&(this.ticket?.floors||1)>(this.floor||1)){this.chimeraAtExit=true;this.log('到了電梯口：往下一層，還是帶著收穫撤離？',true);return true;}   // 狩獵場：還沒到最下面一層，讓玩家選
+  this.status='won';this.log('撤離完成。');return true;}
+ // 戰場上留下的東西（打贏時整批收回）：敵人掉的槍與近戰武器、彈藥、補給（醫療包、手榴彈、煙霧、震撼、電磁）。遺產級另外算（chimeraLegacy）
+ fieldLoot(){
+  const KIT={med:'meds',grenade:'grenades',smoke:'smoke',stun:'stun',emp:'emp'},AMMO={ammo:'reserve',pistol:'pistol',shell:'shell',energy:'energy'},DEF={reserve:30,pistol:24,shell:8,energy:10};
+  const L={guns:[],melee:[],kits:{},ammo:{}},p=this.player;
+  for(const it of this.items||[]){
+   if(it.type==='weapon'){const w=WEAPONS[it.weapon];if(!w)continue;if(w.melee){if(!w.locked&&!w.integrated)L.melee.push(w.id);}else L.guns.push({base:w.id,affix:(it.slot!=null?p.affixes?.[it.slot]:null)||null});}
+   else if(KIT[it.type])L.kits[KIT[it.type]]=(L.kits[KIT[it.type]]||0)+(it.amount||1);
+   else if(AMMO[it.type]){const k=AMMO[it.type];L.ammo[k]=(L.ammo[k]||0)+(it.amount||DEF[k]);}
+  }
+  return L;
+ }
+ get missionResult(){
+  const dead=Object.entries(this.chimera.units).filter(([,m])=>m.hp<=0).map(([id])=>id);
+  const foes=this.enemies.filter(e=>!isNoncombatant(e)),kills=foes.filter(e=>e.hp<=0).length,total=foes.length;
+  const progress=Object.fromEntries(Object.entries(this.chimera.units).map(([id,m])=>[id,this.progressOf(m)]));
+  // 遺產級頭目：撤退或戰死；戰死時遺產級在誰（活著的隊員）身上
+  const carrier=this.status==='won'?Object.entries(this.chimera.units).find(([,m])=>m.hp>0&&m.chimeraLegacy):null;
+  return {win:this.status==='won',dead,kills,total,turns:this.turn,progress,boss:this.chimeraBossOut||null,legacy:carrier?carrier[0]:null,loot:this.status==='won'?this.fieldLoot():null,floors:this.ticket?.floors?(this.status==='won'?this.floor:Math.max(0,(this.floor||1)-1)):undefined};   // 狩獵場：打穿了幾層
+ }
+}
+installVoices(SquadGame);
+installTalents(SquadGame);   // 性格技能（Alan 2026-10-13）   // 戰場上的台詞改由隊員自己說（chimera-voices.js、補丁 0001-embed-shell）
