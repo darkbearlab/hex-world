@@ -23,7 +23,7 @@ import {WEAPONS} from '../../../src/data.js';
 import {weaponStats} from '../../../src/weapons.js';
 
 export const TUNING = {quietFrag: 10, fragReserve: 12, spacing: 4, spacingCalm: 1.5, hurt: 15,
-  cover: 5, flaw: 10, cloud: 5, far: 6, lamp: 14, trenchHold: 10, ghostTurns: 8, soonWeight: +(globalThis.process?.env?.BETA_SW || 1)};
+  cover: 5, flaw: 10, cloud: 5, far: 6, lamp: 14, trenchHold: 10, ghostTurns: 8, fox: +(globalThis.process?.env?.BETA_FOX || 4), soonWeight: +(globalThis.process?.env?.BETA_SW || 1)};
 export const BETA_STATS = {};
 const OFF = new Set((globalThis.process?.env?.BETA_OFF || '').split(','));   // 實驗用：關掉某些改動比較   // 實驗用（beta-analyze.mjs，BETA_STATS=1）
 const unitOf = (g, id) => String(id).startsWith('px-') ? g.unit(String(id).slice(3)) : null;
@@ -80,11 +80,14 @@ export default class Beta extends PvpBot {
   quiet(view) {
     if (this.frag && this.frag.score >= TUNING.quietFrag) return this.frag;
     const lamp = this.lampShot(view, false); if (lamp) return lamp;
+    // 剛看到對方（快接觸了）：附近有散兵坑就先跳進去（取代 ClearBot 的「原地等一下」）
+    if (!this.job && this.team?.goal && !view.me.pinned) { const fox = this.foxhole(view, this.team.goal); if (fox && !this.isRefused(fox)) return fox; }
     return super.quiet(view);
   }
   // 交火中：combatOptions 的結果在這裡（pickBest 之前）照團隊計畫調分數
   stance(view, opts) {
     const plan = this.team, me = view.me, g = this.g;
+    if (process.env.BETA_STATS) { const k = 'T:combat:trench' + trenchAt(g, me); BETA_STATS[k] = (BETA_STATS[k] || 0) + 1; }
     const mates = plan ? plan.members.filter(m => m !== me.ref) : [];
     // 看不到的人（隊友看得到）不能開火：拿掉那些選項
     // 暴露中、但我沒有原本的視線（只知道位置）的也不能打
@@ -174,6 +177,8 @@ export default class Beta extends PvpBot {
     // 破綻：翻隔板、直接跳進／爬出全身深的戰壕（到下次行動前命中 +20）——有人打得到才算
     const flaw = stepFlaw(g, me, t);
     if (flaw && threats.some(e => lineOpen(g, e.ref || e, t))) s -= TUNING.flaw;
+    // 散兵坑、戰壕的半身深：溝外打溝裡算掩體，再加一點（推進途中搶進去）
+    if (!OFF.has('fox') && threats.length && trenchAt(g, t) === 1 && !flaw) s += TUNING.fox;
     // 煙：往目標靠近而且走進煙裡（濃煙擋視線、淡煙命中減半）
     if (aim && dist(t, aim) < dist(me, aim) && cloudAt(g, t)) s += TUNING.cloud;
     return s;
@@ -220,7 +225,6 @@ export default class Beta extends PvpBot {
     const spray = sprayingVents(g).some(v => dist(v, me) <= 8);
     if (plan.hold.has(me.ref) && !spray) return {type: 'wait', why: 'team: wait for squad'};
     const hold = this.trenchHold(view, goal); if (hold) return hold;
-    const fox = this.foxhole(view, goal); if (fox) return fox;
     if (dist(me, goal) <= 1) return {type: 'wait', why: 'at goal'};
     return this.walkTo(view, goal, goal.why);
   }
@@ -293,4 +297,12 @@ function spacingCost(t, mates, plan) {
   let c = 0;
   for (const m of mates) { const d = dist(t, m); if (d <= 2) c += (3 - d) * (plan?.threat ? TUNING.spacing : TUNING.spacingCalm); }
   return c;
+}
+// 陣容研究（duel.mjs 用；線上練習的陣容是伺服器抽的，不會叫這個）：BETA_PICK=soldier,recon,bulwark,engineer 指定；
+// BETA_PICK=swap:<職業>：預設陣容裡沒有這個職業就換掉最後一個；沒設就照預設（兩邊同一組）
+export function pick(seed, defaultComp) {
+  const env = globalThis.process?.env?.BETA_PICK; if (!env) return null;
+  if (env.startsWith('swap:')) { const c = env.slice(5); if (defaultComp.includes(c)) return defaultComp; return [...defaultComp.slice(0, 3), c]; }
+  if (env.startsWith('drop:')) { const c = env.slice(5); if (!defaultComp.includes(c)) return defaultComp; const pool = ['soldier', 'recon', 'bulwark', 'berserker', 'ninja', 'engineer'].filter(x => !defaultComp.includes(x)); return defaultComp.map(x => x === c ? pool[seed % pool.length] : x); }
+  return env.split(',');
 }
