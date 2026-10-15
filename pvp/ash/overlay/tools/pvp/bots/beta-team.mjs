@@ -6,7 +6,6 @@ import {dist} from '../../clear-bot/util.mjs';
 import {lineOfSight} from '../../../src/world.js';
 import {objectSightGrid} from '../../../src/scenery.js';
 
-const plans = new WeakMap();
 const homeDist = new WeakMap();
 
 // 對方一個人真的武器：{range, damage（一輪的總傷害）, rounds, melee, band}
@@ -58,25 +57,45 @@ function distField(g, goal) {
   byGoal.set(k, D); return D;
 }
 
+// 全隊共享視野（正式規則，Alan 2026-10-15）：隊上任何人看得到的敵人，全隊都知道（開火還是只能打射手自己看得到的）。
+// 看得到＝跟 ASH 的 visible 同一套（偵測距離、隱形、視線含黑暗與煙、轉角貼牆看不到、暴露中到處看得到），只是換成每個隊員
+export function teamSight(g) {
+  const out = new Map(), members = g.alive(g.pvp.side);
+  for (const e of g.enemies) {
+    if (e.hp <= 0 || (e.pvpOf == null && e.pvpAlly == null)) continue;
+    if (e.pvpExposed) { out.set(e.id, e); continue; }
+    for (const m of members) {
+      const reach = Math.max(10, threatOf(m)?.range || 0);
+      if (dist(m, e) <= reach && g.revealed(m, e) && g.sight(m, e)) { out.set(e.id, e); break; }
+    }
+  }
+  return out;
+}
 // 整隊共用的記憶：對方每個人最後看到的位置（ASH 的記憶在那一格看得到時就忘掉，但貼牆的人站在看得到的格子上也看不到）
 const sightings = new WeakMap();
-export function teamMemory(g, view) {
+export function teamMemory(g, view, sight = teamSight(g)) {
   const side = g.pvp.side;
   let all = sightings.get(g); if (!all) { all = {A: new Map(), B: new Map()}; sightings.set(g, all); }
   const mem = all[side];
-  for (const e of view.enemies) if (e.pvpClass || e.ref?.pvpOf) mem.set(e.id, {id: e.id, x: e.x, y: e.y, turn: g.turn, hp: e.hp, range: e.range, damage: e.damage, melee: e.melee, seen: true});
-  const visible = new Set(view.enemies.map(e => e.id));
-  for (const [id, r] of mem) { r.seen = visible.has(id); const u = unitOf(g, id); if (!u || u.hp <= 0) mem.delete(id); else if (!r.seen) { const t = threatOf(u); if (t) Object.assign(r, {range: t.range, damage: t.damage, melee: t.melee}); } }
+  for (const e of sight.values()) {
+    const u = unitOf(g, e.id), t = u ? threatOf(u) : null;
+    mem.set(e.id, {id: e.id, x: e.x, y: e.y, turn: g.turn, hp: e.hp, range: t?.range ?? 5, damage: t?.damage ?? 20, melee: !!t?.melee, seen: true, ally: e.pvpAlly != null, cls: u?.character, checked: false});
+  }
+  for (const [id, r] of mem) {
+    r.seen = sight.has(id);
+    if (r.ally) { if (!r.seen) mem.delete(id); continue; }
+    const u = unitOf(g, id); if (!u || u.hp <= 0) { mem.delete(id); continue; }
+    if (!r.seen) { const t = threatOf(u); if (t) Object.assign(r, {range: t.range, damage: t.damage, melee: t.melee}); }
+  }
   return mem;
 }
 export function teamPlan(g, view, bot) {
   const side = g.pvp.side;
-  const memory = teamMemory(g, view);
-  let p = plans.get(g);
-  if (p && p.turn === g.turn && p.side === side) { p.update?.(view); return p; }
+  const sight = teamSight(g), memory = teamMemory(g, view, sight);
+  let p;   // 每次決策重算（隊友動過、看到的人變了；算起來很便宜）
   const members = g.alive(side);
   const enemies = view.enemies.filter(e => !e.civilian);
-  p = {turn: g.turn, side, members, memory, focus: null, focusBonus: 12, hold: new Set(), threat: enemies.length > 0 || (view.ghosts || []).some(x => view.turn - x.turn <= 6)};
+  p = {turn: g.turn, side, members, memory, sight, focus: null, focusBonus: 12, hold: new Set(), threat: enemies.length > 0 || (view.ghosts || []).some(x => view.turn - x.turn <= 6)};
   // 集火：打得到的人越多、血越少、威脅越大越好
   let best = null;
   for (const e of enemies) {
@@ -91,9 +110,10 @@ export function teamPlan(g, view, bot) {
     if (!best || s > best.s) best = {s, id: e.id};
   }
   p.focus = best?.id ?? null;
+  p.goal = teamGoal(g, memory, members);
   // 推進：沒看到敵人時，跑在最前面的等後面的人
   if (!enemies.length && members.length >= 2) {
-    const goal = g.pvpGoal?.[side];
+    const goal = p.goal;
     if (goal) {
       const D = distField(g, goal);
       const ds = members.map(m => D[m.y]?.[m.x] ?? Infinity).filter(Number.isFinite).sort((a, b) => a - b);
@@ -103,8 +123,25 @@ export function teamPlan(g, view, bot) {
       }
     }
   }
-  plans.set(g, p);
   return p;
+}
+
+// 整隊要去哪（沒看到人的時候）：記得的敵人（最近看到的、還沒去看過的）→ 對方開場 → 自己開場（對方多半走別條路去那裡）→ 再回對方開場……
+// 不探索角落、不隨機巡邏（舊的 PvpBot 在空曠的新地圖上會走散）
+const sweeps = new WeakMap();
+export const GOAL_TUNING = {memoryTurns: 40};
+export function teamGoal(g, memory, members) {
+  const side = g.pvp.side;
+  const fresh = [...memory.values()].filter(r => !r.ally && !r.seen && !r.checked && g.turn - r.turn <= GOAL_TUNING.memoryTurns);
+  // 去過了（隊上有人站到旁邊、還是沒看到）：那一筆記憶不再當目標
+  for (const r of fresh) if (members.some(m => dist(m, r) <= 1)) r.checked = true;
+  const live = fresh.filter(r => !r.checked).sort((a, b) => b.turn - a.turn);
+  if (live.length) return {x: live[0].x, y: live[0].y, why: `memory ${live[0].id}`, enemy: live[0].id};
+  let sw = sweeps.get(g); if (!sw) { sw = {A: 0, B: 0}; sweeps.set(g, sw); }
+  const ends = [g.pvpGoal?.[side], g.pvpGoal?.[g.other(side)]].filter(Boolean); if (!ends.length) return null;
+  let t = ends[sw[side] % ends.length];
+  if (members.some(m => dist(m, t) <= 3)) { sw[side]++; t = ends[sw[side] % ends.length]; }
+  return {x: t.x, y: t.y, why: sw[side] % 2 ? 'sweep home' : 'sweep enemy start'};
 }
 
 // 破片手榴彈（半徑 2、中心 55、每格 −10、波及自己人，落點看得到就能丟、不暴露）：

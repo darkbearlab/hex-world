@@ -36,7 +36,8 @@ export class Room extends DurableObject {
   }
   async load() {
     const meta = await this.ctx.storage.get('meta') || {seed: 1, match: 0, seats: {A: null, B: null}, bots: {}};
-    this.room = createRoom({generate, installBots: installPvpBots, bots: meta.bots || {}, seed: meta.seed, match: meta.match, seats: true, log: (file, o) => { if (file === 'errors.jsonl' || file === 'reports.jsonl') console.log(file, JSON.stringify(o)); }});
+    // 練習的機器人用 beta（團隊協調；新地圖上對原本的機器人 84%、對 alpha 約五五波，不會離開戰場亂逛）
+    this.room = createRoom({generate, installBots: (g, o) => installPvpBots(g, {...o, bots: {A: Beta, B: Beta}}), bots: meta.bots || {}, seed: meta.seed, match: meta.match, seats: true, log: (file, o) => { if (file === 'errors.jsonl' || file === 'reports.jsonl') console.log(file, JSON.stringify(o)); }});
     Object.assign(this.room.seats, meta.seats || {});
     const entries = [...(await this.ctx.storage.list({prefix: 'j:'})).values()];
     this.room.replay(entries); this.saved = entries.length;
