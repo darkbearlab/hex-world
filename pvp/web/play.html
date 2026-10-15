@@ -64,10 +64,12 @@ async function wait(){
     cursor=f.n;
     // 演出：鏡頭先轉到看得到的那個敵人（只有這段，播完回到你原本的位置）
     const actor=f.unit&&(f.after.enemies||[]).find(e=>e.id===`px-${f.unit}`)||f.unit&&(f.before.enemies||[]).find(e=>e.id===`px-${f.unit}`);
+    const attack=(f.effects||[]).some(e=>['shot','blast','impact','enemyShot','pulse'].includes(e.type));
     if(actor)E.camera?.center(actor);
+    if(attack){feedLine(f);await sleep(450);}   // 先讓你看清楚是誰要出手
     E.applyState(f.after);   // 播完停在這一格之後的樣子
     E.present([{before:E.hydrate(f.before),after:E.hydrate(f.after),effects:f.effects}]);
-    await sleep(60);while(E.busy())await sleep(60);await sleep(250);
+    await sleep(60);while(E.busy())await sleep(60);await sleep(attack?900:250);   // 打完停一下，看得到結果
    }
    if(rp.frames.length&&back)E.camera?.center(back);
    if(rp.phase==='pick'||rp.phase==='none'){location.replace('./');return;}
@@ -88,8 +90,11 @@ function over(v){
  $('bSave').onclick=async()=>{$('bSave').disabled=true;const r=await fetch('/api/save?side='+side,{method:'POST',headers:{'x-seat':token}});const o=await r.json();
   if(o.ok){const u=new URL(`watch.html?replay=${o.id}`,location.href).href;$('saveMsg').innerHTML=`存好了：<a href="${u}" style="color:#8fc7ff">${u}</a>（大廳的「儲存的戰鬥」也看得到）`;}else{$('saveMsg').textContent=o.msg||'存不了';$('bSave').disabled=false;}};
 }
+// 對方的動作：上方一行說明（誰、做了什麼）
+const NAMES={soldier:'士兵',recon:'偵察兵',bulwark:'重裝兵',berserker:'狂戰士',ninja:'忍者',engineer:'工兵'};
+function feedLine(f){const e=(f.after.enemies||[]).find(x=>x.id===`px-${f.unit}`),fx=f.effects.map(x=>x.type),what=fx.includes('blast')?'爆炸':fx.includes('shot')?'開火':'攻擊';note(`${f.unit||'對方'}${e?.pvpCls?' '+(NAMES[e.pvpCls]||''):''}：${what}`,2200);}
 // 對方階段的傷害提示（ASH 的紀錄面板之外，短暫顯示在上方）
-function note(t){const d=document.createElement('div');d.textContent=t;d.style.cssText='position:fixed;top:calc(var(--bar-h,40px) + 8px);left:50%;transform:translateX(-50%);z-index:1001;background:#3a1c1ccc;color:#ffd0c8;padding:6px 12px;border-radius:6px;max-width:90vw;font-size:13px';document.body.append(d);setTimeout(()=>d.remove(),8000);}
+function note(t,ms=8000){const d=document.createElement('div');d.textContent=t;d.style.cssText='position:fixed;top:calc(var(--bar-h,40px) + 8px);left:50%;transform:translateX(-50%);z-index:1001;background:#3a1c1ccc;color:#ffd0c8;padding:6px 12px;border-radius:6px;max-width:90vw;font-size:13px';document.body.append(d);setTimeout(()=>d.remove(),ms);}
 $('bCenter').onclick=()=>E.camera?.center(E.game?.player);
 $('bEnd').onclick=async()=>{$('bEnd').disabled=true;const d=await E.op('end');hud(d);wait();};
 $('bSurr').onclick=async()=>{if(!confirm('確定投降？'))return;const d=await E.op('surrender');hud(d);wait();};

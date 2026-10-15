@@ -30,6 +30,7 @@ import {barrierBetween, vaultable} from '../../../src/barriers.js';
 import {ventStage, ventSpraying} from '../../../src/vents.js';
 import {ventCells, VENT_TUNING} from '../../../src/vent-map.js';
 import {coverEffects} from '../../../src/cover.js';
+import {lootIntent, isLootGun, LT} from './alpha-loot.mjs';
 
 const T = {
   threat: process.env.ALPHA_THREAT !== '0',
@@ -54,6 +55,7 @@ const T = {
   engage: process.env.ALPHA_ENGAGE === '1', engageCost: +(process.env.ALPHA_ECOST ?? 40),
   leash: +(process.env.ALPHA_LEASH ?? 5), zone: +(process.env.ALPHA_ZONE ?? 8),
   vault: +(process.env.ALPHA_VAULT ?? 10), vent: process.env.ALPHA_VENT !== '0',
+  powerUse: +(process.env.ALPHA_PUSE ?? 30),
   lamp: process.env.ALPHA_LAMP !== '0', remote: process.env.ALPHA_REMOTE !== '0', qfrag: +(process.env.ALPHA_QFRAG ?? 10), lampMin: +(process.env.ALPHA_LAMPMIN ?? 14), nvReal: process.env.ALPHA_NVREAL === '1',
 };
 
@@ -86,6 +88,7 @@ export default class Alpha extends PvpBot {
       // 近戰職業手上拿近戰武器時，一回合能走一格再砍：當成「快」
       if (w.melee && T.fast) e.fast = true;
       if (T.def && !w.melee) e.charge = true;   // PVP：我動完，對方整個階段都會打，全部算「這一回合」
+      if (m.pvpPower) e.damage *= 3;   // 拿著三倍傷害：下一發必中、三倍
       if (T.nvReal) { e.nv = activeTrait(m, 'night_vision'); e.ir = activeTrait(m, 'infrared'); } else if (T.nv) { e.nv = true; e.ir = true; }
     }
   }
@@ -270,6 +273,13 @@ export default class Alpha extends PvpBot {
     if (!T.light) view.me.black = false;   // 手電筒只會暴露自己：不開
     if (T.threat) this.patchThreat(view);
     const hostile = view.enemies.filter(e => !e.civilian);
+    // 搶奪點（alpha-loot.mjs）：自己看不到人時去搶箱子、三倍傷害；撿到的槍換上
+    {
+      const foes = [...hostile, ...(T.intel ? this.knownFoes(view) : [])];
+      const threatened = q => foes.some(f => !f.melee && distance(f, q) <= (f.range || 8) && this.g.sight({x: f.x, y: f.y}, q));
+      const li = lootIntent(this, view, {threatened, fighting: hostile.length > 0});
+      if (li && (li.type === 'weapon' || !hostile.length) && !this.isRefused(li)) return li;
+    }
     if (T.smoke && hostile.length) { const sm = this.smokeOption(view); if (sm && !this.isRefused(sm)) return sm; }
     // 破片：看得到的，加上隊友這個階段看到的（位置是準的：對方在我方的階段不會動）
     const fresh = T.intel && T.qfrag ? [...this.intel().values()].filter(v => v.turn === this.g.turn && !hostile.some(e => e.id === v.id)).map(v => ({...v, hp: this.g.enemies.find(e => e.id === v.id)?.hp ?? v.hp})) : [];
@@ -291,6 +301,7 @@ export default class Alpha extends PvpBot {
     }
     return super.decide(view);
   }
+  mainWeapon(view) { const g = this.g, p = g.player, s = (p.owned || []).find(x => isLootGun(g.weaponAt(x)?.id)); return s !== undefined ? s : super.mainWeapon(view); }
   // 沒有敵情時：照 PvpBot（剛看過的 → 對方開場），但探索、巡邏限制在地圖中央或隊伍附近；也不要一個人跑太前面
   chooseGoal(view) {
     const g = this.g, me = view.me, side = this.side(), N = g.grid.length, c = (N - 1) / 2;
@@ -329,6 +340,8 @@ Alpha.prototype.stance = function (view, opts) {
   // 拿掉原本不看隊友的手榴彈，換成自己的
   for (let i = opts.length - 1; i >= 0; i--) if (opts[i].type === 'grenade' && T.frag) opts.splice(i, 1);
   if (this.pendingFrag) opts.push(this.pendingFrag);
+  // 拿著三倍傷害：攻擊必中、三倍，攻擊選項加分（挑血多、能打死的）
+  if (this.g.player.pvpPower && T.powerUse) for (const o of opts) if (o.attack && o.enemy) o.score += T.powerUse;
   if (T.focus) for (const o of opts) {
     if (!o.attack || !o.enemy) continue;
     const e = view.enemies.find(x => x.id === o.enemy); if (!e) continue;

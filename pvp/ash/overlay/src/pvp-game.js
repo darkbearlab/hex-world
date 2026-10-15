@@ -30,7 +30,7 @@ import {initialSkillState} from './skills.js';
 import {anchors} from './combat.js';
 import {objectSightGrid} from './scenery.js';
 import {makeBarrier} from './barriers.js';
-import {applySuppression} from './suppression.js';
+import {applySuppression, tickSuppression} from './suppression.js';
 import {lineOfSight} from './world.js';
 import {isBlack} from './lighting.js';
 import {allyAct, currentAllies} from './allies.js';
@@ -45,7 +45,7 @@ export const proxyType = armor => { const k = `pvp-proxy-${armor | 0}`; if (!ENE
 // 替身帶著本人的防禦（代理回報 2026-10-15：原本每個階段重建的替身沒有本人的護甲、閃避、待機、下錨、失能）
 const DEFENSE = m => ({traits: structuredClone(m.traits || []), combatModifiers: Object.fromEntries(['rangedEvasion', 'meleeEvasion', 'rangedAccuracy', 'meleeAccuracy'].map(k => [k, actorStat(m, k)])),
   perks: {...(m.perks || {})}, moved: !!m.moved, evasive: !!m.evasive, pvpGuard: !!m.guard, vaultExposed: !!m.vaultExposed, skillState: structuredClone(m.skillState || {}),
-  control: {...(m.control || {disabled: 0, immune: 0})}, poison: m.poison || 0, plates: m.plates || 0, facing: m.facing});
+  control: {...(m.control || {disabled: 0, immune: 0})}, poison: m.poison || 0, plates: m.plates || 0, facing: m.facing, suppression: m.suppression || 0});
 export const PVP_CLASSES = ['soldier', 'recon', 'bulwark', 'berserker', 'ninja', 'engineer'];   // 德魯伊、死靈法師還在調整
 let building = null;   // generateFloor 在建構子裡就被叫到，那時 this 還沒有自己的欄位
 
@@ -121,7 +121,7 @@ export class PvpGame extends SquadGame {
       if (e.pvpOf == null) continue;
       const m = this.members.length ? this.unit(e.pvpOf) : null; if (!m || m.hp <= 0) continue;
       // 狀態同步回本人（失能、標記、燃燒、中毒…都是打在替身上的）
-      m.traits = structuredClone(e.traits || []); m.control = {...(e.control || m.control)}; m.poison = e.poison || 0;
+      m.traits = structuredClone(e.traits || []); m.control = {...(e.control || m.control)}; m.poison = e.poison || 0; m.suppression = e.suppression || 0;   // 壓制也是打在替身上的
       const total = m.hp + (m.plates || 0), now = Math.max(0, e.hp); if (now >= total) continue;
       let lost = total - now; const by = this.pvpActor || null;
       (this.pvp.events ||= []).push({round: this.pvp.round, target: m.squadId, dmg: lost, by: by?.id || null, byVisible: !!by?.exposed, how: this.pvpHow || null, killed: now <= 0, left: now});
@@ -184,6 +184,9 @@ export class PvpGame extends SquadGame {
   }
   focusUnit(m) { this.pvpActor = null; this.swap(m); this.controlled = m; this.soloTurn = true; this.soloDone = false; this.refusal = null; this.reveal(); }   // reveal：ASH 的視野快取跟著「目前的玩家」，換人要重算
   unitDone(m) {
+    // 壓制：ASH 在每個單位自己行動完減半（game-actions.js 的行動佇列 tickSuppression）；PVP 的一人一動作不經過佇列，這裡補上
+    // （2026-10-16 Alan 回報：忍者、偵察兵一直被壓制——跨過戰壕的 +3 永遠不會消退）
+    tickSuppression(m);
     this.soloTurn = false; tickSkills(m); expireExposure([m], this.turn); m.lightLingers = false;
     this.pvp.left = (this.pvp.left || []).filter(id => id !== m.squadId);
     this.syncProxies(); this.judge();

@@ -99,4 +99,12 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   ok(r.ok && crate.opened && g.items.some(o => o.type === 'weapon'), `打開武器箱：掉出武器（${r.msg}）`);
   g.props = g.props.filter(o => o !== crate);
 }
+// 壓制（2026-10-16 Alan 回報）：自己行動完要減半（5→3→2→1→0）；打在替身上的壓制要同步回本人
+{
+  for (const m of [...g.sides.A, ...g.sides.B]) { m.hp = m.maxHp; m.suppression = 0; }
+  g.enter('A'); A1.suppression = 3; g.focusUnit(A1); g.pvp.left = ['A1']; g.actAs('A1', 'wait');
+  ok(A1.suppression === 2, `A1 壓制 3，自己行動完減半：${A1.suppression}`);
+  g.enter('A'); g.swap(A1); const e = px(); e.suppression = 4; g.syncProxies(); ok(B1.suppression === 4, '打在替身上的壓制同步回 B1');
+  B1.suppression = 0; A1.suppression = 0;
+}
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');
