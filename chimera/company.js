@@ -1082,14 +1082,9 @@ export function view(G, book, w) {
     objectives: t.objectives, squad: book.squads[t.squad]?.name, est: book.squads[t.squad] ? C.estimate(book.squads[t.squad], t.enemy) : null, caseTitle: book.cases.find(c => c.id === t.caseId)?.title}));
   const done = book.tickets.filter(t => t.player === G.name && t.done).slice(-12).reverse().map(t => ({id: t.id, title: t.title, win: t.win, auto: t.auto, pts: t.pts, dead: (t.dead || []).length, at: t.doneAt}));
   // 報表
-  const hist = G.cases.map(id => book.cases.find(x => x.id === id)).filter(c => c && c.settled).map(c => {
-    const T = book.tickets.filter(t => t.caseId === c.id && t.player === G.name && t.done);
-    const L = book.ledger.filter(x => x.caseId === c.id && x.player === G.name);
-    return {title: c.title, own: !!c.own, kind: c.kind, at: c.settledAt, tickets: T.length, wins: T.filter(t => t.win).length, auto: T.filter(t => t.auto).length, dead: T.reduce((x, t) => x + (t.dead?.length || 0), 0),
-      income: L.filter(x => ['deposit', 'mid', 'final'].includes(x.kind)).reduce((a, x) => a + x.amount, 0), upkeep: L.filter(x => x.kind === 'upkeep').reduce((a, x) => a + x.amount, 0), delivered: c.delivered};
-  }).reverse();
-  const sum = since => { const o = {}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
-  const report = {all: sum(0), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
+  const hist = [...(G.caseArch || []), ...G.cases.map(id => book.cases.find(x => x.id === id)).filter(c => c && c.settled).map(c => caseSummary(G, book, c))].reverse();   // 封存的（修剪掉的舊案件）在前
+  const sum = (since, base = {}) => { const o = {...base}; for (const f of G.flows) if (f.h >= since) o[f.kind] = (o[f.kind] || 0) + f.amount; return o; };
+  const report = {all: sum(0, G.flowsArch), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
   const K = w.sim.peek(), rel = K.fac.map((f, i) => ({f: i, n: f.n, c: f.c, alive: f.alive !== false, v: Math.round(relOf(G, i)), trait: w.sim.pmc.trait ? w.sim.pmc.trait(i) : ''})).filter(x => x.alive);
   const payable = Object.values(book.squads).filter(sq => sq.player === G.name && sq.caseId).reduce((s, sq) => s + (sq.due || 0), 0);
   return {payable, rel, relLog: (G.relLog || []).slice(-40).reverse().map(e => ({...e, n: K.fac[e.f]?.n || ''})), relRefuse: REL.REFUSE, relBlack: REL.BLACK, deaths7: deaths7(book, G.h), retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
@@ -1129,6 +1124,70 @@ function unitsView(G, book, h) {
 // 清掉用完的小隊（Alan 2026-10-12：沒有資料相依就刪）：帳本裡的小隊是出勤時的編組，人回到總部、案件結案之後就只剩名單，
 // 一直留著會佔掉存檔一半。還有人引用的都留著：沒結案（或結案不到三天、畫面還在顯示）的案件、沒打完的服務單、還在路上的補員、
 // 行軍中的事件、駐軍、Rover；隊上還有出勤中的人、而且不在別的小隊裡的也留著。每天一次（core.js）
+// 舊紀錄修剪（Alan 2026-10-15：玩家一多存檔會一直長，每次存檔都要整包重寫）：每天一次（core.js 跟清小隊一起），在核心裡做，重播照樣一致。
+// 完整的紀錄留 PRUNE.H 小時；更舊的：結案的案件變成公司身上的摘要（G.caseArch，報表的案件歷史照樣看得到）、帳本照公司和種類累計（book.ledgerArch，查帳的總數不變）、
+// 公司收支照種類累計（G.flowsArch，報表「全部」不變）；服務單每家留最近 PRUNE.DONE 場、通知每家留 PRUNE.INBOX 則、每個人的服役紀錄留 PRUNE.RECORD 筆
+export const PRUNE = {H: 24 * 30, FLOW_H: 24 * 31, DONE: 12, INBOX: 50, RECORD: 120, ARCH: 300};
+export function caseSummary(G, book, c) {   // 報表案件歷史的一行（view 和封存共用）
+  const T = book.tickets.filter(t => t.caseId === c.id && t.player === G.name && t.done);
+  const L = book.ledger.filter(x => x.caseId === c.id && x.player === G.name);
+  return {title: c.title, own: !!c.own, kind: c.kind, at: c.settledAt, tickets: T.length, wins: T.filter(t => t.win).length, auto: T.filter(t => t.auto).length, dead: T.reduce((x, t) => x + (t.dead?.length || 0), 0),
+    income: L.filter(x => ['deposit', 'mid', 'final'].includes(x.kind)).reduce((a, x) => a + x.amount, 0), upkeep: L.filter(x => x.kind === 'upkeep').reduce((a, x) => a + x.amount, 0), delivered: c.delivered};
+}
+export function pruneHistory(cos, book, h) {
+  const cut = h - PRUNE.H, out = {cases: 0, tickets: 0, ledger: 0, inbox: 0, flows: 0, records: 0, squads: 0};
+  const all = Object.values(cos);
+  // 小隊能不能丟：沒有還在外面、而且不在別隊名單上的活人；駐軍、Rover 的護衛不丟
+  const inSquads = new Map(); for (const sq of Object.values(book.squads)) for (const x of sq.clones) inSquads.set(x, (inSquads.get(x) || 0) + 1);
+  const disposable = sq => !sq || (sq.garrison == null && !sq.guard && !sq.clones.some(x => x.alive && (x.status === 'away' || x.status === 'returning') && inSquads.get(x) === 1));
+  // 1. 結案很久的案件 → 公司身上的摘要
+  const old = book.cases.filter(c => c.settled && (c.settledAt ?? h) < cut && !book.tickets.some(t => t.caseId === c.id && !t.done) && c.squads.every(id => disposable(book.squads[id])));
+  if (old.length) {
+    const ids = new Set(old.map(c => c.id));
+    for (const G of all) {
+      const mine = old.filter(c => (G.cases || []).includes(c.id)); if (!mine.length) continue;
+      G.caseArch = [...(G.caseArch || []), ...mine.sort((a, b) => (a.settledAt ?? 0) - (b.settledAt ?? 0)).map(c => caseSummary(G, book, c))].slice(-PRUNE.ARCH);
+      G.cases = G.cases.filter(id => !ids.has(id));
+    }
+    for (const c of old) for (const id of c.squads) if (book.squads[id]) { delete book.squads[id]; out.squads++; }
+    book.cases = book.cases.filter(c => !ids.has(c.id)); out.cases = old.length;
+  }
+  const live = new Set(book.cases.map(c => c.id));
+  // 2. 已完成的服務單：不屬於現存的案件、超過保留期的拿掉；每家公司留最近 PRUNE.DONE 場（「最近戰鬥」）
+  const keepDone = new Set(); const byP = {};
+  for (const t of book.tickets) if (t.done && t.player) (byP[t.player] ||= []).push(t);
+  for (const L of Object.values(byP)) for (const t of L.slice(-PRUNE.DONE)) keepDone.add(t);
+  const n0 = book.tickets.length;
+  book.tickets = book.tickets.filter(t => !t.done || keepDone.has(t) || (t.caseId && live.has(t.caseId)) || (t.doneAt ?? h) >= cut);
+  out.tickets = n0 - book.tickets.length;
+  // 3. 帳本：每家公司都已經入帳（ledgerAt 之前）、超過保留期、不屬於現存案件的 → 照公司和種類累計
+  const m = Math.min(...all.map(G => G.ledgerAt ?? 0), book.ledger.length); let drop = 0;
+  const A = book.ledgerArch ||= {}, kept = [];
+  for (let i = 0; i < book.ledger.length; i++) {
+    const x = book.ledger[i];
+    if (i < m && x.t < cut && !(x.caseId && live.has(x.caseId))) { const a = A[x.player] ||= {}; a[x.kind] = (a[x.kind] || 0) + x.amount; drop++; continue; }
+    kept.push(x);
+  }
+  if (drop) { book.ledger = kept; for (const G of all) G.ledgerAt = Math.max(0, (G.ledgerAt ?? 0) - drop); out.ledger = drop; }   // 拿掉的都在每家的游標之前
+  // 4. 通知：每家公司留最近 PRUNE.INBOX 則（畫面只顯示 30 則）
+  const cnt = {}; for (const x of book.inbox) cnt[x.player] = (cnt[x.player] || 0) + 1;
+  if (Object.values(cnt).some(n => n > PRUNE.INBOX)) { const seen = {}; const n1 = book.inbox.length;
+    book.inbox = book.inbox.filter(x => (seen[x.player] = (seen[x.player] || 0) + 1) > cnt[x.player] - PRUNE.INBOX); out.inbox = n1 - book.inbox.length; }
+  // 5. 公司收支、服役紀錄
+  for (const G of all) {
+    const fcut = h - PRUNE.FLOW_H, i = (G.flows || []).findIndex(f => f.h >= fcut), k = i < 0 ? (G.flows || []).length : i;
+    if (k > 0) { const F = G.flowsArch ||= {}; for (const f of G.flows.slice(0, k)) F[f.kind] = (F[f.kind] || 0) + f.amount; G.flows = G.flows.slice(k); out.flows += k; }
+    for (const c of G.roster) if (c.record?.length > PRUNE.RECORD) { out.records += c.record.length - PRUNE.RECORD; c.record = c.record.slice(-PRUNE.RECORD); }
+    // 6. 除名很久的人（戰死、遺體賣掉）：NPC 公司直接移出名冊；玩家公司留一份精簡的（名字、職業、等級、評級、最後幾筆紀錄），拿掉記憶片段、裝備等大資料。還在小隊名單上的不動
+    const gone = c => !c.alive && (c.status === 'kia' || c.status === 'sold') && !inSquads.has(c) && (c.diedH ?? c.record?.at(-1)?.h ?? h) < cut;
+    if (G.npc) { const n = G.roster.length; G.roster = G.roster.filter(c => !gone(c)); out.dead = (out.dead || 0) + n - G.roster.length; }
+    else for (let i = 0; i < G.roster.length; i++) { const c = G.roster[i]; if (!gone(c) || c.slim) continue;
+      G.roster[i] = {uid: c.uid, id: c.id, cls: c.cls, portrait: c.portrait, donor: c.donor, outfit: c.outfit, callsign: c.callsign, lv: c.lv, crown: c.crown, pct: c.pct, st: c.st, template: c.template, keeper: c.keeper, ration: c.ration,
+        alive: false, status: c.status, diedH: c.diedH ?? c.record?.at(-1)?.h, kills: c.kills, missions: c.missions, cells: c.cells, tal: c.tal, skills: c.skills, weapon: c.weapon, u: c.u, record: (c.record || []).slice(-8), tags: c.tags, slim: true};
+      out.slim = (out.slim || 0) + 1; }
+  }
+  return out;
+}
 export function pruneSquads(cos, book, h) {
   const keep = new Set();
   for (const c of book.cases) if (!c.settled || h - (c.settledAt ?? h) < 72 || c.squads.some(id => { const p = book.squads[id]?.player; return p && cos[p] && !(c.backHome === true || c.backHome?.[p]); })) for (const id of c.squads) keep.add(id);

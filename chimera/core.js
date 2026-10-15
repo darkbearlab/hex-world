@@ -126,7 +126,7 @@ export class Core {
       score: Object.fromEntries(Object.entries(c.score).map(([k, v]) => [k, r1(v)])), tickets: b.tickets.filter(t => t.caseId === c.id).length, open_tickets: b.tickets.filter(t => t.caseId === c.id && !t.done).length, payout: c.payout || null}));
     out.companies = Object.values(game.cos).map(G => {
       const R = G.roster, st = {}; for (const c of R) { const k = c.alive ? c.status : 'kia'; st[k] = (st[k] || 0) + 1; }
-      const led = b.ledger.filter(x => x.player === G.name), by = {}; for (const x of led) by[x.kind] = (by[x.kind] || 0) + x.amount;
+      const led = b.ledger.filter(x => x.player === G.name), by = {...(b.ledgerArch?.[G.name] || {})}; for (const x of led) by[x.kind] = (by[x.kind] || 0) + x.amount;
       return {name: G.name, npc: !!G.npc, account: accounts[G.name] || '', base: nm(G.base), cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), roster: R.length, status: st, maxLv: Math.max(0, ...R.filter(c => c.alive).map(c => c.lv || 1)),
         cases: G.cases.length, building: G.queue.filter(q => !q.ready).length, store: (G.store || []).length, ledger: by, log: G.log.slice(-12).map(x => ({h: x.h, text: x.text}))};
     }).sort((a, b) => b.cash - a.cash);
@@ -155,7 +155,7 @@ export class Core {
       G.retainerHour(game.cos, game.book, this.w, t, Math.max(1, Math.round(24 * game.yearDays / 4)));
       for (const e of this.sim.campaignHour(t)) this.campaignNews(e, t);
       if (this.npcOn) npcHour(this, t);   // NPC 傭兵公司（npc.js；伺服器才開）
-      if (t % 24 === 0) G.pruneSquads(game.cos, game.book, t);   // 用完的小隊每天清一次
+      if (t % 24 === 0) { G.pruneSquads(game.cos, game.book, t); G.pruneHistory(game.cos, game.book, t); }   // 用完的小隊、太舊的紀錄每天清一次（舊紀錄修剪，2026-10-15）
       if (t % 6 === 0 || !game.book.sites) this.worldBits(t);   // 遠征點、突發事件、搶購、留言（移動基地，2026-10-12）
       if (t % 24 === 0) { const r = this.sim.stepDay(Math.max(1, Math.round(game.yearDays / 4))); if (r) yearDone = true; }
     }
@@ -616,7 +616,7 @@ export class Core {
     // 舊存檔（2026-10-12）：易主遺體帶來的裝備跟倉庫撞號的，重新發號
     for (const co of Object.values(g.cos)) G.reidItems(co, g.book);
     // 舊存檔（Alan 2026-10-11）：補上錫冠、鉛冠
-    for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.crown && c.pct != null) c.crown = G.crownOf(c.pct);
+    for (const co of Object.values(g.cos)) for (const c of co.roster) if (c.crown === undefined && c.pct != null) c.crown = G.crownOf(c.pct);   // 只補舊存檔沒有這個欄位的；空字串是刻意不給（守密者、配給型，2026-10-15 soak 抓到讀回變錫冠）
     // 舊存檔：格子收集取代經驗（Alan 2026-10-10）。原本的等級換成等量的格子（每級 10 格，照 uid 擲），不降級
     for (const co of Object.values(g.cos)) for (const c of co.roster) if (!c.cells) { c.cells = [0, 0, 0, 0]; c.dup = 0; c.cellPts = 0; let s = (c.uid * 2654435761) >>> 0; const r = () => ((s = (s * 1103515245 + 12345) >>> 0) / 4294967296);
       const want = ((c.lv || 1) - 1) * 10; for (let k = 0; k < 2000 && C.cellCount(c) < want; k++) C.drawCells(c, 1, r); c.lv = C.cellLevel(c); }

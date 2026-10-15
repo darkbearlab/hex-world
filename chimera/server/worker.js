@@ -3,7 +3,9 @@
 // - Planet 持有一顆大家共用的星球：遊戲核心（../core.js：沙盒、帳本、所有公司），和單人測試模式是同一份程式。
 // - 時間：遊戲小時＝(現在 − 開服時間) ÷ HOUR_MS（預設一小時，現實時間一比一）。每次有請求、每次鬧鐘醒來就補算到現在；
 //   鬧鐘每個遊戲小時響一次，沒人在線時間也照走。
-// - 存檔：核心的完整存檔（沙盒 exportState＋帳本＋公司），gzip 後分塊存在 Durable Object 的儲存空間；每個指令與每個小時都存。
+// - 存檔：核心的完整存檔（沙盒 exportState＋帳本＋公司），gzip 後分塊存在 Durable Object 的儲存空間。
+//   節流（Alan 2026-10-15，玩家一多每個指令都整包重寫會排隊）：一般指令只標「改過」，SAVE_EVERY 毫秒內最多存一次；
+//   整點、戰鬥結算、開公司、後台操作、匯入世界馬上存。伺服器剛好當掉或部署時，最多丟掉最後 SAVE_EVERY 毫秒的一般指令
 // - 身分：訪客＝瀏覽器自己產生一組代碼（x-chimera-token），雜湊後就是玩家 ID；Google 登入＝伺服器發工作階段代碼（x-chimera-session），
 //   對到 Google 帳號，換裝置也是同一家公司（照 warband）。一個玩家一家公司。
 // - 戰鬥（S1 還在瀏覽器裡跑）：fight 回傳任務資料，submit 收戰果。S2 搬到伺服器。
@@ -17,6 +19,7 @@ import {enemyRoster, ASH_FACTION, LEGACY_KINDS, LEGACY_BOSS} from '../cases.js';
 const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) => ArrayBuffer.isView(v) ? Array.from(v) : v), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
 const CHUNK = 100000;
+const SAVE_EVERY = 5000;   // 一般指令的存檔節流（毫秒）
 // 伺服器上玩家能下的指令：加速、改年長度只有單人測試模式有；放棄親自打（abort）在伺服器上不用通知
 // 戰果（submit）只能由伺服器上的戰鬥交（S2），瀏覽器不能自己報
 const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort'].includes(c));
@@ -69,7 +72,10 @@ export class Planet extends DurableObject {
       if (!(await st.getAlarm()) && this.env.PAUSED !== '1') await this.arm();
     } catch (e) { this.ready = null; throw e; } })();
   }
+  // 一般指令：標「改過」，SAVE_EVERY 之後存一次（中間的指令合併成這一次）
+  markDirty() { this.dirty = true; if (!this.saveT) this.saveT = setTimeout(() => { this.saveT = null; if (this.dirty) this.persist().catch(e => { this.dirty = true; console.error('存檔失敗', e); }); }, SAVE_EVERY); }
   async persist() {
+    this.dirty = false; if (this.saveT) { clearTimeout(this.saveT); this.saveT = null; }   // 馬上存的時候，排著的那一次就不用了
     const st = this.ctx.storage, d = this.core.save(); d.log = d.log.slice(-500);
     const z = await gzip(JSON.stringify(d)), n = Math.ceil(z.length / CHUNK);
     for (let i = 0; i < n; i++) await st.put('save:' + i, z.slice(i * CHUNK, (i + 1) * CHUNK));
@@ -90,7 +96,7 @@ export class Planet extends DurableObject {
   async alarm() {
     await this.init();
     if (this.pending) return;
-    if (this.catchUp()) await this.persist();
+    if (this.catchUp() || this.dirty) await this.persist();
     this.out = [];
     await this.arm();
   }
@@ -151,7 +157,7 @@ export class Planet extends DurableObject {
     if (pid === false) return bad('登入已失效，請重新登入', 401);
     // 伺服器上的戰鬥用：Google 工作階段是誰（只有入口的 Worker 會叫）
     if (path === 'internal/who') return json({pid});
-    if (this.catchUp()) await this.persist();
+    if (this.catchUp()) this.markDirty();
     this.out = [];
     const name = pid ? this.roster[pid] : null;
     if (path === 'hello') return json({pid: !!pid, company: name, seed: this.meta.seed, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), colo: await colo(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
@@ -221,7 +227,7 @@ export class Planet extends DurableObject {
         const d = await r.json(); if (!r.ok) return bad(d.error || '開戰失敗', 500);
         m.data = battleTicket(m.data, d);
       }
-      if (ALLOWED.includes(body.type)) await this.persist();
+      if (ALLOWED.includes(body.type)) this.markDirty();   // 節流：SAVE_EVERY 內的指令合併成一次存檔
       if (ALLOWED.includes(body.type) && this.env.PAUSED !== '1') await this.arm();   // 鬧鐘改排到最早要結算的時刻（培養完成、抵達、回到總部）
       return json({view: this.core.view(name, err), msgs});
     }

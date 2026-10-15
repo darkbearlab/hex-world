@@ -941,7 +941,7 @@ function settleCase(book, w, c, now) {
 
 // ===== 查帳 =====
 export function summary(book, player) {
-  const L = book.ledger.filter(x => x.player === player), by = {};
+  const L = book.ledger.filter(x => x.player === player), by = {...(book.ledgerArch?.[player] || {})};   // 修剪掉的舊帳照種類累計在 ledgerArch
   for (const x of L) by[x.kind] = (by[x.kind] || 0) + x.amount;
-  return {by, net: L.reduce((x, y) => x + y.amount, 0)};
+  return {by, net: Object.values(by).reduce((x, y) => x + y, 0)};
 }
