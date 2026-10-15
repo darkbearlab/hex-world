@@ -40,7 +40,11 @@ export const PVP = {KILLS: 2, ROUNDS: 300, PROXY: 'raider'};
 // PVP 的數值調整（ASH 的數值是一隊精英打一群雜兵；對等互打要調）。統計見 pvp/DESIGN.md
 export const PVP_TUNING = {bulwark: {plates: 60, plateCapacity: 60},
   // 規則數值（平衡提案用，2026-10-16）：ropePerPhase＝每人每個階段最多用幾次繩索（null＝不限）；powerMult＝三倍傷害的倍率；powerExpire＝撿到後幾個自己的階段沒用就失效（0＝不失效）
-  rules: {ropePerPhase: null, powerMult: 3, powerExpire: 0, powerRound: 0, anchorDouble: true, crates: true}};   // powerRound＝三倍傷害第幾回合才出現（0＝開場就在）；anchorDouble＝下錨打兩輪
+  rules: {ropePerPhase: null, powerMult: 3, powerExpire: 0, powerRound: 0, anchorDouble: true, crates: true,
+  // 團隊死鬥（Alan 2026-10-16 要測）：{target: 100, points: {職業: 分數}}；擊倒一個人得那個職業的分數，先到 target 的贏；倒下的人在自己那一隊下個階段開始時回開場復活。null＝原本的「拿下兩人」
+  tdm: null}};
+// 團隊死鬥的預設分數＝之前統計的各職業存活率（%；2026-10-16，alpha 對打 11 組 60 場的平均）
+export const TDM_POINTS = {soldier: 65, recon: 68, bulwark: 74, berserker: 75, ninja: 60, engineer: 79};   // powerRound＝三倍傷害第幾回合才出現（0＝開場就在）；anchorDouble＝下錨打兩輪
 const RULE = k => PVP_TUNING.rules?.[k];
 // 替身的敵人種類：ASH 打敵人時的護甲看種類（enemy-affixes.js 的 enemyArmor＝ENEMY_TYPES[type].armor），每種護甲值一個替身種類
 // （外觀和原本的替身一樣；送給瀏覽器的快照換回 PVP.PROXY，pvp-room.js）
@@ -87,6 +91,7 @@ export class PvpGame extends SquadGame {
     const used = new Set(), place = (m, at) => { for (let r = 0; r <= 4; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const x = at[0] + dx, y = at[1] + dy, k = `${x},${y}`;
       if (Math.max(Math.abs(dx), Math.abs(dy)) === r && !used.has(k) && this.grid[y]?.[x] === 1 && !this.props.some(o => o.x === x && o.y === y)) { used.add(k); Object.assign(m, {x, y}); return; } } };
     for (const m of sides.A) place(m, match.map.A); for (const m of sides.B) place(m, match.map.B);
+    for (const m of [...sides.A, ...sides.B]) { m.pvpHome = {x: m.x, y: m.y}; m.pvpStartPlates = m.plates || 0; }   // 團隊死鬥復活用
     for (const m of [...sides.A, ...sides.B]) { m.pvpSide = m.squadId[0]; m.callName = m.squadId; }
     Object.defineProperty(this, 'sides', {configurable: true, writable: true, enumerable: false, value: sides});
     const blank = () => this.seen.map(r => r.map(() => false));
@@ -130,10 +135,25 @@ export class PvpGame extends SquadGame {
       (this.pvp.events ||= []).push({round: this.pvp.round, target: m.squadId, dmg: lost, by: by?.id || null, byVisible: !!by?.exposed, how: this.pvpHow || null, killed: now <= 0, left: now});
       // 護甲板：重裝兵（plate_life）全部吃，其他人吃一半（同 ASH 的 damagePlayer）
       const p = Math.min(m.plates || 0, m.traits?.some(t => t.id === 'plate_life') ? lost : Math.floor(lost / 2)); m.plates = (m.plates || 0) - p; lost -= p; m.hp -= lost; e.hp = Math.max(0, m.hp) + (m.plates || 0);
-      if (m.hp <= 0 || e.hp <= 0) { m.hp = 0; e.hp = 0; this.pvp.kills[this.other(m.pvpSide)]++; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId}（${m.character}）倒下${by?.id ? `，${by.id} 擊倒` : ''}`); }
+      if (m.hp <= 0 || e.hp <= 0) {
+        m.hp = 0; e.hp = 0; this.pvp.kills[this.other(m.pvpSide)]++;
+        this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId}（${m.character}）倒下${by?.id ? `，${by.id} 擊倒` : ''}`);
+        // 團隊死鬥：擊倒得分（那個職業的分數）
+        if (RULE('tdm')) { const pts = RULE('tdm').points?.[m.character] ?? TDM_POINTS[m.character] ?? 50, k = this.other(m.pvpSide); (this.pvp.score ||= {A: 0, B: 0})[k] += pts; this.pvp.log.push(`${k} 隊 +${pts} 分（${this.pvp.score.A}：${this.pvp.score.B}）`); }
+      }
     }
   }
   unit(id) { return [...this.sides.A, ...this.sides.B].find(m => m.squadId === id); }
+  // 團隊死鬥的復活：回開場（被佔就找最近的空地板），生命、護甲板、彈匣補滿，暫時狀態、壓制、三倍傷害都清掉
+  respawn(m) {
+    const busy = (x, y) => [...this.sides.A, ...this.sides.B].some(u => u !== m && u.hp > 0 && u.x === x && u.y === y) || this.props.some(o => o.x === x && o.y === y && o.hp > 0);
+    const h = m.pvpHome || {x: m.x, y: m.y}; let at = null;
+    for (let r = 0; r <= 6 && !at; r++) for (let dy = -r; dy <= r && !at; dy++) for (let dx = -r; dx <= r; dx++) { const x = h.x + dx, y = h.y + dy; if (Math.max(Math.abs(dx), Math.abs(dy)) === r && this.grid[y]?.[x] === 1 && !busy(x, y)) { at = {x, y}; break; } }
+    Object.assign(m, at || h, {hp: m.maxHp, plates: m.pvpStartPlates || 0, suppression: 0, poison: 0, pvpExposed: false, pvpPower: false, guard: false, moved: false, evasive: false, vaultExposed: false, chimeraTrenchExposed: false});
+    m.control = {disabled: 0, immune: 0}; m.traits = (m.traits || []).filter(t => t.turns === undefined);
+    for (const s of m.owned || []) { const w = WEAPONS[m.weaponBases[s]]; if (w && !w.melee) m.ammo[s] = weaponStats(m.weaponBases[s], m.affixes[s], m).mag; }
+    this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId}（${m.character}）在開場復活`);
+  }
   // 從 side 的角度看一眼（對方的階段裡播「看得到的」給 side，pvp-room.js）：暫時換成 side 的隊員、對方的替身、side 的迷霧，
   // 交給 shoot(this) 拍快照，拍完全部換回來（連 side 的迷霧記憶也還原：重播紀錄時不會拍這些，局面要一模一樣）
   viewAs(side, shoot) {
@@ -162,6 +182,7 @@ export class PvpGame extends SquadGame {
   enter(side) {
     if (this.pvp.side) this.pvpSeen[this.pvp.side] = this.seen;
     this.pvp.side = side; this.seen = this.pvpSeen[side]; this.park(side);
+    if (RULE('tdm')) for (const m of this.sides[side]) if (m.hp <= 0) this.respawn(m);
     for (const m of this.sides[side]) { if (m.pvpPower && RULE('powerExpire') && ++m.pvpPowerPhases > RULE('powerExpire')) { m.pvpPower = false; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId} 的三倍傷害沒用就失效了`); } m.pvpExposed = !!m.pvpPower; }   // 自己的階段開始：上一階段開火的暴露結束（拿著三倍傷害的一直暴露）
     this.members = this.sides[side]; const lead = this.alive(side)[0]; if (!lead) return false;
     this.swap(lead); this.controlled = lead;
@@ -243,6 +264,8 @@ export class PvpGame extends SquadGame {
   }
   judge() {
     if (this.pvp.winner) return;
+    const tdm = RULE('tdm');
+    if (tdm) { const sc = this.pvp.score || {A: 0, B: 0}; for (const s of ['A', 'B']) if (sc[s] >= (tdm.target || 100)) { this.pvp.winner = s; this.status = 'won'; this.pvp.log.push(`${s} 隊獲勝（${sc[s]} 分）`); return; } return; }
     for (const s of ['A', 'B']) {
       const dead = this.sides[s].filter(m => m.hp <= 0).length;
       if (dead >= PVP.KILLS || !this.alive(s).length) { this.pvp.winner = this.other(s); this.status = 'won'; this.pvp.log.push(`${this.other(s)} 隊獲勝（拿下 ${dead} 人）`); return; }

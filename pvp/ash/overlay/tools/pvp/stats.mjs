@@ -10,7 +10,7 @@ const {pathToFileURL} = await import('node:url'), BOT = process.env.PVP_BOT ? (a
 const n = +(process.argv[2] || 30), s0 = +(process.argv[3] || 1);
 const lcg = s => () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296);
 const pick4 = r => { const L = PVP_CLASSES.slice(); for (let i = L.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [L[i], L[j]] = [L[j], L[i]]; } return L.slice(0, 4); };
-let pw = {n: 0, won: 0}, first = 0, games = 0, draws = 0, rounds = [], contact = [], fight = [], sameComp = 0, err = 0;
+let downs = {}, pw = {n: 0, won: 0}, first = 0, games = 0, draws = 0, rounds = [], contact = [], fight = [], sameComp = 0, err = 0;
 const cls = Object.fromEntries(PVP_CLASSES.map(c => [c, {played: 0, died: 0, won: 0}]));
 for (let s = s0; s < s0 + n; s++) {
   const r = lcg(s * 31 + 7), X = pick4(r), Y = pick4(r), res = [playMatch(s, {A: X, B: Y, bots}), playMatch(s, {A: Y, B: X, bots})];
@@ -18,6 +18,7 @@ for (let s = s0; s < s0 + n; s++) {
     games++; if (m.errors.length) err++;
     if (m.status !== 'won') { draws++; continue; }
     if (m.winner === 'A') first++;
+    for (const line of m.log || []) { const k = /（(\w+)）倒下/.exec(line); if (k) downs[k[1]] = (downs[k[1]] || 0) + 1; }   // 每個職業被擊倒幾次（團隊死鬥有復活，看這個）
     // 三倍傷害：撿到的那一方贏了沒（戰報「第 N 回合：A2 撿到三倍傷害」）
     for (const line of m.log || []) { const k = /：([AB])\d 撿到三倍傷害/.exec(line); if (k) { pw.n++; if (m.winner === k[1]) pw.won++; } }
     rounds.push(m.rounds); if (m.firstContact) { contact.push(m.firstContact); fight.push(m.rounds - m.firstContact); }
@@ -30,5 +31,6 @@ const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0)
 console.log(`${games} 場：先手（A）贏 ${first}／${games - draws}（${((first / Math.max(1, games - draws)) * 100).toFixed(0)}%）、平手 ${draws}、有錯誤的 ${err} 場`);
 console.log(`同一張地圖交換陣容：同一組陣容兩場都贏的 ${sameComp}／${n} 張（陣容決定勝負），其餘是先後手或運氣`);
 console.log(`回合數 平均 ${avg(rounds)}・中位數 ${med(rounds)}；第一次交火 平均第 ${avg(contact)} 回合；交火後到分出勝負 平均 ${avg(fight)} 回合・中位數 ${med(fight)}`);
+console.log('每場平均被擊倒次數：' + Object.entries(downs).map(([c, n]) => `${c} ${(n / games).toFixed(2)}`).join('、'));
 console.log(`三倍傷害：撿到 ${pw.n} 次，撿到的那一方贏 ${pw.won}（${pw.n ? (pw.won / pw.n * 100).toFixed(0) : '—'}%）`);
 console.log('職業（場數、陣亡率、所在隊伍勝率）：' + Object.entries(cls).map(([c, v]) => `${c} ${v.played}場 陣亡${(v.died / Math.max(1, v.played) * 100).toFixed(0)}% 勝${(v.won / Math.max(1, v.played) * 100).toFixed(0)}%`).join('、'));
