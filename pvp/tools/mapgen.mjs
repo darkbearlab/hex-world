@@ -65,13 +65,31 @@ export function generate(seed, opt = {}) {
       if (T[y][x] === FLOOR && !nearDoor(x, y) && r() < (opt.cover ?? .07)) { set(x, y, COVER); if (!ok(graphOf(T)) || !connected(T)) set(x, y, FLOOR); }
     }
     g = graphOf(T); if (!ok(g) || !connected(T)) continue;
-    const A = spawnOf(T, 2, 2), B = rot(...A);
+    // 開場（Alan 2026-10-15：角落對角走到接觸要 29 回合，太長）：九宮格的 4 和 6（左中、右中）或 2 和 8（下中、上中），轉 180 度剛好是對方
+    const mode = opt.spawn || (r() < .5 ? '46' : '28'), A = mode === '46' ? spawnNear(T, 2, C) : spawnNear(T, C, N - 3), B = A && rot(...A);
     if (!A || g.room[A[1]][A[0]] === g.room[B[1]][B[0]]) continue;
-    return {T, seed, tries, g, A, B, m: metrics(T, g, A, B)};
+    // 光（Alan 2026-10-15：黑暗與消焰）：每個房間亮（2）或全黑（0），轉 180 度對稱；開場的房間一定亮。門口、窗跟著旁邊的房間
+    const L = lightOf(T, g, r, opt.dark ?? .35, [A, B]);
+    return {T, L, seed, tries, g, A, B, spawn: mode, m: metrics(T, g, A, B)};
   }
   return null;
 }
+function lightOf(T, g, r, dark, spawns) {
+  const lv = new Map(), keyOf = id => id, spawnRooms = new Set(spawns.map(([x, y]) => g.room[y][x]));
+  const L = T.map(row => row.map(() => 2));
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const id = g.room[y][x]; if (id < 0) continue;
+    const [a, b] = rot(x, y), twin = g.room[b][a];   // 對稱：轉過去那一格的房間用同一個決定（兩個房間的編號小的那個決定）
+    const k = Math.min(id, twin < 0 ? id : twin);
+    if (!lv.has(k)) lv.set(k, spawnRooms.has(id) || spawnRooms.has(twin) ? 2 : r() < dark ? 0 : 2);
+    L[y][x] = lv.get(k);
+  }
+  for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (g.room[y][x] < 0) { const nb = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].map(([a, b]) => L[b][a]).filter((v, i) => g.room[[y, y, y - 1, y + 1][i]][[x - 1, x + 1, x, x][i]] >= 0); L[y][x] = nb.length && nb.every(v => v === 0) ? 0 : 2; }
+  return L;
+}
 const ok = g => g.rooms.length >= 4 && g.rooms.every(R => R.doors.size >= 2) && !g.bridges.length;
+// 離 (x0,y0) 最近的地板（中線那一列可能剛好是牆）
+function spawnNear(T, x0, y0) { for (let d = 0; d < 8; d++) for (let y = y0 - d; y <= y0 + d; y++) for (let x = x0 - d; x <= x0 + d; x++) if (Math.max(Math.abs(x - x0), Math.abs(y - y0)) === d && T[y]?.[x] === FLOOR) return [x, y]; return null; }
 function spawnOf(T, x0, y0) { for (let d = 0; d < 6; d++) for (let y = y0; y <= y0 + d; y++) for (let x = x0; x <= x0 + d; x++) if (T[y]?.[x] === FLOOR) return [x, y]; return null; }
 function connected(T) {
   let s = null, n = 0; for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (passable(T[y][x])) { n++; s ||= [x, y]; }
@@ -133,7 +151,7 @@ export function sheet(maps, S = 14, cols = 3) {
   maps.forEach((M, k) => {
     const ox = pad + (k % cols) * (N * S + pad), oy = pad + Math.floor(k / cols) * (N * S + pad);
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      let c = COL[M.T[y][x]];
+      let c = COL[M.T[y][x]]; if (M.L?.[y]?.[x] === 0 && M.T[y][x] !== '#') c = c.map(v => v * .45 | 0);
       if (x === M.A[0] && y === M.A[1]) c = [60, 120, 255]; else if (x === M.B[0] && y === M.B[1]) c = [235, 70, 60];
       for (let j = 0; j < S; j++) for (let i = 0; i < S; i++) {
         const edge = (i === 0 || j === 0) && M.T[y][x] !== '#';

@@ -8,7 +8,10 @@
 // - 勝負：拿下對方兩人就贏；倒地就是死；用 Ally 邏輯控制的單位（無人機、砲台）不算人頭。300 回合上限。
 // 轉角：ASH 原本看的人和被看的人都能探頭（隔著轉角互相看得到、但打不到）；PVP 改成被看的那一方不算探頭——貼著牆的人看不到，除非他開過火。
 // 開火暴露：開火的人到自己這一方下一個階段開始前都暴露，對方任何地方都看得到他的位置（要打還是要有射線）。近戰一刀砍死不暴露，砍了沒死就暴露。
-// 還沒做（之後）：黑暗與消焰、工兵的無人機和砲台當作對方可以打的目標、爆炸波及自己的隊友。
+// 黑暗：地圖的房間有亮有全黑（mapgen 的 L）。ASH 本來就有：黑暗裡的人看不到（夜視例外）、開槍的槍口火光照亮開火那一格（現形、可以被直接瞄準）。
+//   PVP：火光累積一整個階段、留到對方的階段結束；消焰器（ASH 的 flashhider 詞條）在全黑的地方開火不算暴露。
+// 無人機、砲台（工兵）：在自己那一隊的階段裡行動（隊員都動完之後）；對方的階段裡變成替身，可以被打，不算人頭。
+// 爆炸：ASH 原本只會傷到「目前操作的那個人」，同隊其他人站在範圍裡也沒事；PVP 補上同一套傷害。
 import {SquadGame} from './chimera-squad.js';
 import {makeEnemy, distance} from './world.js';
 import {setSize, WEAPONS} from './data.js';
@@ -26,8 +29,13 @@ import {initialSkillState} from './skills.js';
 import {anchors} from './combat.js';
 import {objectSightGrid} from './scenery.js';
 import {lineOfSight} from './world.js';
+import {isBlack} from './lighting.js';
+import {allyAct, currentAllies} from './allies.js';
+import {isMunition, munitionAct, isBomber, bomberAct} from './workshop.js';
 
 export const PVP = {KILLS: 2, ROUNDS: 300, PROXY: 'raider'};
+// PVP 的數值調整（ASH 的數值是一隊精英打一群雜兵；對等互打要調）。統計見 pvp/DESIGN.md
+export const PVP_TUNING = {bulwark: {plates: 60, plateCapacity: 60}};
 export const PVP_CLASSES = ['soldier', 'recon', 'bulwark', 'berserker', 'ninja', 'engineer'];   // 德魯伊、死靈法師還在調整
 let building = null;   // generateFloor 在建構子裡就被叫到，那時 this 還沒有自己的欄位
 
@@ -38,8 +46,9 @@ function ashMap(M) {
   M.T.forEach((row, y) => row.forEach((t, x) => { if (t === 'c') props.push({id: `cover-${x}-${y}`, x, y, type: 'cover', hp: 40, maxHp: 40}); if (grid[y][x] === 1) footprint.push({x, y}); }));
   const mid = N >> 1, start = {x: M.A[0], y: M.A[1]}, end = {x: M.B[0], y: M.B[1]};
   const room = {x: 1, y: 1, w: N - 2, h: N - 2, cx: mid, cy: mid, id: 0, cellIds: [0], footprint};
+  const lighting = M.L ? M.L.map(r => r.slice()) : grid.map(r => r.map(() => 2));   // 0 全黑、2 亮
   return {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items: [], props, hazards: [], marks: [], barriers: [],
-    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting: grid.map(r => r.map(() => 1)), slots: [], lamps: [], lightModel: 2};
+    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting, slots: [], lamps: [], lightModel: 2};
 }
 
 export class PvpGame extends SquadGame {
@@ -65,23 +74,31 @@ export class PvpGame extends SquadGame {
   generateFloor() { const M = building || this.match; return M ? ashMap(M.map) : super.generateFloor(); }
   // 職業配置照 ASH 原版：不套奇美拉的土製
   equip(m, c) {
-    const keep = m.owned.map(s => [s, m.affixes[s]]);
+    const keep = m.owned.map(s => [s, m.affixes[s]]), lines = m.productionLines;   // 工兵的生產線（原版開場就有一台跟隨無人機）
     super.equip(m, c);
     const sk = CHARACTERS[m.character]?.skills || []; m.skills = [...sk]; m.skillState = initialSkillState(m.skills); m.prepared = {...m.prepared, skill: sk[0] || null};   // 職業技能照原版
+    if (m.skills.includes('workshop') && lines?.length) m.productionLines = lines;
+    Object.assign(m, PVP_TUNING[m.character] || {});
     for (const [s, a] of keep) { m.affixes[s] = a; const w = WEAPONS[m.weaponBases[s]]; if (w && !w.melee) m.ammo[s] = weaponStats(m.weaponBases[s], a, m).mag; }
   }
   other(side) { return side === 'A' ? 'B' : 'A'; }
   alive(side) { return this.sides[side].filter(m => m.hp > 0); }
   // 對方的每個活人 → 替身敵人（id 固定，機器人的記憶接得上）
   proxies(side) {
-    return this.alive(side).map(m => {
+    const allies = this.allAllies.filter(a => a.pvpSide === side && a.status === 'active' && a.hp > 0 && a.floor === this.floor).map(a => Object.assign(makeEnemy(PVP.PROXY, a.x, a.y, `pa-${a.id}`, 1, this.difficultySpec, this.facilityFaction), {hp: a.hp, maxHp: a.maxHp || a.hp, alert: true, courseName: a.name || a.kind, pvpAlly: a.id}));
+    return [...allies, ...this.alive(side).map(m => {
       const e = makeEnemy(PVP.PROXY, m.x, m.y, `px-${m.squadId}`, 1, this.difficultySpec, this.facilityFaction);
       return Object.assign(e, {hp: m.hp + (m.plates || 0), maxHp: m.maxHp + (m.plates || 0), alert: true, courseName: m.squadId, pvpOf: m.squadId, pvpExposed: !!m.pvpExposed});
-    });
+    })];
   }
   // 替身受的傷同步回本人：先扣護甲板、再扣生命
   syncProxies() {
+    for (const e of this.enemies) if (e.pvpAlly != null) {   // 無人機、砲台：照 ASH 的 damageAlly 扣（壞掉、掉武器都照原本的）
+      const a = this.allAllies.find(x => x.id === e.pvpAlly); if (!a || a.hp <= 0) continue;
+      const lost = a.hp - Math.max(0, e.hp); if (lost > 0) { this.damageAlly(a, lost, null, false, true); e.hp = Math.max(0, a.hp); }
+    }
     for (const e of this.enemies) {
+      if (e.pvpOf == null) continue;
       const m = this.members.length ? this.unit(e.pvpOf) : null; if (!m || m.hp <= 0) continue;
       const total = m.hp + (m.plates || 0), now = Math.max(0, e.hp); if (now >= total) continue;
       let lost = total - now; const p = Math.min(m.plates || 0, lost); m.plates = (m.plates || 0) - p; lost -= p; m.hp -= lost;
@@ -89,38 +106,81 @@ export class PvpGame extends SquadGame {
     }
   }
   unit(id) { return [...this.sides.A, ...this.sides.B].find(m => m.squadId === id); }
+  // 對方的無人機、砲台在這一隊的階段裡先收起來（ASH 的部署上限、跟隨、修理都看 g.allies；對方的只以替身存在）
+  get allAllies() { return [...this.allies, ...(this.pvpParked || [])]; }
+  park(side) {
+    const all = this.allAllies, o = side && this.other(side);
+    this.pvpParked = o ? all.filter(a => a.pvpSide === o) : []; this.allies = o ? all.filter(a => a.pvpSide !== o) : all;
+  }
   // 換邊：我方＝這一隊，敵人＝對方的替身，迷霧換成這一隊的
   enter(side) {
     if (this.pvp.side) this.pvpSeen[this.pvp.side] = this.seen;
-    this.pvp.side = side; this.seen = this.pvpSeen[side];
+    this.pvp.side = side; this.seen = this.pvpSeen[side]; this.park(side);
     for (const m of this.sides[side]) m.pvpExposed = false;   // 自己的階段開始：上一階段開火的暴露結束
     this.members = this.sides[side]; const lead = this.alive(side)[0]; if (!lead) return false;
     this.swap(lead); this.controlled = lead;
     this.enemies = this.proxies(this.other(side)); this.target = null;
     this.reveal(); return true;
   }
-  // 一個階段：這一隊每個活人各做一個動作（brain 決定；人類玩家之後接成 UI 輸入），然後推進世界
+  // 一個階段：這一隊每個活人各做一個動作（brain 決定），然後推進世界。人類／AI 介面用下面三個一步一步來：
+  //   beginPhase(side) → actAs(單位, 動作, 參數) 每人一次（免費動作不算：換武器、開手電筒⋯）→ endPhase()（沒動的人待機）
   phase(side) {
-    if (this.status !== 'playing' || !this.enter(side)) return false;
+    if (!this.beginPhase(side)) return false;
     for (const m of this.alive(side)) {
       if (this.status !== 'playing' || m.hp <= 0) continue;
       const brain = this.brains.get(m); if (!brain) continue;
-      this.swap(m); this.controlled = m; this.soloTurn = true; this.soloDone = false;
+      this.focusUnit(m);
       try { for (let i = 0; i < 6 && !this.soloDone && m.hp > 0 && this.status === 'playing'; i++) brain(this, m); }
-      finally { this.soloTurn = false; tickSkills(m); expireExposure([m], this.turn); m.lightLingers = false; }
+      finally { this.unitDone(m); }
+    }
+    return this.endPhase();
+  }
+  beginPhase(side) {
+    if (this.status !== 'playing' || !this.enter(side)) return false;
+    this.pvp.left = this.alive(side).map(m => m.squadId); return true;
+  }
+  focusUnit(m) { this.swap(m); this.controlled = m; this.soloTurn = true; this.soloDone = false; this.refusal = null; }
+  unitDone(m) {
+    this.soloTurn = false; tickSkills(m); expireExposure([m], this.turn); m.lightLingers = false;
+    this.pvp.left = (this.pvp.left || []).filter(id => id !== m.squadId);
+    this.syncProxies(); this.judge();
+  }
+  // 一個單位做一個動作：{ok, done（這個單位這一階段的動作用掉了）, msg（失敗原因或這一步的紀錄）}
+  actAs(id, type, arg, {target} = {}) {
+    const m = this.sides[this.pvp.side]?.find(x => x.squadId === id);
+    if (this.status !== 'playing') return {ok: false, msg: '對戰已經結束'};
+    if (!m || m.hp <= 0) return {ok: false, msg: `${id} 不是這一隊活著的單位`};
+    if (!this.pvp.left.includes(id)) return {ok: false, msg: `${id} 這一階段已經動過了`};
+    this.focusUnit(m); const top = this.logs[0], fresh = () => { const i = this.logs.indexOf(top); return this.logs.slice(0, i < 0 ? this.logs.length : i).reverse().map(l => l.text).join(' '); };
+    if (target !== undefined) this.target = target;
+    let ok = false, err = null;
+    try { ok = this.action(type, arg) !== false; } catch (e) { err = e; }
+    const done = this.soloDone || m.hp <= 0, msg = err ? `錯誤：${err.message}` : !ok ? (this.refusal?.text || fresh() || '做不到') : fresh();
+    if (done) this.unitDone(m); else this.soloTurn = false;
+    if (err) throw Object.assign(err, {pvpMsg: msg});
+    return {ok, done, msg};
+  }
+  endPhase() {
+    const side = this.pvp.side;
+    for (const id of [...(this.pvp.left || [])]) { const m = this.unit(id); if (m?.hp > 0 && this.status === 'playing') { this.focusUnit(m); try { this.action('wait'); } finally { this.unitDone(m); } } }
+    for (const a of this.activeAllies) {
+      if (this.status !== 'playing' || a.hp <= 0 || a.pvpSide !== side) continue;
+      if (isMunition(a)) munitionAct(this, a); else if (isBomber(a)) bomberAct(this, a); else allyAct(this, a);
+      this.pvpFlashes = [...(this.pvpFlashes || []), ...this.flashesNow()];
       this.syncProxies(); this.judge();
     }
     this.worldTick(); this.syncProxies(); this.judge();
     if (side === 'B') this.pvp.round++;
     if (this.status === 'playing' && this.pvp.round > PVP.ROUNDS) { this.status = 'draw'; this.pvp.log.push('打到回合上限'); }
-    return true;
+    this.pvp.left = []; return true;
   }
   // 世界推進（ASH 的 action() 在敵人行動前後做的事，扣掉敵人）
   worldTick() {
     this.turn++; tickVents(this); tickFires(this); dryAcid(this);
     if (this.player.hp > 0) this.environmentTurn();
     this.smoke = this.smoke.filter(s => s.expires > this.turn); this.flares = (this.flares || []).filter(f => f.expires > this.turn);
-    recordGunFlashes(this); tickDecoy(this);
+    const seen = new Set(); this.gunFlashes = (this.pvpFlashes || []).filter(f => { const k = f.x + ',' + f.y; if (seen.has(k)) return false; seen.add(k); return true; }); this.pvpFlashes = [];
+    tickDecoy(this);
     expireExposure([...this.members, ...this.enemies, ...this.allies], this.turn);
     for (const a of [...this.members, ...this.enemies, ...this.activeAllies]) tickTraits(a);
     this.settleAttackNotes(); this.reveal();
@@ -131,6 +191,18 @@ export class PvpGame extends SquadGame {
       const dead = this.sides[s].filter(m => m.hp <= 0).length;
       if (dead >= PVP.KILLS || !this.alive(s).length) { this.pvp.winner = this.other(s); this.status = 'won'; this.pvp.log.push(`${this.other(s)} 隊獲勝（拿下 ${dead} 人）`); return; }
     }
+  }
+  get activeAllies() { const s = this.pvp?.side; return currentAllies(this).filter(a => !s || !a.pvpSide || a.pvpSide === s); }
+  // 爆炸：ASH 只傷到操作中的那個人；同隊其他人（不在 enemies、也不是 player）照同一套算
+  explode(center, radius, damage, ...rest) {
+    const r = super.explode(center, radius, damage, ...rest);
+    if (!this.pvp?.side) return r;
+    const origin = {x: center.x, y: center.y}, keep = this.player;
+    for (const m of this.alive(this.pvp.side)) {
+      if (m === keep || distance(origin, m) > radius || !lineOfSight(objectSightGrid(this, origin, m), origin, m, this.barriers, 'blast')) continue;
+      this.swap(m); try { this.damagePlayer(Math.max(1, damage - distance(origin, m) * 10), '爆炸', null, true); } finally { this.swap(keep); }
+    }
+    return r;
   }
   // 看得到對方嗎：暴露中的到處都看得到；不然要從我（可以探頭）看得到他那一格的中心——他貼著牆探頭不算
   sight(a, b) {
@@ -144,15 +216,20 @@ export class PvpGame extends SquadGame {
   // 動作做完：開火的暴露；近戰砍了沒死也暴露
   soloPaid(type, arg) {
     const hp0 = new Map(this.enemies.map(e => [e, e.hp])), meleeShot = type === 'fire' && this.weapon?.melee, p = this.player;
+    const quiet = this.weapon?.noFlash && isBlack(this, p);   // 消焰器、站在全黑的地方：開火不暴露
     const ok = super.soloPaid(type, arg);
+    for (const a of this.allies) a.pvpSide ||= this.pvp.side;   // 這個動作部署出來的無人機、砲台是這一隊的
+    this.pvpFlashes = [...(this.pvpFlashes || []), ...this.flashesNow()];
     if (ok) {
       const melee = meleeShot || ['bumpMelee', 'hookBlade', 'grapple'].includes(type);
       if (melee) { if ([...hp0].some(([e, h]) => e.hp < h && e.hp > 0)) p.pvpExposed = true; }
-      else if (['fire', 'blindFire', 'launch', 'suppressiveFire'].includes(type)) p.pvpExposed = true;
+      else if (['fire', 'blindFire', 'launch', 'suppressiveFire'].includes(type) && !quiet) p.pvpExposed = true;
       if (p.pvpExposed) this.pvp.exposures = (this.pvp.exposures || 0) + 1;
     }
     return ok;
   }
+  // 這個動作的槍口火光（ASH 的 recordGunFlashes 只看這一步的動畫；PVP 累積整個階段）
+  flashesNow() { const keep = this.gunFlashes; recordGunFlashes(this); const now = this.gunFlashes || []; this.gunFlashes = keep; return now; }
   // 撤離、電梯、投降以外的收尾不適用
   descend() { return this.fail('PVP 沒有撤離'); }
   handOver() { return false; }

@@ -2,7 +2,9 @@
 // node pvp/ash/.work/tools/pvp/stats.mjs [地圖數 30] [起始種子 1]
 import '../../src/game.js';
 import {playMatch} from './match.mjs';
-import {PVP_CLASSES} from '../../src/pvp-game.js';
+import {PVP_CLASSES, PVP_TUNING} from '../../src/pvp-game.js';
+// 試數值：PVP_TUNE='{"bulwark":{"plates":80,"plateCapacity":80}}' node stats.mjs
+if (process.env.PVP_TUNE) Object.assign(PVP_TUNING, JSON.parse(process.env.PVP_TUNE));
 const n = +(process.argv[2] || 30), s0 = +(process.argv[3] || 1);
 const lcg = s => () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296);
 const pick4 = r => { const L = PVP_CLASSES.slice(); for (let i = L.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [L[i], L[j]] = [L[j], L[i]]; } return L.slice(0, 4); };

@@ -37,3 +37,20 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   ok(hidden > 0, '有一部分轉角後的位置，貼牆的人不再被看到');
   ok(iSee > hidden, '大部分看得到的照樣看得到（只拿掉被看的那一方探頭）');
 }
+// 爆炸波及同隊其他人
+{
+  g.enter('A'); const A2 = g.unit('A2'); g.swap(A1); Object.assign(A1, {x: 2, y: 2}); Object.assign(A2, {x: 3, y: 2}); const before = A2.hp + (A2.plates || 0);
+  g.explode({x: 3, y: 2}, 1, 40, null);
+  ok(A2.hp + (A2.plates || 0) < before, `爆炸打到同隊沒在操作的 A2（${before} → ${A2.hp + (A2.plates || 0)}）`);
+}
+// 黑暗：B1 站在全黑的地方，A 看不到；開槍的火光照亮那一格就看得到
+{
+  g.enter('A'); g.swap(A1); Object.assign(A1, {x: 2, y: 8}); Object.assign(B1, {x: 7, y: 8}); B1.pvpExposed = false;
+  for (let y = 0; y < g.lighting.length; y++) for (let x = 0; x < g.lighting.length; x++) g.lighting[y][x] = 2; g.lighting[8][7] = 0;
+  g.gunFlashes = []; g.enemies = g.proxies('B');
+  const nv = !!A1.traits?.some(t => /night/.test(t.id || t));
+  ok(!g.teamVisible(px()) || nv, `B1 在全黑的地方：看不到（A1 ${A1.character}${nv ? '，有夜視' : ''}）`);
+  g.gunFlashes = [{x: 7, y: 8}]; ok(g.teamVisible(px()), 'B1 開槍的火光照亮那一格：看得到');
+  g.gunFlashes = []; g.lighting[8][7] = 2;
+}
+console.log(bad ? `有 ${bad} 項不對` : '全部正常');
