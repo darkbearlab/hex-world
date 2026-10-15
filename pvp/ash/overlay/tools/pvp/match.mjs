@@ -35,21 +35,22 @@ export class PvpBot extends ClearBot {
     return r ? {type: 'move', arg: r.first, walk: true, why: ghost ? `hunt ${ghost.id}` : 'advance'} : {type: 'wait', why: 'no way'};
   }
 }
-export function installPvpBots(g, {onError = null} = {}) {
-  const bots = new Map();
-  const botFor = m => { let b = bots.get(m); if (!b) { b = new PvpBot(g, {seed: (Number(g.seed) || 1) + bots.size * 7919}); bots.set(m, b); } return b; };
+// bots：{A: 機器人類別, B: …}（預設 PvpBot；tools/pvp/duel.mjs 用來比兩個機器人）
+export function installPvpBots(g, {onError = null, bots = {}} = {}) {
+  const made = new Map();
+  const botFor = m => { let b = made.get(m); if (!b) { const Bot = bots[m.pvpSide] || PvpBot; b = new Bot(g, {seed: (Number(g.seed) || 1) + made.size * 7919}); made.set(m, b); } return b; };
   for (const m of [...g.sides.A, ...g.sides.B]) g.brains.set(m, (game, unit) => { try { botFor(unit).step(); } catch (error) { (onError || console.warn)(`${unit.squadId}: ${error.stack || error}`); game.soloDone = true; } });
-  return {bots, botFor};
+  return {bots: made, botFor};
 }
 const pick4 = (r) => { const L = PVP_CLASSES.slice(); for (let i = L.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [L[i], L[j]] = [L[j], L[i]]; } return L.slice(0, 4); };
 const lcg = s => () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296);
 
-export function playMatch(seed, {A, B, trace = false} = {}) {
+export function playMatch(seed, {A, B, trace = false, bots = {}} = {}) {
   let map = null; for (let s = seed; !map; s++) map = generate(s);
   const r = lcg(seed * 7 + 3); A ||= pick4(r); B ||= pick4(r);
   const g = new PvpGame({seed, map, A, B});
   g.pvpGoal = {A: {x: map.B[0], y: map.B[1]}, B: {x: map.A[0], y: map.A[1]}};
-  const errors = []; installPvpBots(g, {onError: e => errors.push(e)});
+  const errors = []; installPvpBots(g, {onError: e => errors.push(e), bots});
   const t0 = performance.now(); let firstContact = null, shots = {A: 0, B: 0};
   while (g.status === 'playing') {
     for (const side of ['A', 'B']) {
