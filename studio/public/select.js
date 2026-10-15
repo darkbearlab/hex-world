@@ -193,16 +193,27 @@ async function saveStamp() {
   const p = pieceOf(); if (!p) return;
   let n = 0; for (let k = 3; k < p.px.length; k += 4) if (p.px[k]) n++;
   if (!n) { toast('選取的範圍是空的'); return; }
-  const name = (prompt('印章名稱', `印章 ${stamps.filter(s => !s.gone).length + 1}`) || '').trim().slice(0, 40); if (!name) return;
+  const name = await askName(`印章 ${stamps.filter(s => !s.gone).length + 1}`); if (!name) return;
   stamps.push({id: rid(), name, w: p.w, h: p.h, px: b64(await zip(new Uint8Array(p.px.buffer))), created: Date.now(), pending: true});
-  keepStamps(stamps); toast(`存成印章「${name}」`); syncStamps();
+  keepStamps(stamps); toast(`存成印章「${name}」，在工具列的「印章」裡`); syncStamps();
+}
+// 印章取名：畫面裡的小視窗（不用瀏覽器的 prompt：手機、主畫面捷徑裡不一定跳得出來）
+function askName(def) {
+  const D = $('stampNameDlg'), I = $('stampName'); I.value = def;
+  return new Promise(ok => {   // 按鈕直接處理，不等對話框的 close 事件
+    const done = v => { D.close(); D.onkeydown = null; ok(v); };
+    $('stampNameGo').onclick = e => { e.preventDefault(); done(I.value.trim().slice(0, 40)); };
+    $('stampNameX').onclick = e => { e.preventDefault(); done(''); };
+    D.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); done(I.value.trim().slice(0, 40)); } else if (e.key === 'Escape') { e.preventDefault(); done(''); } };
+    D.showModal(); setTimeout(() => { I.focus(); I.select(); }, 50);
+  });
 }
 async function stampPx(s) { const raw = await unzip(unb64(s.px)), px = new Uint8ClampedArray(s.w * s.h * 4); px.set(raw.subarray(0, px.length)); return px; }
 async function openStamps() {
   const D = $('stampDlg'), box = $('stampList');
   const render = async () => {
     const L = stamps.filter(s => !s.gone);
-    box.innerHTML = L.length ? '' : '<p class="muted">還沒有印章。用選取工具（⬚）框一塊，按「存成印章」。</p>';
+    box.innerHTML = L.length ? '' : '<p class="muted stempty">還沒有印章。用選取工具（⬚）框一塊，按「存成印章」。</p>';
     for (const s of L) {
       const el = document.createElement('div'); el.className = 'stamp';
       const c = document.createElement('canvas'); c.width = s.w; c.height = s.h;

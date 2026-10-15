@@ -161,3 +161,5 @@ dialog.adlg{max-width:min(980px,96vw);width:100%}
 .stamp span{font-size:12px;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .stamp small{font-size:10px}
 .stamp .stx{position:absolute;top:2px;right:2px;padding:0 6px;font-size:12px;line-height:20px}
+.stamps .stempty{grid-column:1/-1}
+#stampNameDlg input{width:100%;margin:6px 0 10px;font-size:16px}   /* 16px：iOS 才不會自動放大畫面 */

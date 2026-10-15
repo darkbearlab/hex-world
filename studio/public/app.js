@@ -760,8 +760,9 @@ document.addEventListener('selectstart', e => { if (!editable(e.target)) e.preve
 document.addEventListener('contextmenu', e => { if (!editable(e.target)) e.preventDefault(); });
 document.addEventListener('dblclick', e => { if (!editable(e.target)) e.preventDefault(); }, {passive: false});
 for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, e => e.preventDefault(), {passive: false});
-$('stage').addEventListener('touchstart', e => e.preventDefault(), {passive: false});
-$('stage').addEventListener('touchmove', e => e.preventDefault(), {passive: false});
+// 畫布上的選取工具列（#selBar）不能擋：iOS 上 touchstart 被 preventDefault 就不會產生 click，按鈕按了沒反應（Alan 2026-10-15 手機回報）
+$('stage').addEventListener('touchstart', e => { if (!e.target.closest('.selbar')) e.preventDefault(); }, {passive: false});
+$('stage').addEventListener('touchmove', e => { if (!e.target.closest('.selbar')) e.preventDefault(); }, {passive: false});
 
 /* 減色：相近色合併。一開始每個顏色各自一群，反覆把「看起來最像」（OKLab 距離最近）的兩群併在一起，
    直到剩 n 群。合併後的代表色取格數較多的那一色，所以結果都是圖上本來就有的顏色，不會混出新的濁色；
