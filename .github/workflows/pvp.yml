@@ -1,0 +1,32 @@
+# pvp 分支的 pvp/ 有變動時，部署 PVP（獨立的 Worker：pvp，靜態網頁＋一個 Durable Object 房間）
+name: 部署 PVP
+
+on:
+  push:
+    branches: [pvp]
+    paths: ['pvp/**', '.github/workflows/pvp.yml']
+  workflow_dispatch: {}
+
+concurrency:
+  group: pvp
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: 安裝套件
+        run: npm ci
+      - name: 建 ASH PROTOCOL（固定版本＋補丁＋overlay，到 pvp/ash/.work/）
+        run: node pvp/ash/build.mjs
+      - name: 規則測試
+        run: node pvp/ash/.work/tools/pvp/rules-check.mjs
+      - name: 部署
+        run: npx wrangler deploy --config pvp/wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
