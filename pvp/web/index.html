@@ -40,7 +40,13 @@ button.on{outline:2px solid var(--warn)}
 </head>
 <body>
 <header><b>PVP 對戰</b><span id="hSide" class="pill"></span><span id="hRound" class="pill"></span><span id="hPhase" class="pill"></span><span id="hScore" class="pill"></span>
- <span style="flex:1"></span><button id="bEnd" class="primary" disabled>結束階段</button><button id="bSurr" class="danger">投降</button></header>
+ <span id="hTimer" class="pill"></span><span style="flex:1"></span><button id="bLeave">離開座位</button><button id="bEnd" class="primary" disabled>結束階段</button><button id="bSurr" class="danger">投降</button></header>
+<div id="seatView" class="center" hidden>
+ <h2>PVP 對戰</h2><p class="small">兩隊各 4 人輪流行動（XCOM 式）。先拿下對方 2 人獲勝；倒地就是死。開火會暴露位置。</p>
+ <label class="small">名字 <input id="name" maxlength="24" style="background:#111;color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px"></label>
+ <div class="row" style="margin-top:12px"><button id="seatA" class="primary">坐 A（先動）</button><button id="seatB" class="primary">坐 B</button></div>
+ <div id="seatMsg" class="small" style="margin-top:10px"></div>
+</div>
 <div id="pickView" class="center" hidden>
  <h2>選 4 個職業</h2><p class="small">同隊不能重複。對方看不到你選什麼，兩邊都選好就開打。拿下對方 2 人獲勝，倒地就是死。</p>
  <div class="pick" id="pickGrid"></div><button id="bPick" class="primary" disabled>確定</button>
@@ -56,15 +62,29 @@ button.on{outline:2px solid var(--warn)}
  </div>
 </main>
 <script>
-const side=(new URLSearchParams(location.search).get('side')||'A').toUpperCase();
+// 座位：瀏覽器自己產生的訪客 token（存在 localStorage）；本機的 arena.mjs 不檢查 token
+const store={get(k){try{return localStorage.getItem(k)}catch{return null}},set(k,v){try{localStorage.setItem(k,v)}catch{}}};
+let token=store.get('pvp-token');if(!token){token=crypto.randomUUID?crypto.randomUUID():String(Math.random()).slice(2)+Date.now();store.set('pvp-token',token);}
+let side=(new URLSearchParams(location.search).get('side')||store.get('pvp-side')||'').toUpperCase();
 const NAMES={soldier:'士兵',recon:'偵察兵',bulwark:'重裝兵',berserker:'狂戰士',ninja:'忍者',engineer:'工兵',drone:'無人機'};
 const TILE=24,cv=document.getElementById('cv'),cx=cv.getContext('2d');
 let sinceShown=null,S=null,sel=null,mode=null,picks=new Set(),busy=false,hover=null;
 const $=id=>document.getElementById(id);
 const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 function log(t,cls=''){const d=document.createElement('div');d.textContent=t;if(cls)d.className=cls;$('log').prepend(d);}
-async function api(p,body){const r=await fetch(p+(p.includes('?')?'&':'?')+'side='+side,body===undefined?{}:{method:'POST',body});return r.text();}
-async function refresh(){S=JSON.parse(await api('/json'));draw();}
+async function api(p,body){const r=await fetch('/api'+p+(p.includes('?')?'&':'?')+'side='+side,{method:body===undefined?'GET':'POST',body,headers:{'x-seat':token}});return r.text();}
+async function refresh(){if(!side){S=null;return drawSeat();}S=JSON.parse(await api('/json'));if(S.seats&&S.seats[side]===null&&!S.local){side='';store.set('pvp-side','');return drawSeat();}draw();}
+async function drawSeat(){
+ $('seatView').hidden=false;$('pickView').hidden=true;$('playView').hidden=true;$('hSide').textContent='還沒坐下';
+ $('name').value=store.get('pvp-name')||'';
+ try{const st=JSON.parse(await (await fetch('/api/seats')).text());$('seatA').textContent=st.A?`A：${st.A}`:'坐 A（先動）';$('seatB').textContent=st.B?`B：${st.B}`:'坐 B';$('seatMsg').textContent=st.playing?'對戰進行中。':'';}catch{}
+}
+async function sit(s){const name=$('name').value.trim()||'訪客';store.set('pvp-name',name);
+ const r=await fetch('/api/seat?side='+s,{method:'POST',body:JSON.stringify({name}),headers:{'x-seat':token}});const o=JSON.parse(await r.text());
+ if(!o.ok){$('seatMsg').textContent=o.msg;return;}side=s;store.set('pvp-side',s);$('seatView').hidden=true;await refresh();loop();}
+$('seatA').onclick=()=>sit('A');$('seatB').onclick=()=>sit('B');
+$('bLeave').onclick=async()=>{if(S?.phase==='play'||S?.phase==='wait'){if(!confirm('對戰中離開＝投降，確定？'))return;}await api('/leave','');side='';store.set('pvp-side','');refresh();};
+setInterval(()=>{const d=S?.deadline;$('hTimer').textContent=d&&S.phase==='play'?`剩 ${Math.max(0,Math.ceil((d-Date.now())/1000))} 秒`:'';},500);
 async function cmd(lines){
  if(busy)return;busy=true;
  try{const r=await api('/cmd',lines);for(const l of r.split('\n\n')[0].split('\n'))if(l.trim())log(l,/失敗|錯誤|看不/.test(l)?'bad':'good');}
@@ -72,8 +92,8 @@ async function cmd(lines){
 }
 let looping=false;
 async function loop(){
- if(looping)return;looping=true;
- try{while(S&&(S.phase==='wait'||(S.phase==='pick'&&S.picked))){S=JSON.parse(await api('/jwait?t=50'));draw();}}
+ if(looping||!side)return;looping=true;
+ try{while(side&&S&&(S.phase==='wait'||(S.phase==='pick'&&S.picked))){S=JSON.parse(await api('/jwait?t=50'));draw();}}
  catch(e){setTimeout(()=>{looping=false;loop();},3000);return;}
  looping=false;
 }
@@ -87,7 +107,8 @@ $('bEnd').onclick=()=>cmd('end');
 $('bSurr').onclick=()=>{if(confirm('確定投降？'))cmd('surrender');};
 // ---- 畫面
 function draw(){
- $('hSide').textContent=`你是 ${side} 隊`;
+ $('seatView').hidden=true;
+ $('hSide').textContent=`你是 ${side} 隊${S.seats?.[side]?'・'+S.seats[side]:''}`;
  const pick=S.phase==='pick';$('pickView').hidden=!pick;$('playView').hidden=pick;
  if(S.result){$('result').hidden=false;$('result').innerHTML=`<b>${S.result.status==='won'?(S.result.winner===side?'你贏了':'你輸了'):'平手'}</b>（${S.result.rounds} 回合）<div class="small">${S.result.log.join('<br>')}</div>`;}
  if(pick){$('pickMsg').textContent=S.picked?'等對方選⋯':'';$('hPhase').textContent='選角';$('hRound').textContent='';$('hScore').textContent='';$('bEnd').disabled=true;return;}
@@ -145,6 +166,7 @@ function drawBoard(){
  for(const f of st.foes)dot(f.x,f.y,css('--foe'),f.cls==='drone'?'x':f.id.slice(1),f.exposed?css('--warn'):null);
  for(const u of st.units)if(u.alive)dot(u.x,u.y,u.acted?'#3f6b94':css('--own'),u.n,u.id===sel?'#fff':null);
  const su=st.units.find(q=>q.id===sel&&q.alive&&!q.acted);
+ if(su&&mode?.throw)for(let y=0;y<N;y++)for(let x=0;x<N;x++){const ch=st.map[y][x];if(Math.abs(x-su.x)+Math.abs(y-su.y)<=5&&/[.,~1-4@VW-Z]/.test(ch)){cx.fillStyle='#f0c06230';cx.fillRect(x*TILE+1,y*TILE+1,TILE-2,TILE-2);}}
  if(su&&S.phase==='play'&&!mode)for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=su.x+dx,y=su.y+dy,ch=st.map[y]?.[x];if(ch==='.'||ch===','||ch===':'){cx.fillStyle='#5fb3ff30';cx.fillRect(x*TILE+2,y*TILE+2,TILE-4,TILE-4);}}
  if(hover&&su){const f=st.foes.find(q=>q.x===hover.x&&q.y===hover.y);if(f){const c=f.chance[su.id];cx.font='bold 12px system-ui';const t=c?c+'%':(f.by[su.id]?.why||'看不到'),w=cx.measureText(t).width+8,X=Math.min(hover.x*TILE+TILE,cv.width-w),Y=Math.max(hover.y*TILE-18,0);cx.fillStyle='#000c';cx.fillRect(X,Y,w,16);cx.fillStyle=c?'#fff':css('--foe');cx.textAlign='left';cx.textBaseline='top';cx.fillText(t,X+4,Y+2);}}
  if(hover){cx.strokeStyle=mode?css('--warn'):'#ffffff80';cx.lineWidth=2;cx.strokeRect(hover.x*TILE+1,hover.y*TILE+1,TILE-2,TILE-2);}

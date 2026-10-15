@@ -104,7 +104,7 @@ export class PvpGame extends SquadGame {
       let lost = total - now; const by = this.pvpActor || null;
       (this.pvp.events ||= []).push({round: this.pvp.round, target: m.squadId, dmg: lost, by: by?.id || null, byVisible: !!by?.exposed, killed: now <= 0, left: now});
       const p = Math.min(m.plates || 0, lost); m.plates = (m.plates || 0) - p; lost -= p; m.hp -= lost;
-      if (m.hp <= 0 || e.hp <= 0) { m.hp = 0; e.hp = 0; this.pvp.kills[this.other(m.pvpSide)]++; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId} 倒下`); }
+      if (m.hp <= 0 || e.hp <= 0) { m.hp = 0; e.hp = 0; this.pvp.kills[this.other(m.pvpSide)]++; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId}（${m.character}）倒下${by?.id ? `，${by.id} 擊倒` : ''}`); }
     }
   }
   unit(id) { return [...this.sides.A, ...this.sides.B].find(m => m.squadId === id); }

@@ -1,0 +1,29 @@
+# PVP（pvp/DESIGN.md）：靜態網頁（web/）＋一個 Durable Object 持有房間（server/worker.js）
+# 先建 ASH：ASH_REPO=… node pvp/ash/build.mjs（server 會載入 pvp/ash/.work/src 的模組）
+name = "pvp"
+main = "server/worker.js"
+compatibility_date = "2025-09-01"
+account_id = "beb6f869ff9d765dbf31116243c5b348"
+workers_dev = true
+
+[assets]
+directory = "./web"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+# ASH 有幾個模組在載入時用 import.meta.url 組圖片網址（伺服器不畫圖）；打包後沒有自己的網址，給一個固定的（同奇美拉）
+[define]
+"import.meta.url" = '"https://pvp.invalid/ash/src/server.js"'
+
+[vars]
+# 每個階段幾毫秒（pvp/DESIGN.md：60 秒）、對戰中斷線保留座位幾毫秒（2 分鐘）
+PHASE_MS = "60000"
+GRACE_MS = "120000"
