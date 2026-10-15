@@ -38,7 +38,10 @@ import {isMunition, munitionAct, isBomber, bomberAct} from './workshop.js';
 
 export const PVP = {KILLS: 2, ROUNDS: 300, PROXY: 'raider'};
 // PVP 的數值調整（ASH 的數值是一隊精英打一群雜兵；對等互打要調）。統計見 pvp/DESIGN.md
-export const PVP_TUNING = {bulwark: {plates: 60, plateCapacity: 60}};
+export const PVP_TUNING = {bulwark: {plates: 60, plateCapacity: 60},
+  // 規則數值（平衡提案用，2026-10-16）：ropePerPhase＝每人每個階段最多用幾次繩索（null＝不限）；powerMult＝三倍傷害的倍率；powerExpire＝撿到後幾個自己的階段沒用就失效（0＝不失效）
+  rules: {ropePerPhase: null, powerMult: 3, powerExpire: 0, powerRound: 0, anchorDouble: true, crates: true}};   // powerRound＝三倍傷害第幾回合才出現（0＝開場就在）；anchorDouble＝下錨打兩輪
+const RULE = k => PVP_TUNING.rules?.[k];
 // 替身的敵人種類：ASH 打敵人時的護甲看種類（enemy-affixes.js 的 enemyArmor＝ENEMY_TYPES[type].armor），每種護甲值一個替身種類
 // （外觀和原本的替身一樣；送給瀏覽器的快照換回 PVP.PROXY，pvp-room.js）
 export const proxyType = armor => { const k = `pvp-proxy-${armor | 0}`; if (!ENEMY_TYPES[k]) ENEMY_TYPES[k] = {...ENEMY_TYPES[PVP.PROXY], armor: armor | 0}; return k; };
@@ -64,10 +67,10 @@ function ashMap(M) {
   const vents = (M.vents || []).map(([x, y], i) => ({id: `vent-1-${i}`, x, y, kind: i % 2 ? 'haze' : 'smoke', phase: (i * 3) % 7}));
   // 搶奪點（Alan 2026-10-16）：兩側的高階武器箱＝ASH 的補給箱（相鄰格打開＝一個動作，武器掉在腳邊再撿；一人最多三把）；中央的三倍傷害走上去就撿到。都不會重生
   const W = id => WEAPONS.findIndex(w => w.id === id);
-  for (const [i, [x, y, w]] of (M.crates || []).entries()) props.push({id: `pvp-crate-${i}`, type: 'container', kind: 'field', x, y, opened: false, indestructible: true, contents: [{type: 'weapon', weapon: W(w)}]});
-  const items = M.power ? [{x: M.power[0], y: M.power[1], type: 'pvp_power', amount: 1}] : [];
+  if (RULE('crates') !== false) for (const [i, [x, y, w]] of (M.crates || []).entries()) props.push({id: `pvp-crate-${i}`, type: 'container', kind: 'field', x, y, opened: false, indestructible: true, contents: [{type: 'weapon', weapon: W(w)}]});
+  const items = M.power && !(RULE('powerRound') > 1) ? [{x: M.power[0], y: M.power[1], type: 'pvp_power', amount: 1}] : [];
   return {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items, props, hazards: [], marks: [], barriers,
-    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting, slots: [], lamps, vents, lightModel: 2, pvpTrench: M.D ? M.D.map(r => r.slice()) : null};
+    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting, slots: [], lamps, vents, lightModel: 2, pvpTrench: M.D ? M.D.map(r => r.slice()) : null, pvpPowerAt: M.power || null};
 }
 
 export class PvpGame extends SquadGame {
@@ -159,7 +162,7 @@ export class PvpGame extends SquadGame {
   enter(side) {
     if (this.pvp.side) this.pvpSeen[this.pvp.side] = this.seen;
     this.pvp.side = side; this.seen = this.pvpSeen[side]; this.park(side);
-    for (const m of this.sides[side]) m.pvpExposed = !!m.pvpPower;   // 自己的階段開始：上一階段開火的暴露結束（拿著三倍傷害的一直暴露）
+    for (const m of this.sides[side]) { if (m.pvpPower && RULE('powerExpire') && ++m.pvpPowerPhases > RULE('powerExpire')) { m.pvpPower = false; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId} 的三倍傷害沒用就失效了`); } m.pvpExposed = !!m.pvpPower; }   // 自己的階段開始：上一階段開火的暴露結束（拿著三倍傷害的一直暴露）
     this.members = this.sides[side]; const lead = this.alive(side)[0]; if (!lead) return false;
     this.swap(lead); this.controlled = lead;
     this.enemies = this.proxies(this.other(side)); this.target = null;
@@ -232,6 +235,8 @@ export class PvpGame extends SquadGame {
     this.smoke = this.smoke.filter(s => s.expires > this.turn); this.flares = (this.flares || []).filter(f => f.expires > this.turn);
     const seen = new Set(); this.gunFlashes = (this.pvpFlashes || []).filter(f => { const k = f.x + ',' + f.y; if (seen.has(k)) return false; seen.add(k); return true; }); this.pvpFlashes = [];
     tickDecoy(this);
+    // 三倍傷害晚一點才出現（平衡提案：不讓先動的一方一定先搶到中央）
+    if (RULE('powerRound') > 1 && !this.pvpPowerSpawned && this.pvp.round >= RULE('powerRound') && this.pvpPowerAt) { this.pvpPowerSpawned = true; const [x, y] = this.pvpPowerAt; this.items.push({x, y, type: 'pvp_power', amount: 1}); this.pvp.log.push(`第 ${this.pvp.round} 回合：三倍傷害出現在地圖中央`); }
     expireExposure([...this.members, ...this.enemies, ...this.allies], this.turn);
     for (const a of [...this.members, ...this.activeAllies, ...this.enemies.filter(e => e.pvpOf == null)]) tickTraits(a);   // 替身不跑：本人的狀態在自己那一隊的階段跑（不然一回合跑兩次）
     this.settleAttackNotes(); this.reveal();
@@ -268,13 +273,23 @@ export class PvpGame extends SquadGame {
   // 撿到的人一直到用掉都是暴露的（全場都看得到他在哪）
   pickup() {
     const p = this.player, i = (this.items || []).findIndex(o => o.type === 'pvp_power' && o.x === p.x && o.y === p.y);
-    if (i >= 0) { this.items.splice(i, 1); p.pvpPower = true; p.pvpExposed = true; this.log('撿到三倍傷害：下一次攻擊必定命中、傷害三倍（拿著的時候全場都看得到你）。', true); this.pvp.log.push(`第 ${this.pvp.round} 回合：${p.squadId} 撿到三倍傷害`); }
+    if (i >= 0) { this.items.splice(i, 1); p.pvpPower = true; p.pvpPowerPhases = 0; p.pvpExposed = true; this.log('撿到三倍傷害：下一次攻擊必定命中、傷害三倍（拿著的時候全場都看得到你）。', true); this.pvp.log.push(`第 ${this.pvp.round} 回合：${p.squadId} 撿到三倍傷害`); }
     return super.pickup();
   }
   accuracy(attacker, target) { const r = super.accuracy(attacker, target); return attacker?.pvpPowerActive ? {...r, chance: 100} : r; }
   meleeAccuracy(attacker, target, base) { return attacker?.pvpPowerActive ? 100 : super.meleeAccuracy(attacker, target, base); }
+  // 繩索的次數限制（平衡提案）：脫離繩在 ASH 是免費動作，PVP 可以限每人每個階段幾次
+  action(type, arg) {
+    const lim = RULE('ropePerPhase'), p = this.player;
+    if (type !== 'rope' || !lim || !this.pvp?.side) return super.action(type, arg);
+    const key = `${this.pvp.round}:${this.pvp.side}`;
+    if (p.pvpRopeKey === key && p.pvpRopeN >= lim) return this.fail(`這個階段的繩索用完了（每人每階段 ${lim} 次）`);
+    const ok = super.action(type, arg);
+    if (ok) { p.pvpRopeN = p.pvpRopeKey === key ? p.pvpRopeN + 1 : 1; p.pvpRopeKey = key; }
+    return ok;
+  }
   // 待機（防禦姿態）：ASH 給玩家的「直接傷害減半」，替身也照算
-  hurt(e, damage, ...rest) { if (rest[0]?.pvpPowerActive && damage > 0) damage *= 3; if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }
+  hurt(e, damage, ...rest) { if (rest[0]?.pvpPowerActive && damage > 0) damage *= RULE('powerMult') ?? 3; if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }
   // 看得到對方嗎：暴露中的到處都看得到；不然要從我（可以探頭）看得到他那一格的中心——他貼著牆探頭不算
   sight(a, b) {
     if (!b?.pvpOf) return super.sight(a, b);
@@ -300,7 +315,7 @@ export class PvpGame extends SquadGame {
     let ok; try { ok = super.soloPaid(type, arg); } finally { p.pvpPowerActive = false; }
     if (power && ok) { p.pvpPower = false; this.log('三倍傷害用掉了。'); }
     // 下錨：ASH 在一般和慢速階段各打一次（action() 的行動佇列）；soloTurn 不經過佇列，這裡補第二次
-    if (ok && skillActive(p, 'anchor') && ['fire', 'blindFire', 'bumpMelee', 'suppressiveFire'].includes(type) && p.hp > 0 && this.status === 'playing' && (type !== 'fire' || this.targeted?.hp > 0)) super.soloPaid(type, arg);
+    if (ok && RULE('anchorDouble') !== false && skillActive(p, 'anchor') && ['fire', 'blindFire', 'bumpMelee', 'suppressiveFire'].includes(type) && p.hp > 0 && this.status === 'playing' && (type !== 'fire' || this.targeted?.hp > 0)) super.soloPaid(type, arg);
     for (const a of this.allies) a.pvpSide ||= this.pvp.side;   // 這個動作部署出來的無人機、砲台是這一隊的
     this.pvpFlashes = [...(this.pvpFlashes || []), ...this.flashesNow()];
     if (ok) {
