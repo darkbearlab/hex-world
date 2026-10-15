@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PVP 對戰</title>
+<style>
+:root{--bg:#14161a;--panel:#1d2026;--line:#2c313a;--ink:#e6e8ec;--dim:#8b93a1;--own:#5fb3ff;--foe:#ff6b5f;--ok:#7fd48b;--warn:#f0c062;
+ --t-unseen:#0b0c0e;--t-wall:#4a4f58;--t-floor:#3a3f36;--t-dark:#1f2633;--t-mem:#24272b;--t-cover:#7a5f3c;--t-win:#3d6b8c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,"Noto Sans TC",sans-serif}
+header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+header b{font-size:16px}
+.pill{padding:2px 8px;border-radius:99px;background:var(--line);color:var(--dim)}
+.pill.me{background:#244a2c;color:var(--ok)}
+main{display:grid;grid-template-columns:auto minmax(260px,360px);gap:16px;padding:16px;align-items:start}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+#boardWrap{overflow:auto;max-width:100%}
+canvas{display:block;image-rendering:pixelated;border:1px solid var(--line);touch-action:manipulation;cursor:crosshair}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px}
+.panel h3{margin:0 0 6px;font-size:13px;color:var(--dim);font-weight:600}
+.unit{display:flex;gap:8px;align-items:center;padding:6px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+.unit:hover{background:#252932}.unit.sel{border-color:var(--own);background:#1f2a38}.unit.done{opacity:.55}.unit.dead{opacity:.3;cursor:default}
+.badge{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:var(--own);color:#08121c;flex:none}
+.foe .badge{background:var(--foe);color:#1c0806}
+.bar{height:4px;background:#333;border-radius:2px;margin-top:3px;overflow:hidden;display:flex}
+.bar i{display:block;background:var(--ok)}.bar i.pl{background:#9fb6d0}
+.small{font-size:12px;color:var(--dim)}
+button{background:#2a3040;color:var(--ink);border:1px solid #3a4256;border-radius:6px;padding:6px 10px;font:inherit;cursor:pointer}
+button:hover{background:#333b50}button:disabled{opacity:.4;cursor:default}
+button.primary{background:#2f5d3a;border-color:#3f7a4c}button.danger{background:#5a2a2a;border-color:#7a3a3a}
+button.on{outline:2px solid var(--warn)}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+#log{max-height:180px;overflow:auto;font-size:12px;white-space:pre-wrap;color:var(--dim)}
+#log .bad{color:var(--foe)}#log .good{color:var(--ok)}
+.pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin:10px 0}
+.pick button{padding:14px 8px}
+.center{max-width:640px;margin:40px auto;padding:0 16px}
+</style>
+</head>
+<body>
+<header><b>PVP 對戰</b><span id="hSide" class="pill"></span><span id="hRound" class="pill"></span><span id="hPhase" class="pill"></span><span id="hScore" class="pill"></span>
+ <span style="flex:1"></span><button id="bEnd" class="primary" disabled>結束階段</button><button id="bSurr" class="danger">投降</button></header>
+<div id="pickView" class="center" hidden>
+ <h2>選 4 個職業</h2><p class="small">同隊不能重複。對方看不到你選什麼，兩邊都選好就開打。拿下對方 2 人獲勝，倒地就是死。</p>
+ <div class="pick" id="pickGrid"></div><button id="bPick" class="primary" disabled>確定</button>
+ <div id="pickMsg" class="small" style="margin-top:10px"></div><div id="result" class="panel" hidden style="margin-top:16px"></div>
+</div>
+<main id="playView" hidden>
+ <div id="boardWrap"><canvas id="cv"></canvas><div class="small" id="hint" style="margin-top:6px"></div></div>
+ <div>
+  <div class="panel"><h3>我方</h3><div id="units"></div></div>
+  <div class="panel" id="actPanel"><h3 id="actTitle">動作</h3><div id="acts"></div></div>
+  <div class="panel"><h3>看到的對方</h3><div id="foes"></div></div>
+  <div class="panel"><h3>紀錄</h3><div id="log"></div></div>
+ </div>
+</main>
+<script>
+const side=(new URLSearchParams(location.search).get('side')||'A').toUpperCase();
+const NAMES={soldier:'士兵',recon:'偵察兵',bulwark:'重裝兵',berserker:'狂戰士',ninja:'忍者',engineer:'工兵',drone:'無人機'};
+const TILE=24,cv=document.getElementById('cv'),cx=cv.getContext('2d');
+let sinceShown=null,S=null,sel=null,mode=null,picks=new Set(),busy=false,hover=null;
+const $=id=>document.getElementById(id);
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function log(t,cls=''){const d=document.createElement('div');d.textContent=t;if(cls)d.className=cls;$('log').prepend(d);}
+async function api(p,body){const r=await fetch(p+(p.includes('?')?'&':'?')+'side='+side,body===undefined?{}:{method:'POST',body});return r.text();}
+async function refresh(){S=JSON.parse(await api('/json'));draw();}
+async function cmd(lines){
+ if(busy)return;busy=true;
+ try{const r=await api('/cmd',lines);for(const l of r.split('\n\n')[0].split('\n'))if(l.trim())log(l,/失敗|錯誤|看不/.test(l)?'bad':'good');}
+ finally{busy=false;mode=null;await refresh();loop();}
+}
+let looping=false;
+async function loop(){
+ if(looping)return;looping=true;
+ try{while(S&&(S.phase==='wait'||(S.phase==='pick'&&S.picked))){S=JSON.parse(await api('/jwait?t=50'));draw();}}
+ catch(e){setTimeout(()=>{looping=false;loop();},3000);return;}
+ looping=false;
+}
+// ---- 選角
+$('pickGrid').innerHTML='';
+for(const c of ['soldier','recon','bulwark','berserker','ninja','engineer']){
+ const b=document.createElement('button');b.textContent=NAMES[c];b.onclick=()=>{picks.has(c)?picks.delete(c):picks.size<4&&picks.add(c);b.classList.toggle('on',picks.has(c));$('bPick').disabled=picks.size!==4;};$('pickGrid').append(b);
+}
+$('bPick').onclick=async()=>{$('pickMsg').textContent=await api('/pick',[...picks].join(','));await refresh();loop();};
+$('bEnd').onclick=()=>cmd('end');
+$('bSurr').onclick=()=>{if(confirm('確定投降？'))cmd('surrender');};
+// ---- 畫面
+function draw(){
+ $('hSide').textContent=`你是 ${side} 隊`;
+ const pick=S.phase==='pick';$('pickView').hidden=!pick;$('playView').hidden=pick;
+ if(S.result){$('result').hidden=false;$('result').innerHTML=`<b>${S.result.status==='won'?(S.result.winner===side?'你贏了':'你輸了'):'平手'}</b>（${S.result.rounds} 回合）<div class="small">${S.result.log.join('<br>')}</div>`;}
+ if(pick){$('pickMsg').textContent=S.picked?'等對方選⋯':'';$('hPhase').textContent='選角';$('hRound').textContent='';$('hScore').textContent='';$('bEnd').disabled=true;return;}
+ if(S.phase==='wait'){$('hPhase').textContent='對方的階段⋯';$('hPhase').className='pill';$('hRound').textContent=`第 ${S.round} 回合`;$('bEnd').disabled=true;$('hint').textContent='等對方行動。';if(S.state)return;return drawBoard();}
+ const st=S.state;
+ $('hRound').textContent=`第 ${st.round}/${st.maxRounds} 回合`;$('hPhase').textContent='你的階段';$('hPhase').className='pill me';
+ $('hScore').textContent=`拿下 ${st.foeLost.length}／倒下 ${st.dead.length}（先拿下 2 人獲勝）`;$('bEnd').disabled=false;
+ if(S.since?.length&&sinceShown!==st.round){sinceShown=st.round;for(const t of S.since)log('對方階段：'+t,'bad');}
+ if(!sel||!st.units.find(u=>u.id===sel&&u.alive&&!u.acted))sel=st.units.find(u=>u.alive&&!u.acted)?.id||null;
+ // 我方
+ $('units').innerHTML='';
+ for(const u of st.units){
+  const d=document.createElement('div');d.className='unit'+(u.id===sel?' sel':'')+(u.acted?' done':'')+(!u.alive?' dead':'');
+  const tot=u.maxHp+Math.max(u.plates,0);
+  d.innerHTML=`<div class="badge">${u.n}</div><div style="flex:1"><div>${u.id} ${NAMES[u.cls]||u.cls}${u.alive?'':'・倒下'}${u.status.includes('exposed')?' <span style="color:var(--warn)">暴露</span>':''}<span class="small"> ${u.acted?'已動':''}</span></div>
+   <div class="small">生命 ${u.hp}/${u.maxHp}・板 ${u.plates}・${u.slots.map((s,i)=>(s.slot===u.weapon?'▶':'')+s.name+(s.melee?'':` ${s.ammo}/${s.mag}`)).join('・')}</div>
+   <div class="bar"><i style="width:${u.hp/tot*100}%"></i><i class="pl" style="width:${u.plates/tot*100}%"></i></div></div>`;
+  if(u.alive)d.onclick=()=>{sel=u.id;mode=null;draw();};$('units').append(d);
+ }
+ // 動作
+ const u=st.units.find(x=>x.id===sel);$('acts').innerHTML='';
+ if(u){
+  $('actTitle').textContent=`${u.id} ${NAMES[u.cls]}：點地圖走一格／點遠處往那裡走一格／點敵人開火`;
+  const add=(t,f,dis=false,on=false)=>{const b=document.createElement('button');b.textContent=t;b.disabled=dis||u.acted;b.onclick=f;if(on)b.classList.add('on');return b;};
+  const r1=document.createElement('div');r1.className='row';
+  r1.append(add('裝填',()=>cmd(`${u.id} reload`)),add(`醫療包 ${u.meds}`,()=>cmd(`${u.id} heal`),!u.meds),add(`噴劑 ${u.sprays}`,()=>cmd(`${u.id} plate`),!u.sprays),add('待機',()=>cmd(`${u.id} wait`)));
+  u.slots.forEach((s,i)=>{if(s.slot!==u.weapon)r1.append(add('換 '+s.name,()=>cmd(`${u.id} weapon ${i}`)));});
+  const r2=document.createElement('div');r2.className='row';
+  for(const [k,n] of Object.entries(u.throwables))r2.append(add(`${({frag:'破片',smoke:'煙霧',stun:'震撼',emp:'EMP'})[k]||k}×${n}`,()=>{mode=mode?.throw===k?null:{throw:k};draw();},false,mode?.throw===k));
+  for(const s of u.skills){if(s.id==='workshop'){if(u.lines.length)r2.append(add('部署無人機',()=>cmd(`${u.id} deploy 0`)));continue;}
+   const needT=s.id==='grapple';r2.append(add(`${s.name}${s.active?'（作用中）':s.cooldown?`（${s.cooldown}）`:''}`,()=>{if(needT){mode=mode?.skill?null:{skill:s.id};draw();}else cmd(`${u.id} skill ${s.id}`);},s.cooldown>0,mode?.skill===s.id));}
+  $('acts').append(r1,r2);
+ }else $('actTitle').textContent='大家都動過了：按「結束階段」';
+ // 對方
+ $('foes').innerHTML=st.foes.length?'':'<div class="small">沒有</div>';
+ for(const f of st.foes){const d=document.createElement('div');d.className='unit foe';d.innerHTML=`<div class="badge">${f.cls==='drone'?'x':f.id.slice(1)}</div><div style="flex:1">${f.id} ${NAMES[f.cls]||f.cls}${f.exposed?' <span style="color:var(--warn)">暴露</span>':''}<div class="small">剩 ${f.hp}・(${f.x},${f.y})・命中率 ${Object.entries(f.chance).map(([k,v])=>k+' '+v+'%').join(' ')||'沒有射線'}</div></div>`;
+  d.onclick=()=>u&&cmd(`${u.id} fire ${f.id}`);$('foes').append(d);}
+ for(const g of st.ghosts){const d=document.createElement('div');d.className='small';d.textContent=`最後看到 ${g.id} ${NAMES[g.cls]||g.cls}：(${g.x},${g.y}) 第 ${g.round} 回合`;$('foes').append(d);}
+ $('hint').textContent=mode?.throw?'點 5 格內看得到的格子投擲（Esc 取消）':mode?.skill?'點目標（Esc 取消）':'? 沒看過・深藍＝看得到但全黑・暗色＝記得但現在看不到';
+ drawBoard();
+}
+function drawBoard(){
+ const st=S.state;if(!st)return;const N=st.map.length;cv.width=cv.height=N*TILE;
+ const col={'?':'--t-unseen','#':'--t-wall','=':'--t-win','.':'--t-floor',',':'--t-dark',':':'--t-mem','c':'--t-cover'};
+ for(let y=0;y<N;y++)for(let x=0;x<N;x++){
+  let ch=st.map[y][x];const base=/[1-4dxa-d]/.test(ch)?'.':ch;
+  cx.fillStyle=css(col[base]||'--t-floor');cx.fillRect(x*TILE,y*TILE,TILE,TILE);
+  if(base==='c'){cx.fillStyle='#00000055';cx.fillRect(x*TILE+5,y*TILE+5,TILE-10,TILE-10);}
+  cx.strokeStyle='#00000040';cx.strokeRect(x*TILE+.5,y*TILE+.5,TILE-1,TILE-1);
+ }
+ const dot=(x,y,c,t,ring)=>{cx.beginPath();cx.arc(x*TILE+TILE/2,y*TILE+TILE/2,TILE*.38,0,7);cx.fillStyle=c;cx.fill();if(ring){cx.lineWidth=2;cx.strokeStyle=ring;cx.stroke();}cx.fillStyle='#0b0c0e';cx.font='bold 12px system-ui';cx.textAlign='center';cx.textBaseline='middle';cx.fillText(t,x*TILE+TILE/2,y*TILE+TILE/2+1);};
+ for(const g of st.ghosts){cx.globalAlpha=.35;dot(g.x,g.y,css('--foe'),g.id.slice(1));cx.globalAlpha=1;}
+ for(const d of st.drones)dot(d.x,d.y,'#9fd0ff','d');
+ for(const f of st.foes)dot(f.x,f.y,css('--foe'),f.cls==='drone'?'x':f.id.slice(1),f.exposed?css('--warn'):null);
+ for(const u of st.units)if(u.alive)dot(u.x,u.y,u.acted?'#3f6b94':css('--own'),u.n,u.id===sel?'#fff':null);
+ if(hover){cx.strokeStyle=mode?css('--warn'):'#ffffff80';cx.lineWidth=2;cx.strokeRect(hover.x*TILE+1,hover.y*TILE+1,TILE-2,TILE-2);}
+}
+const cell=e=>{const r=cv.getBoundingClientRect();return {x:Math.floor((e.clientX-r.left)/r.width*cv.width/TILE),y:Math.floor((e.clientY-r.top)/r.height*cv.height/TILE)};};
+cv.onmousemove=e=>{hover=cell(e);if(S?.state)drawBoard();};
+cv.onclick=e=>{
+ if(S?.phase!=='play')return;const st=S.state,{x,y}=cell(e),u=st.units.find(q=>q.id===sel);
+ const own=st.units.find(q=>q.alive&&q.x===x&&q.y===y);if(own&&!mode){sel=own.id;draw();return;}
+ if(!u||u.acted)return;
+ const foe=st.foes.find(f=>f.x===x&&f.y===y);
+ if(mode?.throw)return cmd(`${u.id} throw ${mode.throw} ${x},${y}`);
+ if(mode?.skill)return foe?cmd(`${u.id} skill ${mode.skill} ${foe.id}`):null;
+ if(foe)return cmd(`${u.id} fire ${foe.id}`);
+ const dx=x-u.x,dy=y-u.y;
+ if(Math.abs(dx)+Math.abs(dy)===1)return cmd(`${u.id} move ${dx===1?'E':dx===-1?'W':dy===1?'S':'N'}`);
+ cmd(`${u.id} goto ${x},${y}`);
+};
+addEventListener('keydown',e=>{if(e.key==='Escape'){mode=null;draw();}if(S?.phase==='play'&&/^[1-4]$/.test(e.key)){const u=S.state.units[+e.key-1];if(u?.alive){sel=u.id;draw();}}
+ const u=S?.state?.units.find(q=>q.id===sel);const d={ArrowUp:'N',ArrowDown:'S',ArrowLeft:'W',ArrowRight:'E',w:'N',s:'S',a:'W',d:'E'}[e.key];if(d&&u&&!u.acted&&S.phase==='play'){e.preventDefault();cmd(`${u.id} move ${d}`);}
+ if(e.key==='r'&&u&&!u.acted)cmd(`${u.id} reload`);if(e.key==='Enter')cmd('end');});
+refresh().then(loop);
+</script>
+</body>
+</html>
