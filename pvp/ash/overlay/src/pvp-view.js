@@ -22,7 +22,7 @@ export function sideState(g, memory = {}) {
       if (t === 2) { r += '='; continue; }
       const cover = g.props.some(o => o.type === 'cover' && o.x === x && o.y === y && (o.hp ?? 1) > 0);
       if (cover) { r += 'c'; continue; }
-      const smoky = vis.has(`${x},${y}`) && (g.smoke || []).some(sm => sm.cells?.some(q => q.x === x && q.y === y));
+      const smoky = (g.smoke || []).some(sm => sm.cells?.some(q => q.x === x && q.y === y));
       r += smoky ? '~' : vis.has(`${x},${y}`) ? (isBlack(g, {x, y}) ? ',' : '.') : ':';
     }
     rows.push([...r]);
@@ -43,7 +43,7 @@ export function sideState(g, memory = {}) {
   // （ASH 的 visible／teamVisible 只看「目前操作的那個人」，同一階段裡換人就會跳，所以這裡每個人都換過去算一次）
   const living = g.alive(side), seenBy = new Map();
   for (const u of living) { g.swap(u); try { for (const e of g.enemies) if (e.hp > 0 && (e.pvpExposed || g.visible(e))) { if (!seenBy.has(e)) seenBy.set(e, {}); const w = g.weapon, d = Math.abs(u.x - e.x) + Math.abs(u.y - e.y), range = w.melee ? 1 : w.range;
-    const why = !g.sight(u, e) ? '沒有視線（轉角或牆）' : d > range ? `射程外（距離 ${d}／${w.name} 射程 ${range}）` : !w.melee && !g.shotClear(u, e) ? (g.attackStatus(u, e)?.reason === 'target_corner_hidden' ? '他貼著轉角（沒開火打不到）' : '射線被擋（牆角、隊友或掩體）') : !w.melee && g.player.ammo[g.player.weapon] <= 0 ? '彈匣空了' : null;
+    const why = e.pvpExposed && !g.nativeSight(u, e) ? '只知道位置（暴露中），沒有視線（牆、轉角或煙霧）' : !g.sight(u, e) ? '沒有視線（轉角、牆或煙霧）' : d > range ? `射程外（距離 ${d}／${w.name} 射程 ${range}）` : !w.melee && !g.shotClear(u, e) ? (g.attackStatus(u, e)?.reason === 'target_corner_hidden' ? '他貼著轉角（沒開火打不到）' : '射線被擋（牆角、隊友或掩體）') : !w.melee && g.player.ammo[g.player.weapon] <= 0 ? '彈匣空了' : null;
     const acted = !g.pvp.left.includes(u.squadId); seenBy.get(e)[u.squadId] = why ? {why, d} : acted ? {why: `已經動過（可開火 ${Math.round(g.fireChance(e))}%）`, d} : {chance: Math.round(g.fireChance(e)), d}; } } finally { g.swap(keep); } }
   const foes = [...seenBy].map(([e, by]) => {
     const m = e.pvpOf ? g.unit(e.pvpOf) : null;
@@ -64,7 +64,7 @@ export function sideState(g, memory = {}) {
     kills: {...g.pvp.kills}, foeLost: g.sides[foe].filter(m => m.hp <= 0).map(m => m.squadId), foeCount: g.sides[foe].length,
     left: [...(g.pvp.left || [])], map: rows.map(r => r.join('')), units: own, foes, ghosts,
     drones: g.allAllies.filter(a => a.status === 'active' && a.hp > 0 && a.pvpSide === side).map(a => ({id: a.id, kind: a.sourceId || a.kind, x: a.x, y: a.y, hp: a.hp, maxHp: a.maxHp})),
-    smoke: (g.smoke || []).filter(sm => sm.cells?.some(q => vis.has(`${q.x},${q.y}`))).map(sm => ({cells: sm.cells.length, at: sm.cells[0], phasesLeft: sm.expires - g.turn + 1})),
+    smoke: (g.smoke || []).filter(sm => sm.cells?.some(q => g.seen[q.y]?.[q.x])).map(sm => { const n = sm.cells.length, cx = sm.cells.reduce((a, q) => a + q.x, 0) / n, cy = sm.cells.reduce((a, q) => a + q.y, 0) / n, at = [...sm.cells].sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy))[0]; return {cells: n, at, phasesLeft: sm.expires - g.turn}; }),   // 世界推進時 expires > turn 才留著
     log: (g.pvp.log || []).slice(-6), dead: g.sides[side].filter(m => dead(m.squadId)).map(m => m.squadId),
   };
 }

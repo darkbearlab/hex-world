@@ -102,7 +102,7 @@ export class PvpGame extends SquadGame {
       const m = this.members.length ? this.unit(e.pvpOf) : null; if (!m || m.hp <= 0) continue;
       const total = m.hp + (m.plates || 0), now = Math.max(0, e.hp); if (now >= total) continue;
       let lost = total - now; const by = this.pvpActor || null;
-      (this.pvp.events ||= []).push({round: this.pvp.round, target: m.squadId, dmg: lost, by: by?.id || null, byVisible: !!by?.exposed, killed: now <= 0, left: now});
+      (this.pvp.events ||= []).push({round: this.pvp.round, target: m.squadId, dmg: lost, by: by?.id || null, byVisible: !!by?.exposed, how: this.pvpHow || null, killed: now <= 0, left: now});
       const p = Math.min(m.plates || 0, lost); m.plates = (m.plates || 0) - p; lost -= p; m.hp -= lost;
       if (m.hp <= 0 || e.hp <= 0) { m.hp = 0; e.hp = 0; this.pvp.kills[this.other(m.pvpSide)]++; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId}（${m.character}）倒下${by?.id ? `，${by.id} 擊倒` : ''}`); }
     }
@@ -171,12 +171,12 @@ export class PvpGame extends SquadGame {
     for (const id of [...(this.pvp.left || [])]) { const m = this.unit(id); if (m?.hp > 0 && this.status === 'playing') { this.focusUnit(m); try { this.action('wait'); } finally { this.unitDone(m); } } }
     for (const a of this.activeAllies) {
       if (this.status !== 'playing' || a.hp <= 0 || a.pvpSide !== side) continue;
-      this.pvpActor = {id: `${side} 的無人機 ${a.id}`, exposed: true};
+      this.pvpActor = {id: `${side} 的無人機 ${a.id}`, exposed: true}; this.pvpHow = {type: 'drone'};
       if (isMunition(a)) munitionAct(this, a); else if (isBomber(a)) bomberAct(this, a); else allyAct(this, a);
       this.pvpFlashes = [...(this.pvpFlashes || []), ...this.flashesNow()];
       this.syncProxies(); this.judge();
     }
-    this.pvpActor = {id: '火、酸液等環境', exposed: true}; this.worldTick(); this.syncProxies(); this.judge(); this.pvpActor = null;
+    this.pvpActor = {id: '火、酸液等環境', exposed: true}; this.pvpHow = null; this.worldTick(); this.syncProxies(); this.judge(); this.pvpActor = null;
     if (side === 'B') this.pvp.round++;
     if (this.status === 'playing' && this.pvp.round > PVP.ROUNDS) { this.status = 'draw'; this.pvp.log.push('打到回合上限'); }
     this.pvp.left = []; return true;
@@ -222,11 +222,15 @@ export class PvpGame extends SquadGame {
   // 轉角：開過火（暴露）的人如果打得到你，你也打得到他（代理回報：轉角的人可以單方面一直開火；ASH 原本轉角後「看得到打不到」）
   shotClear(a, b) { return super.shotClear(a, b) || !!(b?.pvpOf && b.pvpExposed && super.shotClear(b, a)); }
   attackStatus(a, b) { const s = super.attackStatus(a, b); return b?.pvpOf && b.pvpExposed && s?.reason === 'target_corner_hidden' && super.shotClear(b, a) ? {...s, reason: null, clear: true} : s; }
+  // 暴露只讓對方知道位置；要開火還是要 ASH 原本的視線（含煙霧、黑暗；轉角兩邊都能探頭＝對稱）
+  nativeSight(a, b) { return super.sight(a, b); }
   visible(e) { return e?.pvpOf && e.pvpExposed ? true : super.visible(e); }   // 暴露中的不受距離限制
   // 動作做完：開火的暴露；近戰砍了沒死也暴露
   soloPaid(type, arg) {
     const hp0 = new Map(this.enemies.map(e => [e, e.hp])), meleeShot = type === 'fire' && this.weapon?.melee, p = this.player;
+    if (type === 'fire' && this.targeted?.pvpExposed && !this.nativeSight(p, this.targeted)) return this.fail('他暴露中，只知道位置；你沒有視線（牆、轉角或煙霧）');
     const quiet = this.weapon?.noFlash && isBlack(this, p);   // 消焰器、站在全黑的地方：開火不暴露
+    this.pvpHow = type === 'grenade' ? {grenade: arg?.grenade || p.prepared?.grenade, x: arg?.x, y: arg?.y} : {type, weapon: this.weapon?.name};   // 受傷的人看得到「被什麼打」（看不到是誰）
     let ok = super.soloPaid(type, arg);
     // 下錨：ASH 在一般和慢速階段各打一次（action() 的行動佇列）；soloTurn 不經過佇列，這裡補第二次
     if (ok && skillActive(p, 'anchor') && ['fire', 'blindFire', 'bumpMelee', 'suppressiveFire'].includes(type) && p.hp > 0 && this.status === 'playing' && (type !== 'fire' || this.targeted?.hp > 0)) super.soloPaid(type, arg);

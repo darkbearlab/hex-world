@@ -11,10 +11,10 @@ import {WEAPONS} from './data.js';
 const DIRS = {N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0]};
 const strip = x => String(x || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 const CLASS_HELP = '職業（武器：射程／彈匣）：\n' + PVP_CLASSES.map(c => { const C = CHARACTERS[c];
-  const w = (C.weapons || []).map(b => { const W = WEAPONS[b]; return W ? `${W.name}${W.melee ? '（近戰，相鄰）' : `（射程 ${W.range}／彈匣 ${W.mag}）`}` : ''; }).join('、');
+  const w = (C.weapons || []).map(b => { const W = WEAPONS[b]; return W ? `${W.name}${W.melee ? '（近戰，相鄰）' : `（基本射程 ${W.range}／彈匣 ${W.mag}）`}` : ''; }).join('、');
   const sk = (C.skills || []).map(id => `${id}「${SKILLS[id]?.name || id}」：${strip(SKILLS[id]?.text)}`).join('；');
   return `  ${c}：生命 ${C.hp}${c === 'bulwark' ? '・護甲板 60（PVP）・護甲 6' : C.plates ? '・護甲板 ' + C.plates : ''}${C.armor && c !== 'bulwark' ? '・護甲 ' + C.armor : ''}｜${w}｜技能 ${sk}`; }).join('\n') +
-  '\n  engineer 的 workshop 在文字介面用 deploy 指令（部署生產線上的無人機）；無人機在你的人都動完後自己行動，對方打得到它，它不算人頭。';
+  '\n  實際射程以局面裡「我方」那一行為準（職業與配件會加）。recon、ninja 有紅外線（infrared）：看得穿煙霧。丟手榴彈不會暴露位置。\n  engineer 的 workshop 在文字介面用 deploy 指令（部署生產線上的無人機）；無人機在你的人都動完後自己行動，對方打得到它，它不算人頭。';
 export const HELP = `PVP 文字對戰：兩隊各 4 人，XCOM 式輪流——你的階段裡你的每個人各做「一個動作」（順序自己決定），然後換對方。先拿下對方 2 人的贏；倒地就是死。
 座標：x 往右、y 往下；N＝y-1、S＝y+1、E＝x+1、W＝x-1（只能走上下左右一格）。
 視野：只看得到你的人看得到的。對方開火後會「暴露」到他下個階段開始——你在任何地方都看得到他（要打他還是要有射線）。你開火也一樣會暴露。
@@ -64,11 +64,13 @@ export function createRoom(opts = {}) {
   }
   const snap = side => Object.fromEntries(g.sides[side].map(m => [m.squadId, {hp: Math.max(0, m.hp), plates: m.plates || 0}]));
   // 輪到 side：機器人就直接打完它的階段，換下一邊
+  const GN = {frag: '破片手榴彈', smoke: '煙霧彈', stun: '震撼彈', emp: 'EMP'};
+  const howText = h => !h ? '' : h.grenade ? `（${GN[h.grenade] || h.grenade}，落在 (${h.x},${h.y})；丟手榴彈不會暴露）` : h.type === 'drone' ? '' : h.weapon ? `（${['bumpMelee', 'hookBlade', 'grapple'].includes(h.type) ? '近戰 ' : ''}${h.weapon}）` : '';
   function begin(side) {
     while (g.status === 'playing') {
       // 上一個對方階段裡自己的人怎麼了
       const ev = g.pvp.events || [];
-      for (const e of ev.slice(evIdx[side])) if (g.unit(e.target)?.pvpSide === side) { const u = g.unit(e.target); since[side].push(`${e.target} 受到 ${e.dmg} 傷害，來自 ${e.byVisible ? e.by : '看不到的對手'}${e.killed ? '，倒下了' : `（剩生命 ${Math.max(0, u.hp)}、護甲板 ${u.plates || 0}）`}`); }
+      for (const e of ev.slice(evIdx[side])) if (g.unit(e.target)?.pvpSide === side) { const u = g.unit(e.target); since[side].push(`${e.target} 受到 ${e.dmg} 傷害，來自 ${e.byVisible ? e.by : '看不到的對手'}${howText(e.how)}${e.killed ? '，倒下了' : `（剩生命 ${Math.max(0, u.hp)}、護甲板 ${u.plates || 0}）`}`); }
       evIdx[side] = ev.length;
       if (BOT[side]) { g.phase(side); before[side] = snap(side); side = g.other(side); continue; }
       if (!g.beginPhase(side)) { side = g.other(side); continue; }
@@ -96,7 +98,8 @@ export function createRoom(opts = {}) {
   function render(side) {
     if (!g || (lastResult && lastResult.match === matchNo && g.status !== 'playing')) {
       const r = lastResult && lastResult.match === matchNo ? lastResult : null;
-      const head = r ? `== 第 ${r.match} 場結束：${r.status === 'won' ? (r.winner === side ? '你贏了' : '你輸了') : '平手'}（${r.rounds} 回合）==\n${r.log.join('\n')}\n` : '';
+      const tail = r ? (g?.pvp.events || []).slice(evIdx[side]).filter(e => g.unit(e.target)?.pvpSide === side).map(e => `${e.target} 受到 ${e.dmg} 傷害，來自 ${e.byVisible ? e.by : '看不到的對手'}${howText(e.how)}${e.killed ? '，倒下了' : ''}`) : [];
+      const head = r ? `== 第 ${r.match} 場結束：${r.status === 'won' ? (r.winner === side ? '你贏了' : '你輸了') : '平手'}（${r.rounds} 回合）==\n${r.log.join('\n')}\n${tail.length ? '最後的傷害：' + tail.join('；') + '\n' : ''}` : '';
       return head + (picks[side] ? '你已經選好職業，等對方選。用 /wait 等開打。' : `請選 4 個職業（同隊不重複）：POST /pick，內文例如 soldier,recon,bulwark,ninja。可選：${PVP_CLASSES.join('、')}`);
     }
     if (!myTurn(side)) return `== 第 ${g.pvp.round} 回合：現在是對方（${g.pvp.side} 隊）的階段，請用 /wait?side=${side} 等 ==`;
@@ -155,7 +158,7 @@ export function createRoom(opts = {}) {
     let type, a, opt = {};
     switch (verb) {
       case 'move': { const d = DIRS[(rest[0] || '').toUpperCase()]; if (!d) return `${id} move 要接 N、S、E 或 W`; const mate = g.sides[side].find(u => u !== m && u.hp > 0 && u.x === m.x + d[0] && u.y === m.y + d[1]); if (mate) return `${id} 往 ${rest[0].toUpperCase()} 被隊友 ${mate.squadId} 擋住`; type = 'move'; a = d; break; }
-      case 'goto': { const p = xy(rest.join('')); if (!p) return `${id} goto 要接座標，例如 goto 12,5`; if (p.x === m.x && p.y === m.y) return `${id} 已經在 (${p.x},${p.y})`; const d = stepToward(m, p); if (!d) return stepToward(m, p, true) ? `${id} 去 (${p.x},${p.y}) 的路被自己的隊友擋住了（先讓隊友讓開，或換條路）` : `${id} 用你看過的地圖找不到去 (${p.x},${p.y}) 的路（沒看過的格子不會走）`; type = 'move'; a = d; break; }
+      case 'goto': { const p = xy(rest.join('')); if (!p) return `${id} goto 要接座標，例如 goto 12,5`; if (p.x === m.x && p.y === m.y) return `${id} 已經在 (${p.x},${p.y})`; const mate = g.sides[side].find(u => u !== m && u.hp > 0 && u.x === p.x && u.y === p.y); if (mate) return `${id}：(${p.x},${p.y}) 站著隊友 ${mate.squadId}`; const d = stepToward(m, p); if (!d) return stepToward(m, p, true) ? `${id} 去 (${p.x},${p.y}) 的路被自己的隊友擋住了（先讓隊友讓開，或換條路）` : `${id} 用你看過的地圖找不到去 (${p.x},${p.y}) 的路（沒看過的格子不會走）`; type = 'move'; a = d; break; }
       case 'fire': case 'shoot': case 'attack': { const t = foeTarget(rest[0]); if (!t) return `${id} 的隊伍看不到「${rest[0] || ''}」（要寫「看到的對方」列表裡的 id，例如 ${g.sides[g.other(side)].find(u => u.hp > 0)?.squadId || g.other(side) + '1'}）`; type = 'fire'; opt.target = t; break; }
       case 'reload': type = 'reload'; break;
       case 'wait': type = 'wait'; break;
