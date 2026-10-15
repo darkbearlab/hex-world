@@ -30,7 +30,11 @@ function relink(st){
  if(st.player)st.player=by.get(st.player.id)||st.player;if(st.controlled)st.controlled=by.get(st.controlled.id)||st.controlled;
  return st;
 }
-const hydrate=st=>(st?.grid&&setSize(st.grid.length),Object.assign(Object.create(SquadGame.prototype),relink(st),{effects:[]}));
+// 全隊共享視野（Alan 2026-10-15）：伺服器只送這一方看得到的敵人，送來的就畫出來（ASH 原本只畫操作中的人看得到的）；能不能打還是伺服器照射手自己的視線判
+function shareVision(g){const P=SquadGame.prototype,def=(k,f)=>Object.defineProperty(g,k,{configurable:true,writable:true,enumerable:false,value:f});
+ def('visible',function(e){return this.enemies?.includes(e)&&e.hp>0?true:P.visible.call(this,e);});
+ def('teamVisible',function(e){return this.enemies?.includes(e)&&e.hp>0?true:P.teamVisible.call(this,e);});return g;}
+const hydrate=st=>(st?.grid&&setSize(st.grid.length),shareVision(Object.assign(Object.create(SquadGame.prototype),relink(st),{effects:[]})));
 function apply(g,st){if(!st)return;relink(st);for(const k of Object.keys(g))if(!(k in st))delete g[k];Object.assign(g,st);g.effects=[];}
 const revive=(k,v)=>v&&typeof v==='object'?(Array.isArray(v.$set)?new Set(v.$set):Array.isArray(v.$map)?new Map(v.$map):v):v;
 const url=op=>`/api/${op}?side=${seat.side}`;
@@ -56,6 +60,7 @@ function mirror(state){
  def('choosePerk',()=>false);
  def('setControlled',m=>sync({op:'control',id:m?.squadId}).success);
  def('cycleControlled',()=>sync({op:'cycle'}).success);
+ shareVision(g);
  return g;
 }
 // 用伺服器的畫面開始（或對方的階段結束、輪到你時換成新的局面）

@@ -92,7 +92,7 @@ export class Room extends DurableObject {
       if (p === '/wait') { const t = Math.min(50, +(url.searchParams.get('t') || 25)); return text(await R.waitTurn(side, t)); }
       const out = R.handle(p, side, body, token);
       if (p === '/pick' || p === '/cmd' || p === '/act') await this.save();
-      if (p === '/act' || p === '/view') return new Response(out, {status: out.startsWith('你沒有坐') ? 403 : 200, headers: {'content-type': out.startsWith('{') ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'cache-control': 'no-store'}});
+      if (p === '/act' || p === '/view' || p === '/replay') return new Response(out, {status: out.startsWith('你沒有坐') ? 403 : 200, headers: {'content-type': out.startsWith('{') ? 'application/json; charset=utf-8' : 'text/plain; charset=utf-8', 'cache-control': 'no-store'}});
       return text(out);
     } catch (e) { console.log('error', p, e.stack); return text('伺服器錯誤：' + e.message, 500); }
   }

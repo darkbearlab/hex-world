@@ -43,6 +43,8 @@ export const HELP = `PVP 文字對戰：兩隊各 4 人，XCOM 式輪流——�
 ` + CLASS_HELP;
 
 
+// 對方在畫面上的樣子（只換瀏覽器拿到的快照；伺服器的規則照替身）：ASH 的除名特工有五個職業的外觀，重裝兵借重裝火焰兵
+export const LOOK = {soldier: 'delisted_soldier', recon: 'delisted_recon', engineer: 'delisted_engineer', berserker: 'delisted_berserker', ninja: 'delisted_ninja', bulwark: 'heavy_flamer'};
 // Set、Map 在 JSON 裡會變成空物件（例如 visibleTiles）：標記起來，瀏覽器解析時還原（同奇美拉）
 const tag = (k, v) => v instanceof Set ? {$set: [...v]} : v instanceof Map ? {$map: [...v]} : v;
 
@@ -57,6 +59,9 @@ export function createRoom(opts = {}) {
   let phaseNo = 0, phaseInfo = null;
   // ASH 介面（pvp/web 的 play）：每一方現在操作的人、最後一次的畫面（對方的階段裡給的就是這個）
   const focus = {A: null, B: null}, lastView = {A: null, B: null};
+  // 對方的階段裡，這一方看得到的動作（Alan 2026-10-15：「敵人在我方視線內，過程還是要有演出」）：每個動作一格 {n, before, after, effects}
+  // 等的那一方的頁面一邊等一邊拿來播（/replay，內文＝已經播到第幾格）。只放記憶體，不進紀錄（被回收了就沒有，不影響局面）
+  const watch = {A: {frames: [], seq: 0, last: null}, B: {frames: [], seq: 0, last: null}};
   let seed = opts.seed ?? 1, matchBase = opts.match ?? 0, evIdx = {A: 0, B: 0}, picks = {A: null, B: null}, g = null, matchNo = 0, waiters = {A: [], B: []}, mem = {A: {}, B: {}}, since = {A: [], B: []}, before = {A: null, B: null}, lastResult = null;
 
   function startMatch() {
@@ -78,8 +83,9 @@ export function createRoom(opts = {}) {
       const ev = g.pvp.events || [];
       for (const e of ev.slice(evIdx[side])) if (g.unit(e.target)?.pvpSide === side) { const u = g.unit(e.target); since[side].push(`${e.target} 受到 ${e.dmg} 傷害，來自 ${e.byVisible ? e.by : '看不到的對手'}${howText(e.how)}${e.killed ? '，倒下了' : `（剩生命 ${Math.max(0, u.hp)}、護甲板 ${u.plates || 0}）`}`); }
       evIdx[side] = ev.length;
-      if (BOT[side]) { g.phase(side); before[side] = snap(side); side = g.other(side); continue; }
+      if (BOT[side]) { botPhase(side); before[side] = snap(side); side = g.other(side); continue; }
       if (!g.beginPhase(side)) { side = g.other(side); continue; }
+      watchStart(side);
       break;
     }
     if (g.status !== 'playing') finish(); else { phaseInfo = {no: ++phaseNo, side, at: Date.now()}; wake(side); }
@@ -154,7 +160,7 @@ export function createRoom(opts = {}) {
   function command(side, line) {
     const words = line.trim().split(/\s+/), head = words[0]?.toLowerCase();
     if (!head) return null;
-    if (head === 'end') { g.endPhase(); before[side] = snap(side); since[side] = []; begin(g.other(side)); return '結束這個階段'; }
+    if (head === 'end') { const ender = g.pvp.side, {steps} = captureAction(g, () => { g.endPhase(); return true; }); watchRecord(ender, null, steps); before[side] = snap(side); since[side] = []; begin(g.other(side)); return '結束這個階段'; }
     if (head === 'surrender') { g.status = 'won'; g.pvp.winner = g.other(side); g.pvp.log.push(`${side} 隊投降`); finish(); return '投降了'; }
     const id = /^\d$/.test(words[0]) ? side + words[0] : words[0].toUpperCase(), verb = (words[1] || '').toLowerCase(), rest = words.slice(2);
     const m = g.sides[side].find(u => u.squadId === id);
@@ -192,11 +198,12 @@ export function createRoom(opts = {}) {
 
   function handle(p, side, body = '', token = null) {
     side = (side || '').toUpperCase();
-    if (opts.seats && ['/pick', '/cmd', '/report', '/act', '/view'].includes(p) && ['A', 'B'].includes(side) && (!seats[side] || seats[side].token !== token)) return '你沒有坐這個座位（先坐下：/seat）';
+    if (opts.seats && ['/pick', '/cmd', '/report', '/act', '/view', '/replay'].includes(p) && ['A', 'B'].includes(side) && (!seats[side] || seats[side].token !== token)) return '你沒有坐這個座位（先坐下：/seat）';
     if (['/pick', '/cmd', '/bot', '/act'].includes(p) && !replaying) journal.push({p, side, body});
     if (p === '/bot') return JSON.stringify(setBot(side, body === '1'));
     if (p === '/act') return JSON.stringify(act(side, body), tag);
     if (p === '/view') return JSON.stringify(viewOf(side), tag);
+    if (p === '/replay') { const from = +(body || 0); return JSON.stringify({phase: !g ? 'none' : g.status !== 'playing' ? 'over' : myTurn(side) ? 'play' : 'wait', round: g?.pvp.round, frames: (watch[side]?.frames || []).filter(f => f.n > from)}, tag); }
     if (seats[side] && token && seats[side].token === token) seats[side].seen = Date.now();
     if (p === '/help') return HELP;
     if (!['A', 'B'].includes(side)) return '要給 side=A 或 side=B';
@@ -226,7 +233,7 @@ export function createRoom(opts = {}) {
         if (r === null) continue;
         out.push(`${line.trim()} → ${r}`);
         log('arena-log.jsonl', {match: matchNo, side, round: g?.pvp.round, line: line.trim(), result: r});
-        if (myTurn(side) && g.pvp.left.length === 0 && !/^end\b/i.test(line.trim())) { g.endPhase(); before[side] = snap(side); since[side] = []; out.push('（全部的人都動過了，自動結束階段）'); begin(g.other(side)); }
+        if (myTurn(side) && g.pvp.left.length === 0 && !/^end\b/i.test(line.trim())) { const {steps} = captureAction(g, () => { g.endPhase(); return true; }); watchRecord(side, null, steps); before[side] = snap(side); since[side] = []; out.push('（全部的人都動過了，自動結束階段）'); begin(g.other(side)); }
       }
       return out.join('\n') + '\n\n' + render(side);
     }
@@ -259,7 +266,7 @@ export function createRoom(opts = {}) {
   // 對方的迷霧、收起來的對方無人機、種子都不送（畫面上的外觀用一個跟真種子無關的外觀種子）
   function filter(s, side, vis) {
     const seen = (x, y) => Boolean(s.seen?.[y]?.[x]), near = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (seen(x + dx, y + dy)) return true; return false; };
-    const out = {...s, seed: (seed * 7919 + 17) % 100000, enemies: (s.enemies || []).filter(e => e.hp > 0 ? vis.has(e.id) : seen(e.x, e.y)).map(e => /^pvp-proxy-/.test(e.type) ? {...e, type: PVP.PROXY} : e),
+    const out = {...s, seed: (seed * 7919 + 17) % 100000, enemies: (s.enemies || []).filter(e => e.hp > 0 ? vis.has(e.id) : seen(e.x, e.y)).map(e => /^pvp-proxy-/.test(e.type) || e.pvpAlly != null ? {...e, type: LOOK[e.pvpCls] || (e.pvpAlly != null ? 'drone' : PVP.PROXY)} : e),
       grid: s.grid?.map((row, y) => row.map((v, x) => near(x, y) ? v : 0)), items: (s.items || []).filter(i => seen(i.x, i.y)),
       props: (s.props || []).filter(o => o.x === undefined || seen(o.x, o.y)), hazards: (s.hazards || []).filter(h => seen(h.x, h.y)),
       end: {x: -99, y: -99}, pvpSide: side,
@@ -274,6 +281,40 @@ export function createRoom(opts = {}) {
     if (out.pvp) out.pvp = {round: s.pvp.round, side: s.pvp.side, left: s.pvp.left, kills: s.pvp.kills, log: s.pvp.log, winner: s.pvp.winner};
     return out;
   }
+  // 從 side 的角度拍一張（對方的階段裡用，不改局面）
+  const observe = side => g.viewAs(side, () => filter(snapshot(g), side, visibleTo(side)));
+  // 對方階段開始：清掉上一輪的格子，拍一張起點
+  function watchStart(acting) { const O = g.other(acting); if (BOT[O] || !seats[O] || replaying) return; watch[O].frames = []; watch[O].last = observe(O); }
+  // acting 那一方剛做完一個動作（steps＝ASH 錄的動畫）：換成 O 看得到的樣子記一格
+  function watchRecord(acting, unitId, steps) {
+    const O = g.other(acting), w = watch[O]; if (BOT[O] || !seats[O] || replaying) return;
+    const before = w.last || observe(O), after = observe(O), pid = unitId ? `px-${unitId}` : null;
+    const seenActor = pid && [before, after].some(s => s.enemies?.some(e => e.id === pid && e.hp > 0));
+    const visTile = q => q && (after.visibleTiles?.has?.(`${q.x},${q.y}`) || before.visibleTiles?.has?.(`${q.x},${q.y}`));
+    const fx = steps.flatMap(s => s.effects || []).filter(e => e.type !== 'callout' && e.type !== 'move' && (seenActor || (e.type !== 'shot' && e.type !== 'pulse')) && (visTile(e.to) || visTile(e.from) || seenActor));
+    const pos = s => JSON.stringify((s.enemies || []).map(e => [e.id, e.x, e.y, e.hp]).concat((s.members || []).map(m => [m.id, m.hp, m.plates])));
+    w.last = after;
+    if (!fx.length && pos(before) === pos(after)) return;   // 什麼都沒看到
+    w.frames.push({n: ++w.seq, unit: seenActor ? unitId : null, before, after, effects: fx});
+    if (w.frames.length > 40) w.frames.shift();
+    wake(O);
+  }
+  // 機器人的階段：一個人一個人跑（錄動畫給等的那一方看），同 PvpGame.phase
+  function botPhase(side) {
+    if (!g.beginPhase(side)) return false;
+    watchStart(side);
+    for (const m of g.alive(side)) {
+      if (g.status !== 'playing' || m.hp <= 0) continue;
+      const brain = g.brains.get(m); if (!brain) continue;
+      g.focusUnit(m); g.pvpActor = {id: m.squadId, get exposed() { return !!m.pvpExposed; }};
+      let steps = [];
+      try { ({steps} = captureAction(g, () => { for (let i = 0; i < 6 && !g.soloDone && m.hp > 0 && g.status === 'playing'; i++) brain(g, m); return true; })); }
+      finally { g.unitDone(m); }
+      watchRecord(side, m.squadId, steps);
+    }
+    const {steps} = captureAction(g, () => { g.endPhase(); return true; }); watchRecord(side, null, steps);
+    return true;
+  }
   // 這一方看得到的對手（每個活著的隊員換過去看一次；暴露中的不管距離牆壁都算）
   function visibleTo(side) {
     const keep = g.player, vis = new Set();
@@ -286,7 +327,7 @@ export function createRoom(opts = {}) {
   }
   // 現在的畫面：輪到這一方就照現況算（操作中的人＝focus），不然給最後一次的
   function viewOf(side) {
-    const base = {phase: !g ? 'none' : g.status !== 'playing' ? 'over' : myTurn(side) ? 'play' : 'wait', round: g?.pvp.round, left: g?.pvp.left || [], kills: g?.pvp.kills, winner: g?.pvp.winner || null, log: g?.pvp.log || [], since: since[side]};
+    const base = {phase: !g ? 'none' : g.status !== 'playing' ? 'over' : myTurn(side) ? 'play' : 'wait', round: g?.pvp.round, left: g?.pvp.left || [], kills: g?.pvp.kills, winner: g?.pvp.winner || null, log: g?.pvp.log || [], since: since[side], replayN: watch[side]?.seq || 0};
     if (!g) return base;
     if (!myTurn(side)) return {...base, state: lastView[side]};
     const m = focusOf(side); if (m && g.player !== m) { g.swap(m); g.controlled = m; g.reveal(); }
@@ -308,6 +349,7 @@ export function createRoom(opts = {}) {
     const vis = visibleTo(side);
     const {success, steps} = captureAction(g, () => { const r = g.actAs(m.squadId, body.type, body.arg, body.target !== undefined ? {target: body.target} : {}); if (!r.ok) g.refusal ||= {text: r.msg}; return r.ok; });
     const refusal = success ? null : g.refusal || null;
+    if (success) watchRecord(side, m.squadId, steps);
     const shown = steps.map(s => ({before: filter(s.before, side, vis), after: filter(s.after, side, visibleTo(side)), effects: s.effects}));
     if (g.status !== 'playing') finish();
     else if (myTurn(side) && !(g.pvp.left || []).length) { lastView[side] = viewOf(side).state; command(side, 'end'); }   // 四個人都動過：自動結束階段

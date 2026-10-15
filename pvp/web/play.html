@@ -44,23 +44,39 @@ function hud(v){
  const k=v.kills||{},o=side==='A'?'B':'A';$('bRound').title=`拿下 ${k[side]||0}／倒下 ${k[o]||0}`;
 }
 setInterval(()=>{$('bTimer').textContent=deadline&&phase==='play'?`剩 ${Math.max(0,Math.ceil((deadline-Date.now())/1000))} 秒`:'';$('bTimer').className='pill'+(deadline&&deadline-Date.now()<15000?' warn':'');},500);
-E.onView=d=>{hud(d);if(d.phase!=='play')wait();};
+E.onView=d=>{hud(d);if(d.phase!=='play'||(d.replayN||0)>cursor)wait();};   // 對方的動作還沒播（對機器人時它的整個階段在你結束的那一下就算完了）
 // 報到：伺服器 2 分鐘沒收到這個座位的任何請求就判斷線投降；自己的階段裡想很久也不會被誤判
 setInterval(()=>{if(phase==='play')api('json').then(j=>{deadline=j.deadline;}).catch(()=>{});},20000);
 let waiting=false;
-// 不是你的階段：蓋上「對方行動中」，等到輪到你再換成新的局面
+// 不是你的階段：畫面照開著，對方的動作在你的人看得到的範圍內照樣播（Alan 2026-10-15）；輪到你再換成新的局面
+const revive=(k,v)=>v&&typeof v==='object'?(Array.isArray(v.$set)?new Set(v.$set):Array.isArray(v.$map)?new Map(v.$map):v):v;
+let cursor=0,shown=false;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function replay(){const r=await fetch(`/api/replay?side=${side}`,{method:'POST',body:String(cursor),headers:{'x-seat':token}});return JSON.parse(await r.text(),revive);}
 async function wait(){
  if(waiting)return;waiting=true;
  try{
+  if(!shown){const v=await api('view');if(v.state){E.startRemote(v);shown=true;$('cover').hidden=true;}}
+  $('bPhase').textContent='對方行動中⋯';$('bPhase').className='pill';$('bLeft').textContent='';$('bEnd').disabled=true;
   for(;;){
-   const j=await api('jwait?t=25');deadline=j.deadline;
-   if(j.phase==='pick'){location.replace('./');return;}
-   if(j.phase==='play')break;
-   $('cover').hidden=false;$('coverText').textContent=`第 ${j.round||'?'} 回合：對方行動中⋯`;
+   const rp=await replay(),back=E.camera?.position&&{...E.camera.position};
+   for(const f of rp.frames){
+    cursor=f.n;
+    // 演出：鏡頭先轉到看得到的那個敵人（只有這段，播完回到你原本的位置）
+    const actor=f.unit&&(f.after.enemies||[]).find(e=>e.id===`px-${f.unit}`)||f.unit&&(f.before.enemies||[]).find(e=>e.id===`px-${f.unit}`);
+    if(actor)E.camera?.center(actor);
+    E.applyState(f.after);   // 播完停在這一格之後的樣子
+    E.present([{before:E.hydrate(f.before),after:E.hydrate(f.after),effects:f.effects}]);
+    await sleep(60);while(E.busy())await sleep(60);await sleep(250);
+   }
+   if(rp.frames.length&&back)E.camera?.center(back);
+   if(rp.phase==='pick'||rp.phase==='none'){location.replace('./');return;}
+   if(rp.phase==='play'||rp.phase==='over')break;
+   if(!rp.frames.length){const j=await api('jwait?t=20');deadline=j.deadline;$('bRound').textContent=j.round?`第 ${j.round}/300 回合`:'';if(j.phase==='pick'){location.replace('./');return;}}
   }
   const v=await api('view');
   if(v.phase==='over'){$('cover').hidden=false;$('coverText').innerHTML=`對戰結束：${v.winner===side?'你贏了':'你輸了'}<br><a href="./" style="color:#8fc7ff">回到大廳</a>`;$('since').textContent=(v.log||[]).join('\n');return;}
-  hud(v);E.startRemote(v);$('cover').hidden=true;
+  hud(v);E.startRemote(v);shown=true;$('cover').hidden=true;
   $('since').textContent='';if(v.since?.length)note('對方階段：'+v.since.join('；'));
  }finally{waiting=false;}
 }
@@ -72,7 +88,7 @@ $('bSurr').onclick=async()=>{if(!confirm('確定投降？'))return;const d=await
 // 開始：拿現在的畫面（對方的階段就等）
 const v=await api('view');
 if(v.phase==='none'){location.replace('./');}
-else if(v.phase==='play'){const j=await api('json');deadline=j.deadline;hud(v);E.startRemote(v);$('cover').hidden=true;}
+else if(v.phase==='play'){const j=await api('json');deadline=j.deadline;hud(v);E.startRemote(v);shown=true;$('cover').hidden=true;if((v.replayN||0)>cursor)wait();}
 else wait();
 </script>
 </body>

@@ -102,7 +102,8 @@ export class PvpGame extends SquadGame {
     const allies = this.allAllies.filter(a => a.pvpSide === side && a.status === 'active' && a.hp > 0 && a.floor === this.floor).map(a => Object.assign(makeEnemy(PVP.PROXY, a.x, a.y, `pa-${a.id}`, 1, this.difficultySpec, this.facilityFaction), {hp: a.hp, maxHp: a.maxHp || a.hp, alert: true, courseName: a.name || a.kind, pvpAlly: a.id}));
     return [...allies, ...this.alive(side).map(m => {
       const e = makeEnemy(proxyType(m.armor), m.x, m.y, `px-${m.squadId}`, 1, this.difficultySpec, this.facilityFaction); Object.assign(e, DEFENSE(m));
-      return Object.assign(e, {hp: m.hp + (m.plates || 0), maxHp: m.maxHp + (m.plates || 0), alert: true, courseName: m.squadId, pvpOf: m.squadId, pvpExposed: !!m.pvpExposed});
+      // 名字（目標卡、紀錄）：「B2 重裝兵」——Alan 2026-10-15：對方的職業先不隱藏
+      return Object.assign(e, {hp: m.hp + (m.plates || 0), maxHp: m.maxHp + (m.plates || 0), alert: true, courseName: `${m.squadId} ${CHARACTERS[m.character]?.label || m.character}`, pvpCls: m.character, pvpOf: m.squadId, pvpExposed: !!m.pvpExposed});
     })];
   }
   // 替身受的傷同步回本人：先扣護甲板、再扣生命
@@ -125,6 +126,24 @@ export class PvpGame extends SquadGame {
     }
   }
   unit(id) { return [...this.sides.A, ...this.sides.B].find(m => m.squadId === id); }
+  // 從 side 的角度看一眼（對方的階段裡播「看得到的」給 side，pvp-room.js）：暫時換成 side 的隊員、對方的替身、side 的迷霧，
+  // 交給 shoot(this) 拍快照，拍完全部換回來（連 side 的迷霧記憶也還原：重播紀錄時不會拍這些，局面要一模一樣）
+  viewAs(side, shoot) {
+    const keep = {members: this.members, enemies: this.enemies, seen: this.seen, allies: this.allies, parked: this.pvpParked, player: this.player, controlled: this.controlled,
+      visibleTiles: this.visibleTiles, target: this.target, effects: this.effects, logs: this.logs.slice(), refusal: this.refusal, fog: this.pvpSeen[side].map(r => r.slice())};
+    const lead = this.alive(side)[0] || this.sides[side][0], o = this.other(side), all = this.allAllies;
+    try {
+      this.members = this.sides[side]; this.enemies = this.proxies(o); this.seen = this.pvpSeen[side];
+      this.allies = all.filter(a => a.pvpSide !== o); this.pvpParked = all.filter(a => a.pvpSide === o);
+      this.swap(lead); this.controlled = lead; this.effects = []; this.reveal({warnings: false});
+      return shoot(this);
+    } finally {
+      this.swap(keep.player);
+      Object.assign(this, {members: keep.members, enemies: keep.enemies, seen: keep.seen, allies: keep.allies, pvpParked: keep.parked, controlled: keep.controlled,
+        visibleTiles: keep.visibleTiles, target: keep.target, effects: keep.effects, logs: keep.logs, refusal: keep.refusal});
+      this.pvpSeen[side] = keep.fog;
+    }
+  }
   // 對方的無人機、砲台在這一隊的階段裡先收起來（ASH 的部署上限、跟隨、修理都看 g.allies；對方的只以替身存在）
   get allAllies() { return [...this.allies, ...(this.pvpParked || [])]; }
   park(side) {
