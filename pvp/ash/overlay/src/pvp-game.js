@@ -16,7 +16,7 @@ import {SquadGame} from './chimera-squad.js';
 import {makeEnemy, distance} from './world.js';
 import {setSize, WEAPONS} from './data.js';
 import {weaponStats} from './weapons.js';
-import {tickSkills} from './skills.js';
+import {tickSkills, skillActive} from './skills.js';
 import {expireExposure} from './corner.js';
 import {tickTraits} from './traits.js';
 import {tickVents} from './vents.js';
@@ -102,7 +102,7 @@ export class PvpGame extends SquadGame {
       const m = this.members.length ? this.unit(e.pvpOf) : null; if (!m || m.hp <= 0) continue;
       const total = m.hp + (m.plates || 0), now = Math.max(0, e.hp); if (now >= total) continue;
       let lost = total - now; const by = this.pvpActor || null;
-      (this.pvp.events ||= []).push({round: this.pvp.round, target: m.squadId, dmg: lost, by: by?.id || null, byVisible: !!by?.exposed, killed: now <= 0});
+      (this.pvp.events ||= []).push({round: this.pvp.round, target: m.squadId, dmg: lost, by: by?.id || null, byVisible: !!by?.exposed, killed: now <= 0, left: now});
       const p = Math.min(m.plates || 0, lost); m.plates = (m.plates || 0) - p; lost -= p; m.hp -= lost;
       if (m.hp <= 0 || e.hp <= 0) { m.hp = 0; e.hp = 0; this.pvp.kills[this.other(m.pvpSide)]++; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId} 倒下`); }
     }
@@ -141,7 +141,7 @@ export class PvpGame extends SquadGame {
     if (this.status !== 'playing' || !this.enter(side)) return false;
     this.pvp.left = this.alive(side).map(m => m.squadId); return true;
   }
-  focusUnit(m) { this.pvpActor = null; this.swap(m); this.controlled = m; this.soloTurn = true; this.soloDone = false; this.refusal = null; }
+  focusUnit(m) { this.pvpActor = null; this.swap(m); this.controlled = m; this.soloTurn = true; this.soloDone = false; this.refusal = null; this.reveal(); }   // reveal：ASH 的視野快取跟著「目前的玩家」，換人要重算
   unitDone(m) {
     this.soloTurn = false; tickSkills(m); expireExposure([m], this.turn); m.lightLingers = false;
     this.pvp.left = (this.pvp.left || []).filter(id => id !== m.squadId);
@@ -152,7 +152,7 @@ export class PvpGame extends SquadGame {
     const m = this.sides[this.pvp.side]?.find(x => x.squadId === id);
     if (this.status !== 'playing') return {ok: false, msg: '對戰已經結束'};
     if (!m || m.hp <= 0) return {ok: false, msg: `${id} 不是這一隊活著的單位`};
-    if (!this.pvp.left.includes(id)) return {ok: false, msg: `${id} 這一階段已經動過了`};
+    if (!this.pvp.left.includes(id) && !(this.actionCost(type, arg) === 0 && !(pre || []).length)) return {ok: false, msg: `${id} 這一階段已經動過了（免費動作例外：換武器、手電筒）`};
     this.focusUnit(m); const top = this.logs[0], fresh = () => { const i = this.logs.indexOf(top); return this.logs.slice(0, i < 0 ? this.logs.length : i).reverse().map(l => l.text).join(' '); };
     if (target !== undefined) this.target = target;
     let ok = false, err = null;
@@ -161,7 +161,7 @@ export class PvpGame extends SquadGame {
       this.pvpActor = {id, get exposed() { return !!m.pvpExposed; }};
       ok = this.action(type, arg) !== false;
     } catch (e) { if (!e.pre) err = e; }
-    const done = this.soloDone || m.hp <= 0, msg = err ? `錯誤：${err.message}` : !ok ? (this.refusal?.text || fresh() || '做不到') : fresh();
+    const free = !this.pvp.left.includes(id), done = !free && (this.soloDone || m.hp <= 0), msg = err ? `錯誤：${err.message}` : !ok ? (this.refusal?.text || fresh() || '做不到') : fresh();
     if (done) this.unitDone(m); else this.soloTurn = false;
     if (err) throw Object.assign(err, {pvpMsg: msg});
     return {ok, done, msg};
@@ -219,12 +219,17 @@ export class PvpGame extends SquadGame {
     const grid = objectSightGrid(this, a, b), bars = this.barriers || [];
     return anchors(grid, a, bars, 'sight').some(o => lineOfSight(grid, o, b, bars, 'sight'));
   }
+  // 轉角：開過火（暴露）的人如果打得到你，你也打得到他（代理回報：轉角的人可以單方面一直開火；ASH 原本轉角後「看得到打不到」）
+  shotClear(a, b) { return super.shotClear(a, b) || !!(b?.pvpOf && b.pvpExposed && super.shotClear(b, a)); }
+  attackStatus(a, b) { const s = super.attackStatus(a, b); return b?.pvpOf && b.pvpExposed && s?.reason === 'target_corner_hidden' && super.shotClear(b, a) ? {...s, reason: null, clear: true} : s; }
   visible(e) { return e?.pvpOf && e.pvpExposed ? true : super.visible(e); }   // 暴露中的不受距離限制
   // 動作做完：開火的暴露；近戰砍了沒死也暴露
   soloPaid(type, arg) {
     const hp0 = new Map(this.enemies.map(e => [e, e.hp])), meleeShot = type === 'fire' && this.weapon?.melee, p = this.player;
     const quiet = this.weapon?.noFlash && isBlack(this, p);   // 消焰器、站在全黑的地方：開火不暴露
-    const ok = super.soloPaid(type, arg);
+    let ok = super.soloPaid(type, arg);
+    // 下錨：ASH 在一般和慢速階段各打一次（action() 的行動佇列）；soloTurn 不經過佇列，這裡補第二次
+    if (ok && skillActive(p, 'anchor') && ['fire', 'blindFire', 'bumpMelee', 'suppressiveFire'].includes(type) && p.hp > 0 && this.status === 'playing' && (type !== 'fire' || this.targeted?.hp > 0)) super.soloPaid(type, arg);
     for (const a of this.allies) a.pvpSide ||= this.pvp.side;   // 這個動作部署出來的無人機、砲台是這一隊的
     this.pvpFlashes = [...(this.pvpFlashes || []), ...this.flashesNow()];
     if (ok) {

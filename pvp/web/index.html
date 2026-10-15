@@ -13,10 +13,10 @@ header{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 16px
 header b{font-size:16px}
 .pill{padding:2px 8px;border-radius:99px;background:var(--line);color:var(--dim)}
 .pill.me{background:#244a2c;color:var(--ok)}
-main{display:grid;grid-template-columns:auto minmax(260px,360px);gap:16px;padding:16px;align-items:start}
+main{display:grid;grid-template-columns:minmax(0,648px) minmax(260px,360px);gap:16px;padding:16px;align-items:start}
 @media (max-width:900px){main{grid-template-columns:1fr}}
-#boardWrap{overflow:auto;max-width:100%}
-canvas{display:block;image-rendering:pixelated;border:1px solid var(--line);touch-action:manipulation;cursor:crosshair}
+#boardWrap{max-width:100%;min-width:0}
+canvas{display:block;width:100%;max-width:648px;height:auto;image-rendering:pixelated;border:1px solid var(--line);touch-action:manipulation;cursor:crosshair}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px}
 .panel h3{margin:0 0 6px;font-size:13px;color:var(--dim);font-weight:600}
 .unit{display:flex;gap:8px;align-items:center;padding:6px;border-radius:6px;cursor:pointer;border:1px solid transparent}

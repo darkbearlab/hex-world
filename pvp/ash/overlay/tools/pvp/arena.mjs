@@ -33,13 +33,13 @@ const DIRS = {N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0]};
 const strip = x => String(x || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
 const CLASS_HELP = '職業（武器：射程／彈匣）：\n' + PVP_CLASSES.map(c => { const C = CHARACTERS[c];
   const w = (C.weapons || []).map(b => { const W = WEAPONS[b]; return W ? `${W.name}${W.melee ? '（近戰，相鄰）' : `（射程 ${W.range}／彈匣 ${W.mag}）`}` : ''; }).join('、');
-  const sk = (C.skills || []).map(id => `${id}「${SKILLS[id]?.name || id}」：${strip(SKILLS[id]?.text).slice(0, 160)}`).join('；');
+  const sk = (C.skills || []).map(id => `${id}「${SKILLS[id]?.name || id}」：${strip(SKILLS[id]?.text)}`).join('；');
   return `  ${c}：生命 ${C.hp}${c === 'bulwark' ? '・護甲板 60（PVP）・護甲 6' : C.plates ? '・護甲板 ' + C.plates : ''}${C.armor && c !== 'bulwark' ? '・護甲 ' + C.armor : ''}｜${w}｜技能 ${sk}`; }).join('\n') +
   '\n  engineer 的 workshop 在文字介面用 deploy 指令（部署生產線上的無人機）；無人機在你的人都動完後自己行動，對方打得到它，它不算人頭。';
 export const HELP = `PVP 文字對戰：兩隊各 4 人，XCOM 式輪流——你的階段裡你的每個人各做「一個動作」（順序自己決定），然後換對方。先拿下對方 2 人的贏；倒地就是死。
 座標：x 往右、y 往下；N＝y-1、S＝y+1、E＝x+1、W＝x-1（只能走上下左右一格）。
 視野：只看得到你的人看得到的。對方開火後會「暴露」到他下個階段開始——你在任何地方都看得到他（要打他還是要有射線）。你開火也一樣會暴露。
-轉角：貼著牆角的人，沒開火就看不到。全黑的地方（地圖上的 ,）裡面的人看不到，開槍的火光會照亮。窗（=）看得到、打得到、不能過。掩體（c）擋子彈、不能站。
+轉角：貼著牆角的人，沒開火就看不到、也打不到；開過火（暴露中）的人，只要他打得到你，你就打得到他。全黑的地方（地圖上的 ,）裡面的人看不到，開槍的火光會照亮。窗（=）看得到、打得到、不能過。掩體（c）擋子彈、不能站。
 
 指令（一行一個，或用 ; 分開；單位寫 A1、A2⋯ 或只寫 1、2⋯）：
   A1 move N|S|E|W          走一格（走進相鄰的敵人＝近戰）
@@ -161,19 +161,20 @@ function command(side, line) {
   const id = /^\d$/.test(words[0]) ? side + words[0] : words[0].toUpperCase(), verb = (words[1] || '').toLowerCase(), rest = words.slice(2);
   const m = g.sides[side].find(u => u.squadId === id);
   if (!m) return `看不懂「${line}」：第一個字要是你的單位（${g.sides[side].map(u => u.squadId).join('、')}）、end 或 surrender`;
-  const foeTarget = w => { if (!w) return null; const W = w.toUpperCase(); const e = g.enemies.find(e => e.hp > 0 && (e.pvpOf === W || e.id === w || e.id === 'pa-' + w) && g.teamVisible(e)); return e?.id || null; };
+  const foeTarget = w => { if (!w) return null; const W = w.toUpperCase(); const e = g.enemies.find(e => e.hp > 0 && (e.pvpOf === W || e.id === w || e.id === 'pa-' + w)); if (!e) return null;
+    const keep = g.player, seen = e.pvpExposed || g.alive(side).some(u => { g.swap(u); try { return g.visible(e); } finally { g.swap(keep); } }); return seen ? e.id : null; };
   let type, a, opt = {};
   switch (verb) {
-    case 'move': { const d = DIRS[(rest[0] || '').toUpperCase()]; if (!d) return `${id} move 要接 N、S、E 或 W`; type = 'move'; a = d; break; }
+    case 'move': { const d = DIRS[(rest[0] || '').toUpperCase()]; if (!d) return `${id} move 要接 N、S、E 或 W`; const mate = g.sides[side].find(u => u !== m && u.hp > 0 && u.x === m.x + d[0] && u.y === m.y + d[1]); if (mate) return `${id} 往 ${rest[0].toUpperCase()} 被隊友 ${mate.squadId} 擋住`; type = 'move'; a = d; break; }
     case 'goto': { const p = xy(rest.join('')); if (!p) return `${id} goto 要接座標，例如 goto 12,5`; if (p.x === m.x && p.y === m.y) return `${id} 已經在 (${p.x},${p.y})`; const d = stepToward(m, p); if (!d) return stepToward(m, p, true) ? `${id} 去 (${p.x},${p.y}) 的路被自己的隊友擋住了（先讓隊友讓開，或換條路）` : `${id} 用你看過的地圖找不到去 (${p.x},${p.y}) 的路（沒看過的格子不會走）`; type = 'move'; a = d; break; }
-    case 'fire': case 'shoot': case 'attack': { const t = foeTarget(rest[0]); if (!t) return `${id} 的隊伍看不到「${rest[0] || ''}」（要寫「看到的對方」列表裡的 id，例如 ${g.other(side)}2）`; type = 'fire'; opt.target = t; break; }
+    case 'fire': case 'shoot': case 'attack': { const t = foeTarget(rest[0]); if (!t) return `${id} 的隊伍看不到「${rest[0] || ''}」（要寫「看到的對方」列表裡的 id，例如 ${g.sides[g.other(side)].find(u => u.hp > 0)?.squadId || g.other(side) + '1'}）`; type = 'fire'; opt.target = t; break; }
     case 'reload': type = 'reload'; break;
     case 'wait': type = 'wait'; break;
     case 'heal': type = 'heal'; break;
     case 'plate': type = 'plate'; break;
     case 'flashlight': type = 'flashlight'; break;
     case 'weapon': { const i = +rest[0]; if (!Number.isInteger(i) || m.owned[i] === undefined) return `${id} weapon 要接武器格的號碼（0、1⋯）`; type = 'weapon'; a = m.owned[i]; break; }
-    case 'throw': case 'grenade': { const kind = (rest[0] || '').toLowerCase(), p = xy(rest.slice(1).join('')); if (!['frag', 'smoke', 'stun', 'emp'].includes(kind) || !p) return `${id} throw 要接種類和座標，例如 throw frag 12,5`; type = 'grenade'; a = {...p, grenade: kind}; opt.pre = [{type: 'prepare', arg: {category: 'grenade', id: kind}}];
+    case 'throw': case 'grenade': { const kind = (rest[0] || '').toLowerCase(), p = xy(rest.slice(1).join('')); if (!['frag', 'smoke', 'stun', 'emp'].includes(kind) || !p) return `${id} throw 要接種類和座標，例如 throw frag 12,5`; type = 'grenade'; a = {...p, grenade: kind}; if (m.prepared?.grenade !== kind) opt.pre = [{type: 'prepare', arg: {category: 'grenade', id: kind}}];   // 已經預備同一種再預備一次會被拒絕
       const res = {frag: 'grenades', smoke: 'smoke', stun: 'stun', emp: 'emp'}[kind], dd = Math.abs(p.x - m.x) + Math.abs(p.y - m.y);
       if (!(m[res] > 0)) return `${id} 沒有 ${kind}`;
       if (dd > 5) return `${id} 投擲最遠 5 格，(${p.x},${p.y}) 距離 ${dd}`;

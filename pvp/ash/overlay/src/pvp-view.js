@@ -43,8 +43,8 @@ export function sideState(g, memory = {}) {
   // （ASH 的 visible／teamVisible 只看「目前操作的那個人」，同一階段裡換人就會跳，所以這裡每個人都換過去算一次）
   const living = g.alive(side), seenBy = new Map();
   for (const u of living) { g.swap(u); try { for (const e of g.enemies) if (e.hp > 0 && (e.pvpExposed || g.visible(e))) { if (!seenBy.has(e)) seenBy.set(e, {}); const w = g.weapon, d = Math.abs(u.x - e.x) + Math.abs(u.y - e.y), range = w.melee ? 1 : w.range;
-    const why = !g.sight(u, e) ? '沒有視線（轉角或牆）' : d > range ? `射程外（距離 ${d}／${w.name} 射程 ${range}）` : !w.melee && !g.shotClear(u, e) ? '射線被擋（隊友、掩體或其他單位）' : !w.melee && g.player.ammo[g.player.weapon] <= 0 ? '彈匣空了' : null;
-    seenBy.get(e)[u.squadId] = why ? {why, d} : {chance: Math.round(g.fireChance(e)), d}; } } finally { g.swap(keep); } }
+    const why = !g.sight(u, e) ? '沒有視線（轉角或牆）' : d > range ? `射程外（距離 ${d}／${w.name} 射程 ${range}）` : !w.melee && !g.shotClear(u, e) ? (g.attackStatus(u, e)?.reason === 'target_corner_hidden' ? '他貼著轉角（沒開火打不到）' : '射線被擋（牆角、隊友或掩體）') : !w.melee && g.player.ammo[g.player.weapon] <= 0 ? '彈匣空了' : null;
+    const acted = !g.pvp.left.includes(u.squadId); seenBy.get(e)[u.squadId] = why ? {why, d} : acted ? {why: `已經動過（可開火 ${Math.round(g.fireChance(e))}%）`, d} : {chance: Math.round(g.fireChance(e)), d}; } } finally { g.swap(keep); } }
   const foes = [...seenBy].map(([e, by]) => {
     const m = e.pvpOf ? g.unit(e.pvpOf) : null;
     return {id: e.pvpOf || e.id, target: e.id, cls: m?.character || 'drone', x: e.x, y: e.y, hp: Math.max(0, e.hp), exposed: !!e.pvpExposed,
