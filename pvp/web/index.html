@@ -123,7 +123,7 @@ function draw(){
  }else $('actTitle').textContent='大家都動過了：按「結束階段」';
  // 對方
  $('foes').innerHTML=st.foes.length?'':'<div class="small">沒有</div>';
- for(const f of st.foes){const d=document.createElement('div');d.className='unit foe';d.innerHTML=`<div class="badge">${f.cls==='drone'?'x':f.id.slice(1)}</div><div style="flex:1">${f.id} ${NAMES[f.cls]||f.cls}${f.exposed?' <span style="color:var(--warn)">暴露</span>':''}<div class="small">剩 ${f.hp}・(${f.x},${f.y})・命中率 ${Object.entries(f.chance).map(([k,v])=>k+' '+v+'%').join(' ')||'沒有射線'}</div></div>`;
+ for(const f of st.foes){const d=document.createElement('div');d.className='unit foe';d.innerHTML=`<div class="badge">${f.cls==='drone'?'x':f.id.slice(1)}</div><div style="flex:1">${f.id} ${NAMES[f.cls]||f.cls}${f.exposed?' <span style="color:var(--warn)">暴露</span>':''}<div class="small">剩 ${f.hp}・(${f.x},${f.y})・${Object.entries(f.by).map(([k,v])=>v.chance!=null?k+' '+v.chance+'%':k+' ✕'+v.why).join('・')}</div></div>`;
   d.onclick=()=>u&&cmd(`${u.id} fire ${f.id}`);$('foes').append(d);}
  for(const g of st.ghosts){const d=document.createElement('div');d.className='small';d.textContent=`最後看到 ${g.id} ${NAMES[g.cls]||g.cls}：(${g.x},${g.y}) 第 ${g.round} 回合`;$('foes').append(d);}
  $('hint').textContent=mode?.throw?'點 5 格內看得到的格子投擲（Esc 取消）':mode?.skill?'點目標（Esc 取消）':'? 沒看過・深藍＝看得到但全黑・暗色＝記得但現在看不到';
@@ -131,10 +131,11 @@ function draw(){
 }
 function drawBoard(){
  const st=S.state;if(!st)return;const N=st.map.length;cv.width=cv.height=N*TILE;
- const col={'?':'--t-unseen','#':'--t-wall','=':'--t-win','.':'--t-floor',',':'--t-dark',':':'--t-mem','c':'--t-cover'};
+ const col={'?':'--t-unseen','#':'--t-wall','=':'--t-win','.':'--t-floor',',':'--t-dark',':':'--t-mem','c':'--t-cover','~':'--t-floor'};
  for(let y=0;y<N;y++)for(let x=0;x<N;x++){
-  let ch=st.map[y][x];const base=/[1-4dxa-d]/.test(ch)?'.':ch;
+  let ch=st.map[y][x];const base=/[1-4@VW-Z!]/.test(ch)?'.':ch;
   cx.fillStyle=css(col[base]||'--t-floor');cx.fillRect(x*TILE,y*TILE,TILE,TILE);
+  if(base==='~'){cx.fillStyle='#c8d0dc55';cx.fillRect(x*TILE,y*TILE,TILE,TILE);}
   if(base==='c'){cx.fillStyle='#00000055';cx.fillRect(x*TILE+5,y*TILE+5,TILE-10,TILE-10);}
   cx.strokeStyle='#00000040';cx.strokeRect(x*TILE+.5,y*TILE+.5,TILE-1,TILE-1);
  }
@@ -143,6 +144,9 @@ function drawBoard(){
  for(const d of st.drones)dot(d.x,d.y,'#9fd0ff','d');
  for(const f of st.foes)dot(f.x,f.y,css('--foe'),f.cls==='drone'?'x':f.id.slice(1),f.exposed?css('--warn'):null);
  for(const u of st.units)if(u.alive)dot(u.x,u.y,u.acted?'#3f6b94':css('--own'),u.n,u.id===sel?'#fff':null);
+ const su=st.units.find(q=>q.id===sel&&q.alive&&!q.acted);
+ if(su&&S.phase==='play'&&!mode)for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=su.x+dx,y=su.y+dy,ch=st.map[y]?.[x];if(ch==='.'||ch===','||ch===':'){cx.fillStyle='#5fb3ff30';cx.fillRect(x*TILE+2,y*TILE+2,TILE-4,TILE-4);}}
+ if(hover&&su){const f=st.foes.find(q=>q.x===hover.x&&q.y===hover.y);if(f){const c=f.chance[su.id];cx.font='bold 12px system-ui';const t=c?c+'%':(f.by[su.id]?.why||'看不到'),w=cx.measureText(t).width+8,X=Math.min(hover.x*TILE+TILE,cv.width-w),Y=Math.max(hover.y*TILE-18,0);cx.fillStyle='#000c';cx.fillRect(X,Y,w,16);cx.fillStyle=c?'#fff':css('--foe');cx.textAlign='left';cx.textBaseline='top';cx.fillText(t,X+4,Y+2);}}
  if(hover){cx.strokeStyle=mode?css('--warn'):'#ffffff80';cx.lineWidth=2;cx.strokeRect(hover.x*TILE+1,hover.y*TILE+1,TILE-2,TILE-2);}
 }
 const cell=e=>{const r=cv.getBoundingClientRect();return {x:Math.floor((e.clientX-r.left)/r.width*cv.width/TILE),y:Math.floor((e.clientY-r.top)/r.height*cv.height/TILE)};};
