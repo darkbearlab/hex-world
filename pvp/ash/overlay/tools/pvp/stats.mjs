@@ -5,13 +5,15 @@ import {playMatch} from './match.mjs';
 import {PVP_CLASSES, PVP_TUNING} from '../../src/pvp-game.js';
 // 試數值：PVP_TUNE='{"bulwark":{"plates":80,"plateCapacity":80}}' node stats.mjs
 if (process.env.PVP_TUNE) Object.assign(PVP_TUNING, JSON.parse(process.env.PVP_TUNE));
+// 換機器人：PVP_BOT=tools/pvp/bots/alpha.mjs（兩隊都用它；預設是原本的 PvpBot）
+const {pathToFileURL} = await import('node:url'), BOT = process.env.PVP_BOT ? (await import(pathToFileURL((await import('node:path')).resolve(process.env.PVP_BOT)).href)).default : null, bots = BOT ? {A: BOT, B: BOT} : {};
 const n = +(process.argv[2] || 30), s0 = +(process.argv[3] || 1);
 const lcg = s => () => ((s = Math.imul(s, 1664525) + 1013904223 >>> 0) / 4294967296);
 const pick4 = r => { const L = PVP_CLASSES.slice(); for (let i = L.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [L[i], L[j]] = [L[j], L[i]]; } return L.slice(0, 4); };
 let first = 0, games = 0, draws = 0, rounds = [], contact = [], fight = [], sameComp = 0, err = 0;
 const cls = Object.fromEntries(PVP_CLASSES.map(c => [c, {played: 0, died: 0, won: 0}]));
 for (let s = s0; s < s0 + n; s++) {
-  const r = lcg(s * 31 + 7), X = pick4(r), Y = pick4(r), res = [playMatch(s, {A: X, B: Y}), playMatch(s, {A: Y, B: X})];
+  const r = lcg(s * 31 + 7), X = pick4(r), Y = pick4(r), res = [playMatch(s, {A: X, B: Y, bots}), playMatch(s, {A: Y, B: X, bots})];
   for (const m of res) {
     games++; if (m.errors.length) err++;
     if (m.status !== 'won') { draws++; continue; }

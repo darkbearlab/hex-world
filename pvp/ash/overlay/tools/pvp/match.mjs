@@ -7,7 +7,9 @@ import {ClearBot} from '../clear-bot/bot.mjs';
 import {route, exploreRoute} from '../clear-bot/nav.mjs';
 import {dist} from '../clear-bot/util.mjs';
 import {PvpGame, PVP_CLASSES} from '../../src/pvp-game.js';
-import {generate} from '../../../../tools/mapgen.mjs';
+import {generate as gen2, generateV1} from '../../../../tools/mapgen.mjs';
+// PVP_MAP=v1：用第一版地圖（比較用）
+const generate = globalThis.process?.env?.PVP_MAP === 'v1' ? generateV1 : gen2;
 
 export class PvpBot extends ClearBot {
   chooseGoal(view) {

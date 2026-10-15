@@ -29,6 +29,7 @@ import {CHARACTERS} from './characters.js';
 import {initialSkillState} from './skills.js';
 import {anchors} from './combat.js';
 import {objectSightGrid} from './scenery.js';
+import {makeBarrier} from './barriers.js';
 import {lineOfSight} from './world.js';
 import {isBlack} from './lighting.js';
 import {allyAct, currentAllies} from './allies.js';
@@ -54,9 +55,14 @@ function ashMap(M) {
   M.T.forEach((row, y) => row.forEach((t, x) => { if (t === 'c') props.push({id: `cover-${x}-${y}`, x, y, type: 'cover', hp: 40, maxHp: 40}); if (grid[y][x] === 1) footprint.push({x, y}); }));
   const mid = N >> 1, start = {x: M.A[0], y: M.A[1]}, end = {x: M.B[0], y: M.B[1]};
   const room = {x: 1, y: 1, w: N - 2, h: N - 2, cx: mid, cy: mid, id: 0, cellIds: [0], footprint};
-  const lighting = M.L ? M.L.map(r => r.slice()) : grid.map(r => r.map(() => 2));   // 0 全黑、2 亮
-  return {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items: [], props, hazards: [], marks: [], barriers: [],
-    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting, slots: [], lamps: [], lightModel: 2};
+  // 光：ASH 的 lighting 是電力圖（1 有電＝亮、0 停電）；停電的地方靠鹵素燈（第二版地圖的 lamps）
+  const lighting = M.L ? M.L.map(r => r.map(v => v > 0 ? 1 : 0)) : grid.map(r => r.map(() => 1));
+  // 第二版地圖：矮隔板（ASH 的 low_partition，在兩格之間）、鹵素燈、出煙口（smoke／haze，週期錯開）
+  const barriers = (M.P || []).map(([a, b], i) => makeBarrier('low_partition', {x: a[0], y: a[1]}, {x: b[0], y: b[1]}, `edge-pvp-${i}`));
+  const lamps = (M.lamps || []).map(([x, y], i) => ({id: `lamp-1-${i}`, x, y, hp: 1}));
+  const vents = (M.vents || []).map(([x, y], i) => ({id: `vent-1-${i}`, x, y, kind: i % 2 ? 'haze' : 'smoke', phase: (i * 3) % 7}));
+  return {grid, rooms: [room], start, end, startRoom: 0, endRoom: 0, links: [], mainRoute: [0], rewardRooms: [], enemies: [], items: [], props, hazards: [], marks: [], barriers,
+    cells: [{id: 0, row: 0, col: 0, roomId: 0}], openings: [], annexes: [], generation: {version: 2, recipeId: 'pvp-v1'}, lighting, slots: [], lamps, vents, lightModel: 2};
 }
 
 export class PvpGame extends SquadGame {

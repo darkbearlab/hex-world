@@ -1,4 +1,4 @@
-// PVP 地圖生成器（原型，Alan 2026-10-15「你試試看」）：27×27，照 pvp/DESIGN.md 的地圖規則
+// PVP 地圖生成器：27×27，照 pvp/DESIGN.md 的地圖規則。generate＝第二版（在檔尾：大區、寬通道、半掩體、出煙口、鹵素燈）；generateV1＝第一版（以下這段：二分切割的小房間，留著比較用）
 // - 房間用二分切割（BSP），切割線是牆，牆上開門；只生成一半，另一半轉 180 度（骨架對稱，公平）
 // - 牆有三種：厚牆 #（擋路擋視線）、窗 =（看得到、打得到、不能過）、門口 +（可以過、看得穿）
 // - 檢查：每個房間至少兩個出入口、房間的連接圖沒有橋（任何一條通道都能被繞過）、雙方在對角的房間開場
@@ -13,7 +13,7 @@ const rot = (x, y) => [N - 1 - x, N - 1 - y];
 const passable = t => t === FLOOR || t === DOOR || t === COVER;
 const seeThrough = t => t === FLOOR || t === DOOR || t === WINDOW;   // 掩體（c）擋一部分視線；這裡的視線長度只算完全開闊的
 
-export function generate(seed, opt = {}) {
+export function generateV1(seed, opt = {}) {
   const r = rng(seed * 2654435761 >>> 0 || 1), pick = a => a[Math.floor(r() * a.length)];
   for (let tries = 0; tries < 200; tries++) {
     const T = Array.from({length: N}, (_, y) => Array.from({length: N}, (_, x) => x === 0 || y === 0 || x === N - 1 || y === N - 1 ? WALL : FLOOR));
@@ -133,3 +133,130 @@ function metrics(T, g, A, B) {
 }
 
 /* ───── 預覽圖 ───── */
+
+/* ───── 第二版（Alan 2026-10-15：「地方切得太碎、看起來通道很多其實沒有」，pvp/DESIGN.md「地圖第二版」） ─────
+ * - 少而寬的牆：上半部一道橫牆、一到兩道直牆（長短不一，有時一端不接牆），每道開 2–3 格寬的開口；幾根柱子打斷長視線。只做一半，另一半轉 180 度。
+ * - 半掩體：ASH 的矮隔板（擋不住子彈、站在後面有掩護、可以翻越），在空曠處一段一段（2–3 格）放在格子之間的邊上。
+ * - 出煙口：上下各一個（對稱），放在長直線視線上；週期噴煙（ASH 的 vents，種類 smoke／haze，不用會燙傷的 steam）。
+ * - 暗區與鹵素燈：主牆隔出的每一區亮或停電（對稱，開場那區一定亮）；停電的區照原作放鹵素燈（靠牆、約每 20 格一盞、至少一盞、分散）。
+ * - 檢查：全部連通；「瓶頸」＝一格寬的格子，堵住它雙方要多繞 8 步以上（或過不去），有就重生。
+ * 回傳 {T, L, A, B, P（矮隔板：[[x,y],[x2,y2]] 兩格之間）, lamps, vents, zones, seed, spawn, m}
+ */
+export function generate(seed, opt = {}) {
+  const r = rng((seed * 2654435761 >>> 0) ^ 0x9e3779b9 || 1), pick = a => a[Math.floor(r() * a.length)], ri = (a, b) => a + Math.floor(r() * (b - a + 1));
+  const D4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (let tries = 0; tries < 300; tries++) {
+    const T = Array.from({length: N}, (_, y) => Array.from({length: N}, (_, x) => x === 0 || y === 0 || x === N - 1 || y === N - 1 ? WALL : FLOOR));
+    const set = (x, y, t) => { T[y][x] = t; const [a, b] = rot(x, y); T[b][a] = t; };
+    // 1. 主牆：一道橫的（把上半部分成前後）、一到兩道直的；牆不一定接到兩端
+    const walls = [];
+    const hy = ri(4, C - 3), hx0 = r() < .35 ? ri(3, 6) : 1, hx1 = r() < .35 ? N - 2 - ri(3, 6) : N - 2;
+    walls.push({v: false, at: hy, a: hx0, b: hx1});
+    const nv = 1 + (r() < .6 ? 1 : 0);
+    for (let k = 0; k < nv; k++) { const x = k === 0 ? ri(6, C - 2) : ri(C + 3, N - 7); const y0 = r() < .3 ? hy : 1, y1 = r() < .5 ? C - 1 : hy; if (y1 - y0 >= 3) walls.push({v: true, at: x, a: y0, b: y1}); }
+    for (const W of walls) {
+      const cells = []; for (let i = W.a; i <= W.b; i++) cells.push(W.v ? [W.at, i] : [i, W.at]);
+      for (const [x, y] of cells) set(x, y, WALL);
+      // 開口：2–3 格寬，牆越長開越多；不開在兩道牆的交叉點
+      const n = 1 + (cells.length >= 10 ? 1 : 0) + (cells.length >= 18 ? 1 : 0); let made = 0;
+      for (let k = 0; k < 30 && made < n; k++) {
+        const w = r() < .5 ? 2 : 3, s0 = ri(1, cells.length - 1 - w); if (s0 < 1) continue;
+        const span = cells.slice(s0, s0 + w); if (span.some(([x, y]) => T[y][x] !== WALL)) continue;
+        if (span.some(([x, y]) => D4.filter(([dx, dy]) => T[y + dy]?.[x + dx] === WALL).length > 2)) continue;
+        for (const [x, y] of span) set(x, y, FLOOR); made++;
+      }
+      // 偶爾一段窗（看得到、打得到、不能過）
+      if (cells.length >= 8 && r() < .4) { const s0 = ri(1, cells.length - 3); for (const [x, y] of cells.slice(s0, s0 + 2)) if (T[y][x] === WALL) set(x, y, WINDOW); }
+    }
+    // 中線（第 13 列）：一半的機率有一道牆（開 2 個寬開口；轉 180 度後自己對稱）
+    if (r() < .5) {
+      for (let x = 1; x < C; x++) set(x, C, WALL);
+      for (let k = 0, made = 0; k < 20 && made < 2; k++) { const w = r() < .5 ? 2 : 3, x0 = ri(1, C - w); if ([...Array(w)].some((_, i) => T[C][x0 + i] !== WALL)) continue; for (let i = 0; i < w; i++) set(x0 + i, C, FLOOR); made++; }
+      set(C, C, FLOOR);
+    }
+    // 2. 柱子：1×2、2×2，放在空曠處（四周一格內沒有牆），打斷長視線
+    for (let k = 0, made = 0, want = ri(2, 4); k < 60 && made < want; k++) {
+      const w = ri(1, 2), h = w === 1 ? 2 : ri(1, 2), x = ri(2, N - 3 - w), y = ri(2, C - h);
+      let free = true; for (let yy = y - 1; yy <= y + h; yy++) for (let xx = x - 1; xx <= x + w; xx++) if (T[yy]?.[xx] !== FLOOR) free = false;
+      if (!free) continue;
+      for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) set(xx, yy, WALL); made++;
+    }
+    if (!connected(T)) continue;
+    // 區：用主牆那一列／行當邊界切開的連通塊（開口算進兩邊之一）——只用來分亮暗、放燈；上半部編號、下半部 +100
+    const Z = Array.from({length: N}, () => Array(N).fill(-1));
+    {
+      const cut = (x, y) => walls.some(W => W.v ? x === W.at && y >= W.a && y <= W.b : y === W.at && x >= W.a && x <= W.b);
+      let n = 0;
+      for (let y = 1; y <= C; y++) for (let x = 1; x < N - 1; x++) if (passable(T[y][x]) && Z[y][x] < 0 && !cut(x, y)) {
+        const q = [[x, y]]; Z[y][x] = n;
+        for (let i = 0; i < q.length; i++) { const [a, b] = q[i]; for (const [dx, dy] of D4) { const X = a + dx, Y = b + dy; if (Y <= C && Z[Y]?.[X] === -1 && passable(T[Y][X]) && !cut(X, Y)) { Z[Y][X] = n; q.push([X, Y]); } } }
+        n++;
+      }
+      // 牆上的開口：歸旁邊的區
+      for (let y = 1; y <= C; y++) for (let x = 1; x < N - 1; x++) if (passable(T[y][x]) && Z[y][x] < 0) { const nb = D4.map(([dx, dy]) => Z[y + dy]?.[x + dx]).find(v => v >= 0); Z[y][x] = nb ?? 0; }
+      for (let y = 1; y <= C; y++) for (let x = 1; x < N - 1; x++) { const [a, b] = rot(x, y); if (b > C || (b === C && a > C)) Z[b][a] = Z[y][x] >= 0 ? 100 + Z[y][x] : -1; }
+    }
+    // 3. 開場：九宮格的 4/6 或 2/8（同第一版）
+    const mode = opt.spawn || (r() < .5 ? '46' : '28'), A = mode === '46' ? spawnNear(T, 2, C) : spawnNear(T, C, N - 3), B = A && rot(...A);
+    if (!A || (A[0] === B[0] && A[1] === B[1])) continue;
+    // 4. 瓶頸檢查：一格寬的格子（左右或上下都不能走），堵住它雙方的距離要多 8 步以上（或過不去）就是瓶頸
+    const d0 = bfs(T, A).D[B[1]][B[0]]; if (d0 < 0) continue;
+    let choke = false;
+    for (let y = 1; y < N - 1 && !choke; y++) for (let x = 1; x < N - 1 && !choke; x++) {
+      if (!passable(T[y][x]) || (x === A[0] && y === A[1]) || (x === B[0] && y === B[1])) continue;
+      const blk = (X, Y) => !passable(T[Y][X]); if (!((blk(x - 1, y) && blk(x + 1, y)) || (blk(x, y - 1) && blk(x, y + 1)))) continue;
+      const keep = T[y][x]; T[y][x] = WALL; const d = bfs(T, A).D[B[1]][B[0]]; T[y][x] = keep;
+      if (d < 0 || d - d0 >= 8) choke = true;
+    }
+    if (choke) continue;
+    // 5. 半掩體（矮隔板，在格子之間的邊上）：空曠處一段 2–3 格，離開場 3 格以上；先放上半部，再轉 180 度
+    const P = [], edgeSet = new Set(), ek = (a, b) => [a, b].map(p => p.join(',')).sort().join('|');
+    const open = (x, y) => T[y]?.[x] === FLOOR && Math.abs(x - A[0]) + Math.abs(y - A[1]) > 2 && Math.abs(x - B[0]) + Math.abs(y - B[1]) > 2;
+    const lonely = ([X, Y]) => D4.filter(([dx, dy]) => T[Y + dy]?.[X + dx] === WALL).length <= 1;   // 不要整段貼牆
+    for (let k = 0, made = 0, want = ri(4, 7); k < 200 && made < want; k++) {
+      const horiz = r() < .5, len = ri(2, 3), x = ri(2, N - 3 - (horiz ? len : 1)), y = ri(2, C - 1 - (horiz ? 1 : len));
+      const segs = []; for (let i = 0; i < len; i++) segs.push(horiz ? [[x + i, y], [x + i, y + 1]] : [[x, y + i], [x + 1, y + i]]);
+      if (!segs.every(([a, b]) => open(...a) && open(...b) && lonely(a) && lonely(b) && !edgeSet.has(ek(a, b)))) continue;
+      for (const [a, b] of segs) for (const [p, q] of [[a, b], [rot(...a), rot(...b)]]) if (!edgeSet.has(ek(p, q))) { P.push([p, q]); edgeSet.add(ek(p, q)); }
+      made++;
+    }
+    // 少量木箱（第一版的 c：擋路、擋一部分子彈、可以打壞），不放在一格寬的地方
+    const narrow = (x, y) => (T[y][x - 1] !== FLOOR && T[y][x + 1] !== FLOOR) || (T[y - 1][x] !== FLOOR && T[y + 1][x] !== FLOOR);
+    for (let k = 0, made = 0, want = ri(2, 4); k < 80 && made < want; k++) {
+      const x = ri(2, N - 3), y = ri(2, C - 1);
+      if (!open(x, y) || narrow(x, y) || D4.some(([dx, dy]) => narrow(x + dx, y + dy)) || P.some(([a, b]) => [a, b].some(q => q[0] === x && q[1] === y))) continue;
+      set(x, y, COVER); if (!connected(T)) { set(x, y, FLOOR); continue; } made++;
+    }
+    // 6. 亮暗與鹵素燈：每一區亮或停電（上下對稱），開場的區一定亮
+    // 暗的總面積在全部地板的 15–35%（一整區太大就不暗；能暗的話至少暗一區）
+    const L = T.map(row => row.map(() => 2)), zoneDark = new Map(), spawnZ = new Set([Z[A[1]][A[0]] % 100, Z[B[1]][B[0]] % 100]), size = new Map();
+    let floorN = 0; for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0) { floorN++; const z = Z[y][x] % 100; size.set(z, (size.get(z) || 0) + 1); }
+    const order = [...size.keys()].filter(z => !spawnZ.has(z)).sort(() => r() - .5); let darkN = 0;
+    for (const z of order) { const n = size.get(z); if ((darkN + n) / floorN > (opt.darkMax ?? .35)) continue; if (darkN / floorN >= .15 && r() > (opt.dark ?? .4)) continue; zoneDark.set(z, true); darkN += n; }
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0 && zoneDark.get(Z[y][x] % 100)) L[y][x] = 0;
+    const lamps = [];
+    for (const [z, dark] of zoneDark) {
+      if (!dark) continue;
+      const tiles = []; for (let y = 1; y <= C; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] === z && T[y][x] === FLOOR) tiles.push([x, y]);
+      const byWall = tiles.filter(([x, y]) => D4.some(([dx, dy]) => T[y + dy][x + dx] === WALL));
+      const pool = byWall.length ? byWall : tiles, want = Math.max(1, Math.round(tiles.length / 20)), got = [];
+      if (pool.length) got.push(pick(pool));
+      while (got.length < Math.min(want, pool.length)) got.push(pool.reduce((best, p) => { const d = Math.min(...got.map(q => Math.abs(q[0] - p[0]) + Math.abs(q[1] - p[1]))); return d > best.d ? {p, d} : best; }, {p: null, d: -1}).p);
+      for (const p of got) lamps.push(p, rot(...p));
+    }
+    // 7. 出煙口：上半部一個（轉 180 度另一個），放在長直線上（那一列或那一行連續開闊 8 格以上），離開場 5 格以上
+    const run = (x, y, dx, dy) => { let n = 0; for (let X = x, Y = y; T[Y]?.[X] && seeThrough(T[Y][X]); X += dx, Y += dy) n++; return n; };
+    const ventCand = [];
+    for (let y = 2; y < C; y++) for (let x = 2; x < N - 2; x++) {
+      if (T[y][x] !== FLOOR || Math.abs(x - A[0]) + Math.abs(y - A[1]) < 5 || Math.abs(x - B[0]) + Math.abs(y - B[1]) < 5) continue;
+      const lane = Math.max(run(x, y, 1, 0) + run(x, y, -1, 0), run(x, y, 0, 1) + run(x, y, 0, -1)) - 1;
+      if (lane >= 8 && D4.filter(([dx, dy]) => T[y + dy][x + dx] === FLOOR).length >= 3) ventCand.push([x, y, lane]);
+    }
+    if (!ventCand.length) continue;
+    ventCand.sort((a, b) => b[2] - a[2]);
+    const v = pick(ventCand.slice(0, Math.max(1, Math.ceil(ventCand.length / 3)))), vents = [[v[0], v[1]], rot(v[0], v[1])];
+    const g = graphOf(T);
+    return {T, L, A, B, P, lamps, vents, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length}};
+  }
+  return null;
+}
