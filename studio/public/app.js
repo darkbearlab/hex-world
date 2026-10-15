@@ -237,7 +237,7 @@ async function openDoc(id, keepView) {
   const doc = await loadDoc(id, keepView);
   if (!doc) { toast('打不開這件作品（離線且這台裝置沒有它的副本）'); return; }
   cur = doc; active = Math.min(active, doc.layers.length - 1); if (!keepView) active = doc.layers.length - 1;
-  undo = []; redo = []; dirty = false;
+  undo = []; redo = []; dirty = false; if (typeof selReset === 'function') selReset();
   flat.width = doc.w; flat.height = doc.h; flatBuf = new Uint8ClampedArray(doc.w * doc.h * 4);
   show('editor'); $('docName').value = doc.name;
   if (!keepView) fit();
@@ -327,6 +327,7 @@ function paint() {
     for (let i = 0, n = cur.w * cur.h; i < n; i++) { const k = i * 4; if (flatBuf[k + 3] && ((flatBuf[k] << 16) | (flatBuf[k + 1] << 8) | flatBuf[k + 2]) === hiColor) g.fillRect(ox + (i % cur.w) * z + z * .25, oy + (i / cur.w | 0) * z + z * .25, z * .5, z * .5); }
     if (!hiTimer) hiTimer = setTimeout(() => { hiTimer = 0; draw(); }, 400);
   }
+  if (typeof paintSel === 'function') paintSel(g, ox, oy, z, d);   // 選取框、浮動的那塊（select.js）
   if (hover && (tool === 'pencil' || tool === 'eraser' || tool === 'lighten' || tool === 'darken')) {
     const o = Math.floor((brush - 1) / 2);
     g.strokeStyle = tool === 'eraser' ? '#ff5050' : tool === 'lighten' ? '#ffe066' : tool === 'darken' ? '#7a6cff' : '#fff'; g.lineWidth = Math.max(1, d);
@@ -374,7 +375,7 @@ function applyEntry(e, dir) {
   if (e.type === 'px') { const L = cur.layers.find(l => l.uid === e.uid); if (L) L.px.set(dir < 0 ? e.before : e.after); }
   else { const s = dir < 0 ? e.before : e.after; cur.layers = cloneLayers(s.layers); active = s.active; if (s.palette) { cur.palette = s.palette.slice(); cur.platform = s.platform; cur.freePalette = s.freePalette; cur.lockPal = s.lockPal; renderPlatform(); } }
 }
-function doUndo() { const e = undo.pop(); if (!e) return; applyEntry(e, -1); redo.push(e); after(); }
+function doUndo() { if (typeof selCancelFloat === 'function' && selCancelFloat()) return; const e = undo.pop(); if (!e) return; applyEntry(e, -1); redo.push(e); after(); }
 function doRedo() { const e = redo.pop(); if (!e) return; applyEntry(e, 1); undo.push(e); after(); }
 function after() { active = Math.max(0, Math.min(active, cur.layers.length - 1)); updateUndo(); renderLayers(); draw(); markDirty(); }
 
@@ -422,7 +423,7 @@ $('picker').addEventListener('change', () => {
 $('rmColor').onclick = () => { const h = rgba2hex(color), i = cur.palette.indexOf(h); if (i >= 0) { cur.palette.splice(i, 1); renderPalette(); markDirty(); } };
 
 /* 工具 */
-function setTool(t) { tool = t; document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t)); cv.style.cursor = t === 'pan' ? 'grab' : 'crosshair'; draw(); }
+function setTool(t) { if (t !== 'select' && typeof selCommit === 'function') selCommit(); tool = t; document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t)); cv.style.cursor = t === 'pan' ? 'grab' : 'crosshair'; draw(); }
 document.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => setTool(b.dataset.tool));
 const MIRROR_LABEL = ['鏡像：關', '鏡像：左右', '鏡像：上下', '鏡像：四向'];
 function renderMirror() { const b = $('mirrorBtn'), m = cur.mirror || 0; b.textContent = MIRROR_LABEL[m]; b.setAttribute('aria-pressed', m > 0); }
@@ -503,15 +504,16 @@ function endStroke() {
   stroke = null;
 }
 cv.addEventListener('pointerdown', e => {
-  if (!cur) return; cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  if (!cur) return; try { cv.setPointerCapture(e.pointerId); } catch {} ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY});
   $('side').classList.remove('open');
-  if (ptrs.size === 2) { cancelStroke(); panDrag = null; const [a, b] = [...ptrs.values()]; gesture = {d: Math.hypot(a.x - b.x, a.y - b.y), z: view.z, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2}; return; }
+  if (ptrs.size === 2) { cancelStroke(); panDrag = null; if (typeof selDrag !== 'undefined') selDrag = null; const [a, b] = [...ptrs.values()]; gesture = {d: Math.hypot(a.x - b.x, a.y - b.y), z: view.z, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2}; return; }
   if (ptrs.size > 2) return;
   if (tool === 'pan' || spaceDown || e.button === 1 || e.button === 2) { panDrag = {x: e.clientX, y: e.clientY}; cv.style.cursor = 'grabbing'; return; }
   if (e.button !== 0) return;
   const p = toPx(e), L = cur.layers[active];
   const t = altDown ? 'picker' : tool;
   if (t === 'picker') { if (inside(p)) pick(...p); return; }
+  if (t === 'select') { selDown(p); return; }   // 選取、移動（select.js）
   if (!L.visible) { toast('這個圖層隱藏中，先打開它再畫'); return; }
   if ((t === 'fill' || t === 'pencil') && !ensureInPalette()) return;
   if (t === 'fill') { if (!inside(p)) return; const before = L.px.slice(); if (fillM(L, ...p, color)) { pushUndo({type: 'px', uid: L.uid, before, after: L.px.slice()}); markDirty(); refreshLayerThumbs(); draw(); } return; }
@@ -528,6 +530,7 @@ cv.addEventListener('pointermove', e => {
   }
   if (panDrag) { view.x += e.clientX - panDrag.x; view.y += e.clientY - panDrag.y; panDrag = {x: e.clientX, y: e.clientY}; draw(); return; }
   const p = toPx(e); hover = inside(p) ? p : null;
+  if (typeof selDrag !== 'undefined' && selDrag) { selMove(p); draw(); return; }
   if (stroke) { const L = cur.layers.find(l => l.uid === stroke.uid); line(L, ...stroke.last, ...p, stroke.c); stroke.last = p; }
   draw();
 });
@@ -535,6 +538,7 @@ const up = e => {
   ptrs.delete(e.pointerId);
   if (gesture) { if (ptrs.size < 2) gesture = null; return; }
   if (panDrag) { panDrag = null; cv.style.cursor = tool === 'pan' ? 'grab' : 'crosshair'; return; }
+  if (typeof selDrag !== 'undefined' && selDrag) { selUp(); return; }
   endStroke();
 };
 cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', e => { ptrs.delete(e.pointerId); cancelStroke(); gesture = null; panDrag = null; });
@@ -545,6 +549,7 @@ cv.addEventListener('wheel', e => { e.preventDefault(); const f = e.deltaY < 0 ?
 addEventListener('keydown', e => {
   if (!cur || $('editor').hidden || document.querySelector('dialog[open]') || e.target.matches('input,select,textarea')) return;
   const k = e.key.toLowerCase();
+  if (typeof selKey === 'function' && selKey(e, k)) return;   // 選取的快捷鍵（Ctrl+A／C／X／V、Delete、Enter、Esc、方向鍵、S）
   if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); doRedo(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 's') { e.preventDefault(); flush().then(() => syncSoon(0)); return; }

@@ -92,7 +92,19 @@
     <button id="layersToggle" class="ghost only-narrow">圖層</button>
   </header>
   <div class="work">
-    <div id="stage"><canvas id="view"></canvas></div>
+    <div id="stage"><canvas id="view"></canvas>
+      <div id="selBar" class="selbar" hidden>
+        <span id="selInfo" class="muted"></span>
+        <button id="selOk" class="primary" title="放下 (Enter)">✓ 確定</button>
+        <button id="selX" title="取消 (Esc)">✕</button>
+        <button id="selFlipH" title="左右翻轉">⇋</button>
+        <button id="selFlipV" title="上下翻轉">⇵</button>
+        <button id="selRot" title="順時針轉 90°">⟳</button>
+        <button id="selDup" title="複製一份（浮動中：先蓋下去，再浮一份一樣的）">複製</button>
+        <button id="selDel" title="刪除 (Delete)">刪除</button>
+        <button id="selStamp" title="把這一塊存成印章">存成印章</button>
+      </div>
+    </div>
     <aside id="side">
       <h3>圖層</h3>
       <div id="layers"></div>
@@ -116,6 +128,8 @@
       <button data-tool="lighten" title="加亮筆刷 (L)：變亮、偏暖">☀</button>
       <button data-tool="darken" title="壓暗筆刷 (D)：變暗、偏冷">☾</button>
       <button data-tool="pan" title="移動畫面 (空白鍵拖曳)">✋</button>
+      <button data-tool="select" title="選取 (S)：拉方框，拖裡面移動；Ctrl+C／V 複製貼上">⬚</button>
+      <button id="stampBtn" title="印章：挑一個放到畫布上">印章</button>
       <label class="size" title="筆刷大小 ([ ])">筆刷<select id="brush"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
     </div>
     <div class="colors">
@@ -127,6 +141,14 @@
     </div>
   </footer>
 </section>
+
+<!-- 印章 -->
+<dialog id="stampDlg">
+  <h3>印章</h3>
+  <p class="muted">點一個印章，它會浮在畫布上；拖到要放的位置，按「✓ 確定」蓋到目前的圖層。浮動中也能翻轉、旋轉。印章在所有裝置共用。</p>
+  <div id="stampList" class="stamps"></div>
+  <form method="dialog"><button>關閉</button></form>
+</dialog>
 
 <!-- 版本 -->
 <dialog id="histDlg">
@@ -219,5 +241,6 @@
 <script src="app.js"></script>
 <script src="import.js"></script>
 <script src="assets.js"></script>
+<script src="select.js"></script>
 </body>
 </html>

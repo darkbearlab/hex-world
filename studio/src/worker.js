@@ -32,6 +32,8 @@ export class Studio extends DurableObject {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS versions(id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id TEXT, version INT, data TEXT, thumb TEXT, saved INT, note TEXT)`);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS versions_doc ON versions(doc_id, saved)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS fails(ip TEXT, at INT)`);
+    // 印章（Alan 2026-10-15）：從選取存下來的一小塊圖，之後拖到畫布上放。px 是 RGBA 壓縮後的 base64（跟作品圖層一樣）
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS stamps(id TEXT PRIMARY KEY, name TEXT, w INT, h INT, px TEXT, created INT)`);
   }
 
   async authed(req) {
@@ -95,8 +97,17 @@ export class Studio extends DurableObject {
       this.snapshot(id, '建立', true);
       return json({id, version: 1, updated: now});
     }
+    // 印章：列出全部（都很小，連圖一起送）、新增（同一個 id 再送一次就覆蓋，例如改名）、刪除
+    if (p === '/api/stamps' && m === 'GET') return json(this.sql.exec('SELECT * FROM stamps ORDER BY created').toArray());
+    if (p === '/api/stamps' && m === 'POST') {
+      const id = /^[\w-]{6,40}$/.test(body.id || '') ? body.id : newId(), w = body.w | 0, h = body.h | 0;
+      if (!(w > 0 && h > 0 && w <= 512 && h <= 512) || typeof body.px !== 'string') return json({error: '印章的格式不對'}, 400);
+      this.sql.exec('INSERT OR REPLACE INTO stamps VALUES (?, ?, ?, ?, ?, ?)', id, String(body.name || '印章').slice(0, 40), w, h, body.px, body.created | 0 || now);
+      return json({id});
+    }
+    if ((r0 => r0 && m === 'DELETE')(p.match(/^\/api\/stamps\/([\w-]+)$/))) { this.sql.exec('DELETE FROM stamps WHERE id = ?', p.split('/').pop()); return json({ok: true}); }
     if (p === '/api/export' && m === 'GET') {
-      return json({exported: now, docs: this.sql.exec('SELECT * FROM docs WHERE deleted = 0').toArray()}, 200, {'content-disposition': `attachment; filename="studio-backup-${new Date(now).toISOString().slice(0, 10)}.json"`});
+      return json({exported: now, docs: this.sql.exec('SELECT * FROM docs WHERE deleted = 0').toArray(), stamps: this.sql.exec('SELECT * FROM stamps').toArray()}, 200, {'content-disposition': `attachment; filename="studio-backup-${new Date(now).toISOString().slice(0, 10)}.json"`});
     }
 
     let r;

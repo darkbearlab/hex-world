@@ -147,3 +147,17 @@ dialog.adlg{max-width:min(980px,96vw);width:100%}
 .adview{height:min(62vh,640px);display:flex;align-items:center;justify-content:center;overflow:auto;border-radius:8px;background:repeating-conic-gradient(#2a2d33 0 25%,#22252a 0 50%) 0 0/16px 16px}
 .adview img{image-rendering:pixelated}
 .adbtns{display:flex;flex-wrap:wrap;gap:8px}
+
+/* 選取工具列、印章（2026-10-15） */
+#stage{position:relative}
+.selbar{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:5;display:flex;flex-wrap:wrap;justify-content:center;gap:4px;align-items:center;padding:4px 6px;background:rgba(20,22,26,.92);border:1px solid #3a3f48;border-radius:8px;width:max-content;max-width:calc(100% - 16px);white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,.4)}
+@media (max-width:600px){.selbar #selInfo{display:none}}   /* 手機：確定、取消放最前面，按鈕排兩行 */
+.selbar[hidden]{display:none}
+.selbar button{padding:4px 9px;font-size:13px}
+.selbar #selInfo{font-size:11px;padding:0 4px}
+.stamps{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:55vh;overflow:auto;margin:8px 0}
+.stamp{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 6px 6px;border:1px solid #3a3f48;border-radius:8px;cursor:pointer;background:repeating-conic-gradient(#2a2d33 0 25%,#22252a 0 50%) 0 0/10px 10px}
+.stamp canvas{width:72px;height:72px;object-fit:contain;image-rendering:pixelated}
+.stamp span{font-size:12px;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.stamp small{font-size:10px}
+.stamp .stx{position:absolute;top:2px;right:2px;padding:0 6px;font-size:12px;line-height:20px}
