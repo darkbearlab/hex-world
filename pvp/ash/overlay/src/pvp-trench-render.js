@@ -28,13 +28,15 @@ export function installTrenchRender(renderer) {
     // 佔領點（佔領模式）：地上一圈＋分數；我方站著青色、對方站著紅色、沒人灰白。沒看過的地方也畫（點的位置和歸屬雙方都知道）
     if (g?.captureOn) for (const pt of g.pvpPoints || []) {
       const a = this.project(pt.x, pt.y); if (a.x < -t || a.y < -t || a.x > this.w + t || a.y > this.h + t) continue;
-      const mine = pt.holder && g.pvpSide && pt.holder === g.pvpSide, col = !pt.holder ? '#d9e5df' : mine ? '#5fd3e0' : '#ff6a5a';
+      // 觀戰（沒有 pvpSide）：A 隊青色、B 隊紅色
+      const mine = pt.holder && (g.pvpSide ? pt.holder === g.pvpSide : pt.holder === 'A'), col = !pt.holder ? '#d9e5df' : mine ? '#5fd3e0' : '#ff6a5a';
       c.save(); c.strokeStyle = col; c.lineWidth = Math.max(2, t * .09); c.globalAlpha = .9;
       c.beginPath(); c.arc(a.x, a.y, t * .42, 0, 7); c.stroke();
       c.globalAlpha = .25; c.fillStyle = col; c.beginPath(); c.arc(a.x, a.y, t * .42, 0, 7); c.fill();
       // 分數寫在圈中間（夠大才看得清楚；黑邊讓它壓在地板、人身上也看得到）
-      c.globalAlpha = 1; c.font = `bold ${Math.max(11, Math.round(t * .6))}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-      const label = String(pt.value ?? (pt.half && g.pvpSide && pt.half !== g.pvpSide ? 2 : 1));
+      // 觀戰：兩邊各值幾分都寫（A 這側的點：A 1、B 2）
+      const label = !g.pvpSide && pt.half ? (pt.half === 'A' ? 'A1 B2' : 'A2 B1') : String(pt.value ?? (pt.half && g.pvpSide && pt.half !== g.pvpSide ? 2 : 1));
+      c.globalAlpha = 1; c.font = `bold ${Math.max(10, Math.round(t * (label.length > 2 ? .3 : .6)))}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
       c.lineWidth = Math.max(2, t * .12); c.strokeStyle = '#000000cc'; c.strokeText(label, a.x, a.y + 1); c.fillStyle = col; c.fillText(label, a.x, a.y + 1);
       c.restore();
     }

@@ -20,7 +20,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1
 <body>
 <div id="pvpbar"><b>觀戰</b><span id="bWho" class="pill"></span><span id="bRound" class="pill"></span><span id="bPhase" class="pill"></span>
  <span style="flex:1"></span><button id="bFollow" title="鏡頭跟著現在行動的人；拖曳畫面就停止跟隨">跟隨：開</button>
- <button id="bPause">暫停</button><button id="bNew">換一場</button><a href="./" style="color:#8fc7ff;font-size:13px">大廳</a></div>
+ <button id="bPause">暫停</button><button id="bMode" title="切換觀戰的模式（換一場）"></button><button id="bNew">換一場</button><a href="./" style="color:#8fc7ff;font-size:13px">大廳</a></div>
 <div id="cover"><div id="coverText">載入 ASH 戰鬥畫面⋯</div></div>
 <div id="feed"></div>
 <script type="module">
@@ -31,9 +31,11 @@ const revive=(k,v)=>v&&typeof v==='object'?(Array.isArray(v.$set)?new Set(v.$set
 const {bootAsh}=await import('./ash/pvp-boot.js');
 const E=await bootAsh();
 E.remote=async()=>({success:false,steps:[]});   // 觀戰不能操作
-let seed=+(new URLSearchParams(location.search).get('seed')||0),i=0,paused=false,started=false,run=0;
+let seed=+(new URLSearchParams(location.search).get('seed')||0),i=+(new URLSearchParams(location.search).get('i')||0),paused=false,started=false,run=0,mode=new URLSearchParams(location.search).get('mode')==='capture'?'capture':'kill';
+// 模式（Alan 2026-10-16）：?mode=capture 看佔領模式
+$('bMode').textContent=mode==='capture'?'模式：佔領':'模式：拿下兩人';$('bMode').onclick=()=>{location.href=`?mode=${mode==='capture'?'kill':'capture'}`;};
 // 重播儲存的戰鬥（?replay=id）：人類玩家打完存下來的那一場；播完不自動換下一場
-const replayId=new URLSearchParams(location.search).get('replay');if(replayId){document.title='PVP 重播';document.querySelector('#pvpbar b').textContent='重播';$('bNew').hidden=true;}
+const replayId=new URLSearchParams(location.search).get('replay');if(replayId){document.title='PVP 重播';document.querySelector('#pvpbar b').textContent='重播';$('bNew').hidden=true;$('bMode').hidden=true;}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 $('bPause').onclick=()=>{paused=!paused;$('bPause').textContent=paused?'繼續':'暫停';};
 $('bNew').onclick=()=>{seed=0;i=0;started=false;run++;play(run);};
@@ -44,7 +46,7 @@ document.getElementById('battle')?.addEventListener('pointermove',e=>{if(e.butto
 const look=(st,id)=>{if(!follow)return;const m=(st?.members||[]).find(u=>u.squadId===id)||st?.player;if(m)E.camera?.center(m);};
 function feed(t){const f=$('feed');f.textContent=t;}
 // 開場的狀態給 startRemote 原始的 JSON（它自己還原 Set／Map；先還原再轉一次 JSON，Set 就變成空物件）
-async function frame(n){const r=await fetch(replayId?`/api/watch?replay=${encodeURIComponent(replayId)}&i=${n}`:`/api/watch?seed=${seed}&i=${n}`),t=await r.text(),f=JSON.parse(t,revive);f.raw=JSON.parse(t).state;return f;}
+async function frame(n){const r=await fetch(replayId?`/api/watch?replay=${encodeURIComponent(replayId)}&i=${n}`:`/api/watch?seed=${seed}&mode=${mode}&i=${n}`),t=await r.text(),f=JSON.parse(t,revive);f.raw=JSON.parse(t).state;return f;}
 async function play(me){
  $('cover').hidden=false;$('coverText').textContent='準備一場機器人對戰⋯';
  while(me===run){
@@ -52,10 +54,10 @@ async function play(me){
   let f;try{f=await frame(i);}catch(e){$('coverText').textContent='連不上伺服器，重試中⋯';$('cover').hidden=false;await sleep(2000);continue;}
   if(me!==run)return;
   if(f.error){$('cover').hidden=false;$('coverText').textContent=f.error;return;}
-  if(!seed&&!replayId){seed=f.seed;history.replaceState(null,'',`?seed=${seed}`);}
+  if(!seed&&!replayId){seed=f.seed;history.replaceState(null,'',`?seed=${seed}${mode==='capture'?'&mode=capture':''}`);}
   $('bWho').innerHTML='';$('bWho').className='pill';
   $('bWho').textContent=replayId?`A（${f.names?.A||'?'}）${(f.A||[]).map(c=>NAMES[c]).join('・')}　對　B（${f.names?.B||'?'}）${(f.B||[]).map(c=>NAMES[c]).join('・')}`:`A（alpha）${f.A.map(c=>NAMES[c]).join('・')}　對　B（beta）${f.B.map(c=>NAMES[c]).join('・')}`;
-  $('bRound').textContent=`第 ${f.round||'?'} 回合`;$('bPhase').textContent=f.side?`${f.side} 隊行動`:'';$('bPhase').className='pill '+(f.side==='A'?'a':f.side==='B'?'b':'');
+  const sc=f.raw?.pvp?.score||f.state?.pvp?.score;$('bRound').textContent=`第 ${f.round||'?'} 回合`+(f.raw?.captureOn||f.state?.captureOn?`・佔領 A ${sc?.A||0}：B ${sc?.B||0}`:'');$('bPhase').textContent=f.side?`${f.side} 隊行動`:'';$('bPhase').className='pill '+(f.side==='A'?'a':f.side==='B'?'b':'');
   if(f.state&&(!started||f.kind==='phase')){E.startRemote({state:f.raw});E.remote=async()=>({success:false,steps:[]});started=true;$('cover').hidden=true;look(f.state,f.state.player?.squadId);}
   else if(f.steps?.length){
    look(f.steps[0]?.before,f.unit);   // 先看向行動的人

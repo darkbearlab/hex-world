@@ -15,8 +15,8 @@ export function full(s, proxy) {
 }
 
 // 一場觀戰：next() 回傳下一格 {kind: 'phase'|'act'|'end'|'over', side, round, unit, steps, state, log}
-export function* watchMatch({seed, map, A, B, bots, installBots, proxy = 'raider'}) {
-  const g = new PvpGame({seed, map, A, B});
+export function* watchMatch({seed, map, A, B, bots, installBots, proxy = 'raider', rules = null}) {
+  const g = new PvpGame({seed, map, A, B, rules});   // rules：模式（佔領＝{capture: …}）
   installBots(g, {bots});
   const view = () => full(snapshot(g), proxy);
   const shown = steps => steps.map(s => ({before: full(s.before, proxy), after: full(s.after, proxy), effects: s.effects}));

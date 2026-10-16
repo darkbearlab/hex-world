@@ -66,15 +66,15 @@ export class Room extends DurableObject {
     while (!w.done && w.i <= i) { const n = w.it.next(); if (n.done) { w.done = true; break; } w.frame = n.value; w.i++; }
     return {replay: id, i: w.i - 1, A: w.A, B: w.B, names: w.names, done: w.done || w.frame?.kind === 'over', ...w.frame};
   }
-  watchFrame(seed, i) {
+  watchFrame(seed, i, mode = 'kill') {
     let w = this.watch;
-    if (!w || w.seed !== seed || i < w.i - 1) {   // w.i＝已經算出的格數，w.frame＝第 w.i-1 格
+    if (!w || w.seed !== seed || w.mode !== mode || i < w.i - 1) {   // w.i＝已經算出的格數，w.frame＝第 w.i-1 格
       let map = null; for (let s = seed; !map; s++) map = generate(s);
       const r = lcg(seed * 7 + 3), A = pick4(r), B = pick4(r);
-      w = this.watch = {seed, i: 0, A, B, it: watchMatch({seed, map, A, B, bots: {A: Alpha, B: Beta}, installBots: installPvpBots}), frame: null, done: false};
+      w = this.watch = {seed, mode, i: 0, A, B, it: watchMatch({seed, map, A, B, bots: {A: Alpha, B: Beta}, installBots: installPvpBots, rules: mode === 'capture' ? {capture: {target: 100, near: 1, mid: 1, far: 2}} : null}), frame: null, done: false};
     }
     while (!w.done && w.i <= i) { const n = w.it.next(); if (n.done) { w.done = true; break; } w.frame = n.value; w.i++; }
-    return {seed, i: w.i - 1, A: w.A, B: w.B, bots: {A: 'alpha', B: 'beta'}, done: w.done || w.frame?.kind === 'over', ...w.frame};
+    return {seed, mode: w.mode, i: w.i - 1, A: w.A, B: w.B, bots: {A: 'alpha', B: 'beta'}, done: w.done || w.frame?.kind === 'over', ...w.frame};
   }
   // 計時與斷線
   async alarm() {
@@ -115,7 +115,7 @@ export class Room extends DurableObject {
       }
       if (p === '/watch') {
         const seed = +(url.searchParams.get('seed') || 0) || Math.floor(Math.random() * 1e6) + 1, i = Math.max(0, +(url.searchParams.get('i') || 0));
-        return new Response(JSON.stringify(this.watchFrame(seed, i), tag), {headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
+        return new Response(JSON.stringify(this.watchFrame(seed, i, url.searchParams.get('mode') === 'capture' ? 'capture' : 'kill'), tag), {headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
       }
       if (p === '/seats') return json({A: R.seats.A?.name || (R.bots.A ? '機器人' : null), B: R.seats.B?.name || (R.bots.B ? '機器人' : null), playing: R.game?.status === 'playing'});
       if (p === '/bot') { if (!Object.values(R.seats).some(s => s?.token === token)) return json({ok: false, msg: '先坐下'}, 403); const r = JSON.parse(R.handle('/bot', side, url.searchParams.get('on') === '1' ? '1' : '0', token)); await this.save(); return json(r, r.ok ? 200 : 409); }
