@@ -381,9 +381,12 @@ export class PvpGame extends SquadGame {
     const quiet = this.weapon?.noFlash && isBlack(this, p);   // 消焰器、站在全黑的地方：開火不暴露
     this.pvpHow = type === 'grenade' ? {grenade: arg?.grenade || p.prepared?.grenade, x: arg?.x, y: arg?.y} : {type, weapon: this.weapon?.name};   // 受傷的人看得到「被什麼打」（看不到是誰）
     const attack = ['fire', 'blindFire', 'bumpMelee', 'hookBlade', 'suppressiveFire', 'grapple'].includes(type), power = attack && p.pvpPower;
+    // 戰報記一筆三倍傷害用在什麼時候、打掉多少（Alan 2026-10-16：看它是補最後一刀還是領先的第一手）
+    const foes = () => this.enemies.filter(e => e.pvpOf != null), hpSum = () => foes().reduce((a, e) => a + Math.max(0, e.hp) + (e.plates || 0), 0), downs = () => foes().filter(e => e.hp <= 0).length;
+    const pre = power && {hp: hpSum(), down: downs(), mine: this.sides[p.pvpSide].filter(m => m.hp <= 0).length, theirs: this.sides[this.other(p.pvpSide)].filter(m => m.hp <= 0).length};
     if (power) p.pvpPowerActive = true;
     let ok; try { ok = super.soloPaid(type, arg); } finally { p.pvpPowerActive = false; }
-    if (power && ok) { p.pvpPower = false; this.log('三倍傷害用掉了。'); }
+    if (power && ok) { p.pvpPower = false; this.log('三倍傷害用掉了。'); this.pvp.log.push(`第 ${this.pvp.round} 回合：${p.squadId} 用掉三倍傷害（${type}）：打掉 ${pre.hp - hpSum()}、擊倒 ${downs() - pre.down}；用之前陣亡 我方 ${pre.mine}、對方 ${pre.theirs}`); }
     // 下錨：ASH 在一般和慢速階段各打一次（action() 的行動佇列）；soloTurn 不經過佇列，這裡補第二次
     if (ok && RULE('anchorDouble') !== false && skillActive(p, 'anchor') && ['fire', 'blindFire', 'bumpMelee', 'suppressiveFire'].includes(type) && p.hp > 0 && this.status === 'playing' && (type !== 'fire' || this.targeted?.hp > 0)) super.soloPaid(type, arg);
     for (const a of this.allies) a.pvpSide ||= this.pvp.side;   // 這個動作部署出來的無人機、砲台是這一隊的
