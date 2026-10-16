@@ -25,6 +25,8 @@ import {isBlack} from '../../../src/lighting.js';
 import {incoming} from '../../clear-bot/tactics.mjs';
 import {engCombat, engQuiet} from './beta-engineer.mjs';
 import {quietSlot, findNest, lampShootable, seesBlack, approachTiles, SNIPE_TUNING} from './beta-sniper.mjs';
+import * as PB from './beta-playbook.mjs';
+export {PB_STATS} from './beta-playbook.mjs';
 const ambushStates = new WeakMap();
 const ambushState = (g, side) => { let a = ambushStates.get(g); if (!a) { a = {A: {}, B: {}}; ambushStates.set(g, a); } return a[side]; };
 
@@ -51,7 +53,24 @@ export default class Beta extends PvpBot {
     }
     const g = this.g, p = g.player, at = intent.type === 'move' && Array.isArray(intent.arg) ? {x: p.x + intent.arg[0], y: p.y + intent.arg[1]} : null;
     const line = intent.type === 'deployUnit' ? p.productionLines?.[intent.arg?.line]?.blueprint : null;
+    // 手冊的統計：打之前每個敵人的血、標記；走之前在不在開闊又亮的格子
+    const before = new Map(g.enemies.filter(e => e.hp > 0).map(e => { e.pbMarked = PB.marked(e); return [e, e.hp]; }));
+    const hidden = this.team ? PB.reconState(g, this.team).hidden : false, power0 = !!p.pvpPower;
     const ok = super.act(intent);
+    if (ok !== false) {
+      const why = intent.why || '';
+      if (why.startsWith('pb')) PB.pb('act:' + why.split(' ').slice(0, 2).join(' '));
+      if (intent.type === 'buildUnit' && intent.arg?.blueprint === 'drone_munition') p.pbMunitions = (p.pbMunitions || 0) + 1;
+      if (intent.type === 'skill' && intent.arg === 'early_warning') { PB.pb('pb1:scans'); PB.afterScan(g); }
+      if (intent.type === 'skill' && intent.arg === 'anchor' && p.skillState?.anchor?.remaining > 0) PB.pb('pb2:anchorSet:' + (intent.pbAnchor || 'base'));
+      if (intent.pbTenchu) PB.pb('pb3:tenchu:' + intent.pbTenchu.cls);
+      if (intent.pbGrappleRecon) PB.pb('pb5:grappleRecon');
+      if (intent.type === 'skill' && intent.arg === 'grapple') PB.pb('pb5:grapple');
+      if (at && intent.walk && hidden) { PB.pb('pb6:walkSteps'); if (PB.openLit(g, p)) PB.pb('pb6:openLitSteps'); }
+      if (!power0 && p.pvpPower) PB.pb('pb7:pickup:' + (hidden ? 'reconHidden' : 'safe'));
+      PB.attackStats(g, intent, before);
+    }
+    for (const e of before.keys()) delete e.pbMarked;
     if (ok !== false && process.env.BETA_STATS && (line || intent.type === 'buildUnit')) { const k = `ENG:${intent.type}:${line || intent.arg?.blueprint}`; BETA_STATS[k] = (BETA_STATS[k] || 0) + 1; }
     if (ok !== false && intent.type === 'openContainer') markOpened(g, intent.arg);
     if (ok !== false && process.env.BETA_STATS && (intent.type === 'openContainer' || intent.type === 'rope' || intent.type === 'takeWeapon')) BETA_STATS[`OBJ:${intent.type}:${p.character}`] = (BETA_STATS[`OBJ:${intent.type}:${p.character}`] || 0) + 1;
@@ -72,6 +91,15 @@ export default class Beta extends PvpBot {
     if (!OFF.has('remote')) for (const e of sight.values()) if (!mine.has(e.id)) { const r = remoteView(g, e); view.enemies.push(r); view.occupied.add(key(r)); }
     patchView(view);
     this.team = teamPlan(g, view, this);
+    PB.trackBulwark(g, view);
+    this.team.noPower = PB.skipPower(g, this.team);
+    if (!this.pbWrapped) {
+      this.pbWrapped = true; const base = this.cls, c = view.me.character;
+      if (c === 'soldier') this.cls = {...base, prepare: v => PB.soldierScan(v, this)};
+      if (c === 'ninja') this.cls = {...base, prepare: v => PB.ninjaPrepare(v, this, (vv, b) => base.prepare?.(vv, b)), combat: v => PB.ninjaCombat(v, this, (vv, b) => base.combat?.(vv, b))};
+      if (c === 'bulwark') this.cls = {...base, combat: v => PB.bulwarkCombat(v, this, (vv, b) => base.combat?.(vv, b))};
+      if (c === 'berserker') this.cls = {...base, combat: v => PB.berserkerCombat(v, this, (vv, b) => base.combat?.(vv, b))};
+    }
     // 偵察兵的消焰精準步槍：找全黑的狙擊點（beta-sniper.mjs）
     this.qslot = OFF.has('snipe') ? null : quietSlot(view.me.ref);
     // 埋伏（隊上有消焰槍、還沒碰到人、前 ambushRounds 回合）：整隊在自己開場附近等，偵察兵在看得到來路的黑暗裡（不去搶東西）
@@ -155,6 +183,8 @@ export default class Beta extends PvpBot {
       }
     }
     const lamp = this.lampShot(view, true); if (lamp) opts.push(lamp);
+    if (me.character === 'ninja' && !hurt) PB.ninjaApproach(view, this, opts);
+    if (me.character === 'berserker') PB.berserkerMoves(view, this, opts);
     if (!OFF.has('dark')) this.darkScores(view, opts, hurt);
     if (me.meds >= 3) for (const o of opts) if (o.type === 'heal' && me.hp < me.maxHp * .7) o.score += 6;
     if (!OFF.has('powershot') && me.ref.pvpPower) this.powerScores(view, opts);
@@ -287,13 +317,14 @@ export default class Beta extends PvpBot {
     // 散兵坑、戰壕的半身深：溝外打溝裡算掩體，再加一點（推進途中搶進去）
     if (!OFF.has('fox') && threats.length && trenchAt(g, t) === 1 && !flaw) s += TUNING.fox;
     // 煙：往目標靠近而且走進煙裡（濃煙擋視線、淡煙命中減半）
-    if (aim && dist(t, aim) < dist(me, aim) && cloudAt(g, t)) s += TUNING.cloud;
+    if (aim && dist(t, aim) < dist(me, aim) && cloudAt(g, t)) { if (PB.on('pb4') && PB.irFoes(g).length) PB.pb('pb4:cloudBonusOff'); else s += TUNING.cloud; }
     return s;
   }
   // 往很遠的目標走一步：避開敵人火線、偏好煙
   farStep(view, aim) {
     const g = this.g, shooters = view.enemies.filter(e => !e.civilian && !e.melee && !e.disabled);
-    const cost = q => shooters.reduce((n, e) => n + (dist(e, q) <= (e.range || 5) && lineOpen(g, e.ref || e, q) ? 3 : 0), 0) - (cloudAt(g, q) ? 1 : 0);
+    const ir = PB.on('pb4') && PB.irFoes(g).length > 0, detour = PB.detourCost(g, this.team);
+    const cost = q => shooters.reduce((n, e) => n + (dist(e, q) <= (e.range || 5) && lineOpen(g, e.ref || e, q) ? 3 : 0), 0) - (!ir && cloudAt(g, q) ? 1 : 0) + (detour ? detour(q) : 0);
     const reach = Math.max(1, (view.me.held?.melee ? 1 : Math.min(view.me.held?.range || 5, 7)) - 1);
     const r = route(view, q => dist(q, aim) <= reach, {cost: q => Math.max(0, cost(q)), maxCost: 120, allyCost: 2});
     return r?.first || null;
@@ -388,12 +419,13 @@ export default class Beta extends PvpBot {
     const g = this.g, me = view.me;
     // 這一回合被拒絕的那一步（隊友站在那裡、或貼牆看不到的敵人擋路）不再走；隊友站的格子多算一點
     const mates = new Set((this.team?.members || []).filter(m => m !== me.ref).map(key));
-    const cost = q => dist(q, me) === 1 && this.isRefused({type: 'move', arg: [q.x - me.x, q.y - me.y]}) ? Infinity : mates.has(key(q)) ? 4 : 0;
+    const detour = PB.detourCost(g, this.team);
+    const cost = q => dist(q, me) === 1 && this.isRefused({type: 'move', arg: [q.x - me.x, q.y - me.y]}) ? Infinity : (mates.has(key(q)) ? 4 : 0) + (detour ? detour(q) : 0);
     let r = g.seen[goal.y]?.[goal.x] ? route(view, q => dist(q, goal) <= 1, {allyCost: 2, cost}) : null;
     if (!r) {
       let best = Infinity; const N = g.grid.length;
       for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!g.seen[y][x] && g.grid[y][x] === 1 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => g.seen[y + dy]?.[x + dx])) best = Math.min(best, dist({x, y}, goal));
-      for (const slack of [1, 4, 10]) { if (r || best === Infinity) break; r = route(view, q => !g.seen[q.y]?.[q.x] && g.grid[q.y]?.[q.x] === 1 && dist(q, goal) <= best + slack, {allyCost: 2, unknownGoal: true}); }
+      for (const slack of [1, 4, 10]) { if (r || best === Infinity) break; r = route(view, q => !g.seen[q.y]?.[q.x] && g.grid[q.y]?.[q.x] === 1 && dist(q, goal) <= best + slack, {allyCost: 2, unknownGoal: true, cost: q => detour ? detour(q) : 0}); }
       r ||= route(view, q => dist(q, goal) <= 3, {allyCost: 2});
       r ||= exploreRoute(view, {allyCost: 2});
     }

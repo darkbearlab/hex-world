@@ -5,6 +5,7 @@ import {skillActive} from '../../../src/skills.js';
 import {dist} from '../../clear-bot/util.mjs';
 import {lineOfSight} from '../../../src/world.js';
 import {objectSightGrid} from '../../../src/scenery.js';
+import {marked, markedSight, focusWeight, on as pbOn, PB_TUNING} from './beta-playbook.mjs';
 
 const homeDist = new WeakMap();
 
@@ -66,7 +67,8 @@ export function teamSight(g) {
     if (e.pvpExposed) { out.set(e.id, e); continue; }
     for (const m of members) {
       const reach = Math.max(10, threatOf(m)?.range || 0);
-      if (dist(m, e) <= reach && g.revealed(m, e) && g.sight(m, e)) { out.set(e.id, e); break; }
+      // 預警標到的人（手冊 pb1）：隊上每個人看黑暗都亮一級（ASH 只算目前操作的人）
+      if (dist(m, e) <= reach && g.revealed(m, e) && (pbOn('pb1') && marked(e) ? markedSight(g, m, e) : g.sight(m, e))) { out.set(e.id, e); break; }
     }
   }
   return out;
@@ -106,10 +108,12 @@ export function teamPlan(g, view, bot) {
       if (t.melee ? d <= 1 : (g.shotClear(m, e.ref) && g.nativeSight(m, e.ref))) shooters++;
     }
     if (!shooters) continue;
-    const s = (e.damage + 20) / Math.max(10, e.hp) * (1 + shooters) * (e.pvpAlly ? .3 : 1);
+    const s = (e.damage + 20) / Math.max(10, e.hp) * (1 + shooters) * (e.pvpAlly ? .3 : 1) * focusWeight(g, e);
     if (!best || s > best.s) best = {s, id: e.id};
   }
   p.focus = best?.id ?? null;
+  const fe = p.focus && enemies.find(e => e.id === p.focus);
+  if (fe && pbOn('pb1') && marked(fe.ref || fe)) p.focusBonus = PB_TUNING.focusBonus;
   p.goal = teamGoal(g, memory, members);
   // 推進：沒看到敵人時，跑在最前面的等後面的人
   if (!enemies.length && members.length >= 2) {

@@ -56,4 +56,5 @@ for (let s = s0; s < s0 + n; s++) {
   }
 }
 console.log(Object.entries(T).sort().map(([k, v]) => `${k}=${v}`).join(' '));
+if (M.PB_STATS && Object.keys(M.PB_STATS).length) console.log('PB ' + Object.entries(M.PB_STATS).sort().map(([k, v]) => `${k}=${typeof v === 'number' && v % 1 ? v.toFixed(0) : v}`).join(' '));
 if (Object.keys(BETA_STATS).length) console.log(Object.entries(BETA_STATS).sort().map(([k, v]) => `${k}=${v}`).join(' '));

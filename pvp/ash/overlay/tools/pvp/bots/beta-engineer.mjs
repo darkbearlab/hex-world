@@ -11,7 +11,9 @@ import {dist, key} from '../../clear-bot/util.mjs';
 import {lineOpen} from '../../clear-bot/tactics.mjs';
 import {stayCost} from '../../clear-bot/classes/common.mjs';
 import {isBlack} from '../../../src/lighting.js';
-import {seesBlack} from './beta-sniper.mjs';
+import {seesBlack, approachTiles} from './beta-sniper.mjs';
+const approachTilesOf = bot => approachTiles(bot.g, bot.g.pvp.side);
+import {munitionAmbush, munitionBuild, on as pbOn} from './beta-playbook.mjs';
 
 export const ENG_TUNING = {munition: 20, cluster: 18, anchored: 20, deploy: 25, keepFrag: 1, seen: 12};
 export const ENG_STATS = {};
@@ -27,6 +29,7 @@ function buildChoice(g, team, ambush) {
   if (!standing) { const bp = ambush && !OFF.has('sentry') ? 'drone_sentry' : 'drone_follow'; if (!buildReason(g, bp)) return {blueprint: bp}; }
   // 自殺無人機：留 30 廢料重做常駐單位（它被打掉時）
   // 實測（40 場、加強規則）：部署 11～21 台只炸到 1～3 次，而且都炸到自己人（它撞最近看到的人，我們的人常在旁邊；部署那階段又會被打掉）——預設不做，廢料留著重做跟隨無人機；BETA_MUNITION=1 打開
+  const pbm = munitionBuild(g); if (pbm) return pbm;
   if (MUNITION && (p.scrap || 0) >= 45 && (p.grenades || 0) >= 1 && !buildReason(g, 'drone_munition', 'frag')) return {blueprint: 'drone_munition', payload: 'frag'};
   return null;
 }
@@ -73,8 +76,9 @@ export function engCombat(bot, view) {
     const cell = bp === 'drone_sentry' ? sentryCell(g, team, null) : null;
     if (!deployReason(g, i, cell)) out.push({type: 'deployUnit', arg: cell ? {line: i, x: cell.x, y: cell.y} : {line: i}, score: ENG_TUNING.deploy - stayCost(view), why: `deploy ${bp}`});
   }
+  const amb = munitionAmbush(view, bot, approachTilesOf(bot)); if (amb) out.push({...amb, score: 6 - stayCost(view) * .5});
   const mi = lineOf(p, 'drone_munition');
-  if (mi >= 0) {
+  if (mi >= 0 && !pbOn('pb8')) {
     const t = munitionTarget(g, view, team);
     if (t && !deployReason(g, mi, t.cell)) out.push({type: 'deployUnit', arg: {line: mi, x: t.cell.x, y: t.cell.y}, score: ENG_TUNING.munition + t.v - stayCost(view) * .5, why: `munition at ${t.e.id} near${t.near}${t.anchored ? ' anchored' : ''}`});
   }
@@ -88,8 +92,9 @@ export function engQuiet(bot, view, ambush, watch) {
     const cell = bp === 'drone_sentry' ? sentryCell(g, team, watch) : null;
     if (!deployReason(g, i, cell)) { count(`ENG:deploy:${bp}`); return {type: 'deployUnit', arg: cell ? {line: i, x: cell.x, y: cell.y} : {line: i}, why: `deploy ${bp}`}; }
   }
+  const amb = munitionAmbush(view, bot, watch); if (amb) return amb;
   const mi = lineOf(p, 'drone_munition');
-  if (mi >= 0) { const t = munitionTarget(g, view, team); if (t && !deployReason(g, mi, t.cell)) { count('ENG:deploy:drone_munition'); return {type: 'deployUnit', arg: {line: mi, x: t.cell.x, y: t.cell.y}, why: `munition at ${t.e.id}`}; } }
+  if (mi >= 0 && !pbOn('pb8')) { const t = munitionTarget(g, view, team); if (t && !deployReason(g, mi, t.cell)) { count('ENG:deploy:drone_munition'); return {type: 'deployUnit', arg: {line: mi, x: t.cell.x, y: t.cell.y}, why: `munition at ${t.e.id}`}; } }
   const b = buildChoice(g, team, ambush);
   if (b) { count(`ENG:build:${b.blueprint}`); return {type: 'buildUnit', arg: b, why: `build ${b.blueprint}`}; }
   return null;

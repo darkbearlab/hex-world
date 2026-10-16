@@ -45,7 +45,7 @@ export function objectives(g, plan) {
     for (const i of ground) targets.push({kind: 'weapon', id: `w${i.slot}`, x: i.x, y: i.y, adj: false, reach: OBJ_TUNING.crateReach, turns: OBJ_TUNING.crateTurns, fit: crateFit});
     for (const c of crates) if (!S.opened.has(c.id) && !c.opened || c.opened && !S.opened.has(c.id)) targets.push({kind: 'crate', id: c.id, x: c.x, y: c.y, adj: true, reach: OBJ_TUNING.crateReach, turns: OBJ_TUNING.crateTurns, fit: crateFit, weapon: WEAPONS[c.contents?.[0]?.weapon]?.id});
   }
-  if (!OFF.has('power') && power && !powerHeld) targets.push({kind: 'power', id: 'power', x: power.x, y: power.y, adj: false, reach: OBJ_TUNING.powerReach, turns: OBJ_TUNING.powerTurns, fit: m => !m.pvpPower});
+  if (!OFF.has('power') && !plan.noPower && power && !powerHeld) targets.push({kind: 'power', id: 'power', x: power.x, y: power.y, adj: false, reach: OBJ_TUNING.powerReach, turns: OBJ_TUNING.powerTurns, fit: m => !m.pvpPower});
   const live = new Set(targets.map(t => t.id));
   // 舊的分工：人死了、東西沒了、太久沒拿到 → 取消
   for (const [m, a] of S.assign) {
