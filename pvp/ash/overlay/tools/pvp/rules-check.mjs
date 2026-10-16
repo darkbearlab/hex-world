@@ -136,4 +136,26 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   const M = generate(7), g4 = new PvpGame({seed: 7, map: M, A: ['soldier', 'recon', 'bulwark', 'ninja'], B: ['soldier', 'recon', 'bulwark', 'ninja']});
   ok(M.power && !g4.items.some(o => o.type === 'pvp_power'), '三倍傷害預設關掉：地上沒有');
 }
+// 佔領模式（Alan 2026-10-16）：站在點上才算佔（ASH 生存模式）；一大輪結束加分，自己這側 1、中央 1、對面 2；殺敵沒分數、不會結束；復活保護
+{
+  const {PVP_TUNING} = await import('../../src/pvp-game.js'), keepRules = PVP_TUNING.rules;
+  PVP_TUNING.rules = {...keepRules, capture: {target: 100, near: 1, mid: 1, far: 2}};
+  try {
+    const {generate} = await import('../../../../tools/mapgen.mjs');
+    const M = generate(11), g5 = new PvpGame({seed: 11, map: M, A: ['soldier', 'recon', 'bulwark', 'ninja'], B: ['soldier', 'recon', 'bulwark', 'ninja']});
+    ok(g5.pvpPoints.length === 5, `地圖上有 5 個點（${g5.pvpPoints.map(p => `${p.x},${p.y}${p.half || '中'}`).join(' ')}）`);
+    const own = g5.pvpPoints.find(p => p.half === 'A'), far = g5.pvpPoints.find(p => p.half === 'B'), mid = g5.pvpPoints.find(p => p.half == null);
+    const a1 = g5.unit('A1'), a2 = g5.unit('A2'), a3 = g5.unit('A3'), b1 = g5.unit('B1');
+    Object.assign(a1, {x: own.x, y: own.y}); Object.assign(a2, {x: mid.x, y: mid.y}); Object.assign(a3, {x: far.x, y: far.y});
+    g5.beginPhase('A'); g5.endPhase(); g5.beginPhase('B'); g5.endPhase();
+    ok(g5.pvp.score?.A === 4 && g5.pvp.score?.B === 0, `A 站自己這側、中央、對面各一個：一大輪 +1+1+2＝4（${JSON.stringify(g5.pvp.score)}）`);
+    b1.hp = 0; g5.unit('B2').hp = 0; g5.judge(); ok(g5.status === 'playing', '佔領模式：擊倒兩人不會結束');
+    g5.beginPhase('A'); g5.endPhase(); g5.beginPhase('B');
+    ok(b1.hp > 0 && b1.pvpSafe, `B1 在開場復活、復活保護中`);
+    g5.focusUnit(b1); const r5 = g5.actAs('B1', 'fire'); ok(!r5.ok && /剛復活/.test(r5.msg), `復活保護：不能攻擊（${r5.msg}）`);
+    g5.endPhase(); g5.beginPhase('A'); g5.focusUnit(a1); const e5 = g5.enemies.find(e => e.pvpOf === 'B1'), h5 = b1.hp; e5.hp -= 30; g5.syncProxies(); ok(b1.hp === h5, '復活保護：對方的階段打不動');
+    g5.pvp.score = {A: 98, B: 0}; g5.endPhase(); g5.beginPhase('B'); g5.endPhase();
+    ok(g5.status === 'won' && g5.pvp.winner === 'A', `先到 100 分的贏（${JSON.stringify(g5.pvp.score)}）`);
+  } finally { PVP_TUNING.rules = keepRules; }
+}
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');

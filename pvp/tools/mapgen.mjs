@@ -316,8 +316,21 @@ export function generate(seed, opt = {}) {
     // 三倍傷害：正中央那一格（轉 180 度不動的唯一一格）；是牆或坑就換成地板（再確認連通）
     T[C][C] = FLOOR; D[C][C] = 0; if (!connected(T)) continue;
     const power = [C, C];
+    // 9. 佔領點（佔領模式，Alan 2026-10-16）：上下對稱五個，自己這側兩個、中央一個（原本三倍傷害那一格）、對面兩個。
+    // 自己這側的兩個：比較靠自己（A 距離比 B 距離少 3 以上、離開場 6 以上），大約在開場到中央的 1/3 處，分在雙方連線的左右兩邊。
+    // 不用亂數（不動到後面的亂數序列：舊種子的地圖、存起來的對戰紀錄都照舊）
+    // 位置：沿著雙方連線走到 30%（中央是 50%），往左右各偏 6 格左右；要比較靠自己（A 距離比 B 距離少 3 以上、離開場 5 以上）
+    const sgn = (x, y) => ((x - A[0]) * ay - (y - A[1]) * ax) / L2, along = (x, y) => ((x - A[0]) * ax + (y - A[1]) * ay) / L2, onCrate = (x, y) => crates.some(c => c[0] === x && c[1] === y);
+    const ptCand = []; for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (T[y][x] === FLOOR && !taken([x, y]) && !onCrate(x, y) && !(x === C && y === C) && dA[y][x] >= 5 && dB[y][x] >= 0 && dA[y][x] <= dB[y][x] - 3) ptCand.push({x, y, s: sgn(x, y), a: along(x, y)});
+    // 旁邊有東西可以守（牆、木箱、戰壕、矮隔板）的格子加分：守點的人有掩體，搶點的人要想辦法
+    const guardable = q => { let n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const t = T[q.y + dy]?.[q.x + dx]; if ((dx || dy) && (t === WALL || t === COVER || D[q.y + dy]?.[q.x + dx])) n++; } return Math.min(n, 3) + (onP(q.x, q.y) ? 2 : 0); };
+    const pts = [], fit = (q, side) => -1.5 * Math.abs(q.a - L2 * .3) - .7 * Math.abs(q.s - side * 6) + 1.2 * guardable(q);
+    const p1 = ptCand.reduce((a, b) => !a || fit(b, 1) > fit(a, 1) ? b : a, null);
+    const p2 = p1 && ptCand.filter(q => Math.max(Math.abs(q.x - p1.x), Math.abs(q.y - p1.y)) >= 5).reduce((a, b) => !a || fit(b, -1) > fit(a, -1) ? b : a, null);
+    for (const q of [p1, p2]) if (q) pts.push([q.x, q.y, 'A'], [...rot(q.x, q.y), 'B']);
+    pts.push([C, C, null]);
     const g = graphOf(T);
-    return {T, L, A, B, P, D, lamps, vents, crates, power, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length, trench: D.flat().filter(Boolean).length, light: {floor: floorN, powered: floorN - unpowered.length, lampLit: lit.size, black: unpowered.length - lit.size}}};
+    return {T, L, A, B, P, D, lamps, vents, crates, power, points: pts, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length, trench: D.flat().filter(Boolean).length, light: {floor: floorN, powered: floorN - unpowered.length, lampLit: lit.size, black: unpowered.length - lit.size}}};
   }
   return null;
 }

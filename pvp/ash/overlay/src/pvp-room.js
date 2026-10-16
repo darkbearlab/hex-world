@@ -125,6 +125,7 @@ export function createRoom(opts = {}) {
     L.push(`== 第 ${s.round}/${s.maxRounds} 回合・你是 ${side} 隊・你的階段 ==　已拿下對方 ${s.foeLost.length} 人（${s.foeLost.join('、') || '無'}）、自己倒下 ${s.dead.length} 人（${s.dead.join('、') || '無'}）；先拿下 2 人的贏`);
     L.push(`還沒動：${s.left.join(' ') || '（都動過了）'}`);
     if (since[side].length) L.push(`上一個對方階段：${since[side].join('；')}`);
+    if (s.capture) L.push(`佔領模式：殺敵沒分數，倒下在開場復活（復活後到自己下個階段開始前不能攻擊、也打不動）；點上站著我方的人＝佔著，每一大輪結束加分，先到 ${s.capture.target} 分贏。比分 ${s.capture.score[side]}：${s.capture.score[s.foe]}。點：${s.capture.points.map(p => `(${p.x},${p.y}) ${p.value} 分${p.holder ? (p.holder === side ? '・我方佔著' : '・對方佔著') : ''}`).join('；')}${s.safe.length ? `。復活保護中：${s.safe.join(' ')}` : ''}`);
     L.push('地圖（x 往右、y 往下）：');
     L.push('    ' + Array.from({length: N}, (_, x) => Math.floor(x / 10)).join(''));
     L.push('    ' + Array.from({length: N}, (_, x) => x % 10).join(''));
@@ -280,12 +281,13 @@ export function createRoom(opts = {}) {
       rooms: (s.rooms || []).map(r => ({...r, footprint: (r.footprint || []).filter(q => seen(q.x, q.y))})),
       lighting: s.lighting?.map((row, y) => row.map((v, x) => near(x, y) ? v : 2)),
       pvpTrench: s.pvpTrench?.map((row, y) => row.map((v, x) => seen(x, y) ? v : 0)),
+      pvpPoints: s.pvpPoints?.map(pt => ({...pt, value: g.pointValue(pt, side)})),   // 佔領點：位置、誰站著雙方都知道（ASH 生存模式：整張圖一開始就知道、被佔的點會變色）
       smoke: (s.smoke || []).map(c => ({...c, cells: (c.cells || []).filter(q => seen(q.x, q.y))})).filter(c => c.cells.length),
       mines: (s.mines || []).filter(m => m.owner === side || seen(m.x, m.y)), traces: (s.traces || []).filter(t => seen(t.x, t.y)),
       flares: (s.flares || []).filter(f => seen(f.x, f.y)), glowsticks: (s.glowsticks || []).filter(f => seen(f.x, f.y)),
       mainRoute: undefined, links: [], rewardRooms: [], mapGenerations: undefined, reinforcements: []};
     for (const k of ['pvpSeen', 'pvpParked', 'pvpActor', 'pvpHow', 'pvpFlashes']) delete out[k];
-    if (out.pvp) out.pvp = {round: s.pvp.round, side: s.pvp.side, left: s.pvp.left, kills: s.pvp.kills, log: s.pvp.log, winner: s.pvp.winner};
+    if (out.pvp) out.pvp = {round: s.pvp.round, side: s.pvp.side, left: s.pvp.left, kills: s.pvp.kills, log: s.pvp.log, winner: s.pvp.winner, score: s.pvp.score};
     return out;
   }
   // 從 side 的角度拍一張（對方的階段裡用，不改局面）
@@ -335,7 +337,7 @@ export function createRoom(opts = {}) {
   }
   // 現在的畫面：輪到這一方就照現況算（操作中的人＝focus），不然給最後一次的
   function viewOf(side) {
-    const base = {phase: !g ? 'none' : g.status !== 'playing' ? 'over' : myTurn(side) ? 'play' : 'wait', round: g?.pvp.round, left: g?.pvp.left || [], kills: g?.pvp.kills, winner: g?.pvp.winner || null, log: g?.pvp.log || [], since: since[side], replayN: watch[side]?.seq || 0};
+    const base = {phase: !g ? 'none' : g.status !== 'playing' ? 'over' : myTurn(side) ? 'play' : 'wait', round: g?.pvp.round, left: g?.pvp.left || [], kills: g?.pvp.kills, score: g?.captureOn ? g.pvp.score || {A: 0, B: 0} : null, winner: g?.pvp.winner || null, log: g?.pvp.log || [], since: since[side], replayN: watch[side]?.seq || 0};
     if (!g) return base;
     if (!myTurn(side)) return {...base, state: lastView[side]};
     const m = focusOf(side); if (m && g.player !== m) { g.swap(m); g.controlled = m; g.reveal(); }

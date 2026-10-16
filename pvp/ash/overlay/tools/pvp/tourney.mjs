@@ -48,6 +48,6 @@ for (let i = 0; i < COMPS.length; i++) for (let j = 0; j < COMPS.length; j++) {
     if (k++ % shards !== shard) continue;
     const seed = s0 + pair, [botA, botB, compA, compB, nA, nB] = swap ? [Y, X, COMPS[j], COMPS[i], n2, n1] : [X, Y, COMPS[i], COMPS[j], n1, n2];
     const m = playMatch(seed, {A: compA, B: compB, bots: {A: botA, B: botB}});
-    process.stdout.write(JSON.stringify({seed, botA: nA, botB: nB, A: compA, B: compB, winner: m.status === 'won' ? m.winner : null, rounds: m.rounds, errors: m.errors.length || 0, power: (m.log || []).filter(l => /三倍傷害|陣亡|倒下|擊倒/.test(l))}) + '\n');
+    process.stdout.write(JSON.stringify({seed, botA: nA, botB: nB, A: compA, B: compB, winner: m.status === 'won' ? m.winner : null, rounds: m.rounds, errors: m.errors.length || 0, score: m.score, power: (m.log || []).filter(l => /三倍傷害|陣亡|倒下|擊倒/.test(l))}) + '\n');
   }
 }

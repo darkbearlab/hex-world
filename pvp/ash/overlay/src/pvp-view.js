@@ -65,6 +65,9 @@ export function sideState(g, memory = {}) {
     left: [...(g.pvp.left || [])], map: rows.map(r => r.join('')), units: own, foes, ghosts,
     drones: g.allAllies.filter(a => a.status === 'active' && a.hp > 0 && a.pvpSide === side).map(a => ({id: a.id, kind: a.sourceId || a.kind, x: a.x, y: a.y, hp: a.hp, maxHp: a.maxHp})),
     smoke: (g.smoke || []).filter(sm => sm.cells?.some(q => g.seen[q.y]?.[q.x])).map(sm => { const n = sm.cells.length, cx = sm.cells.reduce((a, q) => a + q.x, 0) / n, cy = sm.cells.reduce((a, q) => a + q.y, 0) / n, at = [...sm.cells].sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy))[0]; return {cells: n, at, phasesLeft: sm.expires - g.turn}; }),   // 世界推進時 expires > turn 才留著
+    // 佔領模式：點的位置、對我方值幾分、現在誰站著；分數
+    capture: g.pvpPoints?.length && g.captureRule?.() ? {target: g.captureRule().target || 100, score: {...(g.pvp.score || {A: 0, B: 0})}, points: g.pvpPoints.map(pt => ({id: pt.id, x: pt.x, y: pt.y, value: g.pointValue(pt, side), holder: pt.holder}))} : null,
+    safe: g.sides[side].filter(m => m.pvpSafe).map(m => m.squadId),
     log: (g.pvp.log || []).slice(-6), dead: g.sides[side].filter(m => dead(m.squadId)).map(m => m.squadId),
   };
 }

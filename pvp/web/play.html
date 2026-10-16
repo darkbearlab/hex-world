@@ -37,7 +37,7 @@ const E=await bootAsh();E.connect({side,token});
 $('bSide').textContent=`你是 ${side} 隊`;
 function hud(v){
  if(!v)return;phase=v.phase;
- $('bRound').textContent=v.round?`第 ${v.round}/300 回合`:'';
+ $('bRound').textContent=(v.round?`第 ${v.round}/300 回合`:'')+(v.score?`・佔領 ${v.score[side]||0}：${v.score[side==='A'?'B':'A']||0}（先到 100）`:'');
  const mine=v.phase==='play';$('bPhase').textContent=mine?'你的階段':v.phase==='wait'?'對方的階段':v.phase==='over'?'對戰結束':'';$('bPhase').className='pill'+(mine?' me':'');
  $('bLeft').textContent=mine?`還沒動：${(v.left||[]).join(' ')||'（都動過了）'}`:'';
  $('bEnd').disabled=!mine;

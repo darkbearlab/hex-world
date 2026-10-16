@@ -63,7 +63,7 @@ export function playMatch(seed, {A, B, trace = false, bots = {}} = {}) {
       if (g.status !== 'playing') break;
     }
   }
-  return {seed, A, B, status: g.status, winner: g.pvp.winner, rounds: g.pvp.round, firstContact, hits: shots, kills: g.pvp.kills, log: g.pvp.log, errors, ms: performance.now() - t0,
+  return {seed, A, B, status: g.status, winner: g.pvp.winner, rounds: g.pvp.round, firstContact, hits: shots, kills: g.pvp.kills, score: g.pvp.score || null, log: g.pvp.log, errors, ms: performance.now() - t0,
     left: Object.fromEntries(['A', 'B'].map(s => [s, g.sides[s].map(m => `${m.squadId}:${m.character}:${Math.max(0, m.hp)}${m.plates ? '+' + m.plates : ''}`).join(' ')]))};
 }
 

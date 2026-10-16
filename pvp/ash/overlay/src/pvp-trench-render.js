@@ -25,6 +25,17 @@ export function installTrenchRender(renderer) {
       if (d === 1) { c.fillStyle = '#c8b88040'; for (let i = 1; i <= 2; i++) c.fillRect(l + 6, top + t * i / 3, t - 12, 2); }   // 台階
       c.restore();
     }
+    // 佔領點（佔領模式）：地上一圈＋分數；我方站著青色、對方站著紅色、沒人灰白。沒看過的地方也畫（點的位置和歸屬雙方都知道）
+    if (g?.captureOn) for (const pt of g.pvpPoints || []) {
+      const a = this.project(pt.x, pt.y); if (a.x < -t || a.y < -t || a.x > this.w + t || a.y > this.h + t) continue;
+      const mine = pt.holder && g.pvpSide && pt.holder === g.pvpSide, col = !pt.holder ? '#d9e5df' : mine ? '#5fd3e0' : '#ff6a5a';
+      c.save(); c.strokeStyle = col; c.lineWidth = Math.max(2, t * .09); c.globalAlpha = .9;
+      c.beginPath(); c.arc(a.x, a.y, t * .42, 0, 7); c.stroke();
+      c.globalAlpha = .25; c.fillStyle = col; c.beginPath(); c.arc(a.x, a.y, t * .42, 0, 7); c.fill();
+      c.globalAlpha = 1; c.fillStyle = col; c.font = `bold ${Math.round(t * .34)}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(String(pt.value ?? (pt.half && g.pvpSide && pt.half !== g.pvpSide ? 2 : 1)), a.x + t * .34, a.y - t * .34);
+      c.restore();
+    }
     return cells;
   };
   // 中央的三倍傷害（pvp_power）：ASH 標題的標誌（assets/icon.svg、標題畫面的 title-mark）浮在空中轉——Alan 2026-10-16：像 Quake 的四倍傷害用 Quake 的標誌。
