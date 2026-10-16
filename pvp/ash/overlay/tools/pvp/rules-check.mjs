@@ -130,4 +130,10 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   const d = g3.actAs('A1', 'deployUnit', {line: 0, x: 5, y: 5}), hp0 = T1.hp + (T1.plates || 0); g3.endPhase();
   ok(d.ok && T1.hp + (T1.plates || 0) < hp0, `部署在 (5,5)、敵人在 3 格外：同一個階段結束就俯衝（${hp0} → ${T1.hp + (T1.plates || 0)}）`);
 }
+// 三倍傷害預設關掉（Alan 2026-10-16）：產生的地圖中央有位置，但開場地上沒有
+{
+  const {generate} = await import('../../../../tools/mapgen.mjs');
+  const M = generate(7), g4 = new PvpGame({seed: 7, map: M, A: ['soldier', 'recon', 'bulwark', 'ninja'], B: ['soldier', 'recon', 'bulwark', 'ninja']});
+  ok(M.power && !g4.items.some(o => o.type === 'pvp_power'), '三倍傷害預設關掉：地上沒有');
+}
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');
