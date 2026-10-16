@@ -266,26 +266,29 @@ export function generate(seed, opt = {}) {
       set(x, y, COVER); if (!connected(T)) { set(x, y, FLOOR); continue; } made++;
     }
     // 6. 亮暗與鹵素燈：每一區亮或停電（上下對稱），開場的區一定亮
-    // 暗的總面積在全部地板的 15–35%（一整區太大就不暗；能暗的話至少暗一區）
-    const L = T.map(row => row.map(() => 2)), zoneDark = new Map(), spawnZ = new Set([Z[A[1]][A[0]] % 100, Z[B[1]][B[0]] % 100]), size = new Map();
+    // 光的三等分（Alan 2026-10-16：只看格數、不限位置）：約 1/3 常亮（有電）、1/3 鹵素燈照亮（停電但在燈旁）、1/3 常暗（停電、燈照不到）
+    const L = T.map(row => row.map(() => 2)), size = new Map(), zoneDark = new Map();
     let floorN = 0; for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0) { floorN++; const z = Z[y][x] % 100; size.set(z, (size.get(z) || 0) + 1); }
     const frontN = new Map(); for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0 && front(x, y)) { const z = Z[y][x] % 100; frontN.set(z, (frontN.get(z) || 0) + 1); }
-    // 交火區占比高的區先暗（暗房要在會打起來的地方才有意義），同分隨機
+    // 1. 停電的區：交火區占比高的先挑（暗房要在會打起來的地方），一區一區加，停電格數越接近全部的 2/3 越好；開場 4 格內一定有電
+    const want2 = floorN * (opt.unpowered ?? 2 / 3);
     const order = [...size.keys()].map(z => [z, (frontN.get(z) || 0) / size.get(z) + r() * .05]).sort((a, b) => b[1] - a[1]).map(([z]) => z); let darkN = 0;
-    for (const z of order) { const n = size.get(z); if ((darkN + n) / floorN > (opt.darkMax ?? .35)) continue; if (darkN / floorN >= .15 && r() > (opt.dark ?? .4)) continue; zoneDark.set(z, true); darkN += n; }
-    // 開場的區也可以暗，只有開場 4 格內一定亮
+    for (const z of order) { const n = size.get(z); if (Math.abs(darkN + n - want2) < Math.abs(darkN - want2)) { zoneDark.set(z, true); darkN += n; } }
     const nearSpawn = (x, y) => Math.abs(x - A[0]) + Math.abs(y - A[1]) <= 4 || Math.abs(x - B[0]) + Math.abs(y - B[1]) <= 4;
     for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] >= 0 && zoneDark.get(Z[y][x] % 100) && !nearSpawn(x, y)) L[y][x] = 0;
-    const lamps = [];
-    for (const [z, dark] of zoneDark) {
-      if (!dark) continue;
-      const tiles = []; for (let y = 1; y <= C; y++) for (let x = 1; x < N - 1; x++) if (Z[y][x] === z && T[y][x] === FLOOR && L[y][x] === 0) tiles.push([x, y]);
-      const byWall = tiles.filter(([x, y]) => D4.some(([dx, dy]) => T[y + dy][x + dx] === WALL));
-      const near = byWall.filter(([x, y]) => band(x, y)), pool = near.length ? near : byWall.length ? byWall : tiles, want = Math.max(1, Math.round(tiles.length / 20)), got = [];   // 燈也先掛在路線旁的牆上
-      if (pool.length) got.push(pick(pool));
-      while (got.length < Math.min(want, pool.length)) got.push(pool.reduce((best, p) => { const d = Math.min(...got.map(q => Math.abs(q[0] - p[0]) + Math.abs(q[1] - p[1]))); return d > best.d ? {p, d} : best; }, {p: null, d: -1}).p);
-      for (const p of got) lamps.push(p, rot(...p));
+    // 2. 鹵素燈：掛在停電區靠牆的地板上（上半部挑、轉 180 度成對），一對一對加，直到燈照到的停電格（燈旁 3 格內，近似 ASH 的亮 2＋暗 1）約占全部地板的 1/3
+    const unpowered = []; for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) if (L[y][x] === 0 && passable(T[y][x])) unpowered.push([x, y]);
+    const lamps = [], lit = new Set(), reach = 3, wantLit = floorN * (opt.lampLit ?? .29);   // 燈是一對一對加的，目標略低於 1/3，實測（ASH 的 lightAt）才會接近三等分
+    const cover = p => unpowered.filter(([x, y]) => Math.abs(x - p[0]) + Math.abs(y - p[1]) <= reach).map(q => q.join(','));
+    const cand = []; for (let y = 1; y <= C; y++) for (let x = 1; x < N - 1; x++) if (L[y][x] === 0 && T[y][x] === FLOOR && D4.some(([dx, dy]) => T[y + dy][x + dx] === WALL)) cand.push([x, y]);
+    while (lit.size < wantLit && lamps.length < 40) {
+      let best = null, gain = 0;
+      for (const p of cand) { if (lamps.some(l => l[0] === p[0] && l[1] === p[1])) continue; const g = new Set([...cover(p), ...cover(rot(...p))].filter(k => !lit.has(k))).size + (band(...p) ? .5 : 0); if (g > gain) { gain = g; best = p; } }
+      if (!best || gain < 2) break;
+      for (const q of [best, rot(...best)]) { lamps.push(q); for (const k of cover(q)) lit.add(k); }
     }
+    // 每一張都要接近三等分（Alan：每張圖都是）：三類各在 25%–42% 之間，不然重生
+    { const fr = [floorN - unpowered.length, lit.size, unpowered.length - lit.size].map(n => n / floorN); if (fr.some(f => f < (opt.lightMin ?? .25) || f > (opt.lightMax ?? .42))) continue; }
     // 7. 出煙口：上半部一個（轉 180 度另一個），放在長直線上（那一列或那一行連續開闊 8 格以上），離開場 5 格以上
     const run = (x, y, dx, dy) => { let n = 0; for (let X = x, Y = y; T[Y]?.[X] && seeThrough(T[Y][X]); X += dx, Y += dy) n++; return n; };
     const ventCand = [];
@@ -314,7 +317,7 @@ export function generate(seed, opt = {}) {
     T[C][C] = FLOOR; D[C][C] = 0; if (!connected(T)) continue;
     const power = [C, C];
     const g = graphOf(T);
-    return {T, L, A, B, P, D, lamps, vents, crates, power, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length, trench: D.flat().filter(Boolean).length}};
+    return {T, L, A, B, P, D, lamps, vents, crates, power, zones: Z, seed, tries, g, spawn: mode, version: 2, m: {...metrics(T, g, A, B), partitions: P.length, lamps: lamps.length, vents: vents.length, trench: D.flat().filter(Boolean).length, light: {floor: floorN, powered: floorN - unpowered.length, lampLit: lit.size, black: unpowered.length - lit.size}}};
   }
   return null;
 }
