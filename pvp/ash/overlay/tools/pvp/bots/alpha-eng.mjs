@@ -13,7 +13,8 @@ import {droneCells} from '../../../src/allies.js';
 import {skillActive} from '../../../src/skills.js';
 import {isBlack} from '../../../src/lighting.js';
 import {distance} from '../../../src/world.js';
-import {MT, tick} from './alpha-manual.mjs';
+import {MT, tick, walkField, firstStep, exposureFn, trenchEdge} from './alpha-manual.mjs';
+import {pullLanding} from '../../../src/melee-classes.js';
 
 export const ET = {on: process.env.ALPHA_ENG !== '0', mun: process.env.ALPHA_EMUN !== '0', sentry: process.env.ALPHA_ESENTRY !== '0', munRange: +(process.env.ALPHA_EMRANGE ?? 10), munMin: +(process.env.ALPHA_EMMIN ?? 3)};
 // 自殺無人機部署的那一個 turn 不行動（bornTurn），要撐過對方整個階段才飛得出去：量過只對不動的目標（下錨的重裝兵，munMin 3）才划算
@@ -48,6 +49,11 @@ export function engineerIntent(bot, view, hostile, known) {
   for (let line = 0; line < lines.length; line++) {
     const bp = lines[line].blueprint;
     if (bp === 'drone_munition' && MT.ambush) {
+      // 第二輪（部署當階段就會行動）：2 步內有一格離對方 4 格內、直線沒擋 → 部署，階段結束就俯衝
+      const st = strikeCell(bot);
+      if (st && !deployReason(g, line, st)) { tick('mun.strike'); if (st.hidden) tick('mun.strikeHidden'); return tag({type: 'deployUnit', arg: {line, x: st.x, y: st.y}, why: `alpha munition strike ${st.who} from ${st.x},${st.y}`, ambush: true}, bp, 'deployed'); }
+      const ap = MT.hunt && process.env.ALPHA_MHE !== '0' && approachFoe(bot, view, foes); if (ap) return ap;
+      if (!MT.prePlace) continue;
       const c = ambushCell(bot, foes);
       if (c && !deployReason(g, line, c)) { tick('mun.deployAmbush'); return tag({type: 'deployUnit', arg: {line, x: c.x, y: c.y}, why: `alpha ambush munition ${c.x},${c.y} d${c.d.toFixed(1)}`, ambush: true}, bp, 'deployed'); }
       continue;
@@ -83,7 +89,7 @@ export function engineerIntent(bot, view, hostile, known) {
   if (lines.length) return null;
   if (MT.ambush) {
     const S = munState(g, p);
-    if ((p.grenades || 0) >= 1 && S.built < 2 && !hostile.length && !buildReason(g, 'drone_munition', 'frag')) { S.built++; tick('mun.built'); return tag({type: 'buildUnit', arg: {blueprint: 'drone_munition', payload: 'frag'}, why: 'alpha build ambush munition'}, 'drone_munition', 'built'); }
+    if ((p.grenades || 0) >= 1 && S.built < 3 && !hostile.length && !buildReason(g, 'drone_munition', 'frag')) { S.built++; tick('mun.built'); return tag({type: 'buildUnit', arg: {blueprint: 'drone_munition', payload: 'frag'}, why: 'alpha build ambush munition'}, 'drone_munition', 'built'); }
   } else if (ET.mun && (p.grenades || 0) >= 1) {
     const t = munitionTarget(g, p, foes);
     if (t && !buildReason(g, 'drone_munition', 'frag')) return tag({type: 'buildUnit', arg: {blueprint: 'drone_munition', payload: 'frag'}, why: `alpha build munition for ${realOf(g, t)?.character}`}, 'drone_munition', 'built');
@@ -141,3 +147,35 @@ export function trackMunition(bot, intent) {
 }
 const MUN_IDS = new WeakMap(), ALL_MUN = [];
 if (process.env.ALPHA_REPORT) process.on('exit', () => { const f = {}; for (const a of ALL_MUN) { const k = a.__det ? 'detonated' : a.hp <= 0 || a.status === 'destroyed' ? 'shotDown' : 'idle'; f[k] = (f[k] || 0) + 1; } console.error('MUN_FATE ' + JSON.stringify(f)); });
+
+// 俯衝打得到誰：部署格 c 到對方（替身，這個階段不會動）4 格內、看得到、直線沒擋、有落點；值：職業、能炸到幾個人、血少
+function strikeCell(bot) {
+  const g = bot.g, p = g.player, side = bot.side(), team = g.alive(side);
+  const foes = g.enemies.filter(e => e.hp > 0 && e.pvpOf != null);
+  let best = null;
+  for (const c of droneCells(g)) {
+    for (const e of foes) {
+      if (distance(c, e) > 4 || !g.sight(c, e) || !g.shotClear(c, e)) continue;
+      const point = distance(c, e) === 1 ? c : pullLanding(g, {x: c.x, y: c.y, id: 'probe'}, e); if (!point) continue;
+      const m = g.unit(e.pvpOf), pack = foes.filter(o => distance(o, point) <= 2).length, own = team.filter(u => distance(u, point) <= 2).length;
+      if (own) continue;
+      const hidden = !foes.some(o => g.sight({x: o.x, y: o.y}, p));
+      const s = pack * 10 + (m?.character === 'recon' ? 6 : 0) + (m?.character === 'bulwark' && skillActive(m, 'anchor') ? 5 : 0) + (e.hp <= 45 ? 8 : 0) + (hidden ? 3 : 0);
+      if (!best || s > best.s) best = {s, x: c.x, y: c.y, who: m?.character, hidden};
+    }
+  }
+  return best;
+}
+// 帶著自殺無人機摸近：往離已知對方 3–5 格、沒人看得到的格子走
+function approachFoe(bot, view, foes) {
+  const g = bot.g, p = g.player, me = view.me; if (me.hp < me.maxHp * .4 || me.pinned) return null;
+  const near = foes.filter(f => distance(f, me) <= 10 && distance(f, me) > 3); if (!near.length) return null;
+  if (foes.some(f => distance(f, me) <= 2)) return null;
+  const ex = exposureFn(bot, foes), F = walkField(bot, me, {maxCost: 12, cell: q => ex(q) * 4, edge: trenchEdge(g)});
+  let best = null;
+  for (const [k, c] of F.D) { const q = {x: k % 256, y: Math.floor(k / 256)}; if (ex(q)) continue; if (!near.some(f => distance(f, q) >= 3 && distance(f, q) <= 5)) continue; if (!best || c < best.c) best = {c, q}; }
+  if (!best || best.c === 0) return null;
+  const st = firstStep(F, best.q); if (!st) return null;
+  tick('mun.approachStep');
+  return {type: 'move', arg: st, walk: true, why: `alpha engineer sneaks with munition → ${best.q.x},${best.q.y}`};
+}

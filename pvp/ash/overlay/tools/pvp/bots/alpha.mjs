@@ -43,7 +43,7 @@ import {coverEffects} from '../../../src/cover.js';
 import {lootIntent, isLootGun, LT} from './alpha-loot.mjs';
 import {DarkSniper, isSniper, selfLit} from './alpha-dark.mjs';
 import {engineerIntent, ET, trackMunition} from './alpha-eng.mjs';
-import {MT, tick, foeRecon, reconSpot, reconUnknown, soldierIntent, afterWarning, marked, anchorSpot, ninjaIntent, ninjaApproach, exposedCost, detourCost} from './alpha-manual.mjs';
+import {MT, tick, foeRecon, reconSpot, reconUnknown, soldierIntent, afterWarning, marked, anchorSpot, ninjaIntent, ninjaApproach, exposedCost, detourCost, anchorOK, soldierHunt, ninjaHunt, bulwarkTrench, powerRisky, reconLast, overwatch} from './alpha-manual.mjs';
 import {exploreRoute} from '../../clear-bot/nav.mjs';
 import {dist} from '../../clear-bot/util.mjs';
 
@@ -284,6 +284,12 @@ export default class Alpha extends PvpBot {
           const e = this.g.enemies.find(x => x.id === v.id); if (!e || e.hp <= 0) continue;
           view.enemies.push(remoteView(e)); this.remote.add(e.id); gh.delete(e.id);
         }
+        // 自保（ClearBot 的 exposureAt）：交戰中，上一個對方階段之前看到的人（2 turn 內）也當成會打這裡的人算
+        if (MT.stale && view.enemies.length) for (const v of this.intel().values()) {
+          if (v.turn === this.g.turn || this.g.turn - v.turn > 2 || have.has(v.id) || this.remote.has(v.id)) continue;
+          const e = this.g.enemies.find(x => x.id === v.id); if (!e || e.hp <= 0) continue;
+          const rv = remoteView(e); rv.x = v.x; rv.y = v.y; rv.stale = true; view.enemies.push(rv); this.remote.add(e.id); gh.delete(e.id); tick('self.staleFoe');
+        }
       }
       view.ghosts = [...gh.values()];
     }
@@ -298,11 +304,23 @@ export default class Alpha extends PvpBot {
     // 打法手冊 1：士兵預警（免費）；3：忍者迷彩＋天誅
     { const sw = soldierIntent(this, view, hostile, T.intel ? this.knownFoes(view) : view.ghosts); if (sw && !this.isRefused(sw)) return sw; }
     { const ni = ninjaIntent(this, view, hostile.filter(e => !this.remote?.has(e.id))); if (ni && !this.isRefused(ni)) return ni; }
+    // 第二輪：士兵摸近偵察兵、忍者摸到 4 格內、重裝兵找全深戰壕
+    {
+      const kn = T.intel ? this.knownFoes(view) : view.ghosts; reconLast(this, view);
+      this.anchorMeter(view, [...hostile, ...kn]);
+      for (const f of [soldierHunt, ninjaHunt, bulwarkTrench]) { const it = f(this, view, hostile, kn); if (it && !this.isRefused(it)) return it; }
+    }
+    // 工兵帶著自殺無人機：俯衝、摸近比搶箱子優先
+    if (ET.on && MT.ambush && this.g.player.character === 'engineer' && this.g.player.productionLines?.some(l => l.blueprint === 'drone_munition')) {
+      const ei = engineerIntent(this, view, hostile, T.intel ? this.knownFoes(view) : view.ghosts); if (ei && !this.isRefused(ei)) return ei;
+    }
+    // 交互掩護前進（小隊長的打法）
+    { const ow = overwatch(this, view, hostile, T.intel ? this.knownFoes(view) : view.ghosts); if (ow && !this.isRefused(ow)) return ow; }
     // 搶奪點（alpha-loot.mjs）：自己看不到人時去搶箱子、三倍傷害；撿到的槍換上
     {
       const foes = [...hostile, ...(T.intel ? this.knownFoes(view) : [])];
       const threatened = q => foes.some(f => !f.melee && distance(f, q) <= (f.range || 8) && this.g.sight({x: f.x, y: f.y}, q));
-      const noPower = MT.power && reconUnknown(this, view); if (noPower && this.g.items.some(i => i.type === 'pvp_power')) tick('power.skipDecisions');
+      const noPower = powerRisky(this, view); if (noPower && this.g.items.some(i => i.type === 'pvp_power')) tick('power.skipDecisions');
       const li = lootIntent(this, view, {threatened, fighting: hostile.length > 0, noPower});
       if (li && (li.type === 'weapon' || !hostile.length && !(T.lootCalm && foes.some(f => distance(f, view.me) <= T.lootCalm))) && !this.isRefused(li)) return li;
     }
@@ -360,6 +378,13 @@ export default class Alpha extends PvpBot {
   manualClass() {
     if (this.manualWrapped || !this.cls) return; this.manualWrapped = true;
     const c = this.cls, g = this.g, bot = this;
+    if (g.player.character === 'engineer' && ET.on) {
+      // ClearBot 的工兵：不自己做跟隨無人機（alpha-eng 決定），自殺無人機不准它隨手部署
+      const munDeploy = r => MT.ambush && r?.type === 'deployUnit' && g.player.productionLines?.[r.arg?.line ?? 0]?.blueprint === 'drone_munition';
+      this.engCls = true;
+      this.cls = {...c, quiet: (v, b) => { const r = c.quiet?.(v, b); if (munDeploy(r)) return null; return r?.type === 'buildUnit' ? null : r; },
+        combat: (v, b) => (c.combat?.(v, b) || []).filter(o => !munDeploy(o))};
+    }
     if (g.player.character === 'ninja') this.cls = {...c,
       // 3：迷彩留給天誅（ninjaIntent）；ClearBot 原本 6 格內有射手就開，只留貼身時
       prepare: (v, b) => { const r = c.prepare?.(v, b); if (MT.ninja && r?.arg === 'camouflage' && !v.enemies.some(e => !e.civilian && distance(e, v.me) <= 1)) return null; return r; },
@@ -367,6 +392,13 @@ export default class Alpha extends PvpBot {
       meleeMode: (v, b) => { if (MT.ir && foeRecon(bot) && v.me.dark && !v.me.camo && !c.meleeMode?.({...v, me: {...v.me, dark: false}}, b)) { tick('ir.ninjaDarkDenied'); return false; } return c.meleeMode?.(v, b); },
       // 4：腳下的煙擋不住偵察兵（紅外線）：偵察兵在射程內就不丟
       combat: (v, b) => { const out = c.combat?.(v, b) || []; if (!MT.ir) return out; const r = v.enemies.find(e => realOf2(g, e)?.character === 'recon' && distance(e, v.me) <= (e.range || 8)); if (!r) return out; return out.filter(o => { const drop = o.type === 'grenade' && /smoke at own feet/.test(o.why || ''); if (drop) tick('ir.smokeDenied'); return !drop; }); }};
+  }
+  // 重裝兵下錨時每個階段受的傷（自己兩次決策之間＝對方一整個階段），照下錨的位置分
+  anchorMeter(view, foes) {
+    const g = this.g, p = g.player; if (p.character !== 'bulwark' || this.meterTurn === g.turn) return; this.meterTurn = g.turn;
+    const hp = p.hp + (p.plates || 0);
+    if (this.anchRec) { tick('anchPh.' + this.anchRec.spot); tick('anchDmg.' + this.anchRec.spot, Math.max(0, this.anchRec.hp - hp)); }
+    this.anchRec = skillActive(p, 'anchor') ? {hp, spot: anchorSpot(this, view, foes)} : null;
   }
   // 統計（打法手冊各條觸發幾次、效果）
   act(intent) {
@@ -384,6 +416,9 @@ export default class Alpha extends PvpBot {
     if (intent.type === 'hookBlade') { tick('tenchu.n'); tick('tenchu.dmg', dmg); if (tgt && tgt.hp <= 0) tick('tenchu.kill'); if (vic === 'recon') { tick('tenchu.recon'); tick('tenchu.reconDmg', dmg); } }
     if (intent.type === 'skill' && intent.arg === 'grapple') { tick('grapple.n'); tick('grapple.dmg', dmg); if (tgt && tgt.hp <= 0) tick('grapple.kill'); if (vic === 'recon') { tick('grapple.recon'); tick('grapple.reconDmg', dmg); } }
     if (tgt && intent.type !== 'hookBlade' && marked(tgt) && dmg > 0) { tick('ew.focusHits'); tick('ew.focusDmg', dmg); if (tgt.hp <= 0) tick('ew.focusKills'); }
+    if (/^(fallback|retreat)/.test(intent.why || '')) tick('self.' + intent.why.split(' ')[0]);
+    if (/^continue (fallback|retreat)/.test(intent.why || '')) tick('self.continue');
+    if (/^away from/.test(intent.why || '')) tick('self.kite');
     if (!pw0 && p.pvpPower) { tick('power.picked'); if (recUnk) tick('power.pickedReconUnknown'); }
     if (intent.type === 'move' && foeRecon(this) && view) { tick('move.reconAlive'); if (recUnk) { tick('move.reconUnknown'); if (exposedCost(this, p, true) >= MT.detourW * .7) tick('move.openLit'); } }
     if (p.character === 'engineer') trackMunition(this, intent);
@@ -445,7 +480,7 @@ Alpha.prototype.stance = function (view, opts) {
       const foes = [...view.enemies, ...(T.intel ? this.knownFoes(view) : [])];
       for (let i = opts.length - 1; i >= 0; i--) if (opts[i].type === 'skill' && opts[i].arg === 'anchor') {
         const spot = anchorSpot(this, view, foes);
-        if (spot === 'open') { opts.splice(i, 1); tick('anchor.refusedOpen'); }
+        if (!anchorOK(spot)) { opts.splice(i, 1); tick('anchor.refused.' + spot); }
       }
     }
     // 打法手冊 5：狂戰士的鉤爪優先拉偵察兵；偵察兵看得到、還拉不到的格子扣分
