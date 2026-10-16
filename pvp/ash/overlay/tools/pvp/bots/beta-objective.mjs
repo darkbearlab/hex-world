@@ -49,7 +49,7 @@ export function objectives(g, plan) {
   const live = new Set(targets.map(t => t.id));
   // 舊的分工：人死了、東西沒了、太久沒拿到 → 取消
   for (const [m, a] of S.assign) {
-    if (m.hp <= 0 || !live.has(a.id) || g.turn - a.since > a.turns || S.done.has(a.id)) { S.assign.delete(m); continue; }
+    if (m.hp <= 0 || plan.noJob?.has(m) || !live.has(a.id) || g.turn - a.since > a.turns || S.done.has(a.id)) { S.assign.delete(m); continue; }
     const t = targets.find(t => t.id === a.id); Object.assign(a, {x: t.x, y: t.y});
   }
   // 箱子打開了（我們開的或看到開了）：分給那個人的工作換成「撿地上的槍」（同一個人）
@@ -63,10 +63,10 @@ export function objectives(g, plan) {
     const D = stepField(g, t);
     let best = null;
     for (const m of members) {
-      if (taken.has(m) || !t.fit(m)) continue;
+      if (taken.has(m) || !t.fit(m) || plan.noJob?.has(m)) continue;
       const d = D[m.y]?.[m.x];
       if (!Number.isFinite(d)) continue;
-      const cost = d - (m.character === 'ninja' && m.escapeLines > 0 ? OBJ_TUNING.ninjaBonus : 0);
+      const cost = d - (m.character === 'ninja' && m.escapeLines > 0 ? OBJ_TUNING.ninjaBonus : m.character === 'ninja' && m.redeployLines > 1 ? OBJ_TUNING.ninjaBonus - 1 : 0);
       if (cost > t.reach) continue;
       if (!best || cost < best.cost) best = {m, cost};
     }
@@ -82,13 +82,15 @@ export function markOpened(g, id) { sideState(g, g.pvp.side).opened.add(id); }
 // 忍者的脫離繩（不花動作、6 格直線、落點要看得到）：往目標拉近至少 ropeGain 步
 export function ropeToward(g, me, goal) {
   if (OFF.has('rope') || me.character !== 'ninja') return null;
-  const item = me.escapeLines > 2 ? 'escape_line' : null; if (!item) return null;
-  const D = stepField(g, goal), here = D[me.y]?.[me.x]; if (!Number.isFinite(here) || here <= 3) return null;
+  // 脫離繩（不花動作）留兩條逃命；加強版拿掉了脫離繩：重新部署繩（花一個動作、一次最多 6 格）留一條逃命，至少省 3 步才用
+  const item = me.escapeLines > 2 ? 'escape_line' : !OFF.has('redeploy') && me.redeployLines > 1 ? 'redeploy_line' : null; if (!item) return null;
+  const need = item === 'escape_line' ? OBJ_TUNING.ropeGain : OBJ_TUNING.ropeGain + 1;
+  const D = stepField(g, goal), here = D[me.y]?.[me.x]; if (!Number.isFinite(here) || here <= need) return null;
   let best = null; const R = LINE_TUNING.range;
   for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
     if (Math.abs(dx) + Math.abs(dy) > R || (dx && dy)) continue;   // 直線（一條軸）
     const q = {x: me.x + dx, y: me.y + dy}, d = D[q.y]?.[q.x];
-    if (!Number.isFinite(d) || here - d < OBJ_TUNING.ropeGain) continue;
+    if (!Number.isFinite(d) || here - d < need) continue;
     if (lineReason(g, {x: q.x, y: q.y, item})) continue;
     const gain = here - d; if (!best || gain > best.gain) best = {q, gain};
   }

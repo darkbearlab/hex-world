@@ -21,9 +21,15 @@ import {coverEffects} from '../../../src/cover.js';
 import {objectives, markOpened, markDone, ropeToward, hasLoot, isLoot, OBJ_TUNING} from './beta-objective.mjs';
 import {WEAPONS} from '../../../src/data.js';
 import {weaponStats} from '../../../src/weapons.js';
+import {isBlack} from '../../../src/lighting.js';
+import {incoming} from '../../clear-bot/tactics.mjs';
+import {engCombat, engQuiet} from './beta-engineer.mjs';
+import {quietSlot, findNest, lampShootable, seesBlack, approachTiles, SNIPE_TUNING} from './beta-sniper.mjs';
+const ambushStates = new WeakMap();
+const ambushState = (g, side) => { let a = ambushStates.get(g); if (!a) { a = {A: {}, B: {}}; ambushStates.set(g, a); } return a[side]; };
 
 export const TUNING = {quietFrag: 10, fragReserve: 12, spacing: 4, spacingCalm: 1.5, hurt: 15,
-  cover: 5, flaw: 10, cloud: 5, far: 6, lamp: 14, trenchHold: 10, ghostTurns: 8, fox: +(globalThis.process?.env?.BETA_FOX || 4), soonWeight: +(globalThis.process?.env?.BETA_SW || 1)};
+  cover: 5, flaw: 10, cloud: 5, far: 6, lamp: 14, trenchHold: 10, ghostTurns: 8, ambushRounds: +(globalThis.process?.env?.BETA_AMBUSH || 0), fox: +(globalThis.process?.env?.BETA_FOX || 4), soonWeight: +(globalThis.process?.env?.BETA_SW || 1)};
 export const BETA_STATS = {};
 const OFF = new Set((globalThis.process?.env?.BETA_OFF || '').split(','));   // 實驗用：關掉某些改動比較   // 實驗用（beta-analyze.mjs，BETA_STATS=1）
 const unitOf = (g, id) => String(id).startsWith('px-') ? g.unit(String(id).slice(3)) : null;
@@ -44,7 +50,9 @@ export default class Beta extends PvpBot {
       const k = d > 16 ? 'Z:far>16' : d > 10 ? 'Z:mid11-16' : 'Z:near<=10'; BETA_STATS[k] = (BETA_STATS[k] || 0) + 1;
     }
     const g = this.g, p = g.player, at = intent.type === 'move' && Array.isArray(intent.arg) ? {x: p.x + intent.arg[0], y: p.y + intent.arg[1]} : null;
+    const line = intent.type === 'deployUnit' ? p.productionLines?.[intent.arg?.line]?.blueprint : null;
     const ok = super.act(intent);
+    if (ok !== false && process.env.BETA_STATS && (line || intent.type === 'buildUnit')) { const k = `ENG:${intent.type}:${line || intent.arg?.blueprint}`; BETA_STATS[k] = (BETA_STATS[k] || 0) + 1; }
     if (ok !== false && intent.type === 'openContainer') markOpened(g, intent.arg);
     if (ok !== false && process.env.BETA_STATS && (intent.type === 'openContainer' || intent.type === 'rope' || intent.type === 'takeWeapon')) BETA_STATS[`OBJ:${intent.type}:${p.character}`] = (BETA_STATS[`OBJ:${intent.type}:${p.character}`] || 0) + 1;
     // 走進看不到的敵人（貼牆的）：ASH 回「被敵人擋住」——那裡有人，記進整隊的記憶
@@ -64,12 +72,27 @@ export default class Beta extends PvpBot {
     if (!OFF.has('remote')) for (const e of sight.values()) if (!mine.has(e.id)) { const r = remoteView(g, e); view.enemies.push(r); view.occupied.add(key(r)); }
     patchView(view);
     this.team = teamPlan(g, view, this);
+    // 偵察兵的消焰精準步槍：找全黑的狙擊點（beta-sniper.mjs）
+    this.qslot = OFF.has('snipe') ? null : quietSlot(view.me.ref);
+    // 埋伏（隊上有消焰槍、還沒碰到人、前 ambushRounds 回合）：整隊在自己開場附近等，偵察兵在看得到來路的黑暗裡（不去搶東西）
+    const amb = this.ambush(view);
+    if (amb) { this.team.goal = amb; this.team.hold.clear(); }
+    if (!OFF.has('snipe')) this.team.noJob = new Set(this.team.members.filter(m => quietSlot(m) != null));   // 狙擊手不去搶東西（三倍傷害在中央）
     this.team.obj = objectives(g, this.team);
     this.job = this.team.obj.get(view.me.ref) || null;
     if (this.job) for (const m of this.team.obj.keys()) this.team.hold.delete(m);
     if (!OFF.has('ghosts')) view.ghosts = [...this.team.memory.values()].filter(r => !r.seen && !r.ally && g.turn - r.turn <= TUNING.ghostTurns).map(r => ({...r, type: 'pvp-proxy-0', boss: false}));
     this.frag = null;
-    const f = fragChoice(g, view, this.team, {reserve: TUNING.fragReserve});
+    // 工兵：三種單位照整隊計畫挑（beta-engineer.mjs），取代 ClearBot 的工兵類別
+    if (view.me.character === 'engineer' && !OFF.has('eng') && !this.engWrapped) {
+      this.engWrapped = true; const base = this.cls;
+      this.cls = {...base, combat: v => engCombat(this, v), quiet: v => engQuiet(this, v, !!this.amb, approachTiles(this.g, this.g.pvp.side))};
+    }
+    this.amb = amb;
+    this.nest = this.qslot != null && !this.job ? (amb ? this.ambushNest(view) : findNest(g, view, this.team)) : null;
+    if (this.nest) { this.team.nests ||= new Map(); this.team.nests.set(view.me.ref, this.nest); }
+    if (process.env.BETA_STATS && this.qslot != null) { const k = `N:${this.nest ? (this.nest.x === view.me.x && this.nest.y === view.me.y ? 'at' : this.nest.lamp ? 'lamp' : 'go') : 'none'}:${view.me.black ? 'black' : view.me.dark ? 'dim' : 'lit'}:${view.enemies.length ? 'fight' : 'quiet'}`; BETA_STATS[k] = (BETA_STATS[k] || 0) + 1; }
+    const f = fragChoice(g, view, this.team, {reserve: TUNING.fragReserve * fragMult(view.me.grenades?.frag || 0)});
     if (f && f.score > 0) {
       this.frag = {type: 'grenade', arg: {x: f.x, y: f.y}, pre: view.me.prepared.grenade !== 'frag' ? {type: 'prepare', arg: {category: 'grenade', id: 'frag'}} : null, score: f.score, why: `team frag h${f.hits} k${f.kills.toFixed(1)} v${f.value.toFixed(0)}`};
       if (this.isRefused(this.frag)) this.frag = null;
@@ -79,6 +102,9 @@ export default class Beta extends PvpBot {
   // 沒看到人：先看能不能把手榴彈丟到剛剛還在那裡的人身上；再看要不要打燈
   quiet(view) {
     if (this.frag && this.frag.score >= TUNING.quietFrag) return this.frag;
+    const snipe = this.nestQuiet(view); if (snipe) return snipe;
+    // 醫療包多（士兵加強後 4 個）：沒人看到的時候早一點補
+    const me = view.me; if (me.meds >= 3 && me.hp < me.maxHp * .75 && !this.isRefused({type: 'heal'})) return {type: 'heal', why: 'quiet heal (spare meds)'};
     const lamp = this.lampShot(view, false); if (lamp) return lamp;
     // 剛看到對方（快接觸了）：附近有散兵坑就先跳進去（取代 ClearBot 的「原地等一下」）
     if (!this.job && this.team?.goal && !view.me.pinned) { const fox = this.foxhole(view, this.team.goal); if (fox && !this.isRefused(fox)) return fox; }
@@ -129,6 +155,8 @@ export default class Beta extends PvpBot {
       }
     }
     const lamp = this.lampShot(view, true); if (lamp) opts.push(lamp);
+    if (!OFF.has('dark')) this.darkScores(view, opts, hurt);
+    if (me.meds >= 3) for (const o of opts) if (o.type === 'heal' && me.hp < me.maxHp * .7) o.score += 6;
     if (!OFF.has('powershot') && me.ref.pvpPower) this.powerScores(view, opts);
     // 搶奪點的工作：在交火中也做（箱子就在旁邊、槍和三倍傷害 2 步內），打得到我的人少才去
     if (this.job && !hurt) {
@@ -140,6 +168,85 @@ export default class Beta extends PvpBot {
       }
     }
     return super.stance(view, opts);
+  }
+  // 黑暗：站在全黑的格子開普通的槍會暴露（對方整個階段都看得到、打得到）；消焰槍不會。
+  // 偵察兵的狙擊點：在點上就瞄準（待機）、瞄準了開火、不離開；不在點上就往點走；點要靠打燈造出來就先打燈。
+  darkScores(view, opts, hurt) {
+    const g = this.g, me = view.me, black = me.black;
+    const qs = this.qslot, nest = this.nest, atNest = nest && nest.x === me.x && nest.y === me.y;
+    const fireSlot = o => o.type === 'fire' ? me.weapon : o.type === 'weapon' && o.then?.type === 'fire' ? o.arg : null;
+    // 暴露的代價：看不到黑暗的敵人在暴露之後打得到我（view.light 換成「亮」算一次）
+    let exposeCost = 0;
+    if (black) {
+      const keep = view.light; view.light = () => view.LIGHT.lit;
+      try { for (const e of view.enemies) if (!e.civilian && !(e.nv || e.ir || e.mech)) exposeCost += incoming(view, e, me).soon; } finally { view.light = keep; }
+      exposeCost *= .8;
+    }
+    for (const o of opts) {
+      const slot = fireSlot(o); if (slot == null) continue;
+      const tgt = view.enemies.find(e => e.id === (o.target ?? o.then?.target));
+      if (slot === qs) {
+        if (black) o.score += SNIPE_TUNING.quietFire, o.why += ' +quiet';
+        const u = tgt && unitOf(g, tgt.id); if (u?.character === 'bulwark') o.score += SNIPE_TUNING.bulwark, o.why += ' +ap';
+        if (!me.focus && me.weapon === qs && black && !(o.kill > .5)) o.score -= SNIPE_TUNING.unaimed, o.why += ' -unaimed';   // 黑暗裡沒人看得到我：先待機瞄準（−40 → +15）
+      } else if (black && exposeCost && tgt) o.score -= exposeCost, o.why += ` -expose${exposeCost.toFixed(0)}`;
+    }
+    if (qs == null) return;
+    const aimable = view.enemies.filter(e => !e.remote && !e.civilian && dist(e, me) <= SNIPE_TUNING.range && g.nativeSight(me.ref, e.ref) && g.shotClear(me.ref, e.ref));
+    if (black && me.weapon === qs && !me.focus && aimable.length) {
+      // ClearBot 在「一直掉血」時不給待機；黑暗裡沒人看得到我，待機（瞄準）還是值得
+      let w = opts.find(o => o.type === 'wait'); if (!w) { w = {type: 'wait', score: -5, why: 'aim'}; opts.push(w); }
+      // 待機的代價（ClearBot 算的「多拖一回合」）在黑暗裡不成立：至少比沒瞄準的一槍好
+      const shot = Math.max(-50, ...opts.filter(o => fireSlot(o) === qs && !(o.kill > .5)).map(o => o.score));
+      w.score = Math.max(w.score + SNIPE_TUNING.aim, shot + 3); w.why += ' +aim';
+    }
+    if (hurt) return;
+    if (atNest || black && !nest) {
+      // 在狙擊點（或黑暗中）：手上不是消焰槍就換；不離開
+      if (me.weapon !== qs && !opts.some(o => o.type === 'weapon' && o.arg === qs)) opts.push({type: 'weapon', arg: qs, score: Math.max(0, ...opts.map(o => o.score)) + 2, why: 'nest: quiet rifle'});
+      // 不離開黑暗：走出全黑的格子要扣分（還是全黑的格子可以走）
+      for (const o of opts) if (o.type === 'move' && !o.target && o.arg) { const t = {x: me.x + o.arg[0], y: me.y + o.arg[1]}; if (atNest || !isBlack(g, t)) o.score -= SNIPE_TUNING.leave; }
+    }
+    if (nest?.lamp && lampShootable(g, me, nest.lamp)) {
+      const it = {type: 'fire', target: nest.lamp.id, score: Math.max(0, ...opts.map(o => o.score)) + 3, why: `nest lamp ${nest.lamp.x},${nest.lamp.y}`};
+      if (!this.isRefused(it)) opts.push(it);
+    }
+    if (nest && !atNest && !me.anchored && !me.pinned) {
+      const r = route(view, q => q.x === nest.x && q.y === nest.y, {maxCost: SNIPE_TUNING.steps + 10, allyCost: 2});
+      if (r) {
+        const same = opts.find(o => o.type === 'move' && !o.target && o.arg[0] === r.first[0] && o.arg[1] === r.first[1]);
+        const base = same ? same.score : Math.max(-50, ...opts.filter(o => o.type === 'move').map(o => o.score));
+        opts.push({type: 'move', arg: r.first, score: Math.max(base + SNIPE_TUNING.nestStay - r.cost * 1.5, base), why: `to nest ${nest.x},${nest.y} v${nest.v.toFixed(0)}`});
+      }
+    }
+  }
+  ambush(view) {
+    const g = this.g, side = g.pvp.side; if (OFF.has('ambush') || g.pvp.round > TUNING.ambushRounds) return null;
+    const st = ambushState(g, side); if (st.over) return null;
+    if ([...this.team.memory.values()].some(r => !r.ally) || g.pvp.kills[side] + g.pvp.kills[g.other(side)] > 0) { st.over = true; return null; }
+    if (!this.team.members.some(m => quietSlot(m) != null)) { st.over = true; return null; }
+    const home = g.pvpGoal?.[g.other(side)]; if (!home) return null;
+    return {x: home.x, y: home.y, why: 'ambush: hold home'};
+  }
+  ambushNest(view) {
+    const g = this.g, st = ambushState(g, g.pvp.side), lamps = (g.lamps || []).filter(l => l.hp > 0).length;
+    if (st.nest && st.lamps === lamps && st.who === view.me.ref) return st.nest;
+    st.nest = findNest(g, view, this.team, approachTiles(g, g.pvp.side)); st.lamps = lamps; st.who = view.me.ref;
+    return st.nest;
+  }
+  // 沒看到人：狙擊點（剛剛還看到人）——走過去、打燈、換消焰槍、待機瞄準
+  nestQuiet(view) {
+    const nest = this.nest, me = view.me, g = this.g; if (!nest || this.qslot == null) return null;
+    if (nest.lamp && lampShootable(g, me, nest.lamp)) { const it = {type: 'fire', target: nest.lamp.id, why: `nest lamp ${nest.lamp.x},${nest.lamp.y}`}; if (!this.isRefused(it)) return it; }
+    if (nest.x !== me.x || nest.y !== me.y) {
+      const r = route(view, q => q.x === nest.x && q.y === nest.y, {maxCost: SNIPE_TUNING.steps + 10, allyCost: 2});
+      if (r) return {type: 'move', arg: r.first, walk: true, why: `to nest ${nest.x},${nest.y}`};
+      return null;
+    }
+    if (me.weapon !== this.qslot && !this.isRefused({type: 'weapon', arg: this.qslot})) return {type: 'weapon', arg: this.qslot, why: 'nest: quiet rifle'};
+    const w = me.held; if (w && w.ammo < w.mag && w.reserve > 0 && w.ammo < 2 && !this.isRefused({type: 'reload'})) return {type: 'reload', why: 'nest reload'};
+    if (!this.isRefused({type: 'wait'})) return {type: 'wait', why: 'nest: aim'};
+    return null;
   }
   // 拿著三倍傷害：下一次攻擊必定命中、傷害三倍。打得死的、最值錢的人優先；不浪費在無人機上
   powerScores(view, opts) {
@@ -293,6 +400,8 @@ export default class Beta extends PvpBot {
     return r ? {type: 'move', arg: r.first, walk: true, why} : {type: 'wait', why: 'no way'};
   }
 }
+// 手榴彈多（士兵加強後 4 顆）就不用那麼省
+const fragMult = n => n >= 3 ? .55 : n === 2 ? .9 : 1;
 function spacingCost(t, mates, plan) {
   let c = 0;
   for (const m of mates) { const d = dist(t, m); if (d <= 2) c += (3 - d) * (plan?.threat ? TUNING.spacing : TUNING.spacingCalm); }
