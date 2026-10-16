@@ -102,6 +102,7 @@ export function teamPlan(g, view, bot) {
   // 集火：打得到的人越多、血越少、威脅越大越好
   let best = null;
   for (const e of enemies) {
+    if (unitOf(g, e.id)?.pvpSafe) continue;   // 剛復活（保護中）：打不動
     let shooters = 0;
     for (const m of members) {
       const t = threatOf(m); if (!t) continue;

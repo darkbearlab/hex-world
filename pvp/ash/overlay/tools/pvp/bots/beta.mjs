@@ -26,6 +26,8 @@ import {incoming} from '../../clear-bot/tactics.mjs';
 import {engCombat, engQuiet} from './beta-engineer.mjs';
 import {quietSlot, findNest, lampShootable, seesBlack, approachTiles, SNIPE_TUNING} from './beta-sniper.mjs';
 import * as PB from './beta-playbook.mjs';
+import {captureOn, captureAssign, captureStance, onPoint} from './beta-capture.mjs';
+export {CAP_STATS} from './beta-capture.mjs';
 export {PB_STATS} from './beta-playbook.mjs';
 const ambushStates = new WeakMap();
 const ambushState = (g, side) => { let a = ambushStates.get(g); if (!a) { a = {A: {}, B: {}}; ambushStates.set(g, a); } return a[side]; };
@@ -59,7 +61,7 @@ export default class Beta extends PvpBot {
     const ok = super.act(intent);
     if (ok !== false) {
       const why = intent.why || '';
-      if (/^(pb|ov)/.test(why)) PB.pb('act:' + why.split(' ').slice(0, 2).join(' '));
+      if (/^(pb|ov|cap)/.test(why)) PB.pb('act:' + why.split(' ').slice(0, 2).join(' '));
       if (/^(fallback|retreat)/.test(why)) PB.pb('stance:' + why.split(' ')[0]);
       if (/to \d+,\d+$/.test(why) && /line/.test(why)) PB.pb('stance:rope');
       if (intent.type === 'buildUnit' && intent.arg?.blueprint === 'drone_munition') p.pbMunitions = (p.pbMunitions || 0) + 1;
@@ -96,6 +98,12 @@ export default class Beta extends PvpBot {
     patchView(view);
     this.team = teamPlan(g, view, this);
     PB.trackBulwark(g, view);
+    // 佔領模式（beta-capture.mjs）：整隊分配點；拿下兩人的模式不走這裡
+    this.point = null;
+    if (captureOn(g)) {
+      this.team.bound = null; this.team.hold.clear();
+      this.team.cap = captureAssign(g, this.team); this.point = this.team.cap.get(view.me.ref) || null;
+    }
     this.team.noPower = PB.skipPower(g, this.team);
     if (!this.pbWrapped) {
       this.pbWrapped = true; const base = this.cls, c = view.me.character;
@@ -109,7 +117,8 @@ export default class Beta extends PvpBot {
     // 埋伏（隊上有消焰槍、還沒碰到人、前 ambushRounds 回合）：整隊在自己開場附近等，偵察兵在看得到來路的黑暗裡（不去搶東西）
     const amb = this.ambush(view);
     if (amb) { this.team.goal = amb; this.team.hold.clear(); }
-    if (!OFF.has('snipe')) this.team.noJob = new Set(this.team.members.filter(m => quietSlot(m) != null));   // 狙擊手不去搶東西（三倍傷害在中央）
+    if (!OFF.has('snipe')) this.team.noJob = new Set(this.team.members.filter(m => quietSlot(m) != null));
+    if (this.team.cap) { this.team.noJob ||= new Set(); for (const m of this.team.cap.keys()) this.team.noJob.add(m); }   // 狙擊手不去搶東西（三倍傷害在中央）
     this.team.obj = objectives(g, this.team);
     this.job = this.team.obj.get(view.me.ref) || null;
     if (this.job) for (const m of this.team.obj.keys()) this.team.hold.delete(m);
@@ -134,6 +143,20 @@ export default class Beta extends PvpBot {
   // 沒看到人：先看能不能把手榴彈丟到剛剛還在那裡的人身上；再看要不要打燈
   quiet(view) {
     if (this.frag && this.frag.score >= TUNING.quietFrag) return this.frag;
+    if (this.point) {
+      const me = view.me;
+      if (onPoint(me, this.point)) {
+        if (me.meds > 0 && me.hp < me.maxHp * .6 && !this.isRefused({type: 'heal'})) return {type: 'heal', why: 'cap heal on point'};
+        const w = me.held; if (w && !w.melee && w.ammo < w.mag && w.reserve > 0 && !this.isRefused({type: 'reload'})) return {type: 'reload', why: 'cap reload on point'};
+        if (me.character === 'bulwark' && me.anchored) return {type: 'wait', why: 'cap hold point'};
+        return {type: 'wait', why: 'cap hold point'};
+      }
+      if (!me.pinned && !me.anchored) {
+        // 忍者：繩索拉過去（對面那側的空點：偷點）
+        const rope = ropeToward(this.g, me.ref, this.point); if (rope && !this.isRefused(rope)) return {...rope, why: `cap rope ${this.point.id}`};
+        return this.walkTo(view, this.point, `cap go ${this.point.id}`);
+      }
+    }
     const snipe = this.nestQuiet(view); if (snipe) return snipe;
     // 醫療包多（士兵加強後 4 個）：沒人看到的時候早一點補
     const me = view.me; if (me.meds >= 3 && me.hp < me.maxHp * .75 && !this.isRefused({type: 'heal'})) return {type: 'heal', why: 'quiet heal (spare meds)'};
@@ -147,6 +170,10 @@ export default class Beta extends PvpBot {
   // 交火中：combatOptions 的結果在這裡（pickBest 之前）照團隊計畫調分數
   stance(view, opts) {
     const plan = this.team, me = view.me, g = this.g;
+    if (plan?.cap) {
+      captureStance(view, this, opts, route);
+      if (this.point && onPoint(me, this.point)) { for (let i = opts.length - 1; i >= 0; i--) if (opts[i].plan) opts.splice(i, 1); this.plan = null; }
+    }
     if (process.env.BETA_STATS) { const k = 'T:combat:trench' + trenchAt(g, me); BETA_STATS[k] = (BETA_STATS[k] || 0) + 1; }
     const mates = plan ? plan.members.filter(m => m !== me.ref) : [];
     // 看不到的人（隊友看得到）不能開火：拿掉那些選項
@@ -206,6 +233,7 @@ export default class Beta extends PvpBot {
         opts.push({...it, score: (it.type === 'move' ? best : Math.max(best, 0)) + bonus - open * 4, why: 'combat ' + it.why});
       }
     }
+    if (this.point && onPoint(me, this.point)) return null;   // 站在點上：不跑 ClearBot 的撤退／接近計畫（離開就丟點）
     return super.stance(view, opts);
   }
   // 黑暗：站在全黑的格子開普通的槍會暴露（對方整個階段都看得到、打得到）；消焰槍不會。
@@ -367,6 +395,7 @@ export default class Beta extends PvpBot {
   chooseGoal(view) {
     const plan = this.team, me = view.me, g = this.g;
     if (me.pinned) return {type: 'wait', why: 'pinned'};   // 壓制中不能移動
+    if (this.point && !onPoint(me, this.point)) return this.walkTo(view, this.point, `cap go ${this.point.id}`);
     const job = this.jobIntent(view, false); if (job) return job;
     const goal = plan?.goal; if (!goal || OFF.has('goal')) return OFF.has('goal') && plan.hold.has(me.ref) ? {type: 'wait', why: 'team: wait for squad'} : super.chooseGoal(view);
     const spray = sprayingVents(g).some(v => dist(v, me) <= 8);
