@@ -43,8 +43,9 @@ import {coverEffects} from '../../../src/cover.js';
 import {lootIntent, isLootGun, LT} from './alpha-loot.mjs';
 import {DarkSniper, isSniper, selfLit} from './alpha-dark.mjs';
 import {engineerIntent, ET, trackMunition} from './alpha-eng.mjs';
-import {MT, tick, foeRecon, reconSpot, reconUnknown, soldierIntent, afterWarning, marked, anchorSpot, ninjaIntent, ninjaApproach, exposedCost, detourCost, anchorOK, soldierHunt, ninjaHunt, bulwarkTrench, powerRisky, reconLast, overwatch} from './alpha-manual.mjs';
+import {MT, tick, foeRecon, reconSpot, reconUnknown, soldierIntent, afterWarning, marked, anchorSpot, ninjaIntent, ninjaApproach, exposedCost, detourCost, anchorOK, soldierHunt, ninjaHunt, bulwarkTrench, powerRisky, reconLast, overwatch, exposureFn} from './alpha-manual.mjs';
 import {exploreRoute} from '../../clear-bot/nav.mjs';
+import {captureOn, myPoint, onPoint, CP} from './alpha-capture.mjs';
 import {dist} from '../../clear-bot/util.mjs';
 
 const T = {
@@ -303,6 +304,9 @@ export default class Alpha extends PvpBot {
     this.manualClass();
     // 打法手冊 1：士兵預警（免費）；3：忍者迷彩＋天誅
     { const sw = soldierIntent(this, view, hostile, T.intel ? this.knownFoes(view) : view.ghosts); if (sw && !this.isRefused(sw)) return sw; }
+    // 佔領模式（alpha-capture.mjs）：守自己分到的點、往點走；一般的搶箱子、摸近、交互前進都不做
+    this.capMode = captureOn(this.g); this.holdPoint = false; this.capPt = null;
+    if (this.capMode) { const ci = this.captureDecide(view, hostile); if (ci !== undefined) return ci; return super.decide(view); }
     { const ni = ninjaIntent(this, view, hostile.filter(e => !this.remote?.has(e.id))); if (ni && !this.isRefused(ni)) return ni; }
     // 第二輪：士兵摸近偵察兵、忍者摸到 4 格內、重裝兵找全深戰壕
     {
@@ -385,6 +389,9 @@ export default class Alpha extends PvpBot {
       this.cls = {...c, quiet: (v, b) => { const r = c.quiet?.(v, b); if (munDeploy(r)) return null; return r?.type === 'buildUnit' ? null : r; },
         combat: (v, b) => (c.combat?.(v, b) || []).filter(o => !munDeploy(o))};
     }
+    if (g.player.character === 'bulwark') this.cls = {...c,
+      prepare: (v, b) => { const r = c.prepare?.(v, b); if (r?.arg === 'anchor' && bot.holdPoint && v.me.hp >= v.me.maxHp * .3) return null; return r; },
+      quiet: (v, b) => { const r = c.quiet?.(v, b); if (r?.arg === 'anchor' && bot.holdPoint) return null; return r; }};
     if (g.player.character === 'ninja') this.cls = {...c,
       // 3：迷彩留給天誅（ninjaIntent）；ClearBot 原本 6 格內有射手就開，只留貼身時
       prepare: (v, b) => { const r = c.prepare?.(v, b); if (MT.ninja && r?.arg === 'camouflage' && !v.enemies.some(e => !e.civilian && distance(e, v.me) <= 1)) return null; return r; },
@@ -399,6 +406,44 @@ export default class Alpha extends PvpBot {
     const hp = p.hp + (p.plates || 0);
     if (this.anchRec) { tick('anchPh.' + this.anchRec.spot); tick('anchDmg.' + this.anchRec.spot, Math.max(0, this.anchRec.hp - hp)); }
     this.anchRec = skillActive(p, 'anchor') ? {hp, spot: anchorSpot(this, view, foes)} : null;
+  }
+  // 佔領模式：回傳意圖（或 null＝待機），undefined＝交給一般的戰鬥（super.decide）
+  captureDecide(view, hostile) {
+    const g = this.g, p = g.player, me = view.me, pt = myPoint(this); this.capPt = pt;
+    this.holdPoint = CP.hold && onPoint(this, pt);
+    const mine = hostile.filter(e => !this.remote?.has(e.id) && !e.civilian);
+    const canHit = !p.pvpSafe && mine.some(e => { const w = me.held; return w && (w.melee ? distance(e, me) <= 1 : distance(e, me) <= w.range && g.shotClear(me, e.ref || e)); });
+    if (this.holdPoint) {
+      tick('cap.holdDecisions');
+      if (canHit) return undefined;
+      const w = me.held;
+      if (w && !w.melee && !w.tank && w.ammo < w.mag && w.reserve > 0 && !this.isRefused({type: 'reload'})) return {type: 'reload', why: 'alpha hold point: reload'};
+      if (me.meds > 0 && me.hp < me.maxHp * .6 && !this.isRefused({type: 'heal'})) return {type: 'heal', why: 'alpha hold point: heal'};
+      if (!this.isRefused({type: 'wait'})) return {type: 'wait', why: `alpha hold point ${pt.id}`};
+      return undefined;
+    }
+    if (!pt) return undefined;
+    // 忍者：天誅會把自己拉離點；還沒到點、打得到人的時候照用
+    if (!p.pvpSafe) { const ni = ninjaIntent(this, view, mine); if (ni && !this.isRefused(ni)) return ni; }
+    if (canHit && mine.some(e => distance(e, me) <= 6)) return undefined;   // 近的打得到：先打
+    const go = this.goTo(view, pt); if (go && !this.isRefused(go)) { tick('cap.walk'); return go; }
+    return undefined;
+  }
+  // 走向一格（迷霧裡：往離它最近的未探索格），路上少被看到
+  goTo(view, goal) {
+    const g = this.g, me = view.me; if (me.x === goal.x && me.y === goal.y) return null;
+    const foes = [...view.enemies, ...(T.intel ? this.knownFoes(view) : [])], ex = foes.length ? exposureFn(this, foes) : null;
+    const cost = ex ? q => ex(q) * 2 : null;
+    const occ = g.enemies.some(e => e.hp > 0 && e.x === goal.x && e.y === goal.y);
+    const at = q => occ ? dist(q, goal) <= 1 : q.x === goal.x && q.y === goal.y;
+    let r = g.seen[goal.y]?.[goal.x] ? route(view, at, {allyCost: 2, cost, maxCost: 200}) : null;
+    if (!r) {
+      let best = Infinity; const N = g.grid.length;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!g.seen[y][x] && g.grid[y][x] === 1 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => g.seen[y + dy]?.[x + dx])) best = Math.min(best, dist({x, y}, goal));
+      for (const slack of [1, 4, 10]) { if (r || best === Infinity) break; r = route(view, q => !g.seen[q.y]?.[q.x] && g.grid[q.y]?.[q.x] === 1 && dist(q, goal) <= best + slack, {allyCost: 2, unknownGoal: true, cost}); }
+      r ||= route(view, q => dist(q, goal) <= 1, {allyCost: 2, maxCost: 200});
+    }
+    return r ? {type: 'move', arg: r.first, walk: true, why: `alpha to point ${goal.x},${goal.y}`} : null;
   }
   // 統計（打法手冊各條觸發幾次、效果）
   act(intent) {
@@ -427,6 +472,7 @@ export default class Alpha extends PvpBot {
   mainWeapon(view) { const g = this.g, p = g.player, s = (p.owned || []).find(x => isLootGun(g.weaponAt(x)?.id)); return s !== undefined ? s : super.mainWeapon(view); }
   // 沒有敵情時：照 PvpBot（剛看過的 → 對方開場），但探索、巡邏限制在地圖中央或隊伍附近；也不要一個人跑太前面
   chooseGoal(view) {
+    if (this.capMode && this.capPt) { if (this.holdPoint) return {type: 'wait', why: 'alpha hold point (quiet)'}; const go = this.goTo(view, this.capPt); if (go) return go; }
     const g = this.g, me = view.me, side = this.side(), N = g.grid.length, c = (N - 1) / 2;
     const foes = T.intel ? this.knownFoes(view) : view.ghosts;
     const mates = this.mates(), home = g.pvpGoal?.[side];
@@ -461,6 +507,12 @@ export default class Alpha extends PvpBot {
 const baseStance = Object.getPrototypeOf(Alpha.prototype).stance;
 Alpha.prototype.stance = function (view, opts) {
   if (this.remote?.size) for (let i = opts.length - 1; i >= 0; i--) { const o = opts[i]; if (this.remote.has(o.enemy) || this.remote.has(o.target) || this.remote.has(o.then?.target)) opts.splice(i, 1); }
+  // 佔領模式：站在點上不移動（只打、待機、下錨）；還沒到點的移動加上「離點更近」
+  if (this.capMode && this.capPt) {
+    const me = view.me, pt = this.capPt;
+    if (this.holdPoint) { for (let i = opts.length - 1; i >= 0; i--) { const o = opts[i]; if (o.type === 'move' && !o.target || o.plan || o.type === 'rope' || o.type === 'skill' && o.arg === 'grapple') opts.splice(i, 1); } }
+    else for (const o of opts) if (o.type === 'move' && !o.target && Array.isArray(o.arg)) { const to = {x: me.x + o.arg[0], y: me.y + o.arg[1]}; o.score += CP.pull * (distance(me, pt) - distance(to, pt)); }
+  }
   // 拿掉原本不看隊友的手榴彈，換成自己的
   for (let i = opts.length - 1; i >= 0; i--) if (opts[i].type === 'grenade' && T.frag) opts.splice(i, 1);
   if (this.pendingFrag) opts.push(this.pendingFrag);
@@ -476,7 +528,7 @@ Alpha.prototype.stance = function (view, opts) {
   {
     const g = this.g, me = view.me, p = g.player;
     // 打法手冊 2：重裝兵只在戰壕裡、或面前的射手都隔著掩體時下錨
-    if (MT.anchor && p.character === 'bulwark' && !me.anchored) {
+    if (MT.anchor && p.character === 'bulwark' && !me.anchored && !this.holdPoint) {
       const foes = [...view.enemies, ...(T.intel ? this.knownFoes(view) : [])];
       for (let i = opts.length - 1; i >= 0; i--) if (opts[i].type === 'skill' && opts[i].arg === 'anchor') {
         const spot = anchorSpot(this, view, foes);
@@ -539,7 +591,11 @@ Alpha.prototype.stance = function (view, opts) {
       o.score -= T.ghost * gt;
     }
   }
-  return baseStance.call(this, view, opts);
+  // 佔領模式：往點走的人，血還夠就不照 ClearBot 退後（倒下只是回開場，退後一樣在浪費回合）
+  if (this.capMode && this.capPt && !this.holdPoint && CP.brave && view.me.hp >= view.me.maxHp * CP.brave) { this.plan = null; for (let i = opts.length - 1; i >= 0; i--) if (opts[i].plan) opts.splice(i, 1); tick('cap.noRetreat'); return null; }
+  const tac = baseStance.call(this, view, opts);
+  if (this.holdPoint && tac?.type === 'move' && !tac.target) return null;
+  return tac;
 };
 
 // 陣容（duel.mjs：export pick(seed, defaultComp) 回傳 4 個不重複的職業；回傳 null 就用預設那一組）
