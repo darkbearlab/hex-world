@@ -34,7 +34,7 @@ const wid = (g, slot) => g.weaponAt?.(slot)?.id ?? WEAPONS[g.player.weaponBases?
 export const isLootGun = id => id === 'plasma' || id === 'sniper';
 
 // 這一隊要搶的東西（還在的）：{key, goals（站上去／相鄰的格子）, kind, at}
-function targets(bot) {
+function targets(bot, noPower = false) {
   const g = bot.g, out = [];
   if (LT.crate) for (const c of g.props) {
     if (c.type !== 'container' || !String(c.id).startsWith('pvp-crate')) continue;
@@ -57,7 +57,7 @@ function targets(bot) {
       }
     }
   }
-  if (LT.power) for (const i of g.items) if (i.type === 'pvp_power') out.push({key: 'power', kind: 'power', at: i, goals: [{x: i.x, y: i.y}]});
+  if (LT.power && !noPower) for (const i of g.items) if (i.type === 'pvp_power') out.push({key: 'power', kind: 'power', at: i, goals: [{x: i.x, y: i.y}]});
   return out;
 }
 
@@ -86,9 +86,9 @@ function assign(bot, list) {
 }
 
 // 這個人這一步要不要去搶：回傳意圖或 null。threatened(q)：q 這一格會不會被已知的對方打到
-export function lootIntent(bot, view, {threatened = () => false} = {}) {
+export function lootIntent(bot, view, {threatened = () => false, noPower = false} = {}) {
   const g = bot.g, me = g.player, side = bot.side(), S = lootState(g, side);
-  const list = targets(bot); assign(bot, list);
+  const list = targets(bot, noPower); assign(bot, list);
   // 撿到的電漿／精準步槍：換上
   const mine = list.filter(t => S.assign.get(t.key) === me.squadId);
   const held = wid(g, me.weapon);

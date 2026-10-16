@@ -23,6 +23,8 @@
 // - 自己有夜視、替身沒帶手電筒的人（偵察兵、忍者、加強後的狂戰士）：威脅照對方真的夜視／紅外線算，全黑當掩護摸近（nvSelf）。
 // - 工兵（alpha-eng.mjs）：對下錨的重裝兵做自殺無人機、交戰中架定點砲台、其他跟隨無人機。
 // - 陣容改成重裝兵、偵察兵、狂戰士、工兵。
+// 第五版（打法手冊，Alan 2026-10-16；alpha-manual.mjs）：士兵預警抓偵察兵、重裝兵只在戰壕／掩體後下錨、忍者迷彩＋天誅、
+//   偵察兵看穿黑暗煙霧、狂戰士鉤爪拉偵察兵、偵察兵位置不明時迂迴、不拿三倍傷害、自殺無人機只當伏擊。
 // 參數在 T（ALPHA_* 環境變數只給實驗用；預設值是測過的最好組合）。
 import {PvpBot} from '../match.mjs';
 import {WEAPONS, ENEMY_TYPES} from '../../../src/data.js';
@@ -40,7 +42,10 @@ import {ventCells, VENT_TUNING} from '../../../src/vent-map.js';
 import {coverEffects} from '../../../src/cover.js';
 import {lootIntent, isLootGun, LT} from './alpha-loot.mjs';
 import {DarkSniper, isSniper, selfLit} from './alpha-dark.mjs';
-import {engineerIntent, ET} from './alpha-eng.mjs';
+import {engineerIntent, ET, trackMunition} from './alpha-eng.mjs';
+import {MT, tick, foeRecon, reconSpot, reconUnknown, soldierIntent, afterWarning, marked, anchorSpot, ninjaIntent, ninjaApproach, exposedCost, detourCost} from './alpha-manual.mjs';
+import {exploreRoute} from '../../clear-bot/nav.mjs';
+import {dist} from '../../clear-bot/util.mjs';
 
 const T = {
   threat: process.env.ALPHA_THREAT !== '0',
@@ -289,11 +294,16 @@ export default class Alpha extends PvpBot {
     this.nvSelf = hid && (this.sniper || T.nvSelf);
     if (T.threat) this.patchThreat(view);
     const hostile = view.enemies.filter(e => !e.civilian);
+    this.manualClass();
+    // 打法手冊 1：士兵預警（免費）；3：忍者迷彩＋天誅
+    { const sw = soldierIntent(this, view, hostile, T.intel ? this.knownFoes(view) : view.ghosts); if (sw && !this.isRefused(sw)) return sw; }
+    { const ni = ninjaIntent(this, view, hostile.filter(e => !this.remote?.has(e.id))); if (ni && !this.isRefused(ni)) return ni; }
     // 搶奪點（alpha-loot.mjs）：自己看不到人時去搶箱子、三倍傷害；撿到的槍換上
     {
       const foes = [...hostile, ...(T.intel ? this.knownFoes(view) : [])];
       const threatened = q => foes.some(f => !f.melee && distance(f, q) <= (f.range || 8) && this.g.sight({x: f.x, y: f.y}, q));
-      const li = lootIntent(this, view, {threatened, fighting: hostile.length > 0});
+      const noPower = MT.power && reconUnknown(this, view); if (noPower && this.g.items.some(i => i.type === 'pvp_power')) tick('power.skipDecisions');
+      const li = lootIntent(this, view, {threatened, fighting: hostile.length > 0, noPower});
       if (li && (li.type === 'weapon' || !hostile.length && !(T.lootCalm && foes.some(f => distance(f, view.me) <= T.lootCalm))) && !this.isRefused(li)) return li;
     }
     if (T.smoke && hostile.length) { const sm = this.smokeOption(view); if (sm && !this.isRefused(sm)) return sm; }
@@ -306,7 +316,7 @@ export default class Alpha extends PvpBot {
     } else this.pendingFrag = null;
     // 工兵（alpha-eng.mjs）：照局面做自殺無人機／定點砲台／跟隨無人機；ClearBot 原本的「有廢料就做跟隨無人機」關掉
     if (ET.on && this.g.player.character === 'engineer') {
-      if (!this.engCls && this.cls) { const c = this.cls; this.engCls = true; this.cls = {...c, quiet: (v, b) => { const r = c.quiet?.(v, b); return r?.type === 'buildUnit' ? null : r; }}; }
+      if (!this.engCls && this.cls) { const c = this.cls; this.engCls = true; this.cls = {...c, quiet: (v, b) => { const r = c.quiet?.(v, b); if (MT.ambush && r?.type === 'deployUnit' && this.g.player.productionLines?.[r.arg?.line ?? 0]?.blueprint === 'drone_munition') return null; return r?.type === 'buildUnit' ? null : r; }}; }
       const ei = engineerIntent(this, view, hostile, T.intel ? this.knownFoes(view) : view.ghosts); if (ei && !this.isRefused(ei)) return ei;
     }
     // 偵察兵的消焰精準步槍（alpha-dark.mjs）：全黑的狙擊點、瞄準、打燈
@@ -324,12 +334,68 @@ export default class Alpha extends PvpBot {
     }
     return super.decide(view);
   }
+  // PvpBot.chooseGoal（match.mjs）照抄，找路加上迂迴的成本（cost）
+  baseGoal(view, cost) {
+    if (!cost) return super.chooseGoal(view);
+    const g = this.g, me = view.me, side = g.pvp.side;
+    const ghost = [...(view.ghosts || [])].sort((a, b) => b.turn - a.turn)[0];
+    if (ghost && dist(me, ghost) <= 1) this.pvpGhostDone = ghost.turn;
+    const fresh = ghost && ghost.turn !== this.pvpGhostDone ? ghost : null;
+    let goal = fresh ? {x: fresh.x, y: fresh.y} : null;
+    const home = g.pvpGoal?.[side]; if (home && dist(me, home) <= 2) this.pvpReached = true;
+    if (!goal && !this.pvpReached) goal = home;
+    if (!goal) { const ex = exploreRoute(view, {allyCost: 2, cost}); if (ex) return {type: 'move', arg: ex.first, walk: true, why: 'explore (detour)'}; }
+    if (!goal) { const N = g.grid.length; if (!this.patrol || dist(me, this.patrol) <= 1) { for (let k = 0; k < 50; k++) { const x = Math.floor(this.rng() * N), y = Math.floor(this.rng() * N); if (g.grid[y]?.[x] === 1) { this.patrol = {x, y}; break; } } } goal = this.patrol; }
+    if (!goal || dist(me, goal) <= 1) return {type: 'wait', why: 'at goal'};
+    let r = g.seen[goal.y]?.[goal.x] ? route(view, q => dist(q, goal) <= 1, {allyCost: 2, cost}) : null;
+    if (!r) {
+      let best = Infinity; const N = g.grid.length;
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!g.seen[y][x] && g.grid[y][x] === 1 && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => g.seen[y + dy]?.[x + dx])) best = Math.min(best, dist({x, y}, goal));
+      for (const slack of [1, 4, 10]) { if (r || best === Infinity) break; r = route(view, q => !g.seen[q.y]?.[q.x] && g.grid[q.y]?.[q.x] === 1 && dist(q, goal) <= best + slack, {allyCost: 2, unknownGoal: true, cost}); }
+      r ||= exploreRoute(view, {allyCost: 2, cost});
+    }
+    return r ? {type: 'move', arg: r.first, walk: true, why: 'advance (detour)'} : {type: 'wait', why: 'no way'};
+  }
+  // 打法手冊：包 ClearBot 的職業（忍者的迷彩、黑暗；第一次決策時包一次）
+  manualClass() {
+    if (this.manualWrapped || !this.cls) return; this.manualWrapped = true;
+    const c = this.cls, g = this.g, bot = this;
+    if (g.player.character === 'ninja') this.cls = {...c,
+      // 3：迷彩留給天誅（ninjaIntent）；ClearBot 原本 6 格內有射手就開，只留貼身時
+      prepare: (v, b) => { const r = c.prepare?.(v, b); if (MT.ninja && r?.arg === 'camouflage' && !v.enemies.some(e => !e.civilian && distance(e, v.me) <= 1)) return null; return r; },
+      // 4：對方偵察兵活著，黑暗不是近戰的理由
+      meleeMode: (v, b) => { if (MT.ir && foeRecon(bot) && v.me.dark && !v.me.camo && !c.meleeMode?.({...v, me: {...v.me, dark: false}}, b)) { tick('ir.ninjaDarkDenied'); return false; } return c.meleeMode?.(v, b); },
+      // 4：腳下的煙擋不住偵察兵（紅外線）：偵察兵在射程內就不丟
+      combat: (v, b) => { const out = c.combat?.(v, b) || []; if (!MT.ir) return out; const r = v.enemies.find(e => realOf2(g, e)?.character === 'recon' && distance(e, v.me) <= (e.range || 8)); if (!r) return out; return out.filter(o => { const drop = o.type === 'grenade' && /smoke at own feet/.test(o.why || ''); if (drop) tick('ir.smokeDenied'); return !drop; }); }};
+  }
+  // 統計（打法手冊各條觸發幾次、效果）
+  act(intent) {
+    const g = this.g, p = g.player, view = this.view;
+    const tgt = intent.target !== undefined ? g.enemies.find(e => e.id === intent.target) : null, hp0 = tgt ? tgt.hp : 0;
+    let anch = null;
+    if (intent.type === 'skill' && intent.arg === 'anchor' && !skillActive(p, 'anchor') && view) anch = anchorSpot(this, view, [...view.enemies, ...(T.intel ? this.knownFoes(view) : [])]);
+    const pw0 = !!p.pvpPower, recUnk = view ? reconUnknown(this, view) : false;
+    const ok = super.act(intent);
+    if (!ok) return ok;
+    const vic = tgt ? realOf2(g, tgt)?.character : null, dmg = tgt ? Math.max(0, hp0 - Math.max(0, tgt.hp)) : 0;
+    if (anch) tick('anchor.' + anch);
+    if (intent.type === 'skill' && intent.arg === 'early_warning') afterWarning(this);
+    if (intent.type === 'skill' && intent.arg === 'camouflage') tick('camo.on');
+    if (intent.type === 'hookBlade') { tick('tenchu.n'); tick('tenchu.dmg', dmg); if (tgt && tgt.hp <= 0) tick('tenchu.kill'); if (vic === 'recon') { tick('tenchu.recon'); tick('tenchu.reconDmg', dmg); } }
+    if (intent.type === 'skill' && intent.arg === 'grapple') { tick('grapple.n'); tick('grapple.dmg', dmg); if (tgt && tgt.hp <= 0) tick('grapple.kill'); if (vic === 'recon') { tick('grapple.recon'); tick('grapple.reconDmg', dmg); } }
+    if (tgt && intent.type !== 'hookBlade' && marked(tgt) && dmg > 0) { tick('ew.focusHits'); tick('ew.focusDmg', dmg); if (tgt.hp <= 0) tick('ew.focusKills'); }
+    if (!pw0 && p.pvpPower) { tick('power.picked'); if (recUnk) tick('power.pickedReconUnknown'); }
+    if (intent.type === 'move' && foeRecon(this) && view) { tick('move.reconAlive'); if (recUnk) { tick('move.reconUnknown'); if (exposedCost(this, p, true) >= MT.detourW * .7) tick('move.openLit'); } }
+    if (p.character === 'engineer') trackMunition(this, intent);
+    return ok;
+  }
   mainWeapon(view) { const g = this.g, p = g.player, s = (p.owned || []).find(x => isLootGun(g.weaponAt(x)?.id)); return s !== undefined ? s : super.mainWeapon(view); }
   // 沒有敵情時：照 PvpBot（剛看過的 → 對方開場），但探索、巡邏限制在地圖中央或隊伍附近；也不要一個人跑太前面
   chooseGoal(view) {
     const g = this.g, me = view.me, side = this.side(), N = g.grid.length, c = (N - 1) / 2;
     const foes = T.intel ? this.knownFoes(view) : view.ghosts;
     const mates = this.mates(), home = g.pvpGoal?.[side];
+    const cost = detourCost(this, view);   // 打法手冊 6：偵察兵位置不明，迂迴
     if (home && distance(me, home) <= 2) this.pvpReached = true;
     if (!foes.length && T.leash && mates.length) {
       const cx = mates.reduce((a, m) => a + m.x, 0) / mates.length, cy = mates.reduce((a, m) => a + m.y, 0) / mates.length, cen = {x: Math.round(cx), y: Math.round(cy)};
@@ -337,21 +403,21 @@ export default class Alpha extends PvpBot {
         const target = this.pvpReached ? {x: c, y: c} : home;
         const ahead = target && distance(me, target) < mates.reduce((a, m) => a + distance(m, target), 0) / mates.length - 2;
         if (ahead && (this.leashWaits || 0) < 3 && !this.isRefused({type: 'wait'})) { this.leashWaits = (this.leashWaits || 0) + 1; return {type: 'wait', why: 'alpha leash'}; }
-        if (!ahead) { const r = route(view, q => distance(q, cen) <= 2, {allyCost: 2, maxCost: 60}); if (r) { this.leashWaits = 0; return {type: 'move', arg: r.first, walk: true, why: 'alpha regroup'}; } }
+        if (!ahead) { const r = route(view, q => distance(q, cen) <= 2, {allyCost: 2, maxCost: 60, cost}); if (r) { this.leashWaits = 0; return {type: 'move', arg: r.first, walk: true, why: 'alpha regroup'}; } }
       }
     }
     this.leashWaits = 0;
-    if (foes.length || !this.pvpReached || !T.zone) return super.chooseGoal(view);
+    if (foes.length || !this.pvpReached || !T.zone) return this.baseGoal(view, cost);
     // 探索：只找中央（zone 格內）或隊伍附近沒看過的格子
     const team = g.alive(side), inZone = q => Math.max(Math.abs(q.x - c), Math.abs(q.y - c)) <= T.zone || team.some(m => distance(m, q) <= 4);
-    const ex = route(view, q => !g.seen[q.y]?.[q.x] && g.grid[q.y]?.[q.x] === 1 && inZone(q), {allyCost: 2, maxCost: 120, unknownGoal: true});
+    const ex = route(view, q => !g.seen[q.y]?.[q.x] && g.grid[q.y]?.[q.x] === 1 && inZone(q), {allyCost: 2, maxCost: 120, unknownGoal: true, cost});
     if (ex) return {type: 'move', arg: ex.first, walk: true, why: 'alpha explore (zone)'};
     if (!this.patrol || distance(me, this.patrol) <= 1) {
       this.patrol = null; const R = Math.max(2, Math.round(T.zone * .6));
       for (let k = 0; k < 50; k++) { const x = Math.round(c - R + this.rng() * 2 * R), y = Math.round(c - R + this.rng() * 2 * R); if (g.grid[y]?.[x] === 1 && g.seen[y]?.[x]) { this.patrol = {x, y}; break; } }
     }
-    if (!this.patrol) return super.chooseGoal(view);
-    const r = route(view, q => distance(q, this.patrol) <= 1, {allyCost: 2, maxCost: 120});
+    if (!this.patrol) return this.baseGoal(view, cost);
+    const r = route(view, q => distance(q, this.patrol) <= 1, {allyCost: 2, maxCost: 120, cost});
     return r ? {type: 'move', arg: r.first, walk: true, why: 'alpha patrol'} : {type: 'wait', why: 'alpha no way'};
   }
 }
@@ -370,6 +436,31 @@ Alpha.prototype.stance = function (view, opts) {
     const e = view.enemies.find(x => x.id === o.enemy); if (!e) continue;
     const hurt = 1 - e.hp / Math.max(1, e.maxHp);
     o.score += 12 * hurt + 25 * (o.kill || 0);
+    if (MT.ew && marked(e)) o.score += MT.focusMark;   // 打法手冊 1：集火被預警標到的人
+  }
+  {
+    const g = this.g, me = view.me, p = g.player;
+    // 打法手冊 2：重裝兵只在戰壕裡、或面前的射手都隔著掩體時下錨
+    if (MT.anchor && p.character === 'bulwark' && !me.anchored) {
+      const foes = [...view.enemies, ...(T.intel ? this.knownFoes(view) : [])];
+      for (let i = opts.length - 1; i >= 0; i--) if (opts[i].type === 'skill' && opts[i].arg === 'anchor') {
+        const spot = anchorSpot(this, view, foes);
+        if (spot === 'open') { opts.splice(i, 1); tick('anchor.refusedOpen'); }
+      }
+    }
+    // 打法手冊 5：狂戰士的鉤爪優先拉偵察兵；偵察兵看得到、還拉不到的格子扣分
+    if (MT.grab && p.character === 'berserker') {
+      for (const o of opts) if (o.type === 'skill' && o.arg === 'grapple' && realOf2(g, view.enemies.find(e => e.id === o.target))?.character === 'recon') o.score += MT.grabBonus;
+      const r = reconSpot(this, view);
+      if (r) for (const o of opts) if (o.type === 'move' && !o.target && Array.isArray(o.arg)) {
+        const to = {x: me.x + o.arg[0], y: me.y + o.arg[1]}, d = distance(to, r);
+        if (d > 5 && d <= 12 && g.sight({x: r.x, y: r.y}, to)) o.score -= 10;
+      }
+    }
+    // 打法手冊 3：忍者往偵察兵 4 格內、它看不到的地方靠
+    ninjaApproach(this, view, opts);
+    // 打法手冊 6：偵察兵位置不明時，交戰中的移動也避開開闊、亮的格子
+    if (MT.detour && reconUnknown(this, view)) for (const o of opts) if (o.type === 'move' && !o.target && Array.isArray(o.arg)) o.score -= 2 * exposedCost(this, {x: me.x + o.arg[0], y: me.y + o.arg[1]}, true);
   }
   if (T.spread) {
     const mates = this.mates();
@@ -424,4 +515,5 @@ export function pick(seed, comp) {
   if (env) return env.split(',');
   return PICK ? PICK(seed, comp) : null;
 }
+const realOf2 = (g, e) => { const id = e?.ref?.pvpOf ?? e?.pvpOf; return id != null ? g.unit(id) : null; };
 const PICK = () => ['bulwark', 'recon', 'berserker', 'engineer'];   // 加強版規則（PVP_BUFFS）、第三版光線地圖上量過最好：忍者沒了免費脫離繩，換偵察兵（消焰精準步槍）
