@@ -19,7 +19,7 @@ import {actorStat} from './actor-stats.js';
 import {weaponStats} from './weapons.js';
 import {tickSkills, skillActive} from './skills.js';
 import {expireExposure} from './corner.js';
-import {tickTraits} from './traits.js';
+import {tickTraits, grantTrait} from './traits.js';
 import {tickVents} from './vents.js';
 import {tickFires} from './fire.js';
 import {dryAcid} from './swarm-fields.js';
@@ -46,7 +46,8 @@ export const PVP_TUNING = {bulwark: {plates: 60, plateCapacity: 60},
   tdm: null},
   // 弱勢職業的加強（Alan 2026-10-16 要測）：recon＝開場多一把裝了消焰器的精準步槍；soldier＝手榴彈帶滿、醫療包多幾個；ninja＝拿掉不推進回合的脫離繩（只留重新部署繩）。null＝不加強
   buffs: null};
-export const BUFFS_PROPOSAL = {recon: {weapon: 'sniper', affix: 'flashhider'}, soldier: {fullGrenades: true, meds: 2}, ninja: {escapeLines: 0}};
+export const BUFFS_PROPOSAL = {recon: {weapon: 'sniper', affix: 'flashhider'}, soldier: {fullGrenades: true, meds: 2}, ninja: {escapeLines: 0},
+  berserker: {traits: ['night_vision']}, engineer: {scrap: 60}};   // 第二批（Alan 2026-10-16）：狂戰士夜視、工兵開場 60 廢料（兩台跟隨無人機或砲台）
 // 團隊死鬥的預設分數＝之前統計的各職業存活率（%；2026-10-16，alpha 對打 11 組 60 場的平均）
 export const TDM_POINTS = {soldier: 65, recon: 68, bulwark: 74, berserker: 75, ninja: 60, engineer: 79};   // powerRound＝三倍傷害第幾回合才出現（0＝開場就在）；anchorDouble＝下錨打兩輪
 const RULE = k => PVP_TUNING.rules?.[k];
@@ -162,6 +163,8 @@ export class PvpGame extends SquadGame {
       if (b.fullGrenades) { this.swap(m); try { m.grenades = (m.grenades || 0) + Math.max(0, this.ammoCapacity('grenade') - grenadeTotal(m)); } finally { this.swap(keep); } }
       if (b.meds) m.meds = (m.meds || 0) + b.meds;
       if (b.escapeLines !== undefined) m.escapeLines = b.escapeLines;
+      for (const id of b.traits || []) grantTrait(m, id, 'pvp:buff');
+      if (b.scrap) m.scrap = (m.scrap || 0) + b.scrap;
     }
   }
   // 團隊死鬥的復活：回開場（被佔就找最近的空地板），生命、護甲板、彈匣補滿，暫時狀態、壓制、三倍傷害都清掉
