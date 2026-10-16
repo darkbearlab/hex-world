@@ -18,6 +18,11 @@
 // 第三版（搶奪點，2026-10-16；alpha-loot.mjs）：箱子先派人往兩側看、看到就派最近的人去開（忍者用免費的脫離繩一回合就到），撿到電漿／精準步槍就換上、當主武器；
 //   中央的三倍傷害只派 8 步內的人去撿；拿著的人攻擊選項加分；對方拿著的話威脅三倍。附近 12 格內有已知的對方就不去搶（先打）。
 //   陣容固定重裝兵、忍者、狂戰士、工程師（pick）：新規則（壓制會消退）下量過最好。
+// 第四版（職業加強 PVP_BUFFS＋光線三等分的地圖，2026-10-16）：
+// - 偵察兵的消焰精準步槍（alpha-dark.mjs）：全黑的狙擊點、先待機瞄準再開火（不暴露）、優先打重裝兵、必要時打燈製造黑暗。
+// - 自己有夜視、替身沒帶手電筒的人（偵察兵、忍者、加強後的狂戰士）：威脅照對方真的夜視／紅外線算，全黑當掩護摸近（nvSelf）。
+// - 工兵（alpha-eng.mjs）：對下錨的重裝兵做自殺無人機、交戰中架定點砲台、其他跟隨無人機。
+// - 陣容改成重裝兵、偵察兵、狂戰士、工兵。
 // 參數在 T（ALPHA_* 環境變數只給實驗用；預設值是測過的最好組合）。
 import {PvpBot} from '../match.mjs';
 import {WEAPONS, ENEMY_TYPES} from '../../../src/data.js';
@@ -34,6 +39,8 @@ import {ventStage, ventSpraying} from '../../../src/vents.js';
 import {ventCells, VENT_TUNING} from '../../../src/vent-map.js';
 import {coverEffects} from '../../../src/cover.js';
 import {lootIntent, isLootGun, LT} from './alpha-loot.mjs';
+import {DarkSniper, isSniper, selfLit} from './alpha-dark.mjs';
+import {engineerIntent, ET} from './alpha-eng.mjs';
 
 const T = {
   threat: process.env.ALPHA_THREAT !== '0',
@@ -60,6 +67,7 @@ const T = {
   vault: +(process.env.ALPHA_VAULT ?? 10), vent: process.env.ALPHA_VENT !== '0',
   lootCalm: +(process.env.ALPHA_LCALM ?? 12),
   powerUse: +(process.env.ALPHA_PUSE ?? 30),
+  nvSelf: process.env.ALPHA_NVSELF !== '0',   // 有夜視的（加強後的狂戰士、忍者）也摸黑接近：量過對 beta 從 63% 到 71%
   lamp: process.env.ALPHA_LAMP !== '0', remote: process.env.ALPHA_REMOTE !== '0', qfrag: +(process.env.ALPHA_QFRAG ?? 10), lampMin: +(process.env.ALPHA_LAMPMIN ?? 14), nvReal: process.env.ALPHA_NVREAL === '1',
 };
 
@@ -93,7 +101,7 @@ export default class Alpha extends PvpBot {
       if (w.melee && T.fast) e.fast = true;
       if (T.def && !w.melee) e.charge = true;   // PVP：我動完，對方整個階段都會打，全部算「這一回合」
       if (m.pvpPower) e.damage *= 3;   // 拿著三倍傷害：下一發必中、三倍
-      if (T.nvReal) { e.nv = activeTrait(m, 'night_vision'); e.ir = activeTrait(m, 'infrared'); } else if (T.nv) { e.nv = true; e.ir = true; }
+      if (T.nvReal || this.nvSelf) { e.nv = activeTrait(m, 'night_vision'); e.ir = activeTrait(m, 'infrared'); } else if (T.nv) { e.nv = true; e.ir = true; }
     }
   }
 
@@ -275,6 +283,10 @@ export default class Alpha extends PvpBot {
       view.ghosts = [...gh.values()];
     }
     if (!T.light) view.me.black = false;   // 手電筒只會暴露自己：不開
+    this.sniper = isSniper(this.g, this.g.player);
+    // 自己有夜視（偵察兵、忍者、加強後的狂戰士）、替身不帶手電筒：全黑真的藏得住，威脅照對方真的夜視／紅外線算（摸黑接近）
+    const hid = activeTrait(this.g.player, 'night_vision') && !selfLit(this.g, this.g.player);
+    this.nvSelf = hid && (this.sniper || T.nvSelf);
     if (T.threat) this.patchThreat(view);
     const hostile = view.enemies.filter(e => !e.civilian);
     // 搶奪點（alpha-loot.mjs）：自己看不到人時去搶箱子、三倍傷害；撿到的槍換上
@@ -292,6 +304,13 @@ export default class Alpha extends PvpBot {
       if (fr && !this.isRefused(fr) && !fr.soft && (fr.kills || fr.score >= T.fnow)) return fr;
       if (fr && !this.isRefused(fr)) this.pendingFrag = fr; else this.pendingFrag = null;
     } else this.pendingFrag = null;
+    // 工兵（alpha-eng.mjs）：照局面做自殺無人機／定點砲台／跟隨無人機；ClearBot 原本的「有廢料就做跟隨無人機」關掉
+    if (ET.on && this.g.player.character === 'engineer') {
+      if (!this.engCls && this.cls) { const c = this.cls; this.engCls = true; this.cls = {...c, quiet: (v, b) => { const r = c.quiet?.(v, b); return r?.type === 'buildUnit' ? null : r; }}; }
+      const ei = engineerIntent(this, view, hostile, T.intel ? this.knownFoes(view) : view.ghosts); if (ei && !this.isRefused(ei)) return ei;
+    }
+    // 偵察兵的消焰精準步槍（alpha-dark.mjs）：全黑的狙擊點、瞄準、打燈
+    if (this.sniper) { const dk = (this.dark ||= new DarkSniper(this)).decide(view, hostile, T.intel ? this.knownFoes(view) : view.ghosts); if (dk && !this.isRefused(dk)) return dk; }
     // 我自己看不到人，但知道對方在哪（隊友看到、剛看過）：補彈、打燈、去打得到他的位置
     if (!hostile.length && T.intel) {
       const foes = this.knownFoes(view), me = view.me, w = me.held;
@@ -405,4 +424,4 @@ export function pick(seed, comp) {
   if (env) return env.split(',');
   return PICK ? PICK(seed, comp) : null;
 }
-const PICK = () => ['bulwark', 'ninja', 'berserker', 'engineer'];   // 量過最好（見檔頭）
+const PICK = () => ['bulwark', 'recon', 'berserker', 'engineer'];   // 加強版規則（PVP_BUFFS）、第三版光線地圖上量過最好：忍者沒了免費脫離繩，換偵察兵（消焰精準步槍）

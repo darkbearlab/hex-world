@@ -57,7 +57,9 @@ export const proxyType = armor => { const k = `pvp-proxy-${armor | 0}`; if (!ENE
 // 替身帶著本人的防禦（代理回報 2026-10-15：原本每個階段重建的替身沒有本人的護甲、閃避、待機、下錨、失能）
 const DEFENSE = m => ({traits: structuredClone(m.traits || []), combatModifiers: Object.fromEntries(['rangedEvasion', 'meleeEvasion', 'rangedAccuracy', 'meleeAccuracy'].map(k => [k, actorStat(m, k)])),
   perks: {...(m.perks || {})}, moved: !!m.moved, evasive: !!m.evasive, pvpGuard: !!m.guard, vaultExposed: !!m.vaultExposed, skillState: structuredClone(m.skillState || {}),
-  control: {...(m.control || {disabled: 0, immune: 0})}, poison: m.poison || 0, plates: m.plates || 0, facing: m.facing, suppression: m.suppression || 0});
+  control: {...(m.control || {disabled: 0, immune: 0})}, poison: m.poison || 0, plates: m.plates || 0, facing: m.facing, suppression: m.suppression || 0,
+  // 手電筒照本人（2026-10-16 alpha 回報：替身是破口突擊兵，三分之一會「帶手電筒」，被借到的人在對方眼裡永遠是亮的、躲不進黑暗）
+  chimeraFlashlight: !!(m.flashlight || m.lightLingers)});
 export const PVP_CLASSES = ['soldier', 'recon', 'bulwark', 'berserker', 'ninja', 'engineer'];   // 德魯伊、死靈法師還在調整
 let building = null;   // generateFloor 在建構子裡就被叫到，那時 this 還沒有自己的欄位
 
@@ -118,7 +120,7 @@ export class PvpGame extends SquadGame {
   alive(side) { return this.sides[side].filter(m => m.hp > 0); }
   // 對方的每個活人 → 替身敵人（id 固定，機器人的記憶接得上）
   proxies(side) {
-    const allies = this.allAllies.filter(a => a.pvpSide === side && a.status === 'active' && a.hp > 0 && a.floor === this.floor).map(a => Object.assign(makeEnemy(PVP.PROXY, a.x, a.y, `pa-${a.id}`, 1, this.difficultySpec, this.facilityFaction), {hp: a.hp, maxHp: a.maxHp || a.hp, alert: true, courseName: a.name || a.kind, pvpAlly: a.id}));
+    const allies = this.allAllies.filter(a => a.pvpSide === side && a.status === 'active' && a.hp > 0 && a.floor === this.floor).map(a => Object.assign(makeEnemy(PVP.PROXY, a.x, a.y, `pa-${a.id}`, 1, this.difficultySpec, this.facilityFaction), {hp: a.hp, maxHp: a.maxHp || a.hp, alert: true, courseName: a.name || a.kind, pvpAlly: a.id, chimeraFlashlight: false}));
     return [...allies, ...this.alive(side).map(m => {
       const e = makeEnemy(proxyType(m.armor), m.x, m.y, `px-${m.squadId}`, 1, this.difficultySpec, this.facilityFaction); Object.assign(e, DEFENSE(m));
       // 名字（目標卡、紀錄）：「B2 重裝兵」——Alan 2026-10-15：對方的職業先不隱藏
