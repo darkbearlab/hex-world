@@ -31,6 +31,7 @@ import {anchors} from './combat.js';
 import {objectSightGrid} from './scenery.js';
 import {makeBarrier} from './barriers.js';
 import {applySuppression, tickSuppression} from './suppression.js';
+import {grenadeTotal} from './throwables.js';
 import {lineOfSight} from './world.js';
 import {isBlack} from './lighting.js';
 import {allyAct, currentAllies} from './allies.js';
@@ -42,7 +43,10 @@ export const PVP_TUNING = {bulwark: {plates: 60, plateCapacity: 60},
   // 規則數值（平衡提案用，2026-10-16）：ropePerPhase＝每人每個階段最多用幾次繩索（null＝不限）；powerMult＝三倍傷害的倍率；powerExpire＝撿到後幾個自己的階段沒用就失效（0＝不失效）
   rules: {ropePerPhase: null, powerMult: 3, powerExpire: 0, powerRound: 0, anchorDouble: true, crates: true,
   // 團隊死鬥（Alan 2026-10-16 要測）：{target: 100, points: {職業: 分數}}；擊倒一個人得那個職業的分數，先到 target 的贏；倒下的人在自己那一隊下個階段開始時回開場復活。null＝原本的「拿下兩人」
-  tdm: null}};
+  tdm: null},
+  // 弱勢職業的加強（Alan 2026-10-16 要測）：recon＝開場多一把裝了消焰器的精準步槍；soldier＝手榴彈帶滿、醫療包多幾個；ninja＝拿掉不推進回合的脫離繩（只留重新部署繩）。null＝不加強
+  buffs: null};
+export const BUFFS_PROPOSAL = {recon: {weapon: 'sniper', affix: 'flashhider'}, soldier: {fullGrenades: true, meds: 2}, ninja: {escapeLines: 0}};
 // 團隊死鬥的預設分數＝之前統計的各職業存活率（%；2026-10-16，alpha 對打 11 組 60 場的平均）
 export const TDM_POINTS = {soldier: 65, recon: 68, bulwark: 74, berserker: 75, ninja: 60, engineer: 79};   // powerRound＝三倍傷害第幾回合才出現（0＝開場就在）；anchorDouble＝下錨打兩輪
 const RULE = k => PVP_TUNING.rules?.[k];
@@ -91,6 +95,7 @@ export class PvpGame extends SquadGame {
     const used = new Set(), place = (m, at) => { for (let r = 0; r <= 4; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const x = at[0] + dx, y = at[1] + dy, k = `${x},${y}`;
       if (Math.max(Math.abs(dx), Math.abs(dy)) === r && !used.has(k) && this.grid[y]?.[x] === 1 && !this.props.some(o => o.x === x && o.y === y)) { used.add(k); Object.assign(m, {x, y}); return; } } };
     for (const m of sides.A) place(m, match.map.A); for (const m of sides.B) place(m, match.map.B);
+    this.applyBuffs([...sides.A, ...sides.B]);
     for (const m of [...sides.A, ...sides.B]) { m.pvpHome = {x: m.x, y: m.y}; m.pvpStartPlates = m.plates || 0; }   // 團隊死鬥復活用
     for (const m of [...sides.A, ...sides.B]) { m.pvpSide = m.squadId[0]; m.callName = m.squadId; }
     Object.defineProperty(this, 'sides', {configurable: true, writable: true, enumerable: false, value: sides});
@@ -144,6 +149,21 @@ export class PvpGame extends SquadGame {
     }
   }
   unit(id) { return [...this.sides.A, ...this.sides.B].find(m => m.squadId === id); }
+  // 弱勢職業的加強（PVP_TUNING.buffs）
+  applyBuffs(all) {
+    const B = PVP_TUNING.buffs; if (!B) return;
+    const keep = this.player;
+    for (const m of all) {
+      const b = B[m.character]; if (!b) continue;
+      if (b.weapon) {   // 多一把武器（照奇美拉 applyGear 的加法：武器格、詞條、彈匣裝滿）
+        const base = WEAPONS.findIndex(w => w.id === b.weapon), slot = m.weaponBases.length;
+        if (base >= 0) { m.weaponBases.push(base); m.affixes.push(b.affix || null); m.ammo.push(weaponStats(base, b.affix || null, m).mag); m.upgrades.push(0); m.owned.push(slot); }
+      }
+      if (b.fullGrenades) { this.swap(m); try { m.grenades = (m.grenades || 0) + Math.max(0, this.ammoCapacity('grenade') - grenadeTotal(m)); } finally { this.swap(keep); } }
+      if (b.meds) m.meds = (m.meds || 0) + b.meds;
+      if (b.escapeLines !== undefined) m.escapeLines = b.escapeLines;
+    }
+  }
   // 團隊死鬥的復活：回開場（被佔就找最近的空地板），生命、護甲板、彈匣補滿，暫時狀態、壓制、三倍傷害都清掉
   respawn(m) {
     const busy = (x, y) => [...this.sides.A, ...this.sides.B].some(u => u !== m && u.hp > 0 && u.x === x && u.y === y) || this.props.some(o => o.x === x && o.y === y && o.hp > 0);

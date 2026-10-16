@@ -6,7 +6,10 @@ import '../../src/game.js';
 import {pathToFileURL} from 'node:url';
 import path from 'node:path';
 import {playMatch, PvpBot} from './match.mjs';
-import {PVP_CLASSES} from '../../src/pvp-game.js';
+import {PVP_CLASSES, PVP_TUNING, BUFFS_PROPOSAL} from '../../src/pvp-game.js';
+// 規則數值同 stats.mjs：PVP_TUNE='{...}'；PVP_BUFFS=1＝用提案中的職業加強（偵察兵的消焰精準步槍、士兵的手榴彈與醫療包、忍者只留重新部署繩）
+if (process.env.PVP_TUNE) Object.assign(PVP_TUNING, JSON.parse(process.env.PVP_TUNE));
+if (process.env.PVP_BUFFS) PVP_TUNING.buffs = BUFFS_PROPOSAL;
 const mods = {}, load = async f => { if (f === 'base') return PvpBot; const m = await import(pathToFileURL(path.resolve(f)).href); mods[f] = m; return m.default; };
 const [f1, f2] = process.argv.slice(2), n = +(process.argv[4] || 20), s0 = +(process.argv[5] || 1);
 if (!f1 || !f2) { console.log('用法：duel.mjs <機器人1.mjs|base> <機器人2.mjs|base> [地圖數] [起始種子]'); process.exit(1); }

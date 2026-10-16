@@ -5,6 +5,7 @@ import {playMatch} from './match.mjs';
 import {PVP_CLASSES, PVP_TUNING} from '../../src/pvp-game.js';
 // 試數值：PVP_TUNE='{"bulwark":{"plates":80,"plateCapacity":80}}' node stats.mjs
 if (process.env.PVP_TUNE) Object.assign(PVP_TUNING, JSON.parse(process.env.PVP_TUNE));
+if (process.env.PVP_BUFFS) PVP_TUNING.buffs = (await import('../../src/pvp-game.js')).BUFFS_PROPOSAL;
 // 換機器人：PVP_BOT=tools/pvp/bots/alpha.mjs（兩隊都用它；預設是原本的 PvpBot）
 const {pathToFileURL} = await import('node:url'), BOT = process.env.PVP_BOT ? (await import(pathToFileURL((await import('node:path')).resolve(process.env.PVP_BOT)).href)).default : null, bots = BOT ? {A: BOT, B: BOT} : {};
 const n = +(process.argv[2] || 30), s0 = +(process.argv[3] || 1);
