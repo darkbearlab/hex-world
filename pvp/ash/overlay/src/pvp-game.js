@@ -45,7 +45,7 @@ export const PVP_TUNING = {bulwark: {plates: 60, plateCapacity: 60},
   // 團隊死鬥（Alan 2026-10-16 要測）：{target: 100, points: {職業: 分數}}；擊倒一個人得那個職業的分數，先到 target 的贏；倒下的人在自己那一隊下個階段開始時回開場復活。null＝原本的「拿下兩人」
   tdm: null},
   // 弱勢職業的加強（Alan 2026-10-16 要測）：recon＝開場多一把裝了消焰器的精準步槍；soldier＝手榴彈帶滿、醫療包多幾個；ninja＝拿掉不推進回合的脫離繩（只留重新部署繩）。null＝不加強
-  buffs: null};
+  buffs: null};   // 預設＝BUFFS_PROPOSAL（Alan 2026-10-16「先推上去」；檔尾設定）
 export const BUFFS_PROPOSAL = {recon: {weapon: 'sniper', affix: 'flashhider'}, soldier: {fullGrenades: true, meds: 2}, ninja: {escapeLines: 0},
   berserker: {traits: ['night_vision']}, engineer: {scrap: 60}};   // 第二批（Alan 2026-10-16）：狂戰士夜視、工兵開場 60 廢料（兩台跟隨無人機或砲台）
 // 團隊死鬥的預設分數＝之前統計的各職業存活率（%；2026-10-16，alpha 對打 11 組 60 場的平均）
@@ -380,3 +380,5 @@ export class PvpGame extends SquadGame {
   descend() { return this.fail('PVP 沒有撤離'); }
   handOver() { return false; }
 }
+// 職業加強上線（Alan 2026-10-16）：偵察兵消焰精準步槍、士兵手榴彈滿＋醫療包、忍者只留重新部署繩、狂戰士夜視、工兵 60 廢料
+PVP_TUNING.buffs = BUFFS_PROPOSAL;
