@@ -266,7 +266,10 @@ export class PvpGame extends SquadGame {
     for (const a of this.activeAllies) {
       if (this.status !== 'playing' || a.hp <= 0 || a.pvpSide !== side) continue;
       this.pvpActor = {id: `${side} 的無人機 ${a.id}`, exposed: true}; this.pvpHow = {type: 'drone'};
-      if (isMunition(a)) munitionAct(this, a); else if (isBomber(a)) bomberAct(this, a); else allyAct(this, a);
+      // 這個階段才部署的也要動（Alan 2026-10-16：摸到四格內、轉角放一台出去就該俯衝）：ASH 的「部署那回合不動」是一個玩家動作＝一回合，
+      // PVP 一整個階段才一回合（turn 在 worldTick 才加），不放寬的話它要等對方整個階段打完、到自己下個階段結束才動
+      const born = a.bornTurn; if (born === this.turn) a.bornTurn = this.turn - 1;
+      try { if (isMunition(a)) munitionAct(this, a); else if (isBomber(a)) bomberAct(this, a); else allyAct(this, a); } finally { a.bornTurn = born; }
       this.pvpFlashes = [...(this.pvpFlashes || []), ...this.flashesNow()];
       this.syncProxies(); this.judge();
     }
@@ -311,7 +314,19 @@ export class PvpGame extends SquadGame {
   }
   // 戰壕（地圖第二版第二步）：規則就是奇美拉戶外的（chimera-mission.js 的 MissionGame：protectingCover 溝外打溝裡算掩護／牆、
   // executePlayer 走完呼叫 trenchStep、破綻到下次行動為止），只是戰壕在 PVP 地圖的 pvpTrench，不在戶外地圖的 chimeraOutdoor
-  trenchAt(x, y) { return this.pvpTrench?.[y]?.[x] || 0; }
+  trenchAt(x, y) { const h = this.pvpTrenchHide; if (h && h.x === x && h.y === y) return 0; return this.pvpTrench?.[y]?.[x] || 0; }
+  // 奇美拉的規則是「射手也在溝裡＝沒有戰壕掩護」（原意是同一條溝裡互打）；PVP 有散兵坑，射手站在別的坑裡不該拿掉對方的溝。
+  // 只有兩人在同一條連著的溝（八方向相連）裡才不算（Alan 2026-10-16：全身戰壕要等於實牆，確認效果如實生效）
+  protectingCover(target, attacker) {
+    if (!target || !attacker || !this.pvpTrench || !this.trenchAt(target.x, target.y) || !this.trenchAt(attacker.x, attacker.y) || this.sameTrench(target, attacker)) return super.protectingCover(target, attacker);
+    this.pvpTrenchHide = attacker; try { return super.protectingCover(target, attacker); } finally { this.pvpTrenchHide = null; }
+  }
+  sameTrench(a, b) {
+    const k = (x, y) => x + ',' + y, seen = new Set([k(a.x, a.y)]), todo = [[a.x, a.y]];
+    while (todo.length) { const [x, y] = todo.pop(); if (x === b.x && y === b.y) return true;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy; if (!seen.has(k(nx, ny)) && this.pvpTrench[ny]?.[nx]) { seen.add(k(nx, ny)); todo.push([nx, ny]); } } }
+    return false;
+  }
   trenchStep(u, from) {
     if (!this.pvpTrench || !u || u.hp <= 0) return;
     const a = this.trenchAt(from.x, from.y), b = this.trenchAt(u.x, u.y); if (Math.abs(a - b) < 2) return;

@@ -74,8 +74,9 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   let spot = null; for (let y = 2; y < N - 2 && !spot; y++) for (let x = 2; x < N - 7 && !spot; x++) { let fine = true; for (let i = 0; i <= 5; i++) for (const dy of [0]) if (g.grid[y + dy][x + i] !== 1 || g.props.some(o => o.x === x + i && o.y === y + dy)) fine = false; if (fine) spot = {x, y}; }
   Object.assign(A1, {x: spot.x, y: spot.y}); Object.assign(B1, {x: spot.x + 4, y: spot.y}); g.pvpTrench[spot.y][spot.x + 4] = 2; g.enemies = g.proxies('B');
   const cv = g.protectingCover(px(), A1); ok(cv?.trench && cv.type === 'wall', `B1 在全身深的戰壕裡：A1 從溝外打，中間算牆（${JSON.stringify(cv)}）`);
-  g.pvpTrench[spot.y][spot.x] = 2; ok(!g.protectingCover(px(), A1)?.trench, '兩個人都在溝裡：沒有戰壕掩護');
-  g.pvpTrench[spot.y][spot.x] = 0;
+  g.pvpTrench[spot.y][spot.x] = 1; ok(g.protectingCover(px(), A1)?.type === 'wall', 'A1 站在另一個散兵坑裡打：B1 的溝照樣算牆');
+  for (let i = 0; i <= 4; i++) g.pvpTrench[spot.y][spot.x + i] = 2; ok(!g.protectingCover(px(), A1)?.trench, '兩個人在同一條連著的溝裡：沒有戰壕掩護');
+  for (let i = 0; i <= 3; i++) g.pvpTrench[spot.y][spot.x + i] = 0;
   const occupied = (x, y) => [...g.sides.A, ...g.sides.B].some(m => m !== A1 && m.hp > 0 && m.x === x && m.y === y) || g.props.some(o => o.x === x && o.y === y && o.hp > 0);
   const step = [[1, 0], [-1, 0], [0, 1], [0, -1]].find(([dx, dy]) => g.grid[A1.y + dy]?.[A1.x + dx] === 1 && !occupied(A1.x + dx, A1.y + dy));
   g.pvpTrench[A1.y + step[1]][A1.x + step[0]] = 2; g.focusUnit(A1); g.pvp.left = ['A1']; const r = g.actAs('A1', 'move', step);
@@ -115,5 +116,18 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   g2.enter('A'); g2.swap(S1); const e0 = g2.enemies.find(e => e.pvpOf === 'B1'), c0 = g2.accuracy(S1, e0).chance;
   N1.skillState.camouflage = {remaining: 3, cooldown: 0}; g2.enter('A'); g2.swap(S1); const e1 = g2.enemies.find(e => e.pvpOf === 'B1'), c1 = g2.accuracy(S1, e1).chance;
   ok(g2.defensiveEvasion(S1, e1) >= MELEE_TUNING.camoEvasion && (c1 < c0 || c0 <= 10), `B1 忍者開迷彩：A1 打它的命中 ${c0}% → ${c1}%`);
+}
+// 自殺無人機：這個階段部署、階段結束就該俯衝（Alan 2026-10-16：摸到四格內、轉角放一台出去）
+{
+  const rows3 = ['###############', ...Array(13).fill('#.............#'), '###############'];
+  for (let y = 3; y <= 11; y++) rows3[y] = rows3[y].slice(0, 7) + '#' + rows3[y].slice(8);
+  const g3 = new PvpGame({seed: 3, map: {T: rows3.map(r => r.split('')), A: [2, 2], B: [12, 12]}, A: ['engineer', 'soldier', 'recon', 'bulwark'], B: ['soldier', 'recon', 'bulwark', 'ninja']});
+  for (const r of g3.lighting) r.fill(2);
+  const E = g3.unit('A1'), T1 = g3.unit('B1');
+  for (const m of [...g3.sides.A, ...g3.sides.B]) Object.assign(m, {x: m.pvpSide === 'A' ? 1 : 13, y: m.pvpSide === 'A' ? 1 : 13});
+  Object.assign(E, {x: 6, y: 6}); Object.assign(T1, {x: 5, y: 2});
+  g3.beginPhase('A'); g3.focusUnit(E); E.productionLines = [{blueprint: 'drone_munition', payload: 'frag'}];
+  const d = g3.actAs('A1', 'deployUnit', {line: 0, x: 5, y: 5}), hp0 = T1.hp + (T1.plates || 0); g3.endPhase();
+  ok(d.ok && T1.hp + (T1.plates || 0) < hp0, `部署在 (5,5)、敵人在 3 格外：同一個階段結束就俯衝（${hp0} → ${T1.hp + (T1.plates || 0)}）`);
 }
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');
