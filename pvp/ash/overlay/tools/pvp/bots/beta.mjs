@@ -59,7 +59,9 @@ export default class Beta extends PvpBot {
     const ok = super.act(intent);
     if (ok !== false) {
       const why = intent.why || '';
-      if (why.startsWith('pb')) PB.pb('act:' + why.split(' ').slice(0, 2).join(' '));
+      if (/^(pb|ov)/.test(why)) PB.pb('act:' + why.split(' ').slice(0, 2).join(' '));
+      if (/^(fallback|retreat)/.test(why)) PB.pb('stance:' + why.split(' ')[0]);
+      if (/to \d+,\d+$/.test(why) && /line/.test(why)) PB.pb('stance:rope');
       if (intent.type === 'buildUnit' && intent.arg?.blueprint === 'drone_munition') p.pbMunitions = (p.pbMunitions || 0) + 1;
       if (intent.type === 'skill' && intent.arg === 'early_warning') { PB.pb('pb1:scans'); PB.afterScan(g); }
       if (intent.type === 'skill' && intent.arg === 'anchor' && p.skillState?.anchor?.remaining > 0) PB.pb('pb2:anchorSet:' + (intent.pbAnchor || 'base'));
@@ -89,6 +91,8 @@ export default class Beta extends PvpBot {
     // 全隊共享視野：隊友看得到的敵人也算「看得到」（威脅、走位）；整隊的記憶取代自己的殘影
     const sight = teamSight(g), mine = new Set(view.enemies.map(e => e.id));
     if (!OFF.has('remote')) for (const e of sight.values()) if (!mine.has(e.id)) { const r = remoteView(g, e); view.enemies.push(r); view.occupied.add(key(r)); }
+    // 自保（ClearBot 的 exposureAt／退出交叉火力）：整隊剛剛看到、現在看不到的人（記憶 2 回合內）也算進威脅（開火選項會拿掉，remote）
+    if (PB.on('sp')) { const mem = this.team?.memory || new Map(), have = new Set(view.enemies.map(e => e.id)); for (const r of mem.values()) { if (r.ally || r.seen || have.has(r.id) || g.turn - r.turn > 2) continue; const e = g.enemies.find(x => x.id === r.id && x.hp > 0); if (!e) continue; const ref = {...e, x: r.x, y: r.y}; view.enemies.push({...remoteView(g, ref), ref, id: e.id, x: r.x, y: r.y, ghostThreat: true}); PB.pb('sp:ghostThreat'); } }
     patchView(view);
     this.team = teamPlan(g, view, this);
     PB.trackBulwark(g, view);
@@ -134,6 +138,8 @@ export default class Beta extends PvpBot {
     // 醫療包多（士兵加強後 4 個）：沒人看到的時候早一點補
     const me = view.me; if (me.meds >= 3 && me.hp < me.maxHp * .75 && !this.isRefused({type: 'heal'})) return {type: 'heal', why: 'quiet heal (spare meds)'};
     const lamp = this.lampShot(view, false); if (lamp) return lamp;
+    if (!this.job && !me.pinned) { const ov = PB.overwatchQuiet(view, this); if (ov && !this.isRefused(ov)) return ov; }
+    if (me.character === 'soldier' && !this.job) { const fl = PB.soldierFlank(view, this, null); if (fl && !this.isRefused(fl)) return fl; }
     // 剛看到對方（快接觸了）：附近有散兵坑就先跳進去（取代 ClearBot 的「原地等一下」）
     if (!this.job && this.team?.goal && !view.me.pinned) { const fox = this.foxhole(view, this.team.goal); if (fox && !this.isRefused(fox)) return fox; }
     return super.quiet(view);
@@ -185,6 +191,9 @@ export default class Beta extends PvpBot {
     const lamp = this.lampShot(view, true); if (lamp) opts.push(lamp);
     if (me.character === 'ninja' && !hurt) PB.ninjaApproach(view, this, opts);
     if (me.character === 'berserker') PB.berserkerMoves(view, this, opts);
+    if (me.character === 'soldier' && !hurt) PB.soldierFlank(view, this, opts);
+    if (!hurt) PB.overwatchScores(view, this, opts);
+    if (me.character === 'engineer' && !hurt) PB.engineerSneak(view, this, opts);
     if (!OFF.has('dark')) this.darkScores(view, opts, hurt);
     if (me.meds >= 3) for (const o of opts) if (o.type === 'heal' && me.hp < me.maxHp * .7) o.score += 6;
     if (!OFF.has('powershot') && me.ref.pvpPower) this.powerScores(view, opts);
@@ -442,7 +451,9 @@ function spacingCost(t, mates, plan) {
 // 陣容研究（duel.mjs 用；線上練習的陣容是伺服器抽的，不會叫這個）：BETA_PICK=soldier,recon,bulwark,engineer 指定；
 // BETA_PICK=swap:<職業>：預設陣容裡沒有這個職業就換掉最後一個；沒設就照預設（兩邊同一組）
 export function pick(seed, defaultComp) {
-  const env = globalThis.process?.env?.BETA_PICK; if (!env) return null;
+  const env = globalThis.process?.env?.BETA_PICK;
+  // 沒指定陣容：同一組職業，只把士兵排第一個（一個階段裡照隊伍順序行動：士兵先預警，後面的隊友打標到的人才有加成）；BETA_ORDER=0 關掉
+  if (!env) return globalThis.process?.env?.BETA_ORDER !== '0' && defaultComp.includes('soldier') && defaultComp[0] !== 'soldier' ? ['soldier', ...defaultComp.filter(c => c !== 'soldier')] : null;
   if (env.startsWith('swap:')) { const c = env.slice(5); if (defaultComp.includes(c)) return defaultComp; return [...defaultComp.slice(0, 3), c]; }
   if (env.startsWith('drop:')) { const c = env.slice(5); if (!defaultComp.includes(c)) return defaultComp; const pool = ['soldier', 'recon', 'bulwark', 'berserker', 'ninja', 'engineer'].filter(x => !defaultComp.includes(x)); return defaultComp.map(x => x === c ? pool[seed % pool.length] : x); }
   return env.split(',');

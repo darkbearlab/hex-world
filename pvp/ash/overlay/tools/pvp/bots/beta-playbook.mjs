@@ -16,9 +16,11 @@ import {buildReason, deployReason, deployedUnits} from '../../../src/workshop.js
 import {droneCells} from '../../../src/allies.js';
 import {lineOpen} from '../../clear-bot/tactics.mjs';
 import {route} from '../../clear-bot/nav.mjs';
+import {lineOfSight} from '../../../src/world.js';
 import {dist, key} from '../../clear-bot/util.mjs';
 import {ready, stayCost, hostiles} from '../../clear-bot/classes/common.mjs';
 import {threatOf} from './beta-team.mjs';
+import {stepFlaw} from './beta-terrain.mjs';
 
 const ENV = globalThis.process?.env || {};
 const OFF = new Set((ENV.BETA_OFF || '').split(','));
@@ -27,8 +29,8 @@ const ALL_OFF = !!ENV.PB_OFF;
 export const on = k => !ALL_OFF && !OFF.has(k) && (k !== 'pb8' || !!ENV.BETA_PB8);
 export const PB_STATS = {};
 export const pb = (k, v = 1) => { PB_STATS[k] = (PB_STATS[k] || 0) + v; };
-export const PB_TUNING = {focusMark: 2.5, focusRecon: 2, focusBonus: 20, anchorGood: .5, anchorSteps: 4, anchorSeek: 8, tenchu: 12, tenchuRecon: 15,
-  ninjaSight: 4, grappleRecon: 14, berserkLine: 8, detour: 3, munitionLane: 2};
+export const PB_TUNING = {focusMark: 2.5, focusRecon: 2, focusBonus: 20, anchorGood: .75, anchorSteps: 6, anchorSeek: 8, tenchu: 12, tenchuRecon: 15,
+  ninjaSight: 4, ovHold: 4, ovWait: 6, ovAdvance: 6, soldierFlank: 7, engSneak: 6, munition: 24, grappleRecon: 14, berserkLine: 8, detour: 3, munitionLane: 2};
 const unitOf = (g, id) => String(id).startsWith('px-') ? g.unit(String(id).slice(3)) : null;
 const foes = g => g.alive(g.other(g.pvp.side));
 
@@ -55,6 +57,32 @@ export function markedSight(g, m, e) {
   g.player = m; try { return g.sight(m, e); } finally { g.player = keep; }
 }
 
+// 掩護下摸過去：走到離 tgt reach 格以內（ok 再篩落點），沿路避開已知敵人的射界（偵察兵的射界加重）
+export function sneakRoute(view, bot, tgt, reach, ok = null, maxCost = 40) {
+  const g = bot.g, watchers = [...bot.team.memory.values()].filter(r => !r.ally && !r.melee && g.turn - r.turn <= 3);
+  const cost = q => watchers.reduce((n, r) => n + (dist(r, q) <= (r.range || 8) && lineOpen(g, r, q) ? (r.cls === 'recon' ? PB_TUNING.ninjaSight : 2) : 0), 0);
+  return route(view, q => dist(q, tgt) <= reach && g.grid[q.y]?.[q.x] === 1 && (!ok || ok(q)), {cost, maxCost, allyCost: 2});
+}
+export function pushStep(opts, r, bonus, why, extra = {}) {
+  const same = opts.find(o => o.type === 'move' && !o.target && o.arg && o.arg[0] === r.first[0] && o.arg[1] === r.first[1]);
+  const base = same ? same.score : Math.max(-50, ...opts.filter(o => o.type === 'move').map(o => o.score));
+  opts.push({type: 'move', arg: r.first, score: base + bonus, why, ...extra});
+}
+// 士兵往偵察兵摸過去（預警半徑 8：要進到 8 格內才標得到）
+export function soldierTarget(g, plan, me) {
+  const rs = reconState(g, plan);
+  const known = [...plan.memory.values()].filter(r => !r.ally && r.cls === 'recon' && g.turn - r.turn <= 6).sort((a, b) => b.turn - a.turn)[0];
+  return rs.alive ? known || null : null;
+}
+export function soldierFlank(view, bot, opts) {
+  if (!on('pb1')) return null;
+  const g = bot.g, me = view.me, sk = me.skills.early_warning; if (!sk || me.pinned || me.hp < me.maxHp * .45 || (sk.cooldown || 0) > 2) return null;
+  const t = soldierTarget(g, bot.team, me); if (!t || dist(t, me) <= 7 || dist(t, me) > 18) return null;
+  const r = sneakRoute(view, bot, t, 7); if (!r) return null;
+  const why = `pb1 flank recon ${t.x},${t.y}`;
+  if (opts) { pushStep(opts, r, PB_TUNING.soldierFlank, why); return null; }
+  return {type: 'move', arg: r.first, walk: true, why};
+}
 // ---- pb1 士兵預警 ----
 export function soldierScan(view, bot) {
   const g = bot.g, me = view.me; if (!ready(me, 'early_warning')) return null;
@@ -62,10 +90,13 @@ export function soldierScan(view, bot) {
   // ASH 原本的條件：8 格內看得到或剛看到人
   const base = hostiles(view).some(e => dist(e, me) <= 8) || (view.ghosts || []).some(e => dist(e, me) <= 8 && view.turn - e.turn <= 3);
   if (!on('pb1')) return base ? {type: 'skill', arg: 'early_warning', why: 'scan'} : null;
-  const hits = unseenHits(g, 1), contact = [...plan.memory.values()].some(r => !r.ally && g.turn - r.turn <= 6 && dist(r, me) <= 14);
+  // 偵察兵（記得的位置）在 8 格內就掃：看不到也標得到（標記讓黑暗亮一級）
+  const t = soldierTarget(g, plan, me), hits = unseenHits(g, 1);
+  const near = [...plan.memory.values()].some(r => !r.ally && g.turn - r.turn <= 3 && dist(r, me) <= 8);
   let why = null;
-  if (hits.length) why = 'unseen-hit';
-  else if (rs.hidden && contact) why = 'recon-hidden';
+  if (t && dist(t, me) <= 8) why = 'recon-in-8';
+  else if (hits.length && near) why = 'unseen-hit';
+  else if (rs.hidden && near) why = 'recon-hidden';
   else if (base) why = 'base';
   if (!why) return null;
   return {type: 'skill', arg: 'early_warning', why: `pb1 scan ${why}`};
@@ -87,12 +118,14 @@ export function focusWeight(g, e) {
 // ---- pb2 重裝兵下錨 ----
 // 這一格好不好下錨：戰壕裡，或對打得到這一格的人平均有一半以上的掩護（實牆、掩體）
 export function anchorQuality(g, me, t, threats) {
-  if ((g.pvpTrench?.[t.y]?.[t.x] || 0) > 0) return {good: true, why: 'trench', eff: 1};
-  if (!threats.length) return {good: false, why: 'none', eff: 0};
+  // 全身深的戰壕（D=2，等於實牆；同一條戰壕裡的人打不算）或對每個打得到的人都有實牆
+  const D = g.pvpTrench?.[t.y]?.[t.x] || 0;
+  if (!threats.length) return {good: D === 2, why: D === 2 ? 'trench2' : D === 1 ? 'trench1' : 'none', eff: D === 2 ? 1 : 0};
   let eff = 0;
   for (const e of threats) { const c = g.protectingCover({x: t.x, y: t.y, traits: me.ref.traits}, e.ref || e); eff += coverEffects(c, t, e.ref || e).efficiency || 0; }
   eff /= threats.length;
-  return {good: eff >= PB_TUNING.anchorGood, why: eff >= PB_TUNING.anchorGood ? 'cover' : 'open', eff};
+  const good = eff >= PB_TUNING.anchorGood;
+  return {good, why: D === 2 ? (good ? 'trench2' : 'trench2-flanked') : D === 1 ? 'trench1' : good ? 'wall' : eff >= .4 ? 'half' : 'open', eff};
 }
 const shooters = (view, t, pad = 2) => view.enemies.filter(e => !e.civilian && !e.melee && !e.disabled && dist(e, t) <= (e.range || 5) + pad);
 export function bulwarkCombat(view, bot, base) {
@@ -118,7 +151,15 @@ export function bulwarkCombat(view, bot, base) {
       const tg = targets(t); if (!tg.length) return false;
       best = qq; return true;
     }, {maxCost: PB_TUNING.anchorSteps + 2, allyCost: 3});
-    if (r && best) { out.push({type: 'move', arg: r.first, score: PB_TUNING.anchorSeek - r.cost * 1.5, why: `pb2 to anchor spot ${r.end.x},${r.end.y} ${best.why}`}); }
+    if (r && best) {
+      // 直接從平地跳進全身深（或爬出來）＝破綻（命中 +20、壓制 +3）：先走到旁邊半身深的那一格當台階
+      let step = r.first, pts = [me, ...r.path], k = pts.findIndex((q, i) => i > 0 && stepFlaw(g, pts[i - 1], q) === 'trench');
+      if (k > 0) {
+        const deep = pts[k], st = route(view, t => (g.pvpTrench?.[t.y]?.[t.x] || 0) === 1 && dist(t, deep) === 1, {maxCost: PB_TUNING.anchorSteps + 4, allyCost: 3, cost: q => stepFlaw(g, me, q) === 'trench' && dist(q, me) === 1 ? Infinity : 0});
+        step = st && !stepFlaw(g, me, {x: me.x + st.first[0], y: me.y + st.first[1]}) ? st.first : null;
+      }
+      if (step) out.push({type: 'move', arg: step, score: PB_TUNING.anchorSeek - r.cost * 1.5, why: `pb2 to anchor spot ${r.end.x},${r.end.y} ${best.why}`});
+    }
   }
   return out;
 }
@@ -129,7 +170,7 @@ export function trackBulwark(g, view) {
   const p = me.ref, now = p.hp + (p.plates || 0), last = bulTrack.get(p);
   if (last && last.turn === g.turn) return;
   if (last) { pb(`pb2:phase:${last.state}`); pb(`pb2:dmg:${last.state}`, Math.max(0, last.hp - now)); }
-  const state = me.anchored ? 'anchor-' + anchorQuality(g, me, me, shooters(view, me)).why : 'free';
+  const state = (me.anchored ? 'anchor-' : 'free-') + anchorQuality(g, me, me, shooters(view, me)).why;
   bulTrack.set(p, {turn: g.turn, hp: now, state});
 }
 
@@ -173,21 +214,19 @@ export function ninjaCombat(view, bot, base) {
   }
   return out;
 }
+const tenchuLineOk = (g, a, b) => lineOfSight(g.grid, a, b, g.barriers, 'sight');
 // 天誅距離外：往偵察兵（優先）或集火目標繞過去，避開偵察兵看得到的格子
 export function ninjaApproach(view, bot, opts) {
   if (!on('pb3')) return;
   const g = bot.g, me = view.me; if (me.anchored || me.pinned || me.hp < me.maxHp * .5) return;
   if (!camoActive(me.ref) && !ready(me, 'camouflage')) return;
   if (opts.some(o => o.pbTenchu)) return;
-  const rs = reconState(g, bot.team);
-  const tgt = rs.known.sort((a, b) => dist(a, me) - dist(b, me))[0]; if (!tgt || dist(tgt, me) > 12 || dist(tgt, me) <= 1) return;
-  const watchers = [...bot.team.memory.values()].filter(r => !r.ally && !r.melee && g.turn - r.turn <= 2);
-  const cost = q => watchers.reduce((n, r) => n + (dist(r, q) <= (r.range || 8) && lineOpen(g, r, q) ? (r.cls === 'recon' ? PB_TUNING.ninjaSight : 1) : 0), 0);
-  const r = route(view, q => dist(q, tgt) <= 3 && (dist(q, tgt) <= 1 || g.grid[q.y]?.[q.x] === 1), {cost, maxCost: 40, allyCost: 2});
-  if (!r) return;
-  const same = opts.find(o => o.type === 'move' && !o.target && o.arg && o.arg[0] === r.first[0] && o.arg[1] === r.first[1]);
-  const base = same ? same.score : Math.max(-50, ...opts.filter(o => o.type === 'move').map(o => o.score));
-  opts.push({type: 'move', arg: r.first, score: base + 6, why: `pb3 flank recon ${tgt.x},${tgt.y}`, pbFlank: true});
+  // 目標：偵察兵優先，再來是集火目標、最近的人（天誅距離 4：摸到 4 格內、刀索拉得到的地方）
+  const rs = reconState(g, bot.team), mem = [...bot.team.memory.values()].filter(r => !r.ally && g.turn - r.turn <= 2);
+  const tgt = rs.known.sort((a, b) => dist(a, me) - dist(b, me))[0] || mem.find(r => r.id === bot.team.focus) || mem.sort((a, b) => dist(a, me) - dist(b, me))[0];
+  if (!tgt || dist(tgt, me) > 12 || dist(tgt, me) <= 4) return;
+  const r = sneakRoute(view, bot, tgt, 4, q => tenchuLineOk(g, q, tgt)); if (!r) return;
+  pushStep(opts, r, 6, `pb3 sneak ${tgt.cls || ''} ${tgt.x},${tgt.y}`, {pbFlank: true});
 }
 
 // ---- pb5 狂戰士 ----
@@ -228,7 +267,14 @@ export function openLit(g, q) {
 export const detourCost = (g, plan) => on('pb6') && reconState(g, plan).hidden ? q => openLit(g, q) ? PB_TUNING.detour : 0 : null;
 
 // ---- pb7 三倍傷害 ----
-export const skipPower = (g, plan) => on('pb7') && reconState(g, plan).hidden;
+// 風險判斷（Alan）：對方偵察兵死了才放心拿；還活著就要知道它在哪、而且它看不到中央那一格和它周圍
+export function skipPower(g, plan) {
+  if (!on('pb7') || !g.pvpPowerAt) return false;
+  const rs = reconState(g, plan); if (!rs.alive) return false;
+  if (rs.hidden) return true;
+  const [x, y] = g.pvpPowerAt, P = {x, y};
+  return rs.known.some(r => [P, {x: x + 1, y}, {x: x - 1, y}, {x, y: y + 1}, {x, y: y - 1}].some(q => dist(r, q) <= (r.range || 10) + 1 && lineOpen(g, r, q)));
+}
 
 // ---- pb8 自殺無人機伏擊 ----
 // 對方會經過的路：對方往我們開場的來路、箱子、中央三倍傷害、最近看到人的地方
@@ -258,6 +304,36 @@ export function munitionAmbush(view, bot, approach) {
   if (!best || best.v < 3) return null;
   return {type: 'deployUnit', arg: {line: i, x: best.c.x, y: best.c.y}, why: `pb8 munition ambush v${best.v.toFixed(1)}`};
 }
+// 交火中：部署在 2 步內、4 格內有直線看得到對方的格子（這一階段結束就俯衝爆炸，對方沒有階段打它）；爆炸點附近不能有自己人
+export function munitionStrike(view, bot) {
+  if (!on('pb8')) return null;
+  const g = bot.g, p = g.player, i = p.productionLines.findIndex(l => l.blueprint === 'drone_munition'); if (i < 0) return null;
+  const foesSeen = view.enemies.filter(e => !e.civilian && !e.remote && e.ref?.pvpOf != null);
+  let best = null;
+  for (const c of droneCells(g)) {
+    if (deployReason(g, i, c)) continue;
+    for (const e of foesSeen) {
+      const d = dist(c, e); if (d > 4 || !lineOpen(g, c, e.ref || e)) continue;
+      if (plan(bot).members.some(m => dist(m, e) <= 3)) continue;   // 爆炸半徑 2（落在牠旁邊）：自己人留 3 格
+      const near = foesSeen.filter(f => dist(f, e) <= 2).length, u = unitOf(g, e.id);
+      const v = Math.min(45, e.hp) / Math.max(1, e.hp) * 20 + (e.hp <= 45 ? 20 : 0) + (near - 1) * 15 + (u?.character === 'recon' ? 8 : 0);
+      if (!best || v > best.v) best = {v, c, e};
+    }
+  }
+  if (!best) return null;
+  return {type: 'deployUnit', arg: {line: i, x: best.c.x, y: best.c.y}, score: PB_TUNING.munition + best.v - stayCost(view) * .5, why: `pb8 munition strike ${best.e.id} v${best.v.toFixed(0)}`};
+}
+const plan = bot => bot.team;
+// 生產線上有自殺無人機：往最近的敵人摸過去（到 5 格內、掩護下），好在轉角後面放
+export function engineerSneak(view, bot, opts) {
+  if (!on('pb8')) return;
+  const g = bot.g, me = view.me, p = me.ref; if (p.productionLines.findIndex(l => l.blueprint === 'drone_munition') < 0 || me.pinned || me.hp < me.maxHp * .5) return;
+  if (opts.some(o => /pb8 munition strike/.test(o.why || ''))) return;
+  const mem = [...bot.team.memory.values()].filter(r => !r.ally && g.turn - r.turn <= 2).sort((a, b) => dist(a, me) - dist(b, me));
+  const t = mem[0]; if (!t || dist(t, me) <= 5 || dist(t, me) > 12) return;
+  const r = sneakRoute(view, bot, t, 5); if (!r) return;
+  pushStep(opts, r, PB_TUNING.engSneak, `pb8 sneak ${t.x},${t.y}`);
+}
 // 要不要做自殺無人機：有常駐單位、還有 15 廢料、身上有破片
 export function munitionBuild(g) {
   if (!on('pb8')) return null;
@@ -278,4 +354,30 @@ export function attackStats(g, intent, before) {
     if (intent.type === 'skill' && intent.arg === 'grapple') { pb(`pb5:grappleDmg:${cls === 'recon' ? 'recon' : 'other'}`, d); if (e.hp <= 0) pb('pb5:grappleKill'); }
     if (cls === 'recon') pb('dmgOnRecon', d);
   }
+}
+
+// ---- ov 交互掩護前進：每個人照整隊的分工調分數（交火中） ----
+export function overwatchScores(view, bot, opts) {
+  const b = bot.team?.bound, me = view.me, g = bot.g; if (!b) return;
+  const p = me.ref, near = q => Math.min(...b.known.map(r => dist(q, r)));
+  const attacks = opts.filter(o => o.attack || o.type === 'fire' || o.then?.type === 'fire');
+  if (b.cover.has(p) || b.hold.has(p)) {
+    // 掩護／等待：不往前走；這一階段沒有好打的就待機（已就緒）
+    for (const o of opts) if (o.type === 'move' && !o.target && o.arg) { const t = {x: me.x + o.arg[0], y: me.y + o.arg[1]}; if (near(t) < near(me)) { o.score -= PB_TUNING.ovHold; o.why = (o.why || '') + ' -ov'; } }
+    if (!attacks.length || Math.max(...attacks.map(o => o.score)) < 0) {
+      let w = opts.find(o => o.type === 'wait'); if (!w) { w = {type: 'wait', score: 0, why: 'ov'}; opts.push(w); }
+      w.score += PB_TUNING.ovWait; w.why = `ov ${b.cover.has(p) ? 'cover' : 'hold'} wait`;
+    }
+  } else if (b.advance.has(p) && !me.anchored && !me.pinned && me.hp >= me.maxHp * .4) {
+    const tgt = b.known.reduce((a, r) => dist(r, me) < dist(a, me) ? r : a);
+    const range = Math.max(2, Math.min(me.held?.melee ? 1 : (me.held?.range || 6), 8) - 1);
+    if (dist(tgt, me) > range) { const r = sneakRoute(view, bot, tgt, range, q => lineOpen(g, q, tgt), 30); if (r) pushStep(opts, r, PB_TUNING.ovAdvance, `ov advance ${tgt.x},${tgt.y}`); }
+  }
+}
+// 沒看到人（但剛剛有）：掩護的人待機守住射線，等待的人原地等，前進的人照原本的目標走
+export function overwatchQuiet(view, bot) {
+  const b = bot.team?.bound, p = view.me.ref; if (!b) return null;
+  if (b.cover.has(p)) return {type: 'wait', why: 'ov overwatch'};
+  if (b.hold.has(p)) return {type: 'wait', why: 'ov hold'};
+  return null;
 }

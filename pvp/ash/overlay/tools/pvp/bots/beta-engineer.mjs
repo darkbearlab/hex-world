@@ -13,7 +13,7 @@ import {stayCost} from '../../clear-bot/classes/common.mjs';
 import {isBlack} from '../../../src/lighting.js';
 import {seesBlack, approachTiles} from './beta-sniper.mjs';
 const approachTilesOf = bot => approachTiles(bot.g, bot.g.pvp.side);
-import {munitionAmbush, munitionBuild, on as pbOn} from './beta-playbook.mjs';
+import {munitionAmbush, munitionBuild, munitionStrike, on as pbOn} from './beta-playbook.mjs';
 
 export const ENG_TUNING = {munition: 20, cluster: 18, anchored: 20, deploy: 25, keepFrag: 1, seen: 12};
 export const ENG_STATS = {};
@@ -76,7 +76,8 @@ export function engCombat(bot, view) {
     const cell = bp === 'drone_sentry' ? sentryCell(g, team, null) : null;
     if (!deployReason(g, i, cell)) out.push({type: 'deployUnit', arg: cell ? {line: i, x: cell.x, y: cell.y} : {line: i}, score: ENG_TUNING.deploy - stayCost(view), why: `deploy ${bp}`});
   }
-  const amb = munitionAmbush(view, bot, approachTilesOf(bot)); if (amb) out.push({...amb, score: 6 - stayCost(view) * .5});
+  const strike = munitionStrike(view, bot); if (strike) out.push(strike);
+  const amb = strike ? null : munitionAmbush(view, bot, approachTilesOf(bot)); if (amb) out.push({...amb, score: 6 - stayCost(view) * .5});
   const mi = lineOf(p, 'drone_munition');
   if (mi >= 0 && !pbOn('pb8')) {
     const t = munitionTarget(g, view, team);

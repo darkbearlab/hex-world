@@ -6,6 +6,7 @@ import {dist} from '../../clear-bot/util.mjs';
 import {lineOfSight} from '../../../src/world.js';
 import {objectSightGrid} from '../../../src/scenery.js';
 import {marked, markedSight, focusWeight, on as pbOn, PB_TUNING} from './beta-playbook.mjs';
+import {lineOpen} from '../../clear-bot/tactics.mjs';
 
 const homeDist = new WeakMap();
 
@@ -115,6 +116,7 @@ export function teamPlan(g, view, bot) {
   const fe = p.focus && enemies.find(e => e.id === p.focus);
   if (fe && pbOn('pb1') && marked(fe.ref || fe)) p.focusBonus = PB_TUNING.focusBonus;
   p.goal = teamGoal(g, memory, members);
+  p.bound = pbOn('ov') ? bounding(g, memory, members) : null;
   // 推進：沒看到敵人時，跑在最前面的等後面的人
   if (!enemies.length && members.length >= 2) {
     const goal = p.goal;
@@ -180,4 +182,19 @@ export function fragChoice(g, view, plan, {reserve = 12} = {}) {
     if (!best || score > best.score) best = {x: c.x, y: c.y, score, hits, kills, value};
   }
   return best && best.value > 0 ? best : null;
+}
+
+// 交互掩護前進（ASH 小隊長的 bounding overwatch，src/squad.js）：打得到人的掩護（已就緒＝待機：減傷一半、下一槍 +15，或直接開火），
+// 打不到的前進——一次最多一半的人、沒有射線的先走；其餘的人在原地待機。近戰職業照自己的打法（不排進來）。
+export function bounding(g, memory, members) {
+  const known = [...memory.values()].filter(r => !r.ally && g.turn - r.turn <= 3);
+  if (!known.length || members.length < 2) return null;
+  const ranged = members.filter(m => { const t = threatOf(m); return t && !t.melee; });
+  if (ranged.length < 2) return null;
+  const line = m => { const t = threatOf(m); return known.some(r => dist(m, r) <= t.range && lineOpen(g, m, r)); };
+  const near = m => Math.min(...known.map(r => dist(m, r)));
+  const cover = new Set(ranged.filter(line)), blind = ranged.filter(m => !cover.has(m)).sort((a, b) => near(a) - near(b));
+  if (!cover.size) return {cover, advance: new Set(blind), hold: new Set(), known};   // 沒人有射線：一起前進（找人）
+  const maxAdv = Math.max(1, Math.floor(ranged.length / 2));
+  return {cover, advance: new Set(blind.slice(0, maxAdv)), hold: new Set(blind.slice(maxAdv)), known};
 }
