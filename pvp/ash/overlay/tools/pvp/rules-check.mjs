@@ -107,4 +107,13 @@ console.log(bad ? `有 ${bad} 項不對` : '全部正常');
   g.enter('A'); g.swap(A1); const e = px(); e.suppression = 4; g.syncProxies(); ok(B1.suppression === 4, '打在替身上的壓制同步回 B1');
   B1.suppression = 0; A1.suppression = 0;
 }
+// 忍者的光學迷彩（2026-10-16）：對方打開了迷彩的忍者替身，命中要扣迷彩的閃避
+{
+  const {MELEE_TUNING} = await import('../../src/melee-classes.js');
+  const g2 = new PvpGame({seed: 3, map, A: ['soldier', 'recon', 'bulwark', 'engineer'], B: ['ninja', 'soldier', 'recon', 'bulwark']});
+  const N1 = g2.unit('B1'), S1 = g2.unit('A1');
+  g2.enter('A'); g2.swap(S1); const e0 = g2.enemies.find(e => e.pvpOf === 'B1'), c0 = g2.accuracy(S1, e0).chance;
+  N1.skillState.camouflage = {remaining: 3, cooldown: 0}; g2.enter('A'); g2.swap(S1); const e1 = g2.enemies.find(e => e.pvpOf === 'B1'), c1 = g2.accuracy(S1, e1).chance;
+  ok(g2.defensiveEvasion(S1, e1) >= MELEE_TUNING.camoEvasion && (c1 < c0 || c0 <= 10), `B1 忍者開迷彩：A1 打它的命中 ${c0}% → ${c1}%`);
+}
 console.log(bad ? `有 ${bad} 項不對` : '全部正常');

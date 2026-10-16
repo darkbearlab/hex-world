@@ -30,6 +30,7 @@ import {initialSkillState} from './skills.js';
 import {anchors} from './combat.js';
 import {objectSightGrid} from './scenery.js';
 import {makeBarrier} from './barriers.js';
+import {MELEE_TUNING} from './melee-classes.js';
 import {applySuppression, tickSuppression} from './suppression.js';
 import {grenadeTotal} from './throwables.js';
 import {lineOfSight} from './world.js';
@@ -335,6 +336,12 @@ export class PvpGame extends SquadGame {
     const ok = super.action(type, arg);
     if (ok) { p.pvpRopeN = p.pvpRopeKey === key ? p.pvpRopeN + 1 : 1; p.pvpRopeKey = key; }
     return ok;
+  }
+  // 忍者的光學迷彩（2026-10-16 Alan 確認要修）：ASH 只在「敵人打玩家本人」時算迷彩的閃避（melee-classes.js 的 defensiveEvasion），
+  // PVP 裡對方打的是替身，閃避就沒了。替身的 skillState 是本人的（DEFENSE），照本人的迷彩加上去（射擊、近戰都吃）
+  defensiveEvasion(a, b) {
+    const v = super.defensiveEvasion(a, b);
+    return b?.pvpOf != null && (b.skillState?.camouflage?.remaining || 0) > 0 ? v + MELEE_TUNING.camoEvasion : v;
   }
   // 待機（防禦姿態）：ASH 給玩家的「直接傷害減半」，替身也照算
   hurt(e, damage, ...rest) { if (rest[0]?.pvpPowerActive && damage > 0) damage *= RULE('powerMult') ?? 3; if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }
