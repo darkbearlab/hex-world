@@ -32,8 +32,10 @@ export function installTrenchRender(renderer) {
       c.save(); c.strokeStyle = col; c.lineWidth = Math.max(2, t * .09); c.globalAlpha = .9;
       c.beginPath(); c.arc(a.x, a.y, t * .42, 0, 7); c.stroke();
       c.globalAlpha = .25; c.fillStyle = col; c.beginPath(); c.arc(a.x, a.y, t * .42, 0, 7); c.fill();
-      c.globalAlpha = 1; c.fillStyle = col; c.font = `bold ${Math.round(t * .34)}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-      c.fillText(String(pt.value ?? (pt.half && g.pvpSide && pt.half !== g.pvpSide ? 2 : 1)), a.x + t * .34, a.y - t * .34);
+      // 分數寫在圈中間（夠大才看得清楚；黑邊讓它壓在地板、人身上也看得到）
+      c.globalAlpha = 1; c.font = `bold ${Math.max(11, Math.round(t * .6))}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const label = String(pt.value ?? (pt.half && g.pvpSide && pt.half !== g.pvpSide ? 2 : 1));
+      c.lineWidth = Math.max(2, t * .12); c.strokeStyle = '#000000cc'; c.strokeText(label, a.x, a.y + 1); c.fillStyle = col; c.fillText(label, a.x, a.y + 1);
       c.restore();
     }
     return cells;

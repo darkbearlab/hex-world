@@ -53,7 +53,7 @@ const tag = (k, v) => v instanceof Set ? {$set: [...v]} : v instanceof Map ? {$m
 export function createRoom(opts = {}) {
   const {generate, installBots, onWake} = opts, BOT = {A: !!opts.bots?.A, B: !!opts.bots?.B};
   // journal：這一場（含選角）所有改變狀態的請求，照順序重播就回到同一個局面（遊戲用種子的亂數）；Durable Object 被回收後靠它重建
-  let journal = [], replaying = false;
+  let journal = [], replaying = false, settled = null;
   const log = (...a) => { if (!replaying) opts.log?.(...a); };
   // 座位：{token, name, seen}；對戰結束後保留（同一個人可以再打一場）
   const seats = {A: null, B: null};
@@ -66,13 +66,16 @@ export function createRoom(opts = {}) {
   const watch = {A: {frames: [], seq: 0, last: null}, B: {frames: [], seq: 0, last: null}};
   let seed = opts.seed ?? 1, matchBase = opts.match ?? 0, evIdx = {A: 0, B: 0}, picks = {A: null, B: null}, g = null, matchNo = 0, waiters = {A: [], B: []}, mem = {A: {}, B: {}}, since = {A: [], B: []}, before = {A: null, B: null}, lastResult = null;
 
+  // 模式（Alan 2026-10-16）：kill＝拿下兩人（原本的）；capture＝佔領（殺敵沒分數、站點得分，先到 100）。選角時任一方可以切換，雙方都看得到
+  let mode = opts.mode || 'kill';
+  const MODES = {kill: null, capture: {capture: {target: 100, near: 1, mid: 1, far: 2}}};
   function startMatch() {
     let map = null; for (let s = seed; !map; s++) map = generate(s);   // 地圖產生器由外面給（pvp/tools/mapgen.mjs）
-    g = new PvpGame({seed, map, A: picks.A, B: picks.B}); matchNo = Math.max(matchNo, matchBase) + 1;
+    g = new PvpGame({seed, map, A: picks.A, B: picks.B, rules: MODES[mode] || null}); matchNo = Math.max(matchNo, matchBase) + 1;
     installBots?.(g, {onError: e => log('errors.jsonl', {match: matchNo, where: 'bot', error: e})});
     for (const s of ['A', 'B']) if (!BOT[s]) for (const m of g.sides[s]) g.brains.delete(m);
     mem = {A: {}, B: {}}; since = {A: [], B: []}; evIdx = {A: 0, B: 0}; before = {A: null, B: null};
-    log('arena-log.jsonl', {match: matchNo, seed, start: {A: picks.A, B: picks.B}});
+    log('arena-log.jsonl', {match: matchNo, seed, mode, start: {A: picks.A, B: picks.B}});
     begin('A');
   }
   const snap = side => Object.fromEntries(g.sides[side].map(m => [m.squadId, {hp: Math.max(0, m.hp), plates: m.plates || 0}]));
@@ -107,7 +110,7 @@ export function createRoom(opts = {}) {
   // 真人介面用的 JSON（pvp/web/）：同一份「看得到的」局面
   function json(side) {
     const r = lastResult && lastResult.match === matchNo && g?.status !== 'playing' ? lastResult : null;
-    const base = {side, match: matchNo, seats: {A: seats.A?.name || (BOT.A ? '機器人' : null), B: seats.B?.name || (BOT.B ? '機器人' : null)}, bots: {...BOT}, picked: !!picks[side], classes: PVP_CLASSES, result: r && {winner: r.winner, status: r.status, rounds: r.rounds, log: r.log}};
+    const base = {side, match: matchNo, seats: {A: seats.A?.name || (BOT.A ? '機器人' : null), B: seats.B?.name || (BOT.B ? '機器人' : null)}, bots: {...BOT}, picked: !!picks[side], classes: PVP_CLASSES, mode, score: g?.captureOn ? g.pvp.score || {A: 0, B: 0} : null, result: r && {winner: r.winner, status: r.status, rounds: r.rounds, log: r.log}};
     if (!g || r) return {...base, phase: 'pick'};
     if (!myTurn(side)) return {...base, phase: 'wait', round: g.pvp.round, active: g.pvp.side};
     return {...base, phase: 'play', since: since[side], state: sideState(g, mem[side])};
@@ -205,8 +208,8 @@ export function createRoom(opts = {}) {
 
   function handle(p, side, body = '', token = null) {
     side = (side || '').toUpperCase();
-    if (opts.seats && ['/pick', '/cmd', '/report', '/act', '/view', '/replay'].includes(p) && ['A', 'B'].includes(side) && (!seats[side] || seats[side].token !== token)) return '你沒有坐這個座位（先坐下：/seat）';
-    if (['/pick', '/cmd', '/bot', '/act'].includes(p) && !replaying) journal.push({p, side, body});
+    if (opts.seats && ['/pick', '/cmd', '/report', '/act', '/view', '/replay', '/mode'].includes(p) && ['A', 'B'].includes(side) && (!seats[side] || seats[side].token !== token)) return '你沒有坐這個座位（先坐下：/seat）';
+    if (['/pick', '/cmd', '/bot', '/act', '/mode'].includes(p) && !replaying) journal.push({p, side, body});
     if (p === '/bot') return JSON.stringify(setBot(side, body === '1'));
     if (p === '/act') return JSON.stringify(act(side, body), tag);
     if (p === '/view') return JSON.stringify(viewOf(side), tag);
@@ -218,6 +221,12 @@ export function createRoom(opts = {}) {
     if (p === '/state') return render(side);
     if (p === '/json') return JSON.stringify(json(side));
     if (p === '/report') { log('reports.jsonl', {match: matchNo, side, round: g?.pvp.round, text: body}); return '收到，謝謝'; }
+    if (p === '/mode') {
+      if (g && g.status === 'playing') return '對戰進行中，不能換模式';
+      const m = String(body || '').trim(); if (!MODES.hasOwnProperty(m)) return '模式只有 kill（拿下兩人）、capture（佔領）';
+      if (m !== mode) { mode = m; picks = {A: null, B: null}; wake('A'); wake('B'); }   // 換了模式：雙方重新確認陣容（已經選好在等的那一方會醒過來看到新模式）
+      return `模式：${m === 'capture' ? '佔領（先到 100 分）' : '拿下兩人'}`;
+    }
     if (p === '/pick') {
       if (g && g.status === 'playing') return '對戰進行中，不能選';
       const L = body.split(/[\s,，、]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
@@ -337,7 +346,7 @@ export function createRoom(opts = {}) {
   }
   // 現在的畫面：輪到這一方就照現況算（操作中的人＝focus），不然給最後一次的
   function viewOf(side) {
-    const base = {phase: !g ? 'none' : g.status !== 'playing' ? 'over' : myTurn(side) ? 'play' : 'wait', round: g?.pvp.round, left: g?.pvp.left || [], kills: g?.pvp.kills, score: g?.captureOn ? g.pvp.score || {A: 0, B: 0} : null, winner: g?.pvp.winner || null, log: g?.pvp.log || [], since: since[side], replayN: watch[side]?.seq || 0};
+    const base = {phase: !g ? 'none' : g.status !== 'playing' ? 'over' : myTurn(side) ? 'play' : 'wait', mode, round: g?.pvp.round, left: g?.pvp.left || [], kills: g?.pvp.kills, score: g?.captureOn ? g.pvp.score || {A: 0, B: 0} : null, winner: g?.pvp.winner || null, log: g?.pvp.log || [], since: since[side], replayN: watch[side]?.seq || 0};
     if (!g) return base;
     if (!myTurn(side)) return {...base, state: lastView[side]};
     const m = focusOf(side); if (m && g.player !== m) { g.swap(m); g.controlled = m; g.reveal(); }
@@ -378,9 +387,9 @@ export function createRoom(opts = {}) {
   // 重播紀錄（Durable Object 重建時）
   function replay(entries) { replaying = true; try { for (const e of entries) handle(e.p, e.side, e.body, seats[e.side]?.token); } finally { replaying = false; } journal = entries.slice(); }
   // 對戰結束以後，紀錄可以清掉（下一場從新的種子開始）
-  function settle() { if (g && g.status !== 'playing') { journal = []; return true; } return false; }
+  function settle() { if (g && g.status !== 'playing' && settled !== g) { settled = g; journal = mode !== 'kill' ? [{p: '/mode', side: 'A', body: mode}] : []; return true; } return false; }   // 打完的那一場只清一次（之後的選角、換模式要留著）；模式沿用到下一場：記在新的紀錄開頭   // 模式沿用到下一場：記在新的紀錄開頭（重建時一樣）
   return {
-    seat, leave, replay, settle, setBot, get lastMatch() { return lastMatch; }, seats, get phase() { return phaseInfo; }, get seed() { return seed; }, get journal() { return journal; },
+    seat, leave, replay, settle, setBot, get lastMatch() { return lastMatch; }, seats, get phase() { return phaseInfo; }, get seed() { return seed; }, get mode() { return mode; }, get journal() { return journal; },
     handle, render, json, waitTurn, myTurn, HELP, bots: BOT,
     get game() { return g; }, get match() { return matchNo; }, get result() { return lastResult; },
   };

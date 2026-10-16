@@ -69,7 +69,8 @@ export const PVP_CLASSES = ['soldier', 'recon', 'bulwark', 'berserker', 'ninja',
 let building = null;   // generateFloor 在建構子裡就被叫到，那時 this 還沒有自己的欄位
 
 // pvp/tools/mapgen.mjs 的地圖（字元格子）→ ASH 的地圖：# 牆、= 窗（看得到不能過＝ASH 的坑 VOID）、+ 門口、. 地板、c 掩體（props 的 cover）
-function ashMap(M) {
+function ashMap(M, rules) {
+  const RULE = k => (rules || PVP_TUNING.rules)?.[k];   // 這一場的規則（房間選的模式，match.rules）
   const N = M.T.length, grid = M.T.map(row => row.map(t => t === '#' ? 0 : t === '=' ? 2 : 1));
   const props = [], footprint = [];
   M.T.forEach((row, y) => row.forEach((t, x) => { if (t === 'c') props.push({id: `cover-${x}-${y}`, x, y, type: 'cover', hp: 40, maxHp: 40}); if (grid[y][x] === 1) footprint.push({x, y}); }));
@@ -97,6 +98,7 @@ export class PvpGame extends SquadGame {
     const squad = [...match.A.map((cls, i) => one('A', cls, i)), ...match.B.map((cls, i) => one('B', cls, i))];
     building = match; setSize(match.map.T.length);
     try { super({seed: match.seed, faction: 'rebel', facility: true, enemy: {units: {}, veh: {}, boss: null}, squad}); } finally { building = null; }
+    this.pvpRules = match.rules ? {...PVP_TUNING.rules, ...match.rules} : null;   // 這一場的規則（房間選模式：佔領＝{capture: …}）；沒有就用 PVP_TUNING.rules
     this.pvp = {round: 1, side: null, kills: {A: 0, B: 0}, winner: null, log: []};
     // 兩隊各放到自己的開場（對角），彼此不重疊
     const sides = {A: this.members.filter(m => m.squadId[0] === 'A'), B: this.members.filter(m => m.squadId[0] === 'B')};
@@ -110,10 +112,10 @@ export class PvpGame extends SquadGame {
     const blank = () => this.seen.map(r => r.map(() => false));
     this.pvpSeen = {A: blank(), B: blank()};
     this.enemies = []; this.status = 'playing';
-    this.captureOn = !!RULE('capture');   // 畫面用（快照會帶過去）
+    this.captureOn = !!this.rule('capture');   // 畫面用（快照會帶過去）
     this.pvpPoints = (match.map.points || []).map(([x, y, half], i) => ({id: `pt-${i}`, x, y, half: half || null, holder: null}));
   }
-  generateFloor() { const M = building || this.match; return M ? ashMap(M.map) : super.generateFloor(); }
+  generateFloor() { const M = building || this.match; return M ? ashMap(M.map, M.rules && {...PVP_TUNING.rules, ...M.rules}) : super.generateFloor(); }
   // 職業配置照 ASH 原版：不套奇美拉的土製
   equip(m, c) {
     const keep = m.owned.map(s => [s, m.affixes[s]]), lines = m.productionLines;   // 工兵的生產線（原版開場就有一台跟隨無人機）
@@ -123,6 +125,7 @@ export class PvpGame extends SquadGame {
     Object.assign(m, PVP_TUNING[m.character] || {});
     for (const [s, a] of keep) { m.affixes[s] = a; const w = WEAPONS[m.weaponBases[s]]; if (w && !w.melee) m.ammo[s] = weaponStats(m.weaponBases[s], a, m).mag; }
   }
+  rule(k) { return (this.pvpRules || PVP_TUNING.rules)?.[k]; }
   other(side) { return side === 'A' ? 'B' : 'A'; }
   alive(side) { return this.sides[side].filter(m => m.hp > 0); }
   // 對方的每個活人 → 替身敵人（id 固定，機器人的記憶接得上）
@@ -155,7 +158,7 @@ export class PvpGame extends SquadGame {
         m.hp = 0; e.hp = 0; this.pvp.kills[this.other(m.pvpSide)]++;
         this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId}（${m.character}）倒下${by?.id ? `，${by.id} 擊倒` : ''}`);
         // 團隊死鬥：擊倒得分（那個職業的分數）
-        if (RULE('tdm')) { const pts = RULE('tdm').points?.[m.character] ?? TDM_POINTS[m.character] ?? 50, k = this.other(m.pvpSide); (this.pvp.score ||= {A: 0, B: 0})[k] += pts; this.pvp.log.push(`${k} 隊 +${pts} 分（${this.pvp.score.A}：${this.pvp.score.B}）`); }
+        if (this.rule('tdm')) { const pts = this.rule('tdm').points?.[m.character] ?? TDM_POINTS[m.character] ?? 50, k = this.other(m.pvpSide); (this.pvp.score ||= {A: 0, B: 0})[k] += pts; this.pvp.log.push(`${k} 隊 +${pts} 分（${this.pvp.score.A}：${this.pvp.score.B}）`); }
       }
     }
   }
@@ -216,8 +219,8 @@ export class PvpGame extends SquadGame {
     if (this.pvp.side) this.pvpSeen[this.pvp.side] = this.seen;
     this.pvp.side = side; this.seen = this.pvpSeen[side]; this.park(side);
     for (const m of this.sides[side]) m.pvpSafe = false;   // 復活保護到自己這一隊下個階段開始為止
-    if (RULE('tdm') || RULE('capture')) for (const m of this.sides[side]) if (m.hp <= 0) { this.respawn(m); if (RULE('capture')) m.pvpSafe = true; }
-    for (const m of this.sides[side]) { if (m.pvpPower && RULE('powerExpire') && ++m.pvpPowerPhases > RULE('powerExpire')) { m.pvpPower = false; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId} 的三倍傷害沒用就失效了`); } m.pvpExposed = !!m.pvpPower; }   // 自己的階段開始：上一階段開火的暴露結束（拿著三倍傷害的一直暴露）
+    if (this.rule('tdm') || this.rule('capture')) for (const m of this.sides[side]) if (m.hp <= 0) { this.respawn(m); if (this.rule('capture')) m.pvpSafe = true; }
+    for (const m of this.sides[side]) { if (m.pvpPower && this.rule('powerExpire') && ++m.pvpPowerPhases > this.rule('powerExpire')) { m.pvpPower = false; this.pvp.log.push(`第 ${this.pvp.round} 回合：${m.squadId} 的三倍傷害沒用就失效了`); } m.pvpExposed = !!m.pvpPower; }   // 自己的階段開始：上一階段開火的暴露結束（拿著三倍傷害的一直暴露）
     this.members = this.sides[side]; const lead = this.alive(side)[0]; if (!lead) return false;
     this.swap(lead); this.controlled = lead;
     this.enemies = this.proxies(this.other(side)); this.target = null;
@@ -251,11 +254,11 @@ export class PvpGame extends SquadGame {
   }
   // 佔領點：點上站著哪一隊（活著、不在復活保護中）；ASH 生存模式：站著才算佔
   markPoints() { for (const pt of this.pvpPoints || []) { const u = [...this.sides.A, ...this.sides.B].find(m => m.hp > 0 && !m.pvpSafe && m.x === pt.x && m.y === pt.y); pt.holder = u ? u.pvpSide : null; } }
-  captureRule() { return RULE('capture') || null; }
-  pointValue(pt, side) { const c = RULE('capture') || {}; return pt.half == null ? c.mid ?? 1 : pt.half === side ? c.near ?? 1 : c.far ?? 2; }
+  captureRule() { return this.rule('capture') || null; }
+  pointValue(pt, side) { const c = this.rule('capture') || {}; return pt.half == null ? c.mid ?? 1 : pt.half === side ? c.near ?? 1 : c.far ?? 2; }
   // 一大輪結束：各隊佔著的點加分
   scorePoints() {
-    if (!RULE('capture')) return;
+    if (!this.rule('capture')) return;
     this.markPoints(); const sc = this.pvp.score ||= {A: 0, B: 0}, got = {A: 0, B: 0};
     for (const pt of this.pvpPoints) if (pt.holder) got[pt.holder] += this.pointValue(pt, pt.holder);
     sc.A += got.A; sc.B += got.B;
@@ -296,7 +299,7 @@ export class PvpGame extends SquadGame {
     this.pvpActor = {id: '火、酸液等環境', exposed: true}; this.pvpHow = null; this.worldTick(); this.syncProxies(); this.judge(); this.pvpActor = null;
     if (side === 'B') { this.scorePoints(); this.judge(); this.pvp.round++; }
     if (this.status === 'playing' && this.pvp.round > PVP.ROUNDS) {
-      const sc = this.pvp.score || {A: 0, B: 0}, w = RULE('capture') && sc.A !== sc.B ? (sc.A > sc.B ? 'A' : 'B') : null;
+      const sc = this.pvp.score || {A: 0, B: 0}, w = this.rule('capture') && sc.A !== sc.B ? (sc.A > sc.B ? 'A' : 'B') : null;
       if (w) { this.pvp.winner = w; this.status = 'won'; this.pvp.log.push(`打到回合上限：${w} 隊分數高獲勝（${sc.A}：${sc.B}）`); } else { this.status = 'draw'; this.pvp.log.push('打到回合上限'); }
     }
     this.pvp.left = []; return true;
@@ -309,14 +312,14 @@ export class PvpGame extends SquadGame {
     const seen = new Set(); this.gunFlashes = (this.pvpFlashes || []).filter(f => { const k = f.x + ',' + f.y; if (seen.has(k)) return false; seen.add(k); return true; }); this.pvpFlashes = [];
     tickDecoy(this);
     // 三倍傷害晚一點才出現（平衡提案：不讓先動的一方一定先搶到中央）
-    if (RULE('power') !== false && RULE('powerRound') > 1 && !this.pvpPowerSpawned && this.pvp.round >= RULE('powerRound') && this.pvpPowerAt) { this.pvpPowerSpawned = true; const [x, y] = this.pvpPowerAt; this.items.push({x, y, type: 'pvp_power', amount: 1}); this.pvp.log.push(`第 ${this.pvp.round} 回合：三倍傷害出現在地圖中央`); }
+    if (this.rule('power') !== false && this.rule('powerRound') > 1 && !this.pvpPowerSpawned && this.pvp.round >= this.rule('powerRound') && this.pvpPowerAt) { this.pvpPowerSpawned = true; const [x, y] = this.pvpPowerAt; this.items.push({x, y, type: 'pvp_power', amount: 1}); this.pvp.log.push(`第 ${this.pvp.round} 回合：三倍傷害出現在地圖中央`); }
     expireExposure([...this.members, ...this.enemies, ...this.allies], this.turn);
     for (const a of [...this.members, ...this.activeAllies, ...this.enemies.filter(e => e.pvpOf == null)]) tickTraits(a);   // 替身不跑：本人的狀態在自己那一隊的階段跑（不然一回合跑兩次）
     this.settleAttackNotes(); this.reveal();
   }
   judge() {
     if (this.pvp.winner) return;
-    const tdm = RULE('tdm') || RULE('capture');
+    const tdm = this.rule('tdm') || this.rule('capture');
     if (tdm) { const sc = this.pvp.score || {A: 0, B: 0}; for (const s of ['A', 'B']) if (sc[s] >= (tdm.target || 100)) { this.pvp.winner = s; this.status = 'won'; this.pvp.log.push(`${s} 隊獲勝（${sc[s]} 分）`); return; } return; }
     for (const s of ['A', 'B']) {
       const dead = this.sides[s].filter(m => m.hp <= 0).length;
@@ -367,7 +370,7 @@ export class PvpGame extends SquadGame {
   meleeAccuracy(attacker, target, base) { return attacker?.pvpPowerActive ? 100 : super.meleeAccuracy(attacker, target, base); }
   // 繩索的次數限制（平衡提案）：脫離繩在 ASH 是免費動作，PVP 可以限每人每個階段幾次
   action(type, arg) {
-    const lim = RULE('ropePerPhase'), p = this.player;
+    const lim = this.rule('ropePerPhase'), p = this.player;
     if (type !== 'rope' || !lim || !this.pvp?.side) return super.action(type, arg);
     const key = `${this.pvp.round}:${this.pvp.side}`;
     if (p.pvpRopeKey === key && p.pvpRopeN >= lim) return this.fail(`這個階段的繩索用完了（每人每階段 ${lim} 次）`);
@@ -382,7 +385,7 @@ export class PvpGame extends SquadGame {
     return b?.pvpOf != null && (b.skillState?.camouflage?.remaining || 0) > 0 ? v + MELEE_TUNING.camoEvasion : v;
   }
   // 待機（防禦姿態）：ASH 給玩家的「直接傷害減半」，替身也照算
-  hurt(e, damage, ...rest) { if (rest[0]?.pvpPowerActive && damage > 0) damage *= RULE('powerMult') ?? 3; if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }
+  hurt(e, damage, ...rest) { if (rest[0]?.pvpPowerActive && damage > 0) damage *= this.rule('powerMult') ?? 3; if (e?.pvpOf != null && e.pvpGuard && damage > 0) damage = Math.max(1, Math.ceil(damage * .5)); return super.hurt(e, damage, ...rest); }
   // 看得到對方嗎：暴露中的到處都看得到；不然要從我（可以探頭）看得到他那一格的中心——他貼著牆探頭不算
   sight(a, b) {
     if (!b?.pvpOf) return super.sight(a, b);
@@ -412,7 +415,7 @@ export class PvpGame extends SquadGame {
     let ok; try { ok = super.soloPaid(type, arg); } finally { p.pvpPowerActive = false; }
     if (power && ok) { p.pvpPower = false; this.log('三倍傷害用掉了。'); this.pvp.log.push(`第 ${this.pvp.round} 回合：${p.squadId} 用掉三倍傷害（${type}）：打掉 ${pre.hp - hpSum()}、擊倒 ${downs() - pre.down}；用之前陣亡 我方 ${pre.mine}、對方 ${pre.theirs}`); }
     // 下錨：ASH 在一般和慢速階段各打一次（action() 的行動佇列）；soloTurn 不經過佇列，這裡補第二次
-    if (ok && RULE('anchorDouble') !== false && skillActive(p, 'anchor') && ['fire', 'blindFire', 'bumpMelee', 'suppressiveFire'].includes(type) && p.hp > 0 && this.status === 'playing' && (type !== 'fire' || this.targeted?.hp > 0)) super.soloPaid(type, arg);
+    if (ok && this.rule('anchorDouble') !== false && skillActive(p, 'anchor') && ['fire', 'blindFire', 'bumpMelee', 'suppressiveFire'].includes(type) && p.hp > 0 && this.status === 'playing' && (type !== 'fire' || this.targeted?.hp > 0)) super.soloPaid(type, arg);
     for (const a of this.allies) a.pvpSide ||= this.pvp.side;   // 這個動作部署出來的無人機、砲台是這一隊的
     this.pvpFlashes = [...(this.pvpFlashes || []), ...this.flashesNow()];
     if (ok) {

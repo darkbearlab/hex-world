@@ -52,7 +52,8 @@ button.on{outline:2px solid var(--warn)}
 </div>
 <div id="pickView" class="center" hidden>
  <div class="row" id="botRow" style="margin-bottom:8px"></div>
- <h2>選 4 個職業</h2><p class="small">同隊不能重複。對方看不到你選什麼，兩邊都選好就開打。拿下對方 2 人獲勝，倒地就是死。</p>
+ <div class="row" id="modeRow" style="margin-bottom:8px"></div>
+ <h2>選 4 個職業</h2><p class="small" id="modeText">同隊不能重複。對方看不到你選什麼，兩邊都選好就開打。拿下對方 2 人獲勝，倒地就是死。</p>
  <div class="pick" id="pickGrid"></div><button id="bPick" class="primary" disabled>確定</button>
  <div id="pickMsg" class="small" style="margin-top:10px"></div><div id="result" class="panel" hidden style="margin-top:16px"></div>
 </div>
@@ -120,6 +121,9 @@ function draw(){
  if(S.result){$('result').hidden=false;$('result').innerHTML=`<b>${S.result.status==='won'?(S.result.winner===side?'你贏了':'你輸了'):'平手'}</b>（${S.result.rounds} 回合）<div class="small">${S.result.log.join('<br>')}</div>`;}
  if(!pick&&!S.local){location.href='play.html';return;}   // 開打了：換到 ASH 的戰鬥畫面
  if(pick){const o=side==='A'?'B':'A';$('botRow').innerHTML='';if(!S.local&&(!S.seats?.[o]||S.bots?.[o])){const b=document.createElement('button');b.textContent=S.bots?.[o]?`${o} 是機器人（按這裡換回等真人）`:`沒人陪？讓機器人坐 ${o} 練習`;b.onclick=async()=>{await fetch(`/api/bot?side=${o}&on=${S.bots?.[o]?0:1}`,{method:'POST',headers:{'x-seat':token}});refresh();};$('botRow').append(b);}
+  // 模式（Alan 2026-10-16）：選角時任一方可以切換，雙方都看得到
+  $('modeRow').innerHTML='';for(const [m,l] of [['kill','拿下兩人'],['capture','佔領（先到 100 分）']]){const b=document.createElement('button');b.textContent=l;b.className=S.mode===m?'on primary':'';b.onclick=async()=>{await api('/mode',m);refresh();};$('modeRow').append(b);}
+  $('modeText').textContent='同隊不能重複。對方看不到你選什麼，兩邊都選好就開打。'+(S.mode==='capture'?'佔領：殺敵沒分數，倒下在開場復活（到自己下個階段開始前不能攻擊、也打不動）。地圖上 5 個點，站在點上才算佔，每一大輪結算：自己這側和中央 1 分、對面那側 2 分，先到 100 分贏。':'拿下對方 2 人獲勝，倒地就是死。');
   $('pickMsg').textContent=S.picked?'等對方選⋯':'';$('hPhase').textContent='選角';$('hRound').textContent='';$('hScore').textContent='';$('bEnd').disabled=true;return;}
  if(S.phase==='wait'){$('hPhase').textContent='對方的階段⋯';$('hPhase').className='pill';$('hRound').textContent=`第 ${S.round} 回合`;$('bEnd').disabled=true;$('hint').textContent='等對方行動。';if(S.state)return;return drawBoard();}
  const st=S.state;
