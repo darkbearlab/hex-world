@@ -228,7 +228,8 @@ button.warn{background:#5a2018;border-color:var(--war);color:#ffd9cf}
 
 /* 伺服器模式（預設）：種子、生成、歷史播放、加速時鐘、改年長度都是單人測試模式（?local）才有 */
 body.server #seed,body.server #gen,body.server #more,body.server #playBtn,body.server #speed,body.server #slider,body.server #gspeed,body.server .ydays{display:none!important}
-body.server.solo #gspeed{display:inline-block!important}   /* 單機：速度選單回來（Alan 2026-10-18） */
+body.server.solo #soloClock{display:inline-flex!important}   /* 單機的時間控制（Alan 2026-10-18）：暫停＋三段速度輪流切 */
+.soloclock{gap:4px;align-items:center}.soloclock button{padding:3px 10px;min-width:34px}.soloclock button.on{border-color:var(--accent,#d9a441);color:var(--accent,#d9a441)}
 
 /* 標題畫面與開發日誌 */
 .titlescreen{position:fixed;inset:0;z-index:50;background:radial-gradient(ellipse at 50% 30%,#2a2219,var(--bg) 70%);display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto}

@@ -249,9 +249,31 @@ function neuralAt(w, t) {
   if ((m?.vat || 0) > 0) return +(.8 * Math.max(.6, Math.min(1.25, 1.25 - .07 * m.vat)) * war).toFixed(2);
   return +(.8 * 1.1 * (1 + .04 * Math.min(25, nearest(K, t, x => (x.vat || 0) > 0))) * war).toFixed(2);
 }
+// 稀有素材（Alan 2026-10-18，DESIGN.md「縮小規模」第 2 步）：培養本身很簡單，貴在植入物、神經介質這類非生活必需品難取得——
+// 每座城一週只進得了一點（cap），買走的要慢慢補回來（一週補滿）；剩得越少越貴（全部買光時 ×(1+SURGE)）。
+// 廠區的植入物多一點；有培養槽的城才有神經介質，槽越多進得越多；其他城的植入物還是要用零件做（照原本的零件存貨）
+// on：只有單機（SOLO=1 的伺服器）打開；線上的共用星球維持原本的行情（Alan 還沒決定線上要不要改）
+export const RARE = {on: false, WEEK: 168, SURGE: 1.5,
+  implant: m => m.works ? 120 : (m.vat || 0) > 0 ? 40 + 10 * Math.min(4, m.vat) : 30,
+  neural: m => (m.vat || 0) > 0 ? 20 + 10 * Math.min(4, m.vat) : 0};
+export function rareLeft(m, mat, h) {
+  if (!RARE.on || !m || !RARE[mat]) return null;
+  const cap = RARE[mat](m); if (!cap) return {cap: 0, left: 0, k: 1, s: null};
+  const R = m.rare ||= {}, s = R[mat] ||= {left: cap, h};
+  if (h > s.h) { s.left = Math.min(cap, s.left + cap * (h - s.h) / RARE.WEEK); s.h = h; }
+  s.left = Math.min(cap, s.left);
+  return {cap, left: Math.floor(s.left), k: 1 + RARE.SURGE * (1 - s.left / cap), s};
+}
+const surge = (m, mat, h) => rareLeft(m, mat, h)?.k ?? 1;
 export function prices(G, w) {
   const K = w.sim.peek(), m = K.markets[G.base], p = g => m?.price?.[g] ?? 1;
-  return {food: +(.2 * p('food')).toFixed(2), water: +(.24 * p('water')).toFixed(2), implant: +(.25 * p('parts') * implantK(K, G.base)).toFixed(2), neural: neuralAt(w, G.base)};
+  return {food: +(.2 * p('food')).toFixed(2), water: +(.24 * p('water')).toFixed(2), implant: +(.25 * p('parts') * implantK(K, G.base) * surge(m, 'implant', G.h)).toFixed(2), neural: +(neuralAt(w, G.base) * surge(m, 'neural', G.h)).toFixed(2)};
+}
+// 在基地所在的城買得到多少（畫面用；糧水看存貨，稀有素材看這週剩多少）
+export function stockHere(G, w) {
+  const m = w.sim.peek().markets[G.base]; if (!m || !RARE.on) return null; const out = {};
+  for (const mat of ['implant', 'neural']) { const r = rareLeft(m, mat, G.h); out[mat] = mat === 'implant' && !m.works && !(m.vat > 0) ? Math.min(r.left, Math.floor(m.stock.parts * 200)) : r.left; }
+  return out;
 }
 export function buy(G, w, mat, qty) {
   if (!inTown(G, w)) return '基地要停在城裡才能買素材';
@@ -260,7 +282,9 @@ export function buy(G, w, mat, qty) {
   const K = w.sim.peek(), m = K.markets[G.base];
   // 糧和水直接從市場存貨裡買走（100 份吃掉 5 份存貨）；植入物在有廠區或培養槽的城直接有賣，其他城要用零件存貨做（100 份吃掉 0.5 份零件）
   if (m && (mat === 'food' || mat === 'water')) { if (m.stock[mat] < qty * .05) return `${w.names[G.base]}的${MN[mat]}不夠賣`; m.stock[mat] -= qty * .05; }
+  const rr = m && rareLeft(m, mat, G.h); if (rr && rr.left < qty) return rr.cap ? `${w.names[G.base]}這週的${MN[mat]}只剩 ${rr.left}（每週約進 ${rr.cap}）` : `${w.names[G.base]}沒有賣${MN[mat]}`;
   if (m && mat === 'implant' && !m.works && !(m.vat > 0)) { if (m.stock.parts < qty / 200) return `${w.names[G.base]}的零件不夠做植入物`; m.stock.parts -= qty / 200; }
+  if (rr) rr.s.left -= qty;
   G.cash -= cost; G.mats[mat] += qty; flow(G, 'buy', -cost, `本地買進${MN[mat]} ${qty}`); return null;
 }
 function flow(G, kind, amount, text) { G.flows.push({h: G.h, kind, amount: Math.round(amount), text}); if (G.flows.length > 3000) G.flows.splice(0, 500); }
@@ -268,14 +292,15 @@ function flow(G, kind, amount, text) { G.flows.push({h: G.h, kind, amount: Math.
 // ===== 採購路線：派車隊去別座城買料，沿實際道路來回，路上可能被劫 =====
 // 價格看那座城的市價；廠區和有培養槽的城賣植入物（廠區便宜），有培養槽的城才有神經介質。跟總部所屬勢力交戰中的城不賣。
 const TRIP_FEE = 1.2, TRIP_LOAD = 6;
-function offerAt(w, t) {
+function offerAt(w, t, h) {
   const K = w.sim.peek(), m = K.markets[t], p = g => m?.price?.[g] ?? 1;
   if (!m) return null;
+  const off = {k: 1, left: Infinity, cap: null}, ri = rareLeft(m, 'implant', h) || off, rn = rareLeft(m, 'neural', h) || {...off, left: (m.vat || 0) > 0 ? 999 : 0};   // 線上（稀有素材沒開）：照原本的上限
   return {
     food: {price: +(.2 * p('food')).toFixed(2), max: Math.min(999, Math.floor(m.stock.food / .05 / 100) * 100)},
     water: {price: +(.24 * p('water')).toFixed(2), max: Math.min(999, Math.floor(m.stock.water / .05 / 100) * 100)},
-    implant: {price: +(.25 * p('parts') * implantK(K, t)).toFixed(2), max: m.works ? 999 : (m.vat || 0) > 0 ? 500 : Math.min(999, Math.floor(m.stock.parts * 200 / 100) * 100)},
-    neural: {price: neuralAt(w, t), max: (m.vat || 0) > 0 ? 999 : 0},
+    implant: {price: +(.25 * p('parts') * implantK(K, t) * ri.k).toFixed(2), max: RARE.on ? Math.min(ri.left, m.works || (m.vat || 0) > 0 ? 999 : Math.floor(m.stock.parts * 200)) : m.works ? 999 : (m.vat || 0) > 0 ? 500 : Math.min(999, Math.floor(m.stock.parts * 200 / 100) * 100), ...(RARE.on ? {week: ri.cap} : {})},
+    neural: {price: +(neuralAt(w, t) * rn.k).toFixed(2), max: RARE.on ? rn.left : (m.vat || 0) > 0 ? 999 : 0, ...(RARE.on ? {week: rn.cap} : {})},
   };
 }
 export function quotes(G, w) {
@@ -286,7 +311,7 @@ export function quotes(G, w) {
     const path = T.path(t), risk = path.reduce((x, i) => x + K.bandit[i] + (me >= 0 && K.owner[i] >= 0 && P.atWar(K.owner[i], me) ? 40 : 0), 0);
     const hours = Math.ceil(T.dist[t] * C.CFG.TRAVEL);
     out.push({t, name: w.names[t], fac: K.fac[o]?.n || '', war: me >= 0 && P.atWar(o, me), works: !!K.markets[t].works, vat: K.markets[t].vat || 0,
-      hours, trip: hours * 2 + TRIP_LOAD, risk: Math.min(.99, 1 - Math.exp(-risk / 1500 * 2)), fee: Math.round(hours * 2 * TRIP_FEE), offer: offerAt(w, t)});
+      hours, trip: hours * 2 + TRIP_LOAD, risk: Math.min(.99, 1 - Math.exp(-risk / 1500 * 2)), fee: Math.round(hours * 2 * TRIP_FEE), offer: offerAt(w, t, G.h)});
   }
   return out.sort((a, b) => a.hours - b.hours).slice(0, 40);
 }
@@ -303,6 +328,7 @@ export function procure(G, book, w, t, mat, qty, uids, now) {
   const near = onSite(G, t); if (pick.length >= 2 && !near) { if (vansFree(G, book) < 1) return NO_VAN; pick = pick.slice(0, 4); }
   const K = w.sim.peek(), m = K.markets[t];
   if (mat === 'food' || mat === 'water') m.stock[mat] -= qty * .05; else if (mat === 'implant' && !m.works && !(m.vat > 0)) m.stock.parts -= qty / 200;
+  const rr = rareLeft(m, mat, G.h); if (rr?.s) rr.s.left -= qty;   // 稀有素材：訂下來就算買走了
   C.registerCompany(book, G.name, G.base);
   const c = C.openCase(book, w, {kind: 'route', own: G.name, guard: 16, title: `採購：${MN[mat]} ${qty}（${q.name}）`, tile: t, from: t, to: G.base, fac: homeFac(G, K), lv: 1, hours: q.trip,
     cargo: {g: mat, amt: qty, val: o.price}}, now);
@@ -1087,7 +1113,7 @@ export function view(G, book, w) {
   const report = {all: sum(0, G.flowsArch), d30: sum(G.h - 24 * 30), daily: G.daily, hist};
   const K = w.sim.peek(), rel = K.fac.map((f, i) => ({f: i, n: f.n, c: f.c, alive: f.alive !== false, v: Math.round(relOf(G, i)), trait: w.sim.pmc.trait ? w.sim.pmc.trait(i) : ''})).filter(x => x.alive);
   const payable = Object.values(book.squads).filter(sq => sq.player === G.name && sq.caseId).reduce((s, sq) => s + (sq.due || 0), 0);
-  return {payable, rel, relLog: (G.relLog || []).slice(-40).reverse().map(e => ({...e, n: K.fac[e.f]?.n || ''})), relRefuse: REL.REFUSE, relBlack: REL.BLACK, deaths7: deaths7(book, G.h), retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
+  return {payable, rel, relLog: (G.relLog || []).slice(-40).reverse().map(e => ({...e, n: K.fac[e.f]?.n || ''})), relRefuse: REL.REFUSE, relBlack: REL.BLACK, deaths7: deaths7(book, G.h), retainer: retainerView(G, book, w), cleanSites: cleanSites(G, book, w), cleanJobs: (G.cleanJobs || []).map(j => ({...j, name: nm(j.tile)})), units, report, name: G.name, base: G.base, baseName: nm(G.base), h: G.h, cash: Math.round(G.cash), lossBook: Math.round(G.lossBook || 0), mats: G.mats, stock: stockHere(G, w), prices: prices(G, w), queue: G.queue.map((q, i) => ({done: q.done, start: q.start, slot: q.slot ?? i, recipe: q.recipe, tpl: q.tpl ? q.tpl.cls : null, revive: q.revive != null ? (c => c ? `${donorName(c)} ${c.id}` : '') (G.roster.find(x => x.uid === q.revive)) : null, ready: !!q.ready})),
     templates: G.templates, relief: G.relief?.on ? {since: G.relief.since, next: G.relief.next} : null, packs, reports: (G.reports || []).slice(-30), roster: G.roster.map(c => ({...c, name: donorName(c), squad: sqOf[c.uid]?.name || '', field: c.alive && c.status === 'away' && packs[sqOf[c.uid]?.id] ? sqOf[c.uid].id : null, record: (c.record || []).slice(-60).map(e => ({...e, place: e.tile != null ? nm(e.tile) : ''})), downPlace: c.downTile != null ? nm(c.downTile) : '', reviving: G.queue.some(q => q.revive === c.uid), bodyPrice: c.status === 'recovered' ? bodyPrice(book, c, G.h) : null})), cases, tickets, done, log: G.log.slice(-40).reverse(), vats: GCFG.VATS, buildH: GCFG.BUILD_H, fresh: G.fresh ?? null, sellFactor: sellFactor(G, w), store: (G.store || []).map(it => ({...it, name: itemName(it), value: Math.round(itemValue(it) * sellFactor(G, w))}))};
 }
 

@@ -595,12 +595,21 @@ function onGame(m) {
 $('gspeed').onchange = e => send({type: 'speed', v: +e.target.value});
 // 單機（Alan 2026-10-18）：伺服器回報速度、為什麼停（服務單、基地到站、離開太久、正在打）
 const SOLO_WHY = {ticket: '有服務單要處理，時間暫停', arrive: '基地到站，時間暫停', away: '離開太久，時間暫停'};
+// 三段速度輪流切（Alan 2026-10-18）：普通＝照現實（一個遊戲小時＝現實一小時）、加速 1＝每秒一小時、加速 2＝每秒六小時；另外一顆暫停
+const SOLO_SP = [[1 / 3600, '普通'], [1, '加速 1'], [6, '加速 2']];
+let soloLast = SOLO_SP[0][0], soloNow = 0;
+const spIdx = v => SOLO_SP.findIndex(([x]) => Math.abs(x - v) < 1e-9);
 function onSolo(s) {
-  document.body.classList.add('solo');
-  const sel = $('gspeed'); if (![...sel.options].some(o => +o.value === s.speed)) sel.append(new Option(`每秒 ${s.speed} 小時`, s.speed)); sel.value = String(s.speed);
-  sel.disabled = !!s.fighting; sel.title = s.fighting ? '親自打的時候時間停住' : '';
+  document.body.classList.add('solo'); soloNow = s.speed; if (s.speed) soloLast = s.speed;
+  const i = Math.max(0, spIdx(soloLast)), lock = !!s.fighting;
+  $('gCycle').textContent = SOLO_SP[i][1]; $('gCycle').title = `切換速度（現在：${SOLO_SP[i][1]}${i === 0 ? '，照現實時間' : i === 1 ? '，每秒一小時' : '，每秒六小時'}）`;
+  $('gPause').textContent = s.speed ? '⏸' : '▶'; $('gPause').classList.toggle('on', !s.speed);
+  for (const b of [$('gPause'), $('gCycle')]) b.disabled = lock;
+  if (lock) $('gPause').title = '親自打的時候時間停住'; else $('gPause').title = s.speed ? '暫停' : '繼續';
   if (!s.speed && s.pause && SOLO_WHY[s.pause]) toast(SOLO_WHY[s.pause]);
 }
+$('gPause').onclick = () => send({type: 'speed', v: soloNow ? 0 : soloLast});
+$('gCycle').onclick = () => { const i = spIdx(soloLast), next = SOLO_SP[(i + 1) % SOLO_SP.length][0]; soloLast = next; send({type: 'speed', v: next}); };   // 切速度也順便繼續
 $('gyd').onchange = e => send({type: 'yearDays', v: +e.target.value});
 
 // ===== 行動（Alan 2026-10-13，chimera/ops.js）：隨時能打的副本——路線圖、每點一場、局內三選一、王點 =====
@@ -935,7 +944,9 @@ function renderTrade() {
   const shopRow = (kind, T) => Object.keys(T).map(b => { const it = {kind, base: b, ...(kind === 'kit' ? {n: KITS[b].max} : {})}; return `<button data-shop="${kind}:${b}">${esc(itemName(it))}　$${shopPrice(it)}k</button>`; }).join('');
   const away = GV.hq && !GV.hq.inTown ? `<p class="mini" style="color:var(--war)">基地${GV.hq.parked ? '停在荒野' : '在路上'}：停進城裡才能買素材、買賣裝備、下訂單。</p>` : '';
   $('co-shop').html = away + [['槍', 'gun', GUNS], ['近戰', 'melee', MELEES], ['護甲', 'armor', ARMORS], ['預備品', 'kit', KITS]].map(([n, k, T]) => `<div class="shoprow"><b>${n}</b>${shopRow(k, T)}</div>`).join('');
-  $('co-mats').html = away + `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">本地單價</td><td></td></tr>` + MATS.map(m => `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}k</td><td><button data-act="buy" data-mat="${m}" data-q="100">+100（$${Math.round(G.prices[m] * 100)}k）</button></td></tr>`).join('') + '</table>';
+  $('co-mats').html = away + `<table class="mats"><tr><td class="muted">素材</td><td class="muted">庫存</td><td class="muted">本地單價</td><td class="muted">這週還買得到</td><td></td></tr>` + MATS.map(m => { const left = G.stock?.[m];   // 稀有素材（Alan 2026-10-18）：每座城一週只進一點，剩越少越貴
+    const qs = left == null ? [100] : [10, 50].filter(q => q <= left);
+    return `<tr><td>${MN[m]}</td><td>${G.mats[m]}</td><td>$${G.prices[m]}k</td><td>${left == null ? '<span class="muted">—</span>' : left}</td><td>${qs.map(q => `<button data-act="buy" data-mat="${m}" data-q="${q}">+${q}（$${Math.round(G.prices[m] * q)}k）</button>`).join(' ') || '<span class="muted">賣完了</span>'}</td></tr>`; }).join('') + '</table>';
   renderProc();
 }
 

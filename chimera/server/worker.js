@@ -15,7 +15,7 @@ import {verifyGoogle} from './auth.js';   // 和 warband 同一份
 export {Skirmish} from './battle.js';
 import {colo} from './battle.js';
 import {enemyRoster, ASH_FACTION, LEGACY_KINDS, LEGACY_BOSS} from '../cases.js';
-import {parked} from '../company.js';
+import {parked, RARE} from '../company.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) => ArrayBuffer.isView(v) ? Array.from(v) : v), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
@@ -28,7 +28,9 @@ const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort'].i
 // 玩家按播放才走（速度＝每秒幾個遊戲小時，核心的 game.speed），親自打的時候停住（core.pauseOnFight），
 // 有服務單要簽收、基地到站、玩家離開頁面太久都會自動暫停。開發階段放在伺服器上，單機版就是開一個本機的這個
 const SOLO_ALLOWED = [...ALLOWED, 'speed', 'abort'];
-const SOLO_AWAY = 20000;   // 這麼久沒有請求（頁面關了、睡著了）就停住
+const SOLO_AWAY = 20000;
+// 速度（Alan 2026-10-18）：暫停、普通（照現實：一小時一小時）、加速 1（每秒一小時）、加速 2（每秒六小時）
+export const SOLO_SPEEDS = [0, 1 / 3600, 1, 6];   // 這麼久沒有請求（頁面關了、睡著了）就停住
 export const battleName = (env, ticket) => `battle-${env.WORLD_VERSION || '1'}-${ticket}`;
 // Durable Object 第一次被叫的時候就決定放在哪個機房，之後不會搬。戰鬥每個行動都要往返一次，所以開戰時照玩家所在的洲放
 // （不給提示的話會放在叫它的星球旁邊；星球在美國，台灣打一步就要繞半個地球）。入口的 Worker 把玩家的洲寫在 x-continent。
@@ -113,7 +115,7 @@ export class Planet extends DurableObject {
 
   /* ───── 單機的時鐘 ───── */
   // 開機（讀檔或建好世界）一律從暫停開始：伺服器重開後世界不會自己跑掉
-  soloInit() { this.core.pauseOnFight = true; if (this.core.game && this.core.game.fighting == null) this.core.game.speed = 0; this.soloH = this.core.hour; this.soloAt = Date.now(); this.soloPause = null; }
+  soloInit() { RARE.on = true; this.core.pauseOnFight = true; if (this.core.game && this.core.game.fighting == null) this.core.game.speed = 0; this.soloH = this.core.hour; this.soloAt = Date.now(); this.soloPause = null; }
   // 自動暫停要比對的東西：每家玩家公司的服務單通知數、基地停著沒有
   soloMark() {
     const G = this.core.game; if (!G) return null; const out = {};
@@ -274,7 +276,7 @@ export class Planet extends DurableObject {
       if (!name) return bad('還沒開公司');
       const allowed = this.solo ? SOLO_ALLOWED : ALLOWED;
       if (!allowed.includes(body.type) && !QUERIES.includes(body.type)) return bad('不認得的指令');
-      if (this.solo && body.type === 'speed') body.v = [0, 1, 3, 8, 24, 72].includes(+body.v) ? +body.v : 0;
+      if (this.solo && body.type === 'speed') body.v = SOLO_SPEEDS.find(v => Math.abs(v - +body.v) < 1e-9) ?? 0;
       if ((body.type === 'note' || body.type === 'say') && pid[0] !== 'g' && this.env.DEV !== '1') return bad('訪客不能留言，用 Google 帳號登入才行');   // 同一格的留言、對話（照 warband）
       const err = this.core.command(body, name), msgs = this.out.splice(0);
       // 親自打：在伺服器上開（或接回）這場戰鬥；種子留在伺服器，瀏覽器只拿到畫面
