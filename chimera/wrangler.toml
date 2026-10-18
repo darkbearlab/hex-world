@@ -42,6 +42,9 @@ cpu_ms = 300000
 ADMIN_TOKEN_SHA256 = "ad5a0db23bdad6f37aee5df8e3f5e0ed308e4cf6fe20440525b5e68bc531502e"
 # 改這個數字並推送，星球就從頭重新產生（所有公司一起重來）
 WORLD_VERSION = "4"
+# 單機（Alan 2026-10-18：扶正成預設入口）：每個玩家一顆自己的星球（Durable Object「solo-版本-玩家」），第一次來時從 hub（「hub-版本」）的世界範本複製。
+# 世界範本用 admin/template 上傳（make-world.mjs 產生）。舊的共用星球「planet-4」封存：不再有入口、鬧鐘停掉，資料留著（備份在 chimera-backups/online-v4-final-*.json）
+SOLO = "1"
 # 新世界用匯入的（Alan 2026-10-11）：開服時不在 Worker 上推演（150 年 ×10,000＋每日結算推不完），等管理員用 admin/import 傳上本機推好的世界
 WORLD_IMPORT = "1"
 # 星球放在哪一洲的機房（Durable Object 第一次建立時決定，之後不會搬；要搬就得改 WORLD_VERSION 重新產生）。

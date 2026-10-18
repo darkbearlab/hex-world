@@ -615,6 +615,7 @@ export function sortie(G, book, w, tile, mode, uids, now) {
   if (!Number.isInteger(tile) || !w.land[tile]) return '去不了那裡';
   const K = w.sim.peek(), town = !!K.markets[tile] && K.owner[tile] >= 0, nm = w.names[tile] || '無名之地';
   if (mode === 'fight' && town) return '不能在城裡動手';
+  if (!isFinite(w.sim.pmc.dist(G.base, tile))) return '路走不到那裡';
   const lv = Math.max(1, Math.min(3, Math.round((K.bandit[tile] || 0) / 25) + 1));
   return accept(G, book, w, {kind: 'drill', tile, fac: -1, lv, hours: 48, sortie: mode, title: `派遣・${SORTIE[mode]}：${nm}`}, '', uids, now);
 }

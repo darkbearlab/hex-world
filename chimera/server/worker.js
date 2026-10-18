@@ -32,11 +32,11 @@ const SOLO_ALLOWED = [...ALLOWED, 'speed', 'abort', 'sortie'];
 const SOLO_AWAY = 20000;
 // 速度（Alan 2026-10-18）：暫停、普通（照現實：一小時一小時）、加速 1（每秒一小時）、加速 2（每秒六小時）
 export const SOLO_SPEEDS = [0, 1 / 3600, 1, 6];   // 這麼久沒有請求（頁面關了、睡著了）就停住
-export const battleName = (env, ticket) => `battle-${env.WORLD_VERSION || '1'}-${ticket}`;
+export const battleName = (env, ticket, owner) => env.SOLO === '1' && owner ? `battle-${env.WORLD_VERSION || '1'}-${owner}-${ticket}` : `battle-${env.WORLD_VERSION || '1'}-${ticket}`;   // 單機：每個人的世界各自編號，戰鬥名字要帶上是誰的
 // Durable Object 第一次被叫的時候就決定放在哪個機房，之後不會搬。戰鬥每個行動都要往返一次，所以開戰時照玩家所在的洲放
 // （不給提示的話會放在叫它的星球旁邊；星球在美國，台灣打一步就要繞半個地球）。入口的 Worker 把玩家的洲寫在 x-continent。
 const HINT = {AS: 'apac', OC: 'oc', EU: 'weur', NA: 'enam', SA: 'sam', AF: 'afr'};
-const battleStub = (env, ticket, continent) => env.SKIRMISH.get(env.SKIRMISH.idFromName(battleName(env, ticket)), HINT[continent] ? {locationHint: HINT[continent]} : undefined);
+const battleStub = (env, ticket, continent, owner) => env.SKIRMISH.get(env.SKIRMISH.idFromName(battleName(env, ticket, owner)), HINT[continent] ? {locationHint: HINT[continent]} : undefined);
 
 async function sha(s) { const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 24); }
 async function gzip(str) { return new Uint8Array(await new Response(new Blob([new TextEncoder().encode(str)]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer()); }
@@ -58,6 +58,22 @@ export class Planet extends DurableObject {
     if (this.ready) return this.ready;
     return this.ready = (async () => { try {
       const st = this.ctx.storage, meta = await st.get('meta'), version = this.env.WORLD_VERSION || '1';
+      // 單機（Alan 2026-10-18：扶正成預設入口）：一個玩家一顆自己的星球（solo-版本-玩家），從 hub 的世界範本複製；
+      // hub 存世界範本和 Google 登入；舊的共用星球（planet-版本，沒有 role）封存：不載入、鬧鐘停掉，資料原封不動
+      if (this.solo) {
+        if (meta && !meta.role) { this.archived = true; this.roster = {}; this.out = []; await st.deleteAlarm(); return; }
+        const role = meta?.role || this.roleHint;
+        if (role === 'hub') { this.hub = true; this.meta = meta || {role: 'hub', version}; if (!meta) await st.put('meta', this.meta); this.roster = {}; this.out = []; return; }
+        if (!meta) {   // 這個玩家第一次來：從範本建自己的星球
+          const r = await hubOf(this.env).fetch(new Request('https://hub/api/internal/template', {headers: {'x-role': 'hub'}}));
+          if (!r.ok) { this.pending = true; this.meta = {role: 'player', version, pending: true}; this.roster = {}; this.out = []; this.ready = null; return; }
+          const t = await r.json(); this.core.load(t.seed, t.save); if (!this.core.game) this.core.open();
+          this.meta = {role: 'player', pid: this.pidHint, version, seed: t.seed, template: t.at, startedAt: Date.now(), chunks: 0, aligned: true};
+          this.roster = {}; await st.put('roster', this.roster); this.out = [];
+          if (this.env.NPC !== '0') this.core.enableNpcs();
+          this.pending = false; this.soloInit(); await this.persist(); return;
+        }
+      }
       if (meta && meta.version === version && meta.pending) { this.meta = meta; this.pending = true; this.roster = {}; this.out = []; return; }
       if (meta && meta.version === version) {
         const parts = []; for (let i = 0; i < meta.chunks; i++) parts.push(await st.get('save:' + i));
@@ -107,11 +123,29 @@ export class Planet extends DurableObject {
   }
   async alarm() {
     await this.init();
-    if (this.pending) return;
+    if (this.pending || this.archived || this.hub) { if (this.archived || this.hub) await this.ctx.storage.deleteAlarm(); return; }
     if (this.solo) { if (this.soloCatchUp()) this.markDirty(); this.out = []; return this.soloArm(); }   // 單機：一直在走，存檔照節流
     if (this.catchUp() || this.dirty) await this.persist();
     this.out = [];
     await this.arm();
+  }
+
+  /* ───── 單機的 hub：世界範本、Google 登入 ───── */
+  async hubFetch(req, path) {
+    const st = this.ctx.storage;
+    if (path === 'auth/google' && req.method === 'POST') return this.googleLogin(req);
+    if (path === 'internal/who') { const s = req.headers.get('x-chimera-session'); const r = s ? await st.get('sess:' + await sha('sess:' + s)) : null; return json({pid: r ? r.pid : false}); }
+    // 世界範本：管理員用 admin/template 傳本機推好的世界（{seed, save}，make-world.mjs 的格式）；新玩家第一次來時複製一份
+    if (path === 'internal/template') { const m = await st.get('tpl'); if (!m) return bad('還沒有世界範本', 503); const parts = []; for (let i = 0; i < m.chunks; i++) parts.push(await st.get('tpl:' + i)); const all = new Uint8Array(parts.reduce((s, p) => s + p.length, 0)); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; } return new Response(await gunzip(all), {headers: {'content-type': 'application/json'}}); }
+    if (path === 'admin/template' && req.method === 'POST') {
+      const tok = req.headers.get('x-admin-token') || '', d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tok))), hex = [...d].map(x => x.toString(16).padStart(2, '0')).join('');
+      if (!this.env.ADMIN_TOKEN_SHA256 || hex !== this.env.ADMIN_TOKEN_SHA256) return bad('沒有權限', 403);
+      const text = await req.text(); let b; try { b = JSON.parse(text); } catch { return bad('請求格式不對'); } if (!b?.save?.sim) return bad('存檔格式不對');
+      const at = Date.now(), z = await gzip(JSON.stringify({seed: String(b.seed || '奇美拉-1'), save: b.save, at})), n = Math.ceil(z.length / CHUNK), old = await st.get('tpl');
+      for (let i = 0; i < n; i++) await st.put('tpl:' + i, z.slice(i * CHUNK, (i + 1) * CHUNK)); for (let i = n; i < (old?.chunks || 0); i++) await st.delete('tpl:' + i);
+      await st.put('tpl', {chunks: n, bytes: z.length, at}); return json({ok: true, bytes: z.length, at});
+    }
+    return bad('不認得的請求', 404);
   }
 
   /* ───── 單機的時鐘 ───── */
@@ -157,6 +191,7 @@ export class Planet extends DurableObject {
   /* ───── 請求 ───── */
   // 玩家 ID：Google 工作階段對到的帳號（找不到就是 false：登入失效，例如世界重開），或訪客代碼的雜湊
   async who(req) {
+    if (this.solo && !this.hub) return req.headers.get('x-pid') || null;   // 單機：入口的 Worker 已經認好人了（外面送來的 x-pid 在入口就被蓋掉）
     const s = req.headers.get('x-chimera-session'); if (s) { const r = await this.ctx.storage.get('sess:' + await sha('sess:' + s)); return r ? r.pid : false; }
     const t = req.headers.get('x-chimera-token') || ''; return t.length >= 16 ? 'v' + await sha('guest:' + t) : null;
   }
@@ -171,6 +206,12 @@ export class Planet extends DurableObject {
     await st.put('acct:' + gid, {email: g.email, name: g.name, last: Date.now()});
     let moved = null;
     const legacy = String(body.legacy || ''), lid = legacy.length >= 16 ? 'v' + await sha('guest:' + legacy) : null;
+    if (this.solo) {   // 單機：第一次登入時，這個瀏覽器原本的訪客世界搬到帳號上（帳號那邊還沒開公司才搬）
+      const acc = soloOf(this.env, gid), mine = await (await acc.fetch(new Request('https://p/api/internal/export', {headers: {'x-role': 'player', 'x-pid': gid}}))).json();
+      if (!mine.company && lid) { const old = await (await soloOf(this.env, lid).fetch(new Request('https://p/api/internal/export', {headers: {'x-role': 'player', 'x-pid': lid}}))).json();
+        if (old.company) { await acc.fetch(new Request('https://p/api/internal/adopt', {method: 'POST', headers: {'x-role': 'player', 'x-pid': gid, 'content-type': 'application/json'}, body: JSON.stringify(old)})); moved = old.company; } }
+      return json({session: token, email: g.email, company: moved || mine.company || null, moved});
+    }
     if (!this.roster[gid] && lid && this.roster[lid]) { moved = this.roster[gid] = this.roster[lid]; delete this.roster[lid]; await st.put('roster', this.roster); }
     return json({session: token, email: g.email, company: this.roster[gid] || null, moved});
   }
@@ -204,8 +245,15 @@ export class Planet extends DurableObject {
     return {ok: true, hours: h, hour: this.core.hour, target, behind: target - this.core.hour, forwarded: this.meta.forwarded, year: this.core.year};
   }
   async fetch(req) {
+    if (this.solo && !this.roleHint) { this.roleHint = req.headers.get('x-role'); this.pidHint = req.headers.get('x-pid'); }
     await this.init();
     const url = new URL(req.url), path = url.pathname.slice(5);
+    if (this.archived) return bad('這是封存的舊世界', 410);
+    if (this.hub) return this.hubFetch(req, path);
+    if (this.solo && this.pending) return bad('新世界準備中，請稍後再來', 503);
+    // 單機：Google 登入搬家用（只有 hub 會叫；外面的 /api/internal/ 在入口就擋掉了）
+    if (this.solo && path === 'internal/export') { const name = Object.values(this.roster)[0] || null; return json(name ? {company: name, seed: this.meta.seed, save: this.core.save()} : {company: null}); }
+    if (this.solo && path === 'internal/adopt' && req.method === 'POST') { const b = await req.json(); this.core.load(b.seed, b.save); this.roster = {[this.meta.pid || req.headers.get('x-pid')]: b.company}; await this.ctx.storage.put('roster', this.roster); this.soloInit(); await this.persist(); return json({ok: true}); }
     if (this.pending) return this.importWorld(req, path);
     if (path === 'auth/google' && req.method === 'POST') return this.googleLogin(req);
     const pid = await this.who(req);
@@ -282,7 +330,7 @@ export class Planet extends DurableObject {
       const err = this.core.command(body, name), msgs = this.out.splice(0);
       // 親自打：在伺服器上開（或接回）這場戰鬥；種子留在伺服器，瀏覽器只拿到畫面
       for (const m of msgs) if (m.type === 'mission') {
-        const r = await battleStub(this.env, m.data.id, req.headers.get('x-continent')).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid, mode: this.env.BATTLE_MODE || 'verify'})}));
+        const r = await battleStub(this.env, m.data.id, req.headers.get('x-continent'), pid).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid, mode: this.env.BATTLE_MODE || 'verify'})}));
         const d = await r.json(); if (!r.ok) return bad(d.error || '開戰失敗', 500);
         m.data = battleTicket(m.data, d);
       }
@@ -325,10 +373,15 @@ function arenaMission(b) {
 const battleTicket = (mission, d) => d.mode === 'verify' ? {id: mission.id, title: mission.title, remote: true, mode: 'verify', mission: d.mission, log: d.log, resumed: !!d.resumed}
   : {id: mission.id, title: mission.title, remote: true, mode: 'authority', state: d.state, resumed: !!d.resumed};
 const planetOf = env => env.PLANET.get(env.PLANET.idFromName('planet-' + (env.WORLD_VERSION || '1')), env.PLANET_HINT ? {locationHint: env.PLANET_HINT} : undefined);
+// 單機（SOLO=1）：hub（世界範本、Google 登入）和每個玩家自己的星球
+export const hubOf = env => env.PLANET.get(env.PLANET.idFromName('hub-' + (env.WORLD_VERSION || '1')), env.PLANET_HINT ? {locationHint: env.PLANET_HINT} : undefined);
+export const soloOf = (env, pid) => env.PLANET.get(env.PLANET.idFromName('solo-' + (env.WORLD_VERSION || '1') + '-' + pid), env.PLANET_HINT ? {locationHint: env.PLANET_HINT} : undefined);
+const asHub = req => { const r = new Request(req); r.headers.set('x-role', 'hub'); r.headers.delete('x-pid'); return r; };
+const asPlayer = (req, pid, continent) => { const r = new Request(req); r.headers.set('x-role', 'player'); r.headers.set('x-pid', pid); r.headers.set('x-continent', continent || ''); return r; };
 // 這個請求是哪個玩家：訪客直接算；Google 工作階段要問星球（存在星球的儲存空間）
 async function ownerOf(req, env) {
   const s = req.headers.get('x-chimera-session');
-  if (s) { const r = await planetOf(env).fetch(new Request('https://planet/api/internal/who', {headers: {'x-chimera-session': s}})); return r.ok ? (await r.json()).pid : false; }
+  if (s) { const r = await (env.SOLO === '1' ? hubOf(env) : planetOf(env)).fetch(new Request('https://planet/api/internal/who', {headers: {'x-chimera-session': s, 'x-role': 'hub'}})); return r.ok ? (await r.json()).pid : false; }
   const t = req.headers.get('x-chimera-token') || ''; return t.length >= 16 ? 'v' + await sha('guest:' + t) : null;
 }
 export default {
@@ -339,7 +392,7 @@ export default {
     const mb = url.pathname.match(env.DEV === '1' ? /^\/api\/battle\/([^/]+)\/(act|state|log|ping|selftest)$/ : /^\/api\/battle\/([^/]+)\/(act|state|log|ping)$/);   // ping：打的時候讓戰鬥留在記憶體（2026-10-14）   // selftest：開發用，機器人打完
     if (mb) {
       const owner = await ownerOf(req, env); if (!owner) return bad(owner === false ? '登入已失效，請重新登入' : '沒有身分代碼', 401);
-      return battleStub(env, decodeURIComponent(mb[1]), req.cf?.continent).fetch(new Request('https://battle/' + mb[2], {method: req.method, headers: {'content-type': 'application/json', 'x-owner': owner}, body: req.method === 'POST' ? await req.text() : undefined}));
+      return battleStub(env, decodeURIComponent(mb[1]), req.cf?.continent, owner).fetch(new Request('https://battle/' + mb[2], {method: req.method, headers: {'content-type': 'application/json', 'x-owner': owner}, body: req.method === 'POST' ? await req.text() : undefined}));
     }
     // 戰鬥測試場（Alan 2026-10-09：不用等抽到任務票就能測手感）：開一場隨機的伺服器戰鬥，打完不結算、不影響公司。
     // 網址加 ?arena 才在標題畫面顯示入口；每次開新的一場（舊的留在原處，沒人叫就不花錢）
@@ -358,6 +411,16 @@ export default {
     }
     // 開發用：直接開一場戰鬥、讓機器人打完（DEV=1 才開）
     if (env.DEV === '1' && url.pathname.startsWith('/api/dev/battle/')) { const [, , , , id, op] = url.pathname.split('/'); return env.SKIRMISH.get(env.SKIRMISH.idFromName('dev-' + id)).fetch(new Request('https://battle/' + op, req)); }
+    if (env.SOLO === '1' && url.pathname.startsWith('/api/')) {
+      const p = url.pathname.slice(5);
+      if (p === 'auth/google' || p === 'admin/template') return hubOf(env).fetch(asHub(req));
+      // 管理員的唯讀鑰匙：?pid= 指定看哪一個玩家的星球
+      if (p.startsWith('admin/') && req.headers.get('x-admin-token') && url.searchParams.get('pid')) return soloOf(env, url.searchParams.get('pid')).fetch(asPlayer(req, url.searchParams.get('pid'), req.cf?.continent));
+      const owner = await ownerOf(req, env);
+      if (owner === false) return bad('登入已失效，請重新登入', 401);
+      if (!owner) return bad('沒有身分代碼', 401);
+      return soloOf(env, owner).fetch(asPlayer(req, owner, req.cf?.continent));
+    }
     if (url.pathname.startsWith('/api/')) { const r = new Request(req); r.headers.set('x-continent', req.cf?.continent || ''); return planetOf(env).fetch(r); }
     return env.ASSETS.fetch(req);
   },

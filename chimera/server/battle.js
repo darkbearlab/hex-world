@@ -83,8 +83,10 @@ export class Skirmish extends DurableObject {
   async settle() {
     if (this.meta.settled || this.meta.arena || this.g.status === 'playing') return;   // 測試場的戰鬥不結算
     this.meta.settled = true; await this.save();
-    const planet = this.env.PLANET.get(this.env.PLANET.idFromName('planet-' + (this.env.WORLD_VERSION || '1')), this.env.PLANET_HINT ? {locationHint: this.env.PLANET_HINT} : undefined);
-    await planet.fetch(new Request('https://planet/api/internal/settle', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({ticket: this.meta.ticket, owner: this.meta.owner, result: this.g.missionResult})}));
+    // 單機（SOLO=1）：戰果交給這場戰鬥主人自己的星球（solo-版本-玩家）
+    const solo = this.env.SOLO === '1', v = this.env.WORLD_VERSION || '1';
+    const planet = this.env.PLANET.get(this.env.PLANET.idFromName(solo ? `solo-${v}-${this.meta.owner}` : 'planet-' + v), this.env.PLANET_HINT ? {locationHint: this.env.PLANET_HINT} : undefined);
+    await planet.fetch(new Request('https://planet/api/internal/settle', {method: 'POST', headers: {'content-type': 'application/json', 'x-role': 'player', 'x-pid': this.meta.owner || ''}, body: JSON.stringify({ticket: this.meta.ticket, owner: this.meta.owner, result: this.g.missionResult})}));
   }
   async fetch(req) {
     const url = new URL(req.url), path = url.pathname.split('/').pop();

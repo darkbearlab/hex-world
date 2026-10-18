@@ -55,7 +55,7 @@ export class ServerLink {
         return;
       }
       if (m.type === 'found') {
-        const name = (m.name || prompt('公司名稱（最多 16 個字，星球上的其他人看得到）', '') || '').trim();
+        const name = (m.name || prompt('公司名稱（最多 16 個字）', '') || '').trim();
         if (!name) return;
         const d = await this.api('found', {base: m.base, name}); this.company = name; this.emit(d.view); return;
       }
