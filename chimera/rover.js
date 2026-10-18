@@ -9,6 +9,7 @@
 import * as C from './cases.js';
 import {gainLegacy, relAdd, unpack, parked, inTown, nearSite, ensureHq, VAN} from './company.js';
 import {BIOMES, hdist} from './sim.js';
+import {nearHour, nearAt, nearName, nearView, NEAR} from './near.js';
 
 export const HQ = {FUEL: 3, SEARCH_H: 4, SEARCH_CD: 24 * 7, SITE_CD: 24 * 7, FOOD_K: 1, WATER_K: 1, REG_COST: 100, RAID: .05};
 const SITE = {oil: '石油城', ammo: '彈藥農場', oasis: '綠洲', salvage: '拆解場'};
@@ -68,6 +69,7 @@ function guardBack(G, book, R, h) {
 
 // 開到某一格：照路線一格一格走
 export function baseGo(G, book, w, to, h) {
+  if (!Number.isInteger(to) || !w.land[to]) return '開不到那裡';   // 不是地圖上的陸地格（2026-10-18 測試時送了 NaN，基地開到第 0 格）
   const R = ensureHq(G), why = hqBlock(book, G, h); if (why) return why;
   if (to === G.base && !R.move) return '已經在這裡了';
   const from = R.move ? R.move.to : G.base, path = w.sim.pmc.route(from, to);
@@ -245,10 +247,14 @@ export function hqHour(cos, book, w, h) {
     for (let legs = 0; legs < 200 && R.move && h >= R.move.t1; legs++) { const t1 = R.move.t1; G.base = R.move.to; R.move = null; if (book.companies[G.name]) book.companies[G.name].base = G.base;
       for (const s of tileStory(G, book, w, G.base, h)) say(R, h, G.base, s, 'story');
       jobsArrive(G, book, w, R, h); if (busyTicket(book, R)) break;
-      if (roll(G.base, h, 1) < encounterP(w, G.base)) { defend(G, book, w, h, `基地在${nmOf(w)(G.base)}被人攔住`); if (busyTicket(book, R)) break; }
+      // 遭遇：單機用近的一層（near.js：開進有敵對隊伍的那一格就打）；線上照原本每到一格擲一次
+      const foe = NEAR.on ? nearAt(G, w, G.base) : null;
+      if (foe || (!NEAR.on && roll(G.base, h, 1) < encounterP(w, G.base))) { defend(G, book, w, h, foe ? `基地在${nmOf(w)(G.base)}撞上一群${nearName(foe)}` : `基地在${nmOf(w)(G.base)}被人攔住`); if (busyTicket(book, R)) break; }
       else if (!R.route.length) say(R, h, G.base, `基地到了${nmOf(w)(G.base)}。`);
       if (R.route.length && !hqBlock(book, G, h)) nextLeg(G, book, w, R, t1); }
     if (!R.move && R.route.length && !hqBlock(book, G, h)) nextLeg(G, book, w, R, h);
+    // 近的一層（單機）：附近的隊伍生出、移動；敵對的追上基地就打（手上已經有服務單時先不追上）
+    if (NEAR.on) { const c = nearHour(G, w, h, !busyTicket(book, R)); if (c) defend(G, book, w, h, `一群${nearName(c)}追上了基地（${nmOf(w)(G.base)}）`); }
   }
 }
 
@@ -256,7 +262,7 @@ export function hqHour(cos, book, w, h) {
 export function hqView(G, book, w, h) {
   const R = ensureHq(G), K = w.sim.peek(), m = K.markets[G.base], nm = nmOf(w);
   const legHours = (from, route) => { let t = 0, a = from; for (const b of route) { t += legH(w, R, a, b); a = b; } return +t.toFixed(2); };
-  return {tile: G.base, place: nm(G.base), move: R.move, route: R.route, dest: R.route.length ? R.route[R.route.length - 1] : R.move?.to ?? null, parked: parked(G), inTown: inTown(G, w), town: !!(m && K.owner[G.base] >= 0),
+  return {near: nearView(G), tile: G.base, place: nm(G.base), move: R.move, route: R.route, dest: R.route.length ? R.route[R.route.length - 1] : R.move?.to ?? null, parked: parked(G), inTown: inTown(G, w), town: !!(m && K.owner[G.base] >= 0),
     block: hqBlock(book, G, h), ticket: busyTicket(book, R)?.id || null, guard: guardOf(book, R)?.clones.map(c => c.uid) || [], searching: R.searching != null ? R.busyUntil : null, searchedAt: R.searched[G.base] ?? null,
     up: Object.entries(UP).map(([k, U]) => { const lv = upLv(R, k), max = U.k.length - 1, here = upHere(w, G.base, k);
       const near = here ? [] : Object.keys(K.markets).map(Number).filter(t => upHere(w, t, k)).map(t => ({t, d: w.sim.pmc.dist(G.base, t)})).filter(x => isFinite(x.d)).sort((a, b) => a.d - b.d).slice(0, 3)

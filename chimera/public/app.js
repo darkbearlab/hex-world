@@ -193,6 +193,13 @@ function drawNow() {
     for (const x of W.deals || []) { if (x.left <= 0) continue; const px = cx(x.tile) + S0 * .45, py = cy(x.tile) - S0 * .45, r = S0 * .36; ctx.fillStyle = x.mine ? '#5b6b55' : '#8fd18b'; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill(); ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.4}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('$', px, py + r * .05); }
     // 東方謠言（Alan 2026-10-12）：傳聞中的舊星艦維修站，紅★
     if (W.rumor) { const px = cx(W.rumor.tile), py = cy(W.rumor.tile), r = S0 * .9; ctx.fillStyle = '#ff5a5a'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = q * Math.PI / 5 - Math.PI / 2, rr = q % 2 ? r * .45 : r; ctx.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    // 近的一層（單機，Alan 2026-10-18）：基地看得到的範圍畫一圈淡淡的六角，裡面的隊伍：掠奪者紅、原住民橙、商隊青；在追基地的外面多一圈
+    if (GV.hq?.near) { const NV = GV.hq.near, col = {bandit: '#e05a43', native: '#e7a14a', caravan: '#6fd0d8'};
+      ctx.save(); ctx.globalAlpha = .18; ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1, 1.2 / k); ctx.beginPath(); ctx.arc(cx(GV.base), cy(GV.base), SQ3 * S0 * (NV.range + .5), 0, 7); ctx.stroke(); ctx.restore();
+      for (const p of NV.list) { const x = cx(p.tile), y = cy(p.tile), r = S0 * .55;
+        ctx.fillStyle = col[p.kind] || '#ccc'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.4 / k);
+        ctx.beginPath(); if (p.hostile) { ctx.moveTo(x, y - r); ctx.lineTo(x + r * .9, y + r * .7); ctx.lineTo(x - r * .9, y + r * .7); ctx.closePath(); } else ctx.rect(x - r * .7, y - r * .5, r * 1.4, r); ctx.fill(); ctx.stroke();
+        if (p.chase) { ctx.strokeStyle = col[p.kind]; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, 7); ctx.stroke(); } } }
     // 基地：開動中照時間在兩格之間移動，剩下的路畫虛線（原本的 Rover）
     const H = GV.hq || {tile: GV.base, route: []}, hnow = hourNow() ?? GV.h, hf = H.move ? Math.max(0, Math.min(1, (hnow - H.move.t0) / Math.max(.01, H.move.t1 - H.move.t0))) : 0, ha = H.move ? H.move.from : GV.base, hb = H.move ? H.move.to : GV.base;
     const bx = cx(ha) + (cx(hb) - cx(ha)) * hf, by = cy(ha) + (cy(hb) - cy(ha)) * hf, hrest = [hb, ...(H.route || [])];
