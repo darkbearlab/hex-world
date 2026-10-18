@@ -16,7 +16,7 @@ const BIG_OK = new Set(['probe', 'hold', 'clear', 'patrol', 'sweep', 'scout', 'g
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['outfit', 'speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave', 'opResupply', 'opPick', 'cover'];
+export const COMMANDS = ['sortie', 'outfit', 'speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave', 'opResupply', 'opPick', 'cover'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -373,6 +373,7 @@ export class Core {
     if (m.type === 'retHide') return G.retHide(g, b, String(m.id));
     // 移動基地（Alan 2026-10-12；原本的 Rover）
     if (m.type === 'baseGo') return RV.baseGo(g, b, w, +m.tile, h);
+    if (m.type === 'sortie') return G.sortie(g, b, w, +m.tile, String(m.mode), m.uids || [], this.exactNow ?? h);   // 派遣（單機的第 4 步）
     if (m.type === 'baseStop') return RV.baseStop(g, b, w, h);
     if (m.type === 'baseSearch') return RV.baseSearch(g, b, w, h);
     if (m.type === 'baseUpgrade') return RV.baseUpgrade(g, b, w, String(m.kind), h);

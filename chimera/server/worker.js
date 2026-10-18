@@ -24,11 +24,11 @@ const CHUNK = 100000;
 const SAVE_EVERY = 5000;   // 一般指令的存檔節流（毫秒）
 // 伺服器上玩家能下的指令：加速、改年長度只有單人測試模式有；放棄親自打（abort）在伺服器上不用通知
 // 戰果（submit）只能由伺服器上的戰鬥交（S2），瀏覽器不能自己報
-const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort'].includes(c));
+const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort', 'sortie'].includes(c));   // sortie（派遣）只有單機
 // 單機（Alan 2026-10-18，DESIGN.md「縮小規模」）：SOLO=1 的伺服器只有一家公司，時間不跟現實走——
 // 玩家按播放才走（速度＝每秒幾個遊戲小時，核心的 game.speed），親自打的時候停住（core.pauseOnFight），
 // 有服務單要簽收、基地到站、玩家離開頁面太久都會自動暫停。開發階段放在伺服器上，單機版就是開一個本機的這個
-const SOLO_ALLOWED = [...ALLOWED, 'speed', 'abort'];
+const SOLO_ALLOWED = [...ALLOWED, 'speed', 'abort', 'sortie'];
 const SOLO_AWAY = 20000;
 // 速度（Alan 2026-10-18）：暫停、普通（照現實：一小時一小時）、加速 1（每秒一小時）、加速 2（每秒六小時）
 export const SOLO_SPEEDS = [0, 1 / 3600, 1, 6];   // 這麼久沒有請求（頁面關了、睡著了）就停住

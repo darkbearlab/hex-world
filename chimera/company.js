@@ -607,6 +607,17 @@ export const relOf = (G, f) => (G.rel || {})[f] || 0;
 export function relAdd(G, f, v, why, h) { if (f == null || f < 0 || !v) return; G.rel ||= {}; G.rel[f] = Math.max(REL.MIN, Math.min(REL.MAX, (G.rel[f] || 0) + v)); (G.relLog ||= []).push({h, f, v: Math.round(v * 10) / 10, why}); if (G.relLog.length > 200) G.relLog.shift(); }
 // 委託板上看不看得到（Alan 2026-10-11：條件不符的黑單不該出現在板上）：等級以外的門檻都照接案的規則
 export const canSee = (G, book, w, opp) => !gate(G, book, w, opp, []);
+// 派遣（Alan 2026-10-18，DESIGN.md「縮小規模」第 4 步）：自己挑一格派人去——探索（搜那一格，可能撞上零星的人）、交流（跟當地的人談，不打）、
+// 攻擊（掃蕩那一格的匪，近的一層裡那一格的敵對隊伍一起清掉）。坐運兵車、一隊最多四人；打的部分照練兵單的服務單（親自打或自動結算）
+export const SORTIE = {explore: '探索', talk: '交流', fight: '攻擊'};
+export function sortie(G, book, w, tile, mode, uids, now) {
+  if (!SORTIE[mode]) return '不認得的派遣';
+  if (!Number.isInteger(tile) || !w.land[tile]) return '去不了那裡';
+  const K = w.sim.peek(), town = !!K.markets[tile] && K.owner[tile] >= 0, nm = w.names[tile] || '無名之地';
+  if (mode === 'fight' && town) return '不能在城裡動手';
+  const lv = Math.max(1, Math.min(3, Math.round((K.bandit[tile] || 0) / 25) + 1));
+  return accept(G, book, w, {kind: 'drill', tile, fac: -1, lv, hours: 48, sortie: mode, title: `派遣・${SORTIE[mode]}：${nm}`}, '', uids, now);
+}
 function gate(G, book, w, opp, pick) {
   const K = w.sim.peek(), me = homeFac(G, K);
   if (opp.fac >= 0 && relOf(G, opp.fac) <= REL.REFUSE) return `${K.fac[opp.fac]?.n || '這個勢力'}不跟你往來（派系關係太低）`;

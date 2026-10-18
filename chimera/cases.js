@@ -172,8 +172,10 @@ export function caseFromOpp(book, w, opp, now, o = {}) {
     return openCase(book, w, {kind: 'privateer', title: `${K.fac[opp.fac].n}的私掠：攔截${K.fac[opp.foe].n}的商隊`, tile: t, fac: opp.fac, foe: opp.foe, lic: opp.lic, lv, hours}, now);
   }
   // 練兵單（Alan 2026-10-11）：掃蕩城附近的流寇，難度 1～3（side）；到點立刻開打、打完就回家；車馬費很少，記憶片段 40 格以上不再抽
-  if (opp.kind === 'drill') { const L = Math.max(1, Math.min(3, +o.side || 1));
-    const c = openCase(book, w, {kind: 'drill', title: `掃蕩${nm(opp.tile)}附近的流寇（難度 ${L}）`, tile: opp.tile, fac: opp.fac, lv: L, hours: 48}, now); c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; return c; }
+  if (opp.kind === 'drill') { const L = Math.max(1, Math.min(3, +(opp.lv || o.side) || 1));
+    // 派遣（Alan 2026-10-18，DESIGN.md「縮小規模」第 4 步）：玩家自己挑一格派人去探索、交流或攻擊，借練兵單的流程（到點開一張、打完回家）
+    const c = openCase(book, w, {kind: 'drill', title: opp.sortie ? opp.title : `掃蕩${nm(opp.tile)}附近的流寇（難度 ${L}）`, tile: opp.tile, fac: opp.fac, lv: L, hours: 48}, now);
+    if (opp.sortie) c.sortie = {mode: opp.sortie}; c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; return c; }
   // 狩獵場：舊時代的設施，被幾乎絕種的外星生物佔據；入口的守衛收場地費；最多三層，彈藥自費
   if (opp.kind === 'hunting') { const c = openCase(book, w, {kind: 'hunting', title: opp.title, tile: opp.tile, fac: opp.fac, lv: 2, hours: 72}, now); c.freeze = 0; c.pay = {deposit: 0, mid: 0, final: 0}; c.selfAmmo = true; return c; }
   // 場地維安：駐守一段時間，報酬約打平交通費與維持費；照駐守時數抽記憶片段，偶爾有騷擾者；彈藥自費
@@ -634,9 +636,11 @@ function directTickets(book, w, c, now) {
   const K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
   for (const id of c.squads) {
     const sq = book.squads[id]; if (!sq || sq.busy || sq.headedHome || sq.drillDone || sq.readyAt > now || alive(sq).length < 1) continue;
+    // 派遣的交流：不打，到了就算辦完（結果在 rover.js 寫進基地日誌）
+    if (c.sortie?.mode === 'talk') { sq.drillDone = true; c.sortie.win = true; notify(book, now, sq.player, 'result', `${sq.name}：${c.title}，跟當地的人談過了，動身回基地。`, c.id); continue; }
     const floor = c.kind === 'hunting' ? 1 : 0, type = c.kind === 'hunting' ? 'hunting' : 'drill', T = TYPES[type];   // 狩獵場一場打到底（電梯口選往下或撤離，Alan 2026-10-11）
-    const enemy = enemyOf(book, w, c, {type, tile: c.tile, floor});
-    const tk = {id: 'T' + book.nextId++, caseId: c.id, type, title: c.kind === 'hunting' ? `${nm(c.tile)}狩獵場` : `${T.n}：${nm(c.tile)}`, tile: c.tile, floor, floors: c.kind === 'hunting' ? 3 : 0, facility: c.kind === 'hunting',
+    const enemy = enemyOf(book, w, c, {type: c.sortie?.mode === 'explore' ? 'harass' : type, tile: c.tile, floor});   // 探索：撞上的是零星的人，比掃蕩弱
+    const tk = {id: 'T' + book.nextId++, caseId: c.id, type, title: c.kind === 'hunting' ? `${nm(c.tile)}狩獵場` : c.sortie ? c.title : `${T.n}：${nm(c.tile)}`, tile: c.tile, floor, floors: c.kind === 'hunting' ? 3 : 0, facility: c.kind === 'hunting',
       biome: BIOMES[K.biome[c.tile]]?.n || '', night: rng(book) < T.night, trench: 0, enemy, objectives: T.obj.map(([k, text, pts]) => ({k, text, pts: pts * c.lv * (floor || 1)})), born: now, squad: null, player: null, issued: -1, deadline: -1, done: false};
     book.tickets.push(tk); c.tickets++;
     sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE; sq.floor = floor;
@@ -863,7 +867,7 @@ function writeBack(book, w, c, tk, win, gearLost, now) {
       const o = P.op(c.op), od = o ? P.oddsOf(o) : {more: null};
       if (win) pay(book, now, tk.player, 4 * c.lv * (od.more != null && od.more <= 3 ? 1.5 : 1), 'shadow', `${tk.title}：黑單報酬`, c.id);
     }
-  } else if (tk.type === 'drill') { if (win) for (const n of [t, ...nb(t)]) K.bandit[n] = Math.max(0, K.bandit[n] - 1);
+  } else if (tk.type === 'drill') { if (c.sortie) c.sortie.win = win; if (win && c.sortie?.mode !== 'explore') for (const n of [t, ...nb(t)]) K.bandit[n] = Math.max(0, K.bandit[n] - 1);
   } else if (tk.type === 'raidcv') {
     if (win) { P.privAid(c.lic, 1 + .2 * c.lv);
       if (tk.player) { pay(book, now, tk.player, 6 * c.lv, 'loot', `${tk.title}：攔下的貨分六成`, c.id); (book.relQ ||= []).push({co: tk.player, f: c.foe, v: -1, why: `替${K.fac[c.fac]?.n || ''}私掠`}); }

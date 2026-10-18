@@ -253,6 +253,15 @@ export function hqHour(cos, book, w, h) {
       else if (!R.route.length) say(R, h, G.base, `基地到了${nmOf(w)(G.base)}。`);
       if (R.route.length && !hqBlock(book, G, h)) nextLeg(G, book, w, R, t1); }
     if (!R.move && R.route.length && !hqBlock(book, G, h)) nextLeg(G, book, w, R, h);
+    // 派遣的結果（單機第 4 步）：探索打贏＝搜那一格；交流＝那一格的故事和附近的線索；攻擊打贏＝那一格的敵對隊伍散了
+    for (const id of G.cases) { const c = book.cases.find(x => x.id === id); if (!c?.sortie || c.sortie.done || c.sortie.win == null) continue;
+      c.sortie.done = true; const t = c.tile, nm = nmOf(w);
+      if (!c.sortie.win) { say(R, h, t, `${c.title}：沒有辦成。`, 'danger'); continue; }
+      // 探索只帶回消息：東西要基地開過去才搬得走（Alan 2026-10-12：搜索一定要整個基地開過去）
+      if (c.sortie.mode === 'explore') { const L = tileStory(G, book, w, t, h), site = nearSite(book, w, t, h), body = (book.bodies || []).filter(b => b.tile === t && !b.takenBy).length, K = w.sim.peek();
+        say(R, h, t, `${c.title}：${L.join('')}${site && !site.taken ? `找到了${site.title}——要把基地開過來才搬得走。` : ''}${body ? `那裡倒著 ${body} 具遺體。` : ''}${K.ruin[t] ? '有一片廢墟，基地停過來可以搜。' : ''}`, 'find'); }
+      else if (c.sortie.mode === 'talk') { const L = tileStory(G, book, w, t, h); const site = nearSite(book, w, t, h); say(R, h, t, `${c.title}：${L.join('')}${site && !site.taken ? `當地人說起附近的${site.title}。` : ''}`, 'story'); }
+      else { if (R.near) R.near = R.near.filter(p => !(p.tile === t && p.kind !== 'caravan')); say(R, h, t, `${c.title}：把${nm(t)}的匪打散了。`, 'find'); } }
     // 近的一層（單機）：附近的隊伍生出、移動；敵對的追上基地就打（手上已經有服務單時先不追上）
     if (NEAR.on) { const c = nearHour(G, w, h, !busyTicket(book, R)); if (c) defend(G, book, w, h, `一群${nearName(c)}追上了基地（${nmOf(w)(G.base)}）`); }
   }

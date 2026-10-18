@@ -27,7 +27,7 @@ const layers = {fac: true, pop: false, bandit: false, trench: false, opp: true};
 let oppKind = 'all';
 const OK = {supply: {n: '前哨補給', ch: '補', c: '#5fd0c0'}, outpost: {n: '前哨爭奪', ch: '奪', c: '#ff7a5a'}, exp: {n: '遠征', ch: '遠', c: '#7fc06a'}, short: {n: '缺貨', ch: '補', c: '#6fb4e0'}, tense: {n: '快開戰', ch: '壓', c: '#e7a14a'}, front: {n: '前線', ch: '戰', c: '#ff5a3c'}, route: {n: '危險商路', ch: '護', c: '#e0cf5a'}, lair: {n: '據點', ch: '剿', c: '#c98a6a'}, camp: {n: '大戰役', ch: '役', c: '#ff3020'}, logging: {n: '伐木', ch: '柴', c: '#9fbf5a'}, clean: {n: '清運', ch: '收', c: '#b49ad8'}, retainer: {n: '長約', ch: '約', c: '#e8c35a'},
   shadow: {n: '黑單', ch: '暗', c: '#a070e0'}, counter: {n: '反情報', ch: '緝', c: '#60a0d0'}, privateer: {n: '私掠', ch: '掠', c: '#d0603a'},
-  drill: {n: '練兵', ch: '練', c: '#8fbf8f'}, hunting: {n: '狩獵場', ch: '獵', c: '#7ad0b0'}, security: {n: '場地維安', ch: '安', c: '#c0b0e0'}};   // 練兵單、狩獵場、場地維安（Alan 2026-10-11）   // 暗影戰爭、私掠（Alan 2026-10-11）
+  drill: {n: '練兵', ch: '練', c: '#8fbf8f'}, sortie: {n: '派遣', ch: '派', c: '#6fd0d8'}, hunting: {n: '狩獵場', ch: '獵', c: '#7ad0b0'}, security: {n: '場地維安', ch: '安', c: '#c0b0e0'}};   // 練兵單、狩獵場、場地維安（Alan 2026-10-11）   // 暗影戰爭、私掠（Alan 2026-10-11）
 let logFilter = 'legend';
 let worker = null;
 
@@ -311,7 +311,7 @@ function renderFac() {
   }
   $('pane-fac').innerHTML = html;
 }
-$('pane-tile').onclick = e => { if (recallClick(e)) return; if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
+$('pane-tile').onclick = e => { if (recallClick(e)) return; if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"],[data-act="sortiepick"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
   const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('trade'); send({type: 'quotes'}); } };
 $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) return; const id = +r.dataset.f; hiFac = hiFac === id ? -1 : id; const f = hist[cur].fac.find(x => x.id === id); if (f && hiFac >= 0) centerOn(f.cap); draw(); };
 
@@ -1085,6 +1085,10 @@ function baseTileHtml(i) {
   for (const x of (W.sites || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #c49a5a;padding-left:8px"><b style="color:#c49a5a">遠征點 ${'●'.repeat(x.lv)}${'○'.repeat(3 - x.lv)}</b>　${esc(x.title)}<br><span class="muted">${esc(x.hint)}・${x.taken ? `最近被${esc(x.taken)}搜過了` : '基地開過來搜索才拿得到，先搜到的先拿'}</span></p>`;
   for (const d of (W.deals || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #8fd18b;padding-left:8px"><b style="color:#8fd18b">搶購</b>　${esc(d.title)}<br><span class="muted">${hourNow() < d.open ? `${cd(d.open)}後開賣` : `${cd(d.close)}後結束`}・剩 ${d.left} 個名額${d.mine ? '・你買過了' : ''}・基地要停在這座城才能買</span>${H.tile === i && H.inTown && !d.mine && d.left > 0 && hourNow() >= d.open ? `<br><button data-act="deal" data-id="${d.id}">買（$${d.cost}k）</button>` : ''}</p>`;
   if (i !== H.tile || !H.parked) html += `<p><button data-act="basego" data-id="${i}">基地開到這裡</button> <span class="mini muted">${selPath?.to === i && selPath.base ? `${selPath.base.tiles} 格・約 ${fmtLeft(selPath.base.hours)}・油錢 $${selPath.base.fuel}k` : '基地照原本慢車的速度一格一格走'}</span></p>`;
+  // 單機（Alan 2026-10-18）：這一格的隊伍（近的一層），和派人過去（探索、交流、攻擊；坐運兵車、一隊最多四人）
+  if (H.near) { const here = H.near.list.filter(p => p.tile === i);
+    if (here.length) html += `<p class="mini">${here.map(p => `<b style="color:${p.hostile ? 'var(--war)' : 'var(--cyan)'}">${esc(p.name)}</b>${p.chase ? '（正朝基地過來）' : p.to != null ? `（往${nm(p.to)}）` : ''}`).join('、')}</p>`;
+    if (i !== H.tile) html += `<p>派人過去：<button data-act="sortiepick" data-mode="explore" data-id="${i}">探索</button> <button data-act="sortiepick" data-mode="talk" data-id="${i}">交流</button> <button data-act="sortiepick" data-mode="fight" data-id="${i}">攻擊</button> <span class="mini muted">坐運兵車去，一隊最多四人；探索可能撞上人、交流不打、攻擊是掃蕩那一格的匪</span></p>`; }
   html += hereHtml(i);
   return html;
 }
@@ -1568,6 +1572,13 @@ const coClick = e => {
   else if (A === 'rethide') send({type: 'retHide', id});
   // 基地（Alan 2026-10-12；原本的 Rover）
   else if (A === 'basego') baseGoAsk(+id);
+  else if (A === 'sortiepick') {   // 派遣（單機第 4 步）：用出擊編成挑人
+    const mode = b.dataset.mode, MN2 = {explore: '探索', talk: '交流', fight: '攻擊'}, tile = +id, place = ST.names?.[tile] || '荒野';
+    sortie = {key: 'custom', tile, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'sortie', lv: 1, one: true, min: 2, tile, title: `派遣・${MN2[mode]}：${place}`,
+      detail: mode === 'explore' ? '去那一格看看：寫回那裡的樣子、找到的東西（要基地開過去才搬得走）；路上可能撞上零星的人。' : mode === 'talk' ? '去跟當地的人談：那裡的近況、附近的線索。不打。' : '掃蕩那一格的匪：一張服務單（親自打或自動結算），打贏了那一格的匪隊就散了。',
+      go: uids => send({type: 'sortie', tile, mode, uids})}};
+    renderSortie();
+  }
   else if (A === 'basestop') roverSend({type: 'baseStop'}, '基地停下');
   else if (A === 'baseup') roverSend({type: 'baseUpgrade', kind: id}, '基地升級');
   else if (A === 'basejob') roverSend({type: 'baseJob', id}, '在地小事');
