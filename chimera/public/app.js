@@ -46,7 +46,7 @@ function start(seed) {
       if (hist.length === 1) { cur = 0; renderAll(); if (LOCAL) setPlaying(true); }
       else if (GV) { cur = hist.length - 1; lastPanelY = -1; renderAll(); send({type: 'quotes'}); }
       if (!GV && page === 'co' && hist.length % 10 === 0) renderCo();
-    } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = WATCH; if (!LOCAL && !worker.company) { hideTitle(); showPage('co'); } }
+    } else if (m.type === 'solo') { onSolo(m.solo); } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = WATCH; if (!LOCAL && !worker.company) { hideTitle(); showPage('co'); } }
     else if (m.type === 'relogin') { showTitle(m.text); }
     else if (m.type === 'chronicle') { allEvents = m.events; if (curTab() === 'log') renderLog(); }
     else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); hideTitle(); }
@@ -593,6 +593,14 @@ function onGame(m) {
   draw();
 }
 $('gspeed').onchange = e => send({type: 'speed', v: +e.target.value});
+// 單機（Alan 2026-10-18）：伺服器回報速度、為什麼停（服務單、基地到站、離開太久、正在打）
+const SOLO_WHY = {ticket: '有服務單要處理，時間暫停', arrive: '基地到站，時間暫停', away: '離開太久，時間暫停'};
+function onSolo(s) {
+  document.body.classList.add('solo');
+  const sel = $('gspeed'); if (![...sel.options].some(o => +o.value === s.speed)) sel.append(new Option(`每秒 ${s.speed} 小時`, s.speed)); sel.value = String(s.speed);
+  sel.disabled = !!s.fighting; sel.title = s.fighting ? '親自打的時候時間停住' : '';
+  if (!s.speed && s.pause && SOLO_WHY[s.pause]) toast(SOLO_WHY[s.pause]);
+}
 $('gyd').onchange = e => send({type: 'yearDays', v: +e.target.value});
 
 // ===== 行動（Alan 2026-10-13，chimera/ops.js）：隨時能打的副本——路線圖、每點一場、局內三選一、王點 =====

@@ -27,14 +27,20 @@ export class ServerLink {
     return d;
   }
   // 本機時鐘（只用來顯示倒數；什麼時候生效以伺服器為準）：開服時間、一小時幾毫秒、和伺服器的時間差
-  setClock(h) { const t1 = Date.now(); this.clock = {startedAt: h.startedAt, hourMs: h.hourMs, skew: h.now - t1, paused: !!h.paused}; }
+  setClock(h) { const t1 = Date.now(); this.clock = {startedAt: h.startedAt, hourMs: h.hourMs, skew: h.now - t1, paused: !!h.paused}; if (h.solo) this.setSolo(h.solo); }
+  // 單機（SOLO=1 的伺服器，Alan 2026-10-18）：時間是玩家按播放才走；伺服器回報推到哪（h）、速度（每秒幾小時）、為什麼停
+  setSolo(x) {
+    const was = this.solo; this.solo = {...x, at: Date.now()};
+    if (!was || was.speed !== x.speed || was.pause !== x.pause) this.emit({type: 'solo', solo: this.solo});
+    clearInterval(this.timer); this.timer = setInterval(() => this.poll(), x.speed ? 1000 : 15000);   // 走著的時候每秒拉一次畫面
+  }
   // 現在是第幾個遊戲小時（帶小數）
-  hourNow() { const c = this.clock; return c && !c.paused ? (Date.now() + c.skew - c.startedAt) / c.hourMs : null; }
+  hourNow() { const s = this.solo; if (s) return s.h + (s.speed ? Math.min(2, (Date.now() - s.at) / 1000) * s.speed : 0); const c = this.clock; return c && !c.paused ? (Date.now() + c.skew - c.startedAt) / c.hourMs : null; }
   // 每跨過一個遊戲小時，伺服器的鬧鐘結算完就馬上拉一次，不用等 15 秒的定時
-  armTick() { clearTimeout(this.tick); const x = this.hourNow(); if (x == null) return; this.tick = setTimeout(() => { this.poll(); this.armTick(); }, (Math.floor(x) + 1 - x) * this.clock.hourMs + 1500); }
+  armTick() { clearTimeout(this.tick); if (this.solo) return; const x = this.hourNow(); if (x == null) return; this.tick = setTimeout(() => { this.poll(); this.armTick(); }, (Math.floor(x) + 1 - x) * this.clock.hourMs + 1500); }
   // 每季結算一次（Alan 2026-10-09）：照 stamp（年×4＋季）問伺服器有沒有新的地圖
   async pullYear() { const d = await this.api('year?y=' + this.stamp); if (!d.same) { this.year = d.data.y; this.stamp = d.data.stamp ?? d.data.y * 4; this.emit(d); } }
-  async pullView() { const d = await this.api('view'); if (d.view) this.emit(d.view); }
+  async pullView() { const d = await this.api('view'); if (d.solo) this.setSolo(d.solo); if (d.view) this.emit(d.view); }
   // 定時拉一次：沙盒換年、公司的畫面（伺服器的時鐘一小時走一格，不必拉太勤）
   async poll() { if (this.busy) return; this.busy = true; try { await this.pullYear(); if (this.company) await this.pullView(); } catch {} finally { this.busy = false; } }
   async postMessage(m) {
@@ -45,7 +51,7 @@ export class ServerLink {
         try { const ch = await this.api('chronicle'); this.emit({type: 'chronicle', events: ch.events}); } catch {}
         this.emit({type: 'idle', year: this.year});
         if (hello.company) { this.company = hello.company; await this.pullView(); }
-        this.timer = setInterval(() => this.poll(), 15000);
+        if (!this.solo) this.timer = setInterval(() => this.poll(), 15000);
         return;
       }
       if (m.type === 'found') {
@@ -53,8 +59,8 @@ export class ServerLink {
         if (!name) return;
         const d = await this.api('found', {base: m.base, name}); this.company = name; this.emit(d.view); return;
       }
-      if (['more', 'stop', 'speed', 'yearDays'].includes(m.type)) return;
-      const d = await this.api('cmd', m);
+      if (['more', 'stop', 'yearDays'].includes(m.type) || (m.type === 'speed' && !this.solo)) return;
+      const d = await this.api('cmd', m); if (d.solo) this.setSolo(d.solo);
       for (const x of d.msgs || []) this.emit(x);
       if (d.view) this.emit(d.view);
     } catch (e) { this.emit({type: 'error', text: e.message}); }

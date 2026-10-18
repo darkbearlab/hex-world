@@ -15,6 +15,7 @@ import {verifyGoogle} from './auth.js';   // 和 warband 同一份
 export {Skirmish} from './battle.js';
 import {colo} from './battle.js';
 import {enemyRoster, ASH_FACTION, LEGACY_KINDS, LEGACY_BOSS} from '../cases.js';
+import {parked} from '../company.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) => ArrayBuffer.isView(v) ? Array.from(v) : v), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
@@ -23,6 +24,11 @@ const SAVE_EVERY = 5000;   // 一般指令的存檔節流（毫秒）
 // 伺服器上玩家能下的指令：加速、改年長度只有單人測試模式有；放棄親自打（abort）在伺服器上不用通知
 // 戰果（submit）只能由伺服器上的戰鬥交（S2），瀏覽器不能自己報
 const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort'].includes(c));
+// 單機（Alan 2026-10-18，DESIGN.md「縮小規模」）：SOLO=1 的伺服器只有一家公司，時間不跟現實走——
+// 玩家按播放才走（速度＝每秒幾個遊戲小時，核心的 game.speed），親自打的時候停住（core.pauseOnFight），
+// 有服務單要簽收、基地到站、玩家離開頁面太久都會自動暫停。開發階段放在伺服器上，單機版就是開一個本機的這個
+const SOLO_ALLOWED = [...ALLOWED, 'speed', 'abort'];
+const SOLO_AWAY = 20000;   // 這麼久沒有請求（頁面關了、睡著了）就停住
 export const battleName = (env, ticket) => `battle-${env.WORLD_VERSION || '1'}-${ticket}`;
 // Durable Object 第一次被叫的時候就決定放在哪個機房，之後不會搬。戰鬥每個行動都要往返一次，所以開戰時照玩家所在的洲放
 // （不給提示的話會放在叫它的星球旁邊；星球在美國，台灣打一步就要繞半個地球）。入口的 Worker 把玩家的洲寫在 x-continent。
@@ -37,11 +43,12 @@ export class Planet extends DurableObject {
   // 沙盒結算（每季）時核心發出的資料留一份（ysnap），大家拿同一份：snapshot() 只附「上次之後的新事件」，不能每個請求各算一次
   constructor(ctx, env) { super(ctx, env); this.ready = null; this.out = []; this.ysnap = null; this.core = new Core(m => { if (m.type === 'year') this.ysnap = m.data; this.out.push(m); }); }
   hourMs() { return Math.max(1000, +(this.env.HOUR_MS || 3600000)); }
+  get solo() { return this.env.SOLO === '1'; }
   nowHour() { return Math.floor(this.exact()); }
   // 世界時間對齊現實時間（Alan 2026-10-09）：一比一時，開服時刻定在台灣時間（UTC+8）當天的午夜，
   // 遊戲的「幾點」就是台灣的現實時間，每個遊戲整點也落在現實的整點；建好世界後的第一次補算就推進到現在
   aligned(t) { if (this.hourMs() !== 3600000) return t; const day = 864e5, tz = 8 * 3600e3; return Math.floor((t + tz) / day) * day - tz; }
-  exact() { return (Date.now() - this.meta.startedAt) / this.hourMs(); }   // 現在是第幾個遊戲小時（帶小數）
+  exact() { return this.solo ? this.soloH ?? this.core.hour : (Date.now() - this.meta.startedAt) / this.hourMs(); }   // 現在是第幾個遊戲小時（帶小數；單機＝推到哪裡就是哪裡）
 
   /* ───── 讀檔、建世界、存檔 ───── */
   async init() {
@@ -69,6 +76,7 @@ export class Planet extends DurableObject {
       this.roster = await st.get('roster') || {};
       this.out = [];
       if (this.env.NPC !== '0') this.core.enableNpcs();   // NPC 傭兵公司（Alan 2026-10-09：讓世界動起來）
+      if (this.solo) this.soloInit();
       if (!(await st.getAlarm()) && this.env.PAUSED !== '1') await this.arm();
     } catch (e) { this.ready = null; throw e; } })();
   }
@@ -85,9 +93,10 @@ export class Planet extends DurableObject {
 
   /* ───── 時鐘 ───── */
   // 鬧鐘：下一個整點，或更早完成的培養槽
-  async arm() { const ms = this.hourMs(), due = this.core.nextDue(), next = this.meta.startedAt + Math.min(this.nowHour() + 1, due > this.exact() ? due : Infinity) * ms; await this.ctx.storage.setAlarm(Math.ceil(next) + 50); }
+  async arm() { if (this.solo) return this.soloArm(); const ms = this.hourMs(), due = this.core.nextDue(), next = this.meta.startedAt + Math.min(this.nowHour() + 1, due > this.exact() ? due : Infinity) * ms; await this.ctx.storage.setAlarm(Math.ceil(next) + 50); }
   // 補算到現在（每個請求、每次鬧鐘都先做）
   catchUp() {
+    if (this.solo) return this.soloCatchUp();
     if (this.env.PAUSED === '1' || this.meta.paused) return false;
     const before = this.core.hour; this.core.advanceTo(this.nowHour());
     const t = this.exact(); this.core.exactNow = t;
@@ -96,10 +105,51 @@ export class Planet extends DurableObject {
   async alarm() {
     await this.init();
     if (this.pending) return;
+    if (this.solo) { if (this.soloCatchUp()) this.markDirty(); this.out = []; return this.soloArm(); }   // 單機：一直在走，存檔照節流
     if (this.catchUp() || this.dirty) await this.persist();
     this.out = [];
     await this.arm();
   }
+
+  /* ───── 單機的時鐘 ───── */
+  // 開機（讀檔或建好世界）一律從暫停開始：伺服器重開後世界不會自己跑掉
+  soloInit() { this.core.pauseOnFight = true; if (this.core.game && this.core.game.fighting == null) this.core.game.speed = 0; this.soloH = this.core.hour; this.soloAt = Date.now(); this.soloPause = null; }
+  // 自動暫停要比對的東西：每家玩家公司的服務單通知數、基地停著沒有
+  soloMark() {
+    const G = this.core.game; if (!G) return null; const out = {};
+    for (const n of Object.values(this.roster || {})) { const co = G.cos[n]; if (!co) continue; out[n] = {tk: G.book.inbox.filter(x => x.player === n && (x.kind === 'ticket' || x.kind === 'refused')).length, parked: parked(co)}; }
+    return out;
+  }
+  soloWhy(a, b) {
+    for (const [n, x] of Object.entries(b || {})) { const y = a?.[n]; if (!y) continue; if (x.tk > y.tk) return 'ticket'; if (x.parked && !y.parked) return 'arrive'; }
+    return null;
+  }
+  // 推到現在：上次推到 soloH（帶小數），之後過了多少現實時間 × 速度；離開太久的那段不算，而且停住
+  soloCatchUp() {
+    const G = this.core.game, now = Date.now(); if (!G || this.pending) { this.soloAt = now; return false; }
+    const sp = G.speed || 0, seen = this.seenAt ?? now, until = Math.min(now, seen + SOLO_AWAY);
+    let target = (this.soloH ?? this.core.hour) + Math.max(0, until - (this.soloAt ?? now)) / 1000 * sp;
+    this.soloAt = now;
+    if (sp && until < now) { G.speed = 0; this.soloPause = 'away'; }
+    const before = this.core.hour;
+    while (this.core.hour < Math.floor(target)) {
+      const mark = this.soloMark(); this.core.advanceTo(this.core.hour + 1);
+      const why = this.soloWhy(mark, this.soloMark());
+      if (why) { G.speed = 0; this.soloPause = why; target = this.core.hour; break; }
+      if (Date.now() - now > 3000) { target = this.core.hour; break; }   // 一次最多算 3 秒（速度太快、伺服器跟不上時就慢下來）
+    }
+    this.soloH = Math.max(this.core.hour, Math.min(target, this.core.hour + .999));
+    this.core.exactNow = this.soloH;
+    return this.core.finishDue(this.soloH) > 0 || this.core.hour !== before;
+  }
+  // 走著的時候：下一個整點（或更早完成的培養）叫醒；最快 250 毫秒一次（一次推好幾個小時）。暫停就不排
+  async soloArm() {
+    const G = this.core.game, sp = G?.speed || 0, st = this.ctx.storage;
+    if (!sp || this.pending) { await st.deleteAlarm(); return; }
+    const h = this.soloH ?? this.core.hour, due = this.core.nextDue(), next = Math.min(Math.floor(h) + 1, due > h ? due : Infinity);
+    await st.setAlarm(Date.now() + Math.max(250, Math.ceil((next - h) / sp * 1000) + 20));
+  }
+  soloInfo() { return {speed: this.core.game?.speed || 0, h: this.soloH ?? this.core.hour, pause: this.soloPause || null, fighting: this.core.game?.fighting != null}; }
 
   /* ───── 請求 ───── */
   // 玩家 ID：Google 工作階段對到的帳號（找不到就是 false：登入失效，例如世界重開），或訪客代碼的雜湊
@@ -133,6 +183,7 @@ export class Planet extends DurableObject {
     this.meta = {version: this.env.WORLD_VERSION || '1', seed, startedAt: this.aligned(Date.now()), chunks: 0, aligned: true};
     this.roster = {}; await this.ctx.storage.put('roster', this.roster); this.out = [];
     if (this.env.NPC !== '0') this.core.enableNpcs();
+    if (this.solo) this.soloInit();
     await this.persist(); this.pending = false;
     if (this.env.PAUSED !== '1') await this.arm();
     return json({ok: true, year: this.core.year, companies: Object.keys(this.core.game.cos).length});
@@ -141,6 +192,7 @@ export class Planet extends DurableObject {
   // 一次最多 168 小時；這個請求最多算 20 秒，沒推完的由下一個請求補完
   async forward(hours) {
     const h = Math.max(1, Math.min(168, Math.floor(+hours || 0)));
+    if (this.solo) { const end = this.core.hour + h, t0 = Date.now(); while (this.core.hour < end && Date.now() - t0 < 20000) this.core.advanceTo(this.core.hour + 1); this.soloH = this.core.hour; this.core.exactNow = this.soloH; this.core.finishDue(this.soloH); await this.persist(); this.out = []; return {ok: true, hours: h, hour: this.core.hour, year: this.core.year}; }   // 單機：直接往前推
     this.meta.startedAt -= h * this.hourMs(); this.meta.forwarded = (this.meta.forwarded || 0) + h;
     const target = this.nowHour(), t0 = Date.now();
     while (this.core.hour < target && Date.now() - t0 < 20000) this.core.advanceTo(this.core.hour + 1);
@@ -157,10 +209,11 @@ export class Planet extends DurableObject {
     if (pid === false) return bad('登入已失效，請重新登入', 401);
     // 伺服器上的戰鬥用：Google 工作階段是誰（只有入口的 Worker 會叫）
     if (path === 'internal/who') return json({pid});
+    if (this.solo && pid) { if (this.seenAt && Date.now() - this.seenAt > SOLO_AWAY) this.soloCatchUp(); this.seenAt = Date.now(); }   // 單機：玩家回來了（離開的那段先結算成暫停）
     if (this.catchUp()) this.markDirty();
     this.out = [];
     const name = pid ? this.roster[pid] : null;
-    if (path === 'hello') return json({pid: !!pid, company: name, seed: this.meta.seed, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), colo: await colo(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length});
+    if (path === 'hello') return json({pid: !!pid, company: name, seed: this.meta.seed, google: !!pid && pid[0] === 'g', clientId: this.env.GOOGLE_CLIENT_ID || '', hour: this.core.hour, year: this.core.year, startedAt: this.meta.startedAt, hourMs: this.hourMs(), now: Date.now(), colo: await colo(), paused: this.env.PAUSED === '1' || !!this.meta.paused, yearDays: this.core.game.yearDays, companies: Object.keys(this.core.game.cos).length, solo: this.solo ? this.soloInfo() : null});
     if (path === 'static') { if (!this.staticMsg) { const c = new Core(m => { if (m.type === 'static') this.staticMsg = m; }); c.w = this.core.w; c.emitStatic(); } return json(this.staticMsg); }
     // 每季結算一次：照 stamp（年×4＋季）判斷有沒有新的地圖
     if (path === 'year') { const y = +url.searchParams.get('y'); if (y === this.core.stamp) return json({same: true, year: this.core.year}); if (this.ysnap?.stamp !== this.core.stamp) this.ysnap = this.core.snapshot(); return json({type: 'year', data: this.ysnap}); }
@@ -190,7 +243,7 @@ export class Planet extends DurableObject {
       const L = (await this.ctx.storage.get('clientErrors')) || []; L.push({t: Date.now(), who: name || (pid ? String(pid).slice(0, 6) : '?'), where: String(b.where || '').slice(0, 40), msg: String(b.msg || '').slice(0, 300), stack: String(b.stack || '').slice(0, 1500), ua: String(b.ua || '').slice(0, 200)});
       await this.ctx.storage.put('clientErrors', L.slice(-50)); return json({ok: true});
     }
-    if (path === 'view') return name ? json({view: this.core.view(name), hour: this.core.hour}) : json({view: null});
+    if (path === 'view') return name ? json({view: this.core.view(name), hour: this.core.hour, solo: this.solo ? this.soloInfo() : null}) : json({view: null});
     // 後台（Alan 2026-10-09：上帝視角）：只有管理員的 Google 帳號（ADMIN_EMAILS，預設 darkbearlab@gmail.com）看得到；本機開發（DEV=1）誰都可以
     if (path === 'admin/world') {
       const acct = pid[0] === 'g' ? await this.ctx.storage.get('acct:' + pid) : null, admins = String(this.env.ADMIN_EMAILS || 'darkbearlab@gmail.com').split(',').map(x => x.trim().toLowerCase());
@@ -204,12 +257,13 @@ export class Planet extends DurableObject {
     // 本機開發（DEV=1）才有：讀一份存檔進來，並把這個瀏覽器的身分接到指定的公司（拿線上存檔重現問題用；線上不會有這條）
     if (this.env.DEV === '1' && path === 'dev/import' && req.method === 'POST') {
       this.core.load(body.seed || this.meta.seed, body.save);
-      this.meta.startedAt = Date.now() - this.core.hour * this.hourMs(); this.staticMsg = null; this.ysnap = null;   // 地形（含後來冒出的河）重新送   // 時鐘對齊存檔的時間（不然會以為落後了很多小時，一次補算好幾分鐘）
+      this.meta.startedAt = Date.now() - this.core.hour * this.hourMs(); this.staticMsg = null; this.ysnap = null; if (this.solo) this.soloInit();   // 地形（含後來冒出的河）重新送   // 時鐘對齊存檔的時間（不然會以為落後了很多小時，一次補算好幾分鐘）
       if (body.as) { this.roster[pid] = body.as; await this.ctx.storage.put('roster', this.roster); }
       await this.persist(); return json({ok: true, hour: this.core.hour});
     }
     if (path === 'found') {
       if (name) return bad('你已經開過公司了');
+      if (this.solo && Object.keys(this.roster).length) return bad('單機模式只有一家公司');
       const nm = String(body.name || '').trim().slice(0, 16);
       if (!nm) return bad('公司要有名字');
       const err = this.core.found(+body.base, nm); if (err) return bad(err);
@@ -218,7 +272,9 @@ export class Planet extends DurableObject {
     }
     if (path === 'cmd') {
       if (!name) return bad('還沒開公司');
-      if (!ALLOWED.includes(body.type) && !QUERIES.includes(body.type)) return bad('不認得的指令');
+      const allowed = this.solo ? SOLO_ALLOWED : ALLOWED;
+      if (!allowed.includes(body.type) && !QUERIES.includes(body.type)) return bad('不認得的指令');
+      if (this.solo && body.type === 'speed') body.v = [0, 1, 3, 8, 24, 72].includes(+body.v) ? +body.v : 0;
       if ((body.type === 'note' || body.type === 'say') && pid[0] !== 'g' && this.env.DEV !== '1') return bad('訪客不能留言，用 Google 帳號登入才行');   // 同一格的留言、對話（照 warband）
       const err = this.core.command(body, name), msgs = this.out.splice(0);
       // 親自打：在伺服器上開（或接回）這場戰鬥；種子留在伺服器，瀏覽器只拿到畫面
@@ -227,9 +283,10 @@ export class Planet extends DurableObject {
         const d = await r.json(); if (!r.ok) return bad(d.error || '開戰失敗', 500);
         m.data = battleTicket(m.data, d);
       }
-      if (ALLOWED.includes(body.type)) this.markDirty();   // 節流：SAVE_EVERY 內的指令合併成一次存檔
-      if (ALLOWED.includes(body.type) && this.env.PAUSED !== '1') await this.arm();   // 鬧鐘改排到最早要結算的時刻（培養完成、抵達、回到總部）
-      return json({view: this.core.view(name, err), msgs});
+      if (this.solo && body.type === 'speed' && body.v) this.soloPause = null;
+      if (allowed.includes(body.type)) this.markDirty();   // 節流：SAVE_EVERY 內的指令合併成一次存檔
+      if (allowed.includes(body.type) && this.env.PAUSED !== '1') await this.arm();   // 鬧鐘改排到最早要結算的時刻（培養完成、抵達、回到總部）
+      return json({view: this.core.view(name, err), msgs, solo: this.solo ? this.soloInfo() : null});
     }
     return bad('不認得的請求', 404);
   }
