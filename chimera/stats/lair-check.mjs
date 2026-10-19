@@ -27,7 +27,7 @@ const unc = pass.filter(x => !Pc.pts.some(p => hexDist([p[0], p[1]], [x.q, x.r])
 ok(unc.length === 0, `巡查整格：走 ${Pc.pts.length - 1} 小格，${pass.length} 小格走得過去的都掃到（漏 ${unc.length}）`);
 ok(opEnd(Pc) < opEnd(Pf), `開車 ${opEnd(Pc).toFixed(1)} 小時、徒步 ${opEnd(Pf).toFixed(1)} 小時`);
 // 委託板的清剿：還沒找到不能接
-run(1); ok(/還不知道據點在哪一小格/.test(accept(G, B, w, {kind: 'lair', tile: g.lair, gang: g.id, fac: -1, lv: 1, title: g.name}, '', home().slice(0, 3), c.hour) || ''), '委託板的清剿：還沒找到確切位置不能接');
+run(1); ok(/單機：清剿據點改成「派人過去」/.test(accept(G, B, w, {kind: 'lair', tile: g.lair, gang: g.id, fac: -1, lv: 1, title: g.name}, '', home().slice(0, 3), c.hour) || ''), '委託板的清剿：單機改成派人過去（一處一處打）');
 ok(/還不知道據點在哪一小格/.test(cmd({type: 'sortie', tile: g.lair, mode: 'fight', uids: home().slice(0, 3), lair: g.id}) || ''), '派人攻擊據點：還沒找到不能去');
 // 巡查（哨兵關掉，先看找不找得到）
 quiet(); NEAR.SPOT = 0;
@@ -68,6 +68,8 @@ const cl = B.cases.filter(x => G.cases.includes(x.id) && x.sortie?.lair === g.id
 for (let i = 0; i < 72 && !tk; i++) { c.advanceTo(c.hour + 1); tk = B.tickets.find(t => t.caseId === cl.id); }
 ok(tk && tk.type === 'clear' && !isEncounter(B, tk), `到了據點旁邊開一張清剿（${tk?.enemy?.name}，戰力 ${tk?.enemy?.power}），是主要任務`);
 const imp0 = G.mats.implant || 0; if (process.argv[3] === 'win') { tk.enemy.power = 1; tk.enemy.units = {thug: 1}; tk.enemy.boss = null; } cmd({type: 'resolve', ticket: tk.id}); run(3);
-if (cl.sortie.win) { ok(K.gangs.find(x => x.id === g.id).gone, '打贏：據點拆掉了'); ok((G.mats.implant || 0) === imp0 + 2, `搬回存貨（植入物 ${imp0} → ${G.mats.implant}）`); ok(!c.view(N).data.hq.lairs?.some(x => x.id === g.id), '畫面上的據點拿掉了'); }
+const x = (await import('../near.js')).gangInfo(G, w, g);
+if (cl.sortie.win) { ok(!x.sites.some(s => s.head && s.sub[0] === L2.sub[0] && s.sub[1] === L2.sub[1] && s.tile === L2.tile) || K.gangs.find(q => q.id === g.id).gone, `打贏：主據點拆掉了（還有 ${x.sites.length} 處${x.sites.length ? '，頭目逃到別處' : '，這一夥人散了'}）`);
+  ok(x.sites.length ? G.hq.log.some(e => /逃到了/.test(e.text)) : (G.mats.implant || 0) === imp0 + 2, x.sites.length ? '日誌寫了頭目逃到哪裡' : `搬回存貨（植入物 ${imp0} → ${G.mats.implant}）`); }
 else { ok(lairInfo(G, w, g).alert > c.hour, '沒打下來：據點警戒中'); console.log('（這次自動結算輸了；打贏的分支沒測到）'); }
 console.log(bad ? `${bad} 項不對` : '全部正常');

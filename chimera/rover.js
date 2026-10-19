@@ -9,7 +9,7 @@
 import * as C from './cases.js';
 import {gainLegacy, relAdd, unpack, parked, inTown, nearSite, ensureHq, VAN} from './company.js';
 import {BIOMES, hdist} from './sim.js';
-import {nearHour, nearAt, nearName, nearView, NEAR, od, fogMark, opPlan, opEnd, lairsView, lairInfo} from './near.js';
+import {nearHour, nearAt, nearName, nearView, NEAR, od, fogMark, opPlan, opEnd, lairsView, lairInfo, gangInfo, siteName, headSite, layerPower, LAIR} from './near.js';
 import {center as opCenter, cellsOf, subRoute, hexDist as opDist} from './opmap.js';
 import {W as MAPW} from './sim.js';
 
@@ -290,10 +290,11 @@ export function hqHour(cos, book, w, h) {
     if (NEAR.on) { const c = nearHour(G, w, h, !busyTicket(book, R) && !(R.holdUntil > h), (hh, t, text) => say(R, hh, t, text, 'note'), book);
       if (c?.base) defend(G, book, w, h, `一群${nearName(c.base)}追上了基地（${nmOf(w)(G.base)}）`);
       for (const v of c?.vans || []) if (C.ambushNow(book, w, v.sq.id, v.tile, h)) { say(R, h, v.tile, `${v.sq.name}${v.sq.op && !v.sq.op.done ? '' : '的運兵車'}在${nmOf(w)(v.tile)}被一群${nearName(v.p)}攔下。`, 'danger'); if (v.sq.op && !v.sq.op.done) { v.sq.op.pause = h; v.sq.op.cut = true; } }   // 小格上走到一半被攔：打完再接著走
-      // 清剿據點（OPMAP.md 第十三節）：找到確切位置、被哨兵看到、警戒過後搬家
-      for (const f of c?.found || []) say(R, h, f.g.lair, `${f.e.kind === 'base' ? '基地' : f.e.sq.name}在${nmOf(w)(f.g.lair)}找到了${f.g.native ? f.g.name : f.g.name + '的據點'}的確切位置：作戰地圖上標出來了，可以派人過去攻擊。`, 'find');
-      for (const f of c?.spotted || []) say(R, h, f.g.lair, `${f.e.kind === 'base' ? '基地' : f.e.sq.name}被${f.g.native ? f.g.name : f.g.name}的哨兵看到了：據點警戒 ${NEAR.ALERT} 小時，派了一群人出來追。`, 'danger');
-      for (const g of c?.moved || []) say(R, h, g.lair, `${g.native ? g.name : g.name + '的據點'}被驚動後搬走了：要再找一次確切的位置。`, 'note');
+      // 清剿據點（OPMAP.md 第十三、十四節）：找到確切位置、被哨兵看到、警戒過後搬家、流寇換地方
+      const who = e => e.kind === 'base' ? '基地' : e.sq.name;
+      for (const f of c?.found || []) say(R, h, f.s.tile, `${who(f.e)}在${nmOf(w)(f.s.tile)}找到了${siteName(f.g, f.s)}的確切位置${gangInfo(G, w, f.g).sites.length > 1 ? `（這一夥人有 ${gangInfo(G, w, f.g).sites.length} 處${f.g.native ? '' : gangInfo(G, w, f.g).nomad ? '營地' : '據點'}）` : ''}：作戰地圖上標出來了，可以派人過去攻擊。`, 'find');
+      for (const f of c?.spotted || []) say(R, h, f.s.tile, `${who(f.e)}被${siteName(f.g, f.s)}的哨兵看到了：警戒 ${NEAR.ALERT} 小時，派了一群人出來追${gangInfo(G, w, f.g).nomad ? '；流寇會趕快換地方' : ''}。`, 'danger');
+      for (const m of c?.moved || []) say(R, h, m.g.lair, m.all ? `${m.g.name}那一夥流寇換了地方：之前找到的營地都不算了。` : `${siteName(m.g, m.s)}被驚動後搬走了：要再找一次確切的位置。`, 'note');
       opsFinish(G, book, w, h); }
   }
 }
@@ -312,33 +313,61 @@ function opsFinish(G, book, w, h) {
   for (const {sq, c} of opSquads(G, book)) { const op = sq.op; if (!op || op.handled || sq.busy || op.pause != null || !(op.done || h >= opEnd(op))) continue;
     op.handled = true; op.done = true; const t = c.tile, cut = op.cut ? '路上遇襲過一次。' : '';
     if (c.sortie.mode === 'fight') {
-      if (c.sortie.lair != null) { const g = (K.gangs || []).find(x => x.id === c.sortie.lair), L = g && !g.gone ? lairInfo(G, w, g) : null;
+      if (c.sortie.lair != null) { const g = (K.gangs || []).find(x => x.id === c.sortie.lair), x = g && !g.gone ? gangInfo(G, w, g) : null, L = x ? x.sites.find(s => s.sid === (c.sortie.site ?? headSite(x).sid)) : null;
         if (!L || L.found == null || L.sub[0] !== c.sortie.sub[0] || L.sub[1] !== c.sortie.sub[1]) { c.sortie.win = false; c.sortie.done = true; sq.drillDone = true; say(R, h, t, `${c.title}：撲了個空，據點已經不在那裡。`, 'danger'); continue; }
-        // 守方：警戒中多一隊；沒被發現就到了＝偷襲，少一點；在外面晃的人不在家
-        const out = (R.near || []).filter(p => (p.lairId === g.id || (p.kind === 'native' && p.lair === g.lair)) && opDist(p.pos, L.sub) > 2).length;
-        const adj = (L.alert > h ? 5 : -2) - 2 * out;
-        C.sortieTicket(book, w, c, sq, h, {type: 'clear', gang: g.id, adj});
-        say(R, h, t, `${sq.name}摸到了${g.native ? g.name : g.name + '的據點'}旁邊：${L.alert > h ? '據點在警戒中，守得比較嚴' : '對方還沒發現，可以偷襲'}${out ? `；${out} 群人不在家` : ''}。`, 'note');
+        // 這一層的守軍：那處據點的兵力 ÷ 還剩幾層；警戒中多兩成，沒被發現就到了（偷襲）少一點；派出去在外面晃的人不在家
+        const out = (R.near || []).filter(p => p.lairId === g.id && (p.siteId == null || p.siteId === L.sid) && opDist(p.pos, L.sub) > 2).length, alert = L.alert > h;
+        const pow = Math.round(layerPower(L) * (alert ? 1.2 : 1) - (alert ? 0 : 2) - 2 * out);
+        // 增援：同一夥人的其他據點（同一格第 4 回合、隔壁格第 7 回合；警戒中早 2 回合），一次抽那處兵力的 1/4，來了就回不去
+        const reinf = [], side = g.native ? 'native' : 'raider';
+        for (const o of x.sites) { if (o === L || o.pool < 8) continue; const d = opDist(opCenter(o.tile, MAPW), opCenter(L.tile, MAPW)) / 7; if (d > 1.01) continue;
+          const amt = Math.round(o.pool * LAIR.REINF.share); if (amt < 4) continue; o.pool -= amt;
+          reinf.push({turn: Math.max(2, (d < .5 ? LAIR.REINF.same : LAIR.REINF.near) - (alert ? LAIR.REINF.alert : 0)), units: C.opUnits(book, side, amt, 'clear', 8), from: siteName(g, o)}); }
+        c.sortie.pow = pow;
+        C.sortieTicket(book, w, c, sq, h, {type: 'clear', gang: g.id, power: pow, boss: !!L.head, floors: L.layers - L.taken, reinf});
+        say(R, h, t, `${sq.name}摸到了${siteName(g, L)}旁邊：${alert ? '警戒中，守得比較嚴' : '對方還沒發現，可以偷襲'}${out ? `；${out} 群人不在家` : ''}。還有 ${L.layers - L.taken} 層要打${reinf.length ? `，${reinf.map(r => r.from).join('、')}會派人來增援` : ''}。`, 'note');
       } else C.sortieTicket(book, w, c, sq, h, {type: 'drill'});
       continue; }
     c.sortie.win = true; c.sortie.done = true; sq.drillDone = true;
     if (c.sortie.mode === 'talk') { const L = tileStory(G, book, w, t, h); say(R, h, t, `${c.title}：${cut}${L.join('')}`, 'story'); continue; }
-    const found = (op.found || []).map(id => (K.gangs || []).find(x => x.id === id)).filter(Boolean), site = nearSite(book, w, t, h), body = (book.bodies || []).filter(b => b.tile === t && !b.takenBy).length;
-    const known = (K.gangs || []).filter(g => !g.gone && g.lair === t && !found.includes(g) && lairInfo(G, w, g).found != null);
-    say(R, h, t, `${c.title}：${cut}${found.length ? `找到了${found.map(g => g.native ? g.name : g.name + '的據點').join('、')}的確切位置。` : op.sweep ? (known.length ? '整格掃過一遍。' : '整格掃過一遍，沒有據點。') : ''}${known.length ? `${known.map(g => g.native ? g.name : g.name + '的據點').join('、')}之前就找到了。` : ''}${site && !site.taken ? `找到了${site.title}——要把基地開過來才搬得走。` : ''}${body ? `那裡倒著 ${body} 具遺體。` : ''}${K.ruin[t] ? '有一片廢墟，基地停到那一小格可以搜。' : ''}動身回基地。`, 'find');
+    // 這一格的據點（每一處各算）：這一趟找到的、之前就找到的
+    const here = []; for (const g of (K.gangs || []).filter(g => !g.gone)) { const x = G.lairs?.[g.id]; if (x?.sites) for (const s of x.sites) if (s.tile === t) here.push({g, s}); }
+    const mine = new Set((op.found || []).map(f => Array.isArray(f) ? f.join(':') : f + ':0')), found = here.filter(q => mine.has(q.g.id + ':' + q.s.sid)), known = here.filter(q => !mine.has(q.g.id + ':' + q.s.sid) && q.s.found != null);
+    const site = nearSite(book, w, t, h), body = (book.bodies || []).filter(b => b.tile === t && !b.takenBy).length;
+    say(R, h, t, `${c.title}：${cut}${found.length ? `找到了${found.map(q => siteName(q.g, q.s)).join('、')}的確切位置。` : op.sweep ? (known.length ? '整格掃過一遍。' : '整格掃過一遍，沒有據點。') : ''}${known.length ? `${known.map(q => siteName(q.g, q.s)).join('、')}之前就找到了。` : ''}${site && !site.taken ? `找到了${site.title}——要把基地開過來才搬得走。` : ''}${body ? `那裡倒著 ${body} 具遺體。` : ''}${K.ruin[t] ? '有一片廢墟，基地停到那一小格可以搜。' : ''}動身回基地。`, 'find');
   }
 }
-// 清剿的結果：打贏＝據點拆了、拿到存貨（一個據點一次）；沒打贏＝據點警戒
+// 清剿的結果（OPMAP.md 第十四節）：打下的層數記下來、打倒的人從那處據點的兵力扣掉（不補回）；
+// 層數打完或兵力打光＝那一處拆掉（小據點給一點存貨）；主據點拆掉頭目逃到剩下的據點；全部拆光＝這夥人散了（存貨、賞金，一夥人一次）；沒打下來＝警戒
 function lairResult(G, book, w, R, c, h) {
-  const K = w.sim.peek(), g = (K.gangs || []).find(x => x.id === c.sortie.lair), nm = g ? (g.native ? g.name : g.name + '的據點') : '據點';
-  if (c.sortie.win == null) { say(R, h, c.tile, `${c.title}：沒有打成。`, 'note'); return; }
-  if (!c.sortie.win) { if (g && !g.gone) { const L = lairInfo(G, w, g); L.alert = h + NEAR.ALERT; } say(R, h, c.tile, `${c.title}：沒打下來。${nm}警戒中，可能會搬走。`, 'danger'); return; }
-  const L = G.lairs?.[c.sortie.lair]; if (L?.looted) { say(R, h, c.tile, `${c.title}：拆掉了${nm}。`, 'find'); return; }
-  if (L) L.looted = true;
-  const cash = Math.round(4 + (g?.str || 0) * .03), M = G.mats;
-  M.food = (M.food || 0) + 10; M.water = (M.water || 0) + 10; M.implant = (M.implant || 0) + 2; M.neural = (M.neural || 0) + 2;
-  C.pay(book, h, G.name, cash, 'final', `${c.title}：據點的存貨`, c.id);
-  say(R, h, c.tile, `${c.title}：拆掉了${nm}，四周的匪患大降。搬回存貨：$${cash}k、熱量 10、淨水 10、植入物 2、神經介質 2。`, 'find');
+  const K = w.sim.peek(), g = (K.gangs || []).find(x => x.id === c.sortie.lair);
+  if (!g || g.gone) { say(R, h, c.tile, `${c.title}：那一夥人已經散了。`, 'note'); return; }
+  const x = gangInfo(G, w, g), s = x.sites.find(q => q.sid === (c.sortie.site ?? headSite(x).sid)), nm = s ? siteName(g, s) : '據點';
+  if (!s) { say(R, h, c.tile, `${c.title}：那一處據點已經不在了。`, 'note'); return; }
+  const r = c.sortie.res || {}, rem = s.layers - s.taken, cleared = Math.max(0, Math.min(rem, r.floors != null && !r.auto ? r.floors : c.sortie.win ? rem : 0));
+  const pow = c.sortie.pow || layerPower(s), before = x.sites.reduce((a, q) => a + q.pool, 0) + (c.sortie.reinfPow || 0);
+  s.taken += cleared; s.pool = Math.max(0, s.pool - cleared * pow - (cleared < rem ? (r.kills || 0) * LAIR.UNIT : 0));
+  if (x.nomad) x.nextMove = Math.min(x.nextMove ?? Infinity, h + 24);   // 流寇被打過就提早搬
+  if (x.native && (cleared || r.kills)) { G.grudge = (G.grudge || []).filter(q => h < q.until); G.grudge.push({tile: s.tile, until: h + 24 * 7, name: g.name}); say(R, h, s.tile, `附近的聚落知道你打了${g.name}：一週內打聽不到消息，商隊也不跟你買賣。`, 'note'); }   // 附近的聚落一週不理你
+  const after = () => x.sites.reduce((a, q) => a + q.pool, 0); g.str = Math.max(1, (g.str || 1) * Math.max(.05, after() / Math.max(1, before)));
+  if (s.taken < s.layers && s.pool > 0) {
+    s.alert = h + NEAR.ALERT;
+    say(R, h, c.tile, cleared ? `${c.title}：打下了 ${cleared} 層（共 ${s.taken}／${s.layers}），撤出來了。${nm}剩下的守軍約 ${Math.round(s.pool)}，打掉的不會補回來，只會慢慢招人。警戒中。` : `${c.title}：沒打下來。${nm}警戒中${x.native || x.nomad ? '' : '，可能會搬走'}。`, cleared ? 'note' : 'danger');
+    return; }
+  // 這一處拆掉了
+  x.sites.splice(x.sites.indexOf(s), 1);
+  K.bandit[s.tile] = (K.bandit[s.tile] || 0) * .7;
+  if (!x.sites.length) {   // 全部拆光：這一夥人散了
+    for (const n of [g.lair, s.tile]) K.bandit[n] = (K.bandit[n] || 0) * .4; g.gone = 1; w.sim.pmc.say?.('bandit', `${g.name}${g.native ? '' : '那一夥人'}最後一處${g.native ? '村子' : '據點'}被傭兵公司拆了，手下四散。`, s.tile);
+    const M = G.mats, cash = Math.round(8 + (x.str0 || 0) * .04);
+    if (!x.looted) { x.looted = true; M.food = (M.food || 0) + 10; M.water = (M.water || 0) + 10; M.implant = (M.implant || 0) + 2; M.neural = (M.neural || 0) + 2; C.pay(book, h, G.name, cash, 'final', `${c.title}：據點的存貨與賞金`, c.id); }
+    say(R, h, c.tile, `${c.title}：拆掉了${nm}——${g.name}${g.native ? '' : '那一夥人'}散了，四周的匪患大降。${x.looted ? `搬回存貨與賞金：$${cash}k、熱量 10、淨水 10、植入物 2、神經介質 2。` : ''}`, 'find');
+    return; }
+  const cash = 3; C.pay(book, h, G.name, cash, 'final', `${c.title}：搬回的東西`, c.id);
+  let line = `${c.title}：拆掉了${nm}（搬回 $${cash}k）。`;
+  if (s.head) { const nx = x.sites.slice().sort((a, b) => b.pool - a.pool)[0]; nx.head = true; if (nx.kind === 'out') { nx.kind = 'main'; nx.layers += 1; } g.lair = nx.tile; line += `頭目${g.name}逃到了${nmOf(w)(nx.tile)}的另一處據點，那裡升格成主據點（${nx.layers} 層）。`; }
+  line += `${g.name}${g.native ? '' : '那一夥人'}還有 ${x.sites.length} 處${x.nomad ? '營地' : '據點'}。`;
+  say(R, h, c.tile, line, 'find');
 }
 
 // 給畫面

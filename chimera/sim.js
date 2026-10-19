@@ -1211,8 +1211,8 @@ function createSim(w,rand,pick){
 
     // 6. 掠奪者
     if(!live&&!DAILY)banditStep(1);
-    if(gangs.filter(g=>!g.gone).length<3+2*MK*MK&&rand()<.3){let bi=-1,bv=35;for(let i=0;i<N;i++)if(owner[i]<0&&bandit[i]>bv&&!gangs.some(g=>hdist(g.lair,i)<=2)){bv=bandit[i];bi=i}
-      if(bi>=0&&!gangs.some(g=>hdist(g.lair,bi)<=2)){bandit[bi]=Math.min(100,bandit[bi]+25);const g={id:nextGang++,name:heroName(),lair:bi,str:0,born:y};gangs.push(g);say(y,'bandit',`掠奪者頭目${g.name}在${nm(bi)}聚眾。`,bi)}}
+    if(gangs.filter(g=>!g.gone).length<3+2*MK*MK&&rand()<.3){let bi=-1,bv=35;for(let i=0;i<N;i++)if(owner[i]<0&&bandit[i]>bv&&!gangs.some(g=>!g.gone&&hdist(g.lair,i)<=2)){bv=bandit[i];bi=i}   // 只避開還在的據點（Alan 2026-10-20：拆掉的舊據點附近也能再冒出新頭目）
+      if(bi>=0&&!gangs.some(g=>!g.gone&&hdist(g.lair,bi)<=2)){bandit[bi]=Math.min(100,bandit[bi]+25);const g={id:nextGang++,name:heroName(),lair:bi,str:0,born:y};gangs.push(g);say(y,'bandit',`掠奪者頭目${g.name}在${nm(bi)}聚眾。`,bi)}}
     let raids=0;
     if(!DAILY)for(let i=0;i<N;i++)if(owner[i]>=0&&bandit[i]>20&&rand()<.2/(1+wall[i])){pop[i]*=.62;globalThis.RAIDS=(globalThis.RAIDS||0)+1;if(markets[mkt[i]])markets[mkt[i]].stock.food*=.95;if(raids++<2)say(y,'bandit',`掠奪者洗劫了${nm(i)}。`,i)}
     for(let i=0;i<N;i++)if(owner[i]>=0&&pop[i]<3*(globalThis.WSCALE??1e4)){owner[i]=-1;pop[i]=0;wall[i]=0;if(town[i]){town[i]=0;delete markets[i]}

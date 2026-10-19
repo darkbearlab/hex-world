@@ -88,9 +88,7 @@ export function nearHour(G, w, h, canFight, say, book) {
   const baseHidden = !R.move && !R.subMove && !!R.sub && cellOf(w, G.base, R.sub).c?.k === 'forest';   // 基地停在林的小格裡（第 4 段）
   for (const p of P) if (!p.pos) { p.pos = center(p.tile, MAPW); p.mins = 0; }   // 舊的兵牌（升級前只有戰略格）：放到那一格的中心
   const out = {base: null, vans: [], found: [], spotted: [], moved: []}, hitVan = new Set();
-  // 據點的警戒過了：沒人來打的話，一半的機會搬到同一格的另一小格（情報退回「那一格」）
-  for (const [id, L] of Object.entries(G.lairs || {})) if (L.alert != null && L.alert <= h) { L.alert = null; const g = (K.gangs || []).find(x => x.id === +id); if (!g || g.gone) continue;
-    if (roll(+id, Math.floor(h), 44) < NEAR.MOVE_AWAY) { lairMove(G, w, g, h); out.moved.push(g); } }
+  lairTick(G, w, h, out);   // 據點：警戒過了可能搬家、每天回補、流寇換地方
   // 走遠了、待太久的就消失
   for (let i = P.length - 1; i >= 0; i--) if (Math.min(...E.map(e => hexDistT(P[i].tile, e.tile))) > NEAR.RANGE + 1 || h - P[i].born > NEAR.LIFE) P.splice(i, 1);
   // 生出
@@ -165,6 +163,7 @@ export function caravanBuy(G, book, w, h, id, mat, qty) {
   const p = (G.hq?.near || []).find(x => x.id === id && x.kind === 'caravan'); if (!p) return '這支商隊已經走了';
   if (mat !== 'food' && mat !== 'water') return '商隊只賣熱量、淨水';
   if (hexDist(basePos(G, w, h), p.pos) > 1) return '基地要開到商隊旁邊一小格';
+  const gr = grudge(G, G.base, h); if (gr) return `這一帶的人知道你打了${gr.name}，商隊不跟你買賣`;
   const left = (p.cargo ||= {food: 40, water: 40})[mat]; qty = Math.min(Math.max(1, qty | 0), left); if (!qty) return '這支商隊的貨賣完了';
   const pr = caravanPrice(w, p)[mat], cost = Math.round(pr * qty * 10) / 10; if (cost > G.cash) return '錢不夠';
   pay(book, h, G.name, -cost, 'buy', `跟往${w.names[p.to] || ''}的商隊買${mat === 'food' ? '熱量' : '淨水'} ${qty}`);
@@ -177,6 +176,7 @@ export function askLocal(G, book, w, h, siteList) {
   if (!NEAR.on) return '只有單機有';
   const R = G.hq; if (!R || R.move || R.subMove) return '基地要停下來';
   const pos = R.sub || center(G.base, MAPW), c = cellOf(w, G.base, pos).c; if (!c || !(c.f === 'settle' || c.f === 'town')) return '基地要停在聚落或城的那一小格';
+  const gr = grudge(G, G.base, h); if (gr) return `這一帶的人知道你打了${gr.name}，沒有人願意跟你說話`;
   const k = pos[0] + ',' + pos[1]; R.asked ||= {}; if (h - (R.asked[k] ?? -1e9) < 24) return '這裡今天已經打聽過了';
   R.asked[k] = h;
   const K = w.sim.peek(), from = center(G.base, MAPW), dir = t => { const c2 = center(t, MAPW), x = (c2[0] - from[0]) + (c2[1] - from[1]) / 2, y = (c2[1] - from[1]) * .866, a = Math.atan2(y, x); return DIR8[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]; };
@@ -189,28 +189,72 @@ export function askLocal(G, book, w, h, siteList) {
   return {say: `在${c.f === 'town' ? '城裡' : '聚落'}打聽：${lines.join('')}`};
 }
 const SLICES = 6;
-// ───── 清剿據點（OPMAP.md 第十三節）─────
-// 據點在牠那一格的某一小格：偏好林、荒地、廢墟，不在路上、城、城郊、聚落，也不在中心。第一次用到時挑好記在公司身上（G.lairs），之後不變（除非被驚動後搬家）
-const lairCells = (w, g) => { const c0 = center(g.lair, MAPW), all = [...cellsOf(g.lair, od(w)).values()].filter(c => isFinite(TERRAIN[c.k]?.foot) && !c.road && !c.bridge && (!c.f || c.f === 'ruin') && hexDist([c.q, c.r], c0) >= 1);
+// ───── 清剿據點（OPMAP.md 第十三、十四節）─────
+// 一夥人＝幾處據點＋兵力池（十四節，Alan 2026-10-20）：實力（g.str）換成兵力，分到主據點（頭目在）和 0～3 個小據點；流寇只有 2～3 個臨時營地、會換地方；
+// 每處據點有自己的小格、層數（一層一層打，照設施的打法）、兵力（打掉的不補回，每天慢慢回補）。都記在公司身上（G.lairs），第一次用到時排好
+export const LAIR = {PER_OUT: 150, MAX_OUT: 3, POOL: [30, .3], MAIN_SHARE: .5, REGEN: .05, REGEN_NATIVE: .1, REGEN_CAP: .8, UNIT: 4,
+  REINF: {same: 4, near: 7, share: .25, alert: 2}, NOMAD_DAYS: [3, 5], NOMAD_RANGE: 3};
+const siteCells = (w, tile) => { const c0 = center(tile, MAPW), all = [...cellsOf(tile, od(w)).values()].filter(c => isFinite(TERRAIN[c.k]?.foot) && !c.road && !c.bridge && (!c.f || c.f === 'ruin') && hexDist([c.q, c.r], c0) >= 1);
   const pref = all.filter(c => c.k === 'forest' || c.k === 'rough' || c.f === 'ruin'); return pref.length ? pref : all.length ? all : [{q: c0[0], r: c0[1] + 1}]; };
-export function lairInfo(G, w, g) {
-  const L = G.lairs ||= {}; let x = L[g.id];
-  if (!x?.sub) { const P = lairCells(w, g), c = P[Math.floor(roll(g.id, 0, 41) * P.length)]; x = L[g.id] = {...(x || {}), sub: [c.q, c.r], found: x?.found ?? null}; }
+const pickCell = (w, tile, seed, salt, not = []) => { const all = siteCells(w, tile), P = all.filter(c => !not.some(q => q && q[0] === c.q && q[1] === c.r)), L = P.length ? P : all, c = L[Math.floor(roll(seed, salt, 41) * L.length)]; return [c.q, c.r]; };
+const isNomad = (K, g) => !g.native && (g.str || 0) < 150 && (K.curY ?? 0) - (g.born ?? -99) <= 5;   // 剛聚眾、人還不多的掠奪者＝流寇
+const okTile = (w, K, t) => w.land[t] && !(K.markets[t] && K.owner[t] >= 0);
+export function siteName(g, s) { if (g.native) return s.head ? `${g.name}的村子` : `${g.name}的外圍營地`; if (s.kind === 'camp') return s.head ? `${g.name}的營地` : `${g.name}的臨時營地`; return s.head ? `${g.name}的據點` : `${g.name}的小據點`; }
+function layoutSites(w, K, g, around, nomad, total, keep = {}) {
+  const sites = [], tiles = [around, ...NBR[around].filter(t => okTile(w, K, t))], used = [];
+  const put = (i, tile, kind, head, layers, pool) => { const sub = i === 0 && keep.sub ? keep.sub : pickCell(w, tile, g.id * 13 + i, (keep.salt || 0) + i, used); used.push(sub);
+    sites.push({sid: (keep.sid0 || 0) + i, tile, sub, kind, head, layers, taken: 0, pool, max: pool, found: i === 0 ? keep.found ?? null : null, alert: i === 0 ? keep.alert ?? null : null}); };
+  if (nomad) { const n = 2 + ((g.str || 0) > 100 ? 1 : 0); for (let i = 0; i < n; i++) put(i, i ? tiles[Math.floor(roll(g.id, (keep.salt || 0) + i, 46) * tiles.length)] : around, 'camp', i === 0, 1, total / n); }
+  else { const nOut = Math.min(LAIR.MAX_OUT, Math.floor((g.str || 0) / LAIR.PER_OUT)), main = nOut ? total * LAIR.MAIN_SHARE : total;
+    put(0, around, 'main', true, 3, main); for (let i = 1; i <= nOut; i++) put(i, tiles[Math.floor(roll(g.id, i, 47) * tiles.length)], 'out', false, 2, (total - main) / nOut); }
+  return sites;
+}
+// 打了原住民的村子（第十四節）：附近 4 格的聚落和商隊一陣子不理你（G.grudge：[{tile, until, name}]）
+export const grudge = (G, t, h) => (G.grudge || []).find(x => h < x.until && hexDistT(x.tile, t) <= 4) || null;
+export function gangInfo(G, w, g) {
+  const L = G.lairs ||= {}; let x = L[g.id]; if (x?.sites) return x;
+  const K = w.sim.peek(), old = x || {}, nomad = isNomad(K, g), total = LAIR.POOL[0] + (g.str || 0) * LAIR.POOL[1];
+  x = L[g.id] = {sites: layoutSites(w, K, g, g.lair, nomad, total, {sub: old.sub, found: old.found, alert: old.alert}), nomad, native: !!g.native, looted: !!old.looted, nextSid: 9, str0: g.str || 0};
   return x;
 }
-function lairMove(G, w, g, h) { const L = lairInfo(G, w, g), P = lairCells(w, g).filter(c => c.q !== L.sub[0] || c.r !== L.sub[1]); if (P.length) { const c = P[Math.floor(roll(g.id, Math.floor(h), 42) * P.length)]; L.sub = [c.q, c.r]; } L.found = null; L.moved = h; }
-// 每段（10 分鐘）：玩家的人走到據點旁邊一小格＝找到確切位置；進了哨兵的耳目＝驚動（警戒 ALERT 小時，派一群人出來追）
+export const headSite = x => x.sites.find(s => s.head) || x.sites[0];
+export const lairInfo = (G, w, g) => headSite(gangInfo(G, w, g));   // 主據點（頭目在的那一處）
+export const layerPower = s => Math.max(8, s.pool / Math.max(1, s.layers - s.taken));
+function siteMove(w, g, s, h) { s.sub = pickCell(w, s.tile, g.id * 13 + s.sid, Math.floor(h), [s.sub]); s.found = null; s.moved = h; }
+// 流寇整群搬走：在 NOMAD_RANGE 格內另找一處，營地全部重排（兵力照舊），找到的情報全部作廢
+function nomadMove(w, g, x, h) {
+  const K = w.sim.peek(), cand = []; for (const t of ring(g.lair, LAIR.NOMAD_RANGE)) if (okTile(w, K, t)) cand.push(t);
+  if (!cand.length) return; const to = cand[Math.floor(roll(g.id, Math.floor(h), 48) * cand.length)], pools = x.sites.map(s => s.pool), max = x.sites.map(s => s.max);
+  g.lair = to; x.sites = layoutSites(w, K, g, to, true, 0, {salt: Math.floor(h), sid0: x.nextSid}); x.nextSid += x.sites.length;
+  x.sites.forEach((s, i) => { s.pool = pools[i] ?? pools[0] ?? 8; s.max = max[i] ?? s.pool; }); x.moved = h;
+}
+// 每小時：警戒過了（沒人來打）一半的機會搬到同一格的另一小格（原住民的村子不搬）；每天回補一點兵力；流寇每 3～5 天換一次地方
+function lairTick(G, w, h, out) {
+  const K = w.sim.peek();
+  for (const [id, x] of Object.entries(G.lairs || {})) { if (!x.sites) continue; const g = (K.gangs || []).find(q => q.id === +id); if (!g || g.gone) continue;
+    for (const s of x.sites) {
+      if (s.alert != null && s.alert <= h) { s.alert = null; if (!x.native && !x.nomad && roll(+id * 11 + s.sid, Math.floor(h), 44) < NEAR.MOVE_AWAY) { const was = s.found != null; siteMove(w, g, s, h); if (was) out.moved.push({g, s}); } }
+      if (h % 24 === 0 && s.pool < s.max * LAIR.REGEN_CAP) s.pool = Math.min(s.max * LAIR.REGEN_CAP, s.pool + s.max * (x.native ? LAIR.REGEN_NATIVE : LAIR.REGEN));
+    }
+    if (x.nomad) { const D = LAIR.NOMAD_DAYS, next = () => h + 24 * (D[0] + roll(+id, Math.floor(h), 45) * (D[1] - D[0]));
+      if (x.nextMove == null) x.nextMove = next();
+      if (h >= x.nextMove) { const was = x.sites.some(s => s.found != null); nomadMove(w, g, x, h); if (was) out.moved.push({g, all: true}); x.nextMove = next(); } }
+  }
+}
+// 每段（10 分鐘）：玩家的人走到據點旁邊一小格＝找到確切位置；進了哨兵的耳目＝驚動（那一處警戒 ALERT 小時，派一群人出來追；流寇 24 小時內換地方）
 function lairWatch(G, w, Es, tt, h, out, P) {
   const K = w.sim.peek(), night = isNight(tt);
   for (const g of K.gangs || []) { if (g.gone) continue;
-    const E = Es.filter(e => hexDistT(e.tile, g.lair) <= 1.01); if (!E.length) continue;
-    const L = lairInfo(G, w, g);
-    E.forEach((e, j) => { const d = hexDist(e.pos, L.sub);
-      if (d <= 1 && L.found == null) { L.found = +tt.toFixed(3); out.found.push({g, e}); if (e.team) { (e.sq.op.found ||= []).push(g.id); if (e.sq.op.sweep) { e.sq.op.done = true; e.sq.op.stopAt = e.pos; } } }
-      const range = (e.foot ? NEAR.SENTRY.foot : NEAR.SENTRY.car) - (night ? 1 : 0);
-      if (d <= range && !(L.alert > tt) && roll(g.id * 7 + j, Math.round(tt * SLICES), 43) < NEAR.SPOT) {
-        L.alert = +(tt + NEAR.ALERT).toFixed(3); out.spotted.push({g, e});
-        if (P.length < NEAR.MAX + 2) { const p = make(G, w, g.native ? 'native' : 'bandit', g.lair, h, {str: 3 + Math.round((g.str || 0) / 40), lairId: g.id, ...(g.native ? {lair: g.lair} : {})}); p.pos = [...L.sub]; P.push(p); } } });
+    if (!Es.some(e => hexDistT(e.tile, g.lair) <= 2.01)) continue;
+    const x = gangInfo(G, w, g);
+    for (const s of x.sites) { const E = Es.filter(e => hexDistT(e.tile, s.tile) <= 1.01); if (!E.length) continue;
+      E.forEach((e, j) => { const d = hexDist(e.pos, s.sub);
+        if (d <= 1 && s.found == null) { s.found = +tt.toFixed(3); out.found.push({g, s, e}); if (e.team) { (e.sq.op.found ||= []).push([g.id, s.sid]); if (e.sq.op.sweep) { e.sq.op.done = true; e.sq.op.stopAt = e.pos; } } }
+        const range = (e.foot ? NEAR.SENTRY.foot : NEAR.SENTRY.car) - (night ? 1 : 0);
+        if (d <= range && !(s.alert > tt) && roll(g.id * 7 + j + s.sid * 101, Math.round(tt * SLICES), 43) < NEAR.SPOT) {
+          s.alert = +(tt + NEAR.ALERT).toFixed(3); out.spotted.push({g, s, e}); if (x.nomad) x.nextMove = Math.min(x.nextMove ?? Infinity, tt + 24);
+          if (P.length < NEAR.MAX + 2 && s.pool >= 8) { const p = make(G, w, g.native ? 'native' : 'bandit', s.tile, h, {str: 3 + Math.round(s.pool / 10), lairId: g.id, siteId: s.sid, ...(g.native ? {lair: g.lair} : {})}); p.pos = [...s.sub]; P.push(p); } } });
+    }
   }
 }
 // 一格裡照小格走的路線：巡查整格＝經過 7 個點（每個點蓋住自己和四周 6 小格，37 小格全部掃過）；不然直接走到那一小格
@@ -228,10 +272,11 @@ export function opPlan(w, tile, {sweep, sub, mode}, now, from) {
 }
 export function opPos(op, h) { let p = op.pts[0]; for (const x of op.pts) { if (x[2] <= h) p = x; else break; } return op.stopAt && op.done ? op.stopAt : [p[0], p[1]]; }
 export const opEnd = op => op.pts[op.pts.length - 1][2];
-// 給畫面：找到確切位置的據點（還在的）
+// 給畫面：找到確切位置的據點（每一處各自一筆）
 export function lairsView(G, w, h) { const K = w.sim.peek(), out = [];
-  for (const [id, L] of Object.entries(G.lairs || {})) { const g = (K.gangs || []).find(x => x.id === +id); if (!g || g.gone || L.found == null) continue;
-    out.push({id: g.id, tile: g.lair, name: g.native ? g.name : `${g.name}的據點`, native: !!g.native, str: Math.round(g.str || 0), sub: L.sub, alert: L.alert > h}); }
+  for (const [id, x0] of Object.entries(G.lairs || {})) { const g = (K.gangs || []).find(q => q.id === +id); if (!g || g.gone) continue; const x = x0.sites ? x0 : x0.found != null ? gangInfo(G, w, g) : null; if (!x) continue;   // 舊的（只有一處）找到過的：換成新的樣子
+    for (const s of x.sites) if (s.found != null) out.push({id: g.id, sid: s.sid, tile: s.tile, sub: s.sub, name: siteName(g, s), native: !!g.native, nomad: !!x.nomad, head: !!s.head, kind: s.kind,
+      layers: s.layers, taken: s.taken, pool: Math.round(s.pool), sites: x.sites.length, alert: s.alert > h}); }
   return out; }
 const hexDistT = (a, b) => hexDist(center(a, MAPW), center(b, MAPW)) / 7;   // 戰略格的距離（中心之間 7 小格＝1 格）
 // 戰鬥結果表（OPMAP.md 第六節，非玩家之間）：攻方戰力 ÷ 守方戰力分欄，擲一顆骰（0～1）。robbed＝守方被劫／打散、repelled＝攻方被擊退、engaged＝還在打

@@ -233,7 +233,7 @@ export class SquadGame extends MissionGame{
   if(this.status!=='playing'||!this.chimeraAtExit)return false;this.chimeraAtExit=false;
   const keep=this.player;this.floor++;this.turn++;this.loadFloor();
   for(const m of this.members||[]){if(m===keep||m.hp<=0)continue;const c=this.freeCellNear(keep);if(c)Object.assign(m,{x:c.x,y:c.y,moveDelta:[0,0]});}
-  this.reveal();this.log(`往下到第 ${this.floor} 層。這一層更深、更兇${this.floor>=(this.ticket.floors||1)?'，是最下面一層':''}。`,true);return true;
+  this.reveal();this.log(this.ticket?.type==='clear'?`往裡打到第 ${this.floor} 層${this.floor>=(this.ticket.floors||1)?'，是最裡面一層':''}。`:`往下到第 ${this.floor} 層。這一層更深、更兇${this.floor>=(this.ticket.floors||1)?'，是最下面一層':''}。`,true);return true;
  }
  chimeraLeave(){if(this.status!=='playing'||!this.chimeraAtExit)return false;this.chimeraAtExit=false;this.status='won';this.log(`帶著打下的 ${this.floor} 層撤離。`,true);return true;}
  action(type,arg){
@@ -259,7 +259,7 @@ export class SquadGame extends MissionGame{
  setControlled(m){if(!this.members.includes(m)||m.hp<=0||this.soloTurn)return false;this.swap(m);this.controlled=m;return true;}
  cycleControlled(){const L=this.living;if(L.length<2)return false;return this.setControlled(L[(L.indexOf(this.player)+1)%L.length]);}
  descend(){if(this.status!=='playing'||this.player.hp<=0)return false;const og=this.chimeraOutdoor?.goal;if(og==='plant'&&this.chimeraOutdoor.clear)return this.fail(`這一場要把${this.chimeraOutdoor.clear.what}${this.chimeraOutdoor.clear.verb}掉，不能撤離`);if(og==='plant'&&!this.chimeraOutdoor.armed)return this.fail('炸藥還沒裝完，不能撤離');if(this.chimeraOutdoor&&og!=='exit'&&og!=='plant')return this.fail('這一場要把敵人清掉，不能撤離');if(!this.canTouch(this.exitPoint))return this.fail(t('game.needElevator'));if(this.exitBlocked)return this.fail(this.exitBlocked);
-  if(!this.chimeraOutdoor&&(this.ticket?.floors||1)>(this.floor||1)){this.chimeraAtExit=true;this.log('到了電梯口：往下一層，還是帶著收穫撤離？',true);return true;}   // 狩獵場：還沒到最下面一層，讓玩家選
+  if(!this.chimeraOutdoor&&(this.ticket?.floors||1)>(this.floor||1)){this.chimeraAtExit=true;this.log(this.ticket?.type==='clear'?'打下這一層了：往裡打，還是先撤出（打下的層數算數，傷不會恢復）？':'到了電梯口：往下一層，還是帶著收穫撤離？',true);return true;}   // 狩獵場：還沒到最下面一層，讓玩家選
   this.status='won';this.log('撤離完成。');return true;}
  // 戰場上留下的東西（打贏時整批收回）：敵人掉的槍與近戰武器、彈藥、補給（醫療包、手榴彈、煙霧、震撼、電磁）。遺產級另外算（chimeraLegacy）
  fieldLoot(){

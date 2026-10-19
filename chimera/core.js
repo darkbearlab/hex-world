@@ -382,7 +382,7 @@ export class Core {
     // 作戰地圖第 4 段：跟商隊買、在聚落打聽消息
     if (m.type === 'caravanBuy') return NR.caravanBuy(g, b, w, h, +m.id, String(m.mat), +m.qty || 10);
     if (m.type === 'askLocal') { const r = NR.askLocal(g, b, w, h, (this.worldView(g)?.sites || []).filter(x => !x.taken)); if (typeof r === 'string') return r; if (g.hq) g.hq.log.push({h, tile: g.base, text: r.say, kind: 'story'}); return null; }
-    if (m.type === 'sortie') return G.sortie(g, b, w, +m.tile, String(m.mode), m.uids || [], this.exactNow ?? h, {sub: Array.isArray(m.sub) ? m.sub : null, sweep: !!m.sweep, lair: m.lair ?? null, move: m.move});   // 派遣（單機的第 4 步）
+    if (m.type === 'sortie') return G.sortie(g, b, w, +m.tile, String(m.mode), m.uids || [], this.exactNow ?? h, {sub: Array.isArray(m.sub) ? m.sub : null, sweep: !!m.sweep, lair: m.lair ?? null, site: m.site ?? null, move: m.move});   // 派遣（單機的第 4 步）
     if (m.type === 'baseStop') return RV.baseStop(g, b, w, h);
     if (m.type === 'baseSearch') return RV.baseSearch(g, b, w, h);
     if (m.type === 'baseUpgrade') return RV.baseUpgrade(g, b, w, String(m.kind), h);
@@ -479,7 +479,7 @@ export class Core {
       if (ammo > 0) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：彈藥費 $${ammo}k${credit ? `，現場撿回的彈藥抵 $${Math.min(credit, Math.max(0, ammo - cap))}k` : ''}${selfPay ? `（自費${mine > 0 ? `，扣 $${mine}k` : ''}）` : mine > 0 ? `（雇主只吸收 $${cap}k，自付 $${mine}k）` : '（雇主吸收）'}${lootText ? `；戰場回收：${lootText}` : ''}`, ref: tk.id});
       // 遺產級頭目（Alan 2026-10-09）：戰場回報撤退或戰死；戰死時有人活著帶出遺產級就進倉庫
       const carrier = m.result.legacy && sq.clones.find(c => c.id === m.result.legacy && c.alive && !dead.includes(c.id));
-      C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier, kills: Number.isFinite(m.result.kills) ? m.result.kills : undefined}, h);
+      C.submit(b, w, tk.id, {win, dead, done: C.objectivesDone(tk, win, dead, wipe), boss: m.result.boss === 'dead' || m.result.boss === 'retreat' ? m.result.boss : null, legacy: !!carrier, kills: Number.isFinite(m.result.kills) ? m.result.kills : undefined, floors: Number.isFinite(m.result.floors) ? m.result.floors : undefined}, h);   // floors：設施打穿幾層（狩獵場、據點）
       if (tk.bossOut === 'taken') G.gainLegacy(g, tk.enemy.boss, h);
       if (win && C.OUTRO[tk.type] && !tk.transit) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：${C.OUTRO[tk.type]}`, ref: tk.id});
       if (ups.length) b.inbox.push({t: h, player: name, kind: 'result', text: `${tk.title}：升級　${ups.join('；')}`, ref: tk.id});
@@ -500,7 +500,7 @@ export class Core {
     // 戰場大小（Alan 2026-10-13：照 Claude 的意思）：敵人 12 名以上的大單開 50×50（據點群的佈陣），其餘 27×27；室內設施、公路戰由戰場那邊固定 27
     // 只開在「清光敵人／守住」的戰場：奪點、裝炸藥（突擊、戰壕、破壞…）在 50×50 上機器人隊員打不完（size-check 18 名敵人：卡到步數上限），先維持 27
     const roster = C.enemyRoster(tk.enemy), size = roster.length >= 12 && BIG_OK.has(tk.transit ? 'transit' : tk.type) ? 50 : 27;
-    this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster}, squad, type: auto ? 'drill' : tk.transit ? 'transit' : tk.type, auto, intro: tk.transit || auto ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0, size,
+    this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster}, squad, type: auto ? 'drill' : tk.transit ? 'transit' : tk.type, auto, intro: tk.transit || auto ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0, ...(tk.reinf ? {reinf: tk.reinf} : {}), size,
       depth: Math.max(1, Math.min(12, 1 + Math.round((tk.enemy.power || 10) / 7) + (tk.wave ? Math.floor(tk.wave / 3) : 0)))}});   // 敵人的強度（菁英、詞條的機率照 ASH 的樓層），Alan 2026-10-11
   }
   // 行動這一點的戰鬥：種子跟著行動走（同一點重開是同一場）

@@ -34,7 +34,9 @@ export function installGuard(E) {
   // 狩獵場的電梯口（Alan 2026-10-11）：往下一層，還是帶著收穫撤離
   setInterval(() => { const g = E.game; if (!E.active || !g?.chimeraAtExit || g.status !== 'playing' || document.getElementById('chimera-deeper')) return;
     const box = document.createElement('div'); box.id = 'chimera-deeper'; box.className = 'chimera-outcome';
-    box.innerHTML = `<div class="co-card"><div class="co-eyebrow">ELEVATOR</div><h2>第 ${g.floor} 層的電梯口</h2><div class="co-sub">往下更兇，撐不住的話倒在下面的人很難帶回來；狀態不會恢復。</div>
+    const lair = g.ticket?.type === 'clear';   // 據點（OPMAP.md 第十四節）：一層一層往裡打
+    box.innerHTML = lair ? `<div class="co-card"><div class="co-eyebrow">CAMP</div><h2>打下第 ${g.floor} 層</h2><div class="co-sub">往裡更兇，傷不會恢復；先撤出的話，打下的層數和打倒的人都算數，對方不會補回來，下次從這裡接著打。</div>
+      <div class="modal-row"><button class="modal-button" type="button" data-c="deeper">往裡打</button> <button class="modal-button secondary" type="button" data-c="leave">先撤出</button> <button class="modal-button secondary" type="button" data-c="stay">再想想</button></div></div>` : `<div class="co-card"><div class="co-eyebrow">ELEVATOR</div><h2>第 ${g.floor} 層的電梯口</h2><div class="co-sub">往下更兇，撐不住的話倒在下面的人很難帶回來；狀態不會恢復。</div>
       <div class="modal-row"><button class="modal-button" type="button" data-c="deeper">往下一層</button> <button class="modal-button secondary" type="button" data-c="leave">帶著收穫撤離</button> <button class="modal-button secondary" type="button" data-c="stay">再想想</button></div></div>`;
     (document.getElementById('ash-root') || document.body).appendChild(box);
     box.onclick = async e => { const c = e.target.closest('[data-c]')?.dataset.c; if (!c) return; box.remove(); if (c === 'stay') { g.chimeraAtExit = false; return; }

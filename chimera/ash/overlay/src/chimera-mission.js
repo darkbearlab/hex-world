@@ -155,7 +155,7 @@ export class MissionGame extends Game{
   const used=new Set(),cells=[];
   for(const p of [...posts,...spare]){const k=`${p.x},${p.y}`;if(used.has(k))continue;used.add(k);cells.push(p);if(cells.length>=want.length)break;}
   map.enemies=[...want.slice(0,cells.length).map((u,i)=>rosterEnemy(u,cells[i].x,cells[i].y,`c${fl}-${i+1}`,this.difficultySpec,this.facilityFaction,depth,this.seed+fl))];
-  map.swarmWaves=undefined;
+  map.swarmWaves=undefined;this.chimeraEntry={x:map.start.x,y:map.start.y};   // 據點的增援從我們進來的地方跟進來
   return map;
  }
  awardProtocol(){}
@@ -189,6 +189,15 @@ export class MissionGame extends Game{
   for(let i=edge.length-1;i>0;i--){const j=Math.floor(R()*(i+1));[edge[i],edge[j]]=[edge[j],edge[i]];}
   const p=this.player;for(let i=0;i<n&&i<edge.length;i++){const e=o.waves.shift();Object.assign(e,{x:edge[i].x,y:edge[i].y,alert:true,lastKnown:{x:p.x,y:p.y}});this.enemies.push(e);}
   this.log(`敵方增援湧上來了（還有 ${o.waves.length} 名在後面）。`,true);
+ }
+ // 據點的增援（Alan 2026-10-20，OPMAP.md 第十四節）：同一夥人的其他據點派人來，照服務單寫好的回合（ticket.reinf：[{turn, units, from}]）從入口跟進來，一進場就朝你壓上來
+ chimeraReinf(last){
+  const tk=this.ticket,N=this.grid.length,p=this.player,at=this.chimeraEntry||this.chimeraOutdoor&&{x:Math.floor(N/2),y:N-3}||{x:p.x,y:p.y};
+  tk.reinf.forEach((r,bi)=>{if(!(r.turn>last&&r.turn<=this.turn))return;
+   const list=ticketRoster({enemy:{units:r.units}}),busy=new Set([...this.enemies.filter(e=>e.hp>0),...(this.members||[this.player]).filter(m=>m.hp>0),...(this.props||[])].map(u=>`${u.x},${u.y}`)),cells=[];
+   for(let d=1;d<8&&cells.length<list.length;d++)for(let y=Math.max(1,at.y-d);y<=Math.min(N-2,at.y+d);y++)for(let x=Math.max(1,at.x-d);x<=Math.min(this.grid[y].length-2,at.x+d);x++){const k=`${x},${y}`;if(this.grid[y][x]===1&&!busy.has(k)&&!cells.some(c=>c.x===x&&c.y===y)){cells.push({x,y});busy.add(k);}}
+   list.slice(0,cells.length).forEach((u,i)=>{const e=rosterEnemy(u,cells[i].x,cells[i].y,`r${r.turn}-${bi}-${i+1}`,this.difficultySpec,this.facilityFaction,(tk.depth||1)+2*((this.floor||1)-1),this.seed+r.turn);Object.assign(e,{alert:true,lastKnown:{x:p.x,y:p.y}});this.enemies.push(e);});
+   this.log(`${r.from||'附近的人'}派來的增援從後面跟進來了（${Math.min(list.length,cells.length)} 名）。`,true);});
  }
  // 據點群的增援：整隊（wavePer 人）從北邊其中一個集結點進來，一進場就朝你壓上來
  chimeraWaveGroup(o){
@@ -290,6 +299,7 @@ export class MissionGame extends Game{
   const ok=super.action(type,arg),o0=this.chimeraOutdoor;
   if(o0&&o0.layout==='highway'&&this.status==='playing'&&this.turn!==o0.stepTurn){o0.stepTurn=this.turn;for(const [text,danger] of vehicleStep(this,convoyRng(o0)))this.log(text,danger);this.reveal?.();}
   if(o0?.waves?.length&&this.status==='playing'&&this.turn!==o0.waveTurn){o0.waveTurn=this.turn;this.chimeraWaves(o0);}
+  if(this.ticket?.reinf?.length&&this.status==='playing'&&this.turn!==this.chimeraReinfTurn){const last=this.chimeraReinfTurn??this.turn-1;this.chimeraReinfTurn=this.turn;this.chimeraReinf(last);}
   if(o0?.groups&&this.status==='playing'&&this.turn!==o0.groupTurn){o0.groupTurn=this.turn;this.chimeraGroups(o0);}
   if(o0&&!o0.deck&&this.status==='playing'&&this.turn!==o0.lastTurn){o0.lastTurn=this.turn;this.chimeraLastStand(o0);}
   if(this.survival&&o0?.mode&&this.status==='playing'&&this.turn!==o0.pointTurn){o0.pointTurn=this.turn;this.chimeraPoints(o0);}

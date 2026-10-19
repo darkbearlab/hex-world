@@ -529,9 +529,9 @@ function enemyOf(book, w, c, ev, o = {}) {
   if (ev.type === 'ambush' || ev.type === 'native' || ev.type === 'clear') {
     const g = ev.gang ? K.gangs.find(x => x.id === ev.gang) : K.gangs.filter(x => !x.gone && hdist(x.lair, t) <= 3).sort((a, b) => hdist(a.lair, t) - hdist(b.lair, t))[0];
     const leg = g ? K.weapons.find(x => x.gang === g.id) : null, side = gangSide(K, g);
-    const power = Math.max(4, 6 + K.bandit[t] * .12 + (g ? g.str * .025 : 0) + (ev.type === 'clear' ? 6 : 0) + 2 * L + (ev.adj || 0));
+    const power = ev.power != null ? Math.max(4, ev.power + (ev.adj || 0)) : Math.max(4, 6 + K.bandit[t] * .12 + (g ? g.str * .025 : 0) + (ev.type === 'clear' ? 6 : 0) + 2 * L + (ev.adj || 0));
     // 頭目：遺產級在誰手上誰就是頭目；清剿據點一定有頭目（巢匪是巢母）
-    const boss = leg ? legacyBoss(book, g, leg) : ev.type === 'clear' ? (side === 'hive' ? {ash: 'hive_beast', name: '巢母'} : {ash: 'squad_leader', name: `頭目${g?.chief || ''}`, hp: 3}) : null;
+    const boss = ev.noBoss ? null : leg ? legacyBoss(book, g, leg) : ev.type === 'clear' ? (side === 'hive' ? {ash: 'hive_beast', name: '巢母'} : {ash: 'squad_leader', name: `頭目${g?.chief || ''}`, hp: 3}) : null;
     const veh = {}; if ((side === 'raider' || side === 'warlord') && power > 14 && rng(book) < (side === 'warlord' ? .6 : .3)) veh.rush = 1 + (power > 24 && rng(book) < .4 ? 1 : 0);
     return {side, name: g ? g.name : '流竄的掠奪者', fac: -1, gang: g?.id ?? null, power: Math.round(power + bossPow(boss)), units: unitsOf(book, side, power - (veh.rush || 0) * 6, null, ev.type), veh, boss};
   }
@@ -650,13 +650,14 @@ function directTickets(book, w, c, now) {
   if (c.squads.length && c.squads.every(id => { const s = book.squads[id]; return !s || s.drillDone || s.headedHome != null || !alive(s).length; })) c.closedEarly = true;   // 打完、召回、或在路上全滅
 }
 // 小格上的派遣走到了（rover.js）：開一張服務單。攻擊一般的小格＝掃蕩流寇；清剿據點＝清剿（主要任務，要親自打）。adj＝守方戰力的加減（警戒、偷襲、在外面的人）
-export function sortieTicket(book, w, c, sq, now, {type = 'drill', gang = null, adj = 0} = {}) {
-  const K = w.sim.peek(), T = TYPES[type], enemy = enemyOf(book, w, c, {type, tile: c.tile, gang, adj});
-  const tk = {id: 'T' + book.nextId++, caseId: c.id, type, title: c.title, tile: c.tile, floor: 0, floors: 0, biome: BIOMES[K.biome[c.tile]]?.n || '', night: rng(book) < T.night, trench: 0, enemy,
+// 據點（OPMAP.md 第十四節）：power＝這一層的守軍戰力、boss＝頭目在不在、floors＝還剩幾層（照設施的打法一層一層打）、reinf＝其他據點派來的增援 [{turn, units, from}]
+export function sortieTicket(book, w, c, sq, now, {type = 'drill', gang = null, adj = 0, power = null, boss = true, floors = 0, reinf = null} = {}) {
+  const K = w.sim.peek(), T = TYPES[type], enemy = enemyOf(book, w, c, {type, tile: c.tile, gang, adj, power, noBoss: !boss});
+  const tk = {id: 'T' + book.nextId++, caseId: c.id, type, title: c.title, tile: c.tile, floor: floors ? 1 : 0, floors, facility: floors > 0, ...(reinf?.length ? {reinf} : {}), biome: BIOMES[K.biome[c.tile]]?.n || '', night: rng(book) < T.night, trench: 0, enemy,
     objectives: T.obj.map(([k, text, pts]) => ({k, text, pts: pts * c.lv})), born: now, squad: null, player: null, issued: -1, deadline: -1, done: false};
   book.tickets.push(tk); c.tickets++;
-  sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE; sq.floor = 0;
-  notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，戰力 ${enemy.power}）。若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。`, tk.id);
+  sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE; sq.floor = tk.floor;
+  notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，戰力 ${enemy.power}）。${floors ? `還有 ${floors} 層，每打下一層可以選往裡打或撤出（傷不會恢復）；` : ''}${reinf?.length ? `附近的據點會派人增援；` : ''}若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。`, tk.id);
   return tk;
 }
 // ===== 行軍途中遇襲 =====
@@ -822,6 +823,7 @@ export function settleTicket(book, w, tk, res, now) {   // export 給 stats/reco
   const wiped = !alive(sq).length;
   if (wiped && sq.wipedAt == null) sq.wipedAt = now;   // 全滅之後不再算維持費
   if (wiped && sq.veh) { gearLost += VPOW[sq.veh] * 4; pay(book, now, sq.player, -VPOW[sq.veh] * 4, 'loss', `${tk.title}：${sq.name} 的${sq.veh === 'rush' ? '衝鋒車' : sq.veh === 'gt' ? '戰鬥卡車' : '武裝車'}丟在戰場上`, c.id); sq.veh = null; }
+  if (c.sortie?.lair != null) tk.res = {floors: res.floors ?? null, kills: res.kills ?? null, auto: !!res.auto};   // 據點（第十四節）要知道打下幾層、打倒幾個
   if (c.kind !== 'camp') writeBack(book, w, c, tk, res.win, gearLost, now); else if (gearLost > 0) w.sim.pmc.drop(c.tile, gearLost);
   tk.bossOut = bossOutcome(book, w, tk, res, sq.player, now);
   sq.busy = null; sq.readyAt = Math.max(sq.readyAt, now + CFG.REST);
@@ -877,8 +879,8 @@ function writeBack(book, w, c, tk, win, gearLost, now) {
   } else if (tk.type === 'probe') { if (win) P.calm(c.fac, c.foe, 3); }
   else if (tk.type === 'clear') {
     if (c.sortie) c.sortie.win = win;
-    // 單機的清剿據點（OPMAP.md 第十三節）：打贏就拆掉，四周的匪患大降
-    if (win && c.sortie?.lair) { const g = K.gangs.find(x => x.id === c.gang); if (g && !g.gone) { for (const n of [g.lair, ...nb(g.lair)]) K.bandit[n] *= .4; g.gone = 1; P.say('bandit', `${g.name}${g.native ? '' : '的據點'}被傭兵公司拆了，手下四散。`, g.lair); } }
+    // 單機的清剿據點（OPMAP.md 第十四節）：打下幾層、打倒幾個記下來，rover.js 再扣那處據點的兵力、拆掉或升格
+    if (c.sortie?.lair != null) c.sortie.res = tk.res || {floors: null, kills: null, auto: true};
     else if (win) { const g = K.gangs.find(x => x.id === c.gang);
       if (g) { for (const n of [g.lair, ...nb(g.lair)]) K.bandit[n] *= .7; g.str *= .8;
         if (K.bandit[g.lair] < 12 && !g.gone) { g.gone = 1; P.say('bandit', `${g.name}${g.native ? '' : '的據點'}被傭兵公司清剿，手下四散。`, g.lair); c.closedEarly = true; } } }
@@ -923,6 +925,7 @@ function hour(book, w, now) {
     if (c.kind === 'rover') { for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && tk.squad && now >= tk.deadline) autoResolve(book, w, tk, now); continue; }   // Rover：遭遇的服務單逾期就自動結算，其餘不管（rover.js）
     // 1. 逾期的票：自動結算（狩獵場第二層以後沒打，就當作撤離）
     for (const tk of book.tickets) if (tk.caseId === c.id && !tk.done && tk.squad && now >= tk.deadline) {
+      if (c.sortie?.lair != null) { settleTicket(book, w, tk, {win: false, done: [], dead: [], auto: true}, now); continue; }   // 清剿據點放著不打：算沒去打（不替你自動打下來）
       autoResolve(book, w, tk, now); }
     if (c.open && (c.kind === 'drill' || c.kind === 'hunting')) directTickets(book, w, c, now);
     // 場地維安：每駐守 6 小時，記憶片段 25 格以下的人各抽一次

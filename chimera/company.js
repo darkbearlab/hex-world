@@ -6,7 +6,7 @@
 import * as C from './cases.js';
 import {hdist, W as MAPW} from './sim.js';
 import {hexDist as opDist, center as opCenter, cellsOf, key as opKey, TERRAIN} from './opmap.js';
-import {NEAR, lairInfo, opPos, od} from './near.js';
+import {NEAR, lairInfo, gangInfo, siteName, opPos, od} from './near.js';
 
 // ===== 移動基地與運兵車（Alan 2026-10-12，warband/DESIGN.md「移動基地」）=====
 // G.base 是基地現在停的格子（會動，rover.js）；G.home 是登記地（勢力看這裡）。運兵車是「同時能派幾隊出去」：一台四個人，
@@ -624,11 +624,14 @@ export function sortie(G, book, w, tile, mode, uids, now, o = {}) {
   if (NEAR.on && (o.sub || o.sweep || o.lair != null)) {
     const move = o.move === 'foot' ? 'foot' : 'car';
     if (o.lair != null) {
-      const g = (K.gangs || []).find(x => x.id === +o.lair && !x.gone); if (!g || g.lair !== tile) return '那個據點已經不在了';
+      // 一夥人有好幾處據點（OPMAP.md 第十四節）：o.site 指定打哪一處，沒給就打主據點
+      const g = (K.gangs || []).find(x => x.id === +o.lair && !x.gone); if (!g) return '那個據點已經不在了';
       if (mode !== 'fight') return '據點只能攻擊';
-      const L = lairInfo(G, w, g); if (L.found == null) return '還不知道據點在哪一小格：先派人巡查那一格';
-      lv = Math.min(3, g.str > 260 ? 3 : g.str > 150 ? 2 : 1); title = `清剿・${g.native ? g.name : g.name + '的據點'}`;
-      op = {lair: g.id, sub: [...L.sub], move};
+      const x = gangInfo(G, w, g), L = o.site != null ? x.sites.find(s => s.sid === +o.site) : lairInfo(G, w, g);
+      if (!L || L.tile !== tile) return '那個據點已經不在了';
+      if (L.found == null) return '還不知道據點在哪一小格：先派人巡查那一格';
+      lv = Math.min(3, g.str > 260 ? 3 : g.str > 150 ? 2 : 1); title = `清剿・${siteName(g, L)}`;
+      op = {lair: g.id, site: L.sid, sub: [...L.sub], move};
     } else if (o.sweep) { if (mode !== 'explore') return '只有探索可以巡查整格'; title = `派遣・巡查：${nm}`; op = {sweep: true, move}; }
     else { const s = [Math.round(+o.sub[0]), Math.round(+o.sub[1])], x = cellsOf(tile, od(w)).get(opKey(s[0], s[1])); if (!x || !isFinite(TERRAIN[x.k]?.car)) return '那一小格過不去'; op = {sub: s, move}; title += '（一小格）'; }
   }
@@ -645,7 +648,7 @@ function gate(G, book, w, opp, pick) {
     const low = pick.filter(c => (c.lv || 1) < (opp.minLv || 0)); if (low.length) return `雇主要求至少 ${opp.minLv} 級（${low.map(c => label(c)).join('、')} 不夠）`;
   }
   if (opp.kind === 'privateer' && opp.foe === me) return '不能替人私掠自己總部的勢力';
-  if (NEAR.on && opp.kind === 'lair' && opp.gang != null) { const g = (K.gangs || []).find(x => x.id === opp.gang); if (g && !g.gone && lairInfo(G, w, g).found == null) return '還不知道據點在哪一小格：先派人到那一格「巡查整格」，找到了才能清剿'; }
+  if (NEAR.on && opp.kind === 'lair') return '單機：清剿據點改成「派人過去」——先巡查那一格找到確切位置，再派人攻擊（一處一處打）；整夥人拆光時照樣有賞金';
   if (opp.kind === 'shadow' && opp.foe === me) return '不能接對付自己總部勢力的黑單';
   return null;
 }

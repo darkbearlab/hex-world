@@ -336,6 +336,8 @@ function opHit(mx, my) {
   for (const c of opCache.cells.values()) { if (c.px == null) continue; const d = (c.px - x) ** 2 + (c.py - y) ** 2; if (d < bd) { bd = d; best = c; } }
   return best && Math.sqrt(bd) < S0 * .3 ? best : null;
 }
+// 據點一處的狀況（OPMAP.md 第十四節）：第幾層、守軍、警戒；一夥人有幾處
+const lairLine = L => `${L.head ? (L.native ? '頭目住這裡' : '頭目在這裡') : L.nomad ? '臨時營地' : '小據點'}・打下 ${L.taken}／${L.layers} 層・守軍約 ${L.pool}${L.sites > 1 ? `・這一夥人共 ${L.sites} 處` : ''}${L.alert ? '・<b style="color:var(--war)">警戒中</b>' : ''}`;
 function opInfo(i) {   // 地點分頁最上面：選到的那一小格
   if (!opMode || !opSel || !opCache) return '';
   const x = opCache.cells.get(opSel); if (!x || x.t !== i) return '';
@@ -355,7 +357,7 @@ function opInfo(i) {   // 地點分頁最上面：選到的那一小格
   if (x.f === 'ruin') act += `<br><span class="muted">${atBase ? '基地停在這處廢墟：用基地分頁的「搜索這一帶」就會搜它。' : '把基地停在這一小格，才能搜這處廢墟。'}</span>`;
   // 清剿據點（OPMAP.md 第十三節）：找到確切位置的據點；派人到這一小格（探索、交流、攻擊）
   const lair = (H.lairs || []).find(L => L.tile === x.t && L.sub[0] === x.q && L.sub[1] === x.r);
-  if (lair) act += `<br><b style="color:var(--war)">${esc(lair.name)}</b>（實力 ${lair.str}${lair.alert ? '・警戒中' : ''}）　<button data-act="sortiepick" data-mode="fight" data-lair="${lair.id}" data-id="${x.t}">派人過去攻擊（清剿）</button>`;
+  if (lair) act += `<br><b style="color:var(--war)">${esc(lair.name)}</b>：${lairLine(lair)}　<button data-act="sortiepick" data-mode="fight" data-lair="${lair.id}" data-site="${lair.sid}" data-id="${x.t}">派人過去攻擊（清剿）</button>`;
   else if (isFinite(T?.car) && GV.hq) act += `<br>派人到這一小格：<button data-act="sortiepick" data-mode="explore" data-id="${x.t}" data-q="${x.q}" data-r="${x.r}">探索</button><button data-act="sortiepick" data-mode="talk" data-id="${x.t}" data-q="${x.q}" data-r="${x.r}">交流</button><button data-act="sortiepick" data-mode="fight" data-id="${x.t}" data-q="${x.q}" data-r="${x.r}">攻擊</button>`;
   return `<p class="mini" style="border-left:3px solid #c9b48a;padding-left:8px"><b>作戰地圖・這一小格</b>　${bits.join('・')}${GV.hq?.near?.night ? '<span class="muted">・夜裡</span>' : ''}<br><span class="muted">${isFinite(T?.car) ? `車 ${T.car} 分鐘、徒步 ${T.foot} 分鐘走過一小格` : '過不去'}</span>${go}${act}</p>`;
 }
@@ -1242,7 +1244,7 @@ function baseTileHtml(i) {
   if (H.near) { const here = H.near.list.filter(p => p.tile === i);
     if (here.length) html += `<p class="mini">${here.map(p => `<b style="color:${p.hostile ? 'var(--war)' : 'var(--cyan)'}">${esc(p.name)}</b>${p.chase ? '（正朝基地過來）' : p.to != null ? `（往${nm(p.to)}）` : ''}`).join('、')}</p>`;
     html += `<p>${i === H.tile ? '派人在這一格' : '派人過去'}：<button data-act="sortiepick" data-mode="explore" data-id="${i}">探索</button> <button data-act="sortiepick" data-mode="talk" data-id="${i}">交流</button> <button data-act="sortiepick" data-mode="fight" data-id="${i}">攻擊</button> <button data-act="sortiepick" data-mode="explore" data-sweep="1" data-id="${i}">巡查整格</button> <span class="mini muted">坐運兵車去，一隊最多四人；探索可能撞上人、交流不打、攻擊是掃蕩那一格的匪；巡查整格＝把 37 小格走一遍找據點（要走到據點旁邊一小格才找得到）</span></p>`;
-    for (const L of (H.lairs || []).filter(x => x.tile === i)) html += `<p class="mini" style="border-left:3px solid var(--war);padding-left:8px"><b style="color:var(--war)">${esc(L.name)}</b>：確切位置找到了（作戰地圖上的紅框）${L.alert ? '・<b style="color:var(--war)">警戒中</b>' : ''}　<button data-act="sortiepick" data-mode="fight" data-lair="${L.id}" data-id="${i}">派人過去攻擊（清剿）</button></p>`; }
+    for (const L of (H.lairs || []).filter(x => x.tile === i)) html += `<p class="mini" style="border-left:3px solid var(--war);padding-left:8px"><b style="color:var(--war)">${esc(L.name)}</b>：${lairLine(L)}（作戰地圖上的紅框）　<button data-act="sortiepick" data-mode="fight" data-lair="${L.id}" data-site="${L.sid}" data-id="${i}">派人過去攻擊（清剿）</button></p>`; }
   html += hereHtml(i);
   return html;
 }
@@ -1732,11 +1734,11 @@ const coClick = e => {
   else if (A === 'sortiepick') {   // 派遣（單機第 4 步）：用出擊編成挑人
     const mode = b.dataset.mode, MN2 = {explore: '探索', talk: '交流', fight: '攻擊'}, tile = +id, place = ST.names?.[tile] || '荒野';
     // 小格的選項（單機）：巡查整格、派到某一小格、清剿找到的據點；這些都可以選開車或徒步
-    const sweep = !!b.dataset.sweep, sub = b.dataset.q != null ? [+b.dataset.q, +b.dataset.r] : null, lairId = b.dataset.lair != null ? +b.dataset.lair : null, lair = lairId != null ? (GV.hq?.lairs || []).find(L => L.id === lairId) : null, op = sweep || !!sub || !!lair;
+    const sweep = !!b.dataset.sweep, sub = b.dataset.q != null ? [+b.dataset.q, +b.dataset.r] : null, lairId = b.dataset.lair != null ? +b.dataset.lair : null, siteId = b.dataset.site != null ? +b.dataset.site : null, lair = lairId != null ? (GV.hq?.lairs || []).find(L => L.id === lairId && (siteId == null || L.sid === siteId)) : null, op = sweep || !!sub || !!lair;
     const title = lair ? `清剿・${lair.name}` : sweep ? `派遣・巡查：${place}` : `派遣・${MN2[mode]}：${place}${sub ? '（一小格）' : ''}`;
-    const detail = lair ? `摸到據點旁邊開一場清剿（主要任務，要親自打）。被哨兵看到會警戒，守得更嚴；在外面晃的人不在家。打贏拆掉據點、搬回存貨。` : sweep ? '開到那一格，把 37 小格走一遍：據點要走到旁邊一小格才找得到，找到就停、回報、回家。開車約 3 小時、徒步約 4 小時；路上可能被攔。' : sub ? (mode === 'fight' ? '開到那一小格，掃蕩那裡的匪（一張服務單）。' : mode === 'talk' ? '開到那一小格，跟當地的人談。' : '開到那一小格看看，順路經過的小格也算看過。') : mode === 'explore' ? '去那一格看看：寫回那裡的樣子、找到的東西（要基地開過去才搬得走）；路上可能撞上零星的人。' : mode === 'talk' ? '去跟當地的人談：那裡的近況、附近的線索。不打。' : '掃蕩那一格的匪：一張服務單（親自打或自動結算），打贏了那一格的匪隊就散了。';
+    const detail = lair ? `摸到據點旁邊開一場清剿（主要任務，要親自打）：還有 ${lair.layers - lair.taken} 層，一層一層往裡打，每打下一層可以選往裡打或撤出，傷不會恢復；打掉的守軍不會補回來。同一夥人的其他據點會派人增援，被哨兵看到會警戒、守得更嚴。${lair.head ? '拆光這一夥人所有的據點，才拿得到存貨和賞金。' : ''}` : sweep ? '開到那一格，把 37 小格走一遍：據點要走到旁邊一小格才找得到，找到就停、回報、回家。開車約 3 小時、徒步約 4 小時；路上可能被攔。' : sub ? (mode === 'fight' ? '開到那一小格，掃蕩那裡的匪（一張服務單）。' : mode === 'talk' ? '開到那一小格，跟當地的人談。' : '開到那一小格看看，順路經過的小格也算看過。') : mode === 'explore' ? '去那一格看看：寫回那裡的樣子、找到的東西（要基地開過去才搬得走）；路上可能撞上零星的人。' : mode === 'talk' ? '去跟當地的人談：那裡的近況、附近的線索。不打。' : '掃蕩那一格的匪：一張服務單（親自打或自動結算），打贏了那一格的匪隊就散了。';
     sortie = {key: 'custom', tile, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'sortie', lv: 1, one: true, min: 2, tile, title, detail, op, move: moveSel,
-      go: uids => send({type: 'sortie', tile, mode, uids, ...(op ? {sweep, sub, lair: lairId, move: sortie?.custom?.move || moveSel} : {})})}};
+      go: uids => send({type: 'sortie', tile, mode, uids, ...(op ? {sweep, sub, lair: lairId, site: lair ? lair.sid : siteId, move: sortie?.custom?.move || moveSel} : {})})}};
     renderSortie();
   }
   else if (A === 'basestop') roverSend({type: 'baseStop'}, '基地停下');
