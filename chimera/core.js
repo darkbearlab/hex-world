@@ -3,6 +3,7 @@
 // 一切亂數都來自種子與帳本（沒有 Math.random），同樣的「指令＋發生的遊戲小時」重播出同樣的結果（stats/core-replay.mjs 驗證），
 // 伺服器的存檔＝快照＋指令紀錄（log）。
 import {roadsOf} from './opmap.js';
+import {fogView} from './near.js';
 import * as S from './sim.js';
 import * as C from './cases.js';
 import * as G from './company.js';
@@ -336,7 +337,7 @@ export class Core {
     const game = this.game, g = this.co(name); if (!g) return null;
     return {type: 'game', err: err || null, year: this.sim.year, season: this.sim.season, campaigns: this.sim.campaignView(), speed: game.speed, yearDays: game.yearDays, mailRead: g.mailRead || null, board: this.boardView(name),
       inbox: game.book.inbox.filter(x => x.player === name).slice(-30).reverse().map(x => ({...x, ...this.mailRef(x, name)})), data: {...G.view(g, game.book, this.w), hq: RV.hqView(g, game.book, this.w, game.h),
-        vans: {cap: G.vanCap(g), used: G.vansUsed(g, game.book)}, depot: g.depot || {}, world: this.worldView(g), here: this.hereView(g), ops: OP.view(g, game.h), cover: g.cover ?? null}};
+        vans: {cap: G.vanCap(g), used: G.vansUsed(g, game.book)}, depot: g.depot || {}, world: this.worldView(g), here: this.hereView(g), ops: OP.view(g, game.h), cover: g.cover ?? null, fog: fogView(g, game.book, this.w, game.h)}};
   }
   // 地圖上的遠征點、突發事件、搶購（每家看到的都一樣，加上自己買過沒有）
   worldView(g) {

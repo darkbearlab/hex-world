@@ -9,7 +9,7 @@
 import * as C from './cases.js';
 import {gainLegacy, relAdd, unpack, parked, inTown, nearSite, ensureHq, VAN} from './company.js';
 import {BIOMES, hdist} from './sim.js';
-import {nearHour, nearAt, nearName, nearView, NEAR, od} from './near.js';
+import {nearHour, nearAt, nearName, nearView, NEAR, od, fogMark} from './near.js';
 import {center as opCenter, cellsOf, subRoute, hexDist as opDist} from './opmap.js';
 import {W as MAPW} from './sim.js';
 
@@ -282,6 +282,7 @@ export function hqHour(cos, book, w, h) {
       else if (c.sortie.mode === 'talk') { const L = tileStory(G, book, w, t, h); const site = nearSite(book, w, t, h); say(R, h, t, `${c.title}：${L.join('')}${site && !site.taken ? `當地人說起附近的${site.title}。` : ''}`, 'story'); }
       else { if (R.near) R.near = R.near.filter(p => !(p.tile === t && p.kind !== 'caravan')); say(R, h, t, `${c.title}：把${nm(t)}的匪打散了。`, 'find'); } }
     // 近的一層（單機）：附近的隊伍生出、移動；敵對的追上基地就打（手上已經有服務單時先不追上）
+    if (NEAR.on) fogMark(G, book, w, h);   // 戰爭迷霧：看過的格子記下來
     if (NEAR.on) { const c = nearHour(G, w, h, !busyTicket(book, R) && !(R.holdUntil > h), (hh, t, text) => say(R, hh, t, text, 'note'), book);
       if (c?.base) defend(G, book, w, h, `一群${nearName(c.base)}追上了基地（${nmOf(w)(G.base)}）`);
       for (const v of c?.vans || []) if (C.ambushNow(book, w, v.sq.id, v.tile, h)) say(R, h, v.tile, `${v.sq.name}的運兵車在${nmOf(w)(v.tile)}被一群${nearName(v.p)}攔下。`, 'danger'); }

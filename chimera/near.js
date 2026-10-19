@@ -138,6 +138,10 @@ function make(G, w, kind, tile, h, extra = {}) {
   return {id: R.nearSeq, kind, tile, pos, mins: 0, born: h, ...extra};
 }
 export const nearName = p => KIND[p.kind]?.n || '隊伍';
+// 戰略地圖的戰爭迷霧（OPMAP.md 第 3 段）：基地和在路上的運兵車四周 RANGE 格「現在看著」；看過的格子記在公司身上（G.seen），之後一直知道地形、道路、城
+function visibleNow(G, book, w, h) { const S = new Set(); for (const e of eyes(G, book, w, h)) { S.add(e.tile); for (const t of ring(e.tile, NEAR.RANGE)) S.add(t); } return S; }
+export function fogMark(G, book, w, h) { if (!NEAR.on) return; const S = new Set(G.seen || []), n = S.size; for (const t of visibleNow(G, book, w, h)) S.add(t); if (S.size !== n) G.seen = [...S]; }
+export function fogView(G, book, w, h) { if (!NEAR.on) return null; if (!G.seen) fogMark(G, book, w, h); return {seen: G.seen || [], vis: [...visibleNow(G, book, w, h)]}; }
 // 舊的「基地開進某一格就打」：改成每小時看控制區（nearHour），這裡不再用
 export function nearAt() { return null; }
 // 給畫面：範圍與每一個兵牌（種類、名字、在哪一格、哪一小格、戰力、敵對、在追、在交戰）

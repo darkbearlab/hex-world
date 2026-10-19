@@ -154,6 +154,8 @@ function drawNow() {
     }
   }
   // 城鎮與記號
+  // 戰爭迷霧：沒去過的蓋黑（城的位置和名字照樣標，才能規劃旅行），去過但現在沒看著的調暗
+  const FG = fog(); if (FG) for (let i = 0; i < N; i++) { if (!FG.seen.has(i)) { ctx.fillStyle = 'rgba(10,9,7,.93)'; hexPath(cx(i), cy(i), S0 + .4); ctx.fill(); } else if (!FG.vis.has(i)) { ctx.fillStyle = 'rgba(10,9,7,.38)'; hexPath(cx(i), cy(i), S0 + .4); ctx.fill(); } }
   const caps = new Set(s.fac.map(f => f.cap)), sieges = new Set(s.wars.map(w => w.siege).filter(t => t >= 0));
   const opZ = opMode && k > 6;   // 作戰地圖放大時：城由作戰地圖自己畫（小格裡的城、城郊、名字）
   for (const t of opZ ? [] : s.towns) {
@@ -165,7 +167,7 @@ function drawNow() {
     if (t.works) { ctx.fillStyle = '#d9b86a'; ctx.fillRect(x - S0 * .62, y + S0 * .25, S0 * .3, S0 * .3); }
   }
   if (s.arc.elevator >= 0) { const x = cx(s.arc.elevator), y = cy(s.arc.elevator); ctx.strokeStyle = '#e9e1d2'; ctx.lineWidth = Math.max(1, 1.4 / k); ctx.beginPath(); ctx.moveTo(x, y - S0 * .55); ctx.lineTo(x, y - S0 * 1.6); ctx.stroke(); }
-  for (const g of s.gangs) {
+  for (const g of s.gangs.filter(g => !unseen(g.lair))) {
     const x = cx(g.lair), y = cy(g.lair), r = S0 * .32;
     if (g.native) { ctx.fillStyle = '#e0915a'; ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y + r * .8); ctx.lineTo(x - r, y + r * .8); ctx.closePath(); ctx.fill(); }
     else { ctx.strokeStyle = g.legacy ? '#ffd27a' : '#c4593c'; ctx.lineWidth = Math.max(1.2, 1.8 / k); ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke(); }
@@ -180,7 +182,7 @@ function drawNow() {
     ctx.fillStyle = '#ffd9cf'; ctx.font = `700 ${S0 * 1.1}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('⚔', x, y - r * 1.55);
   }
   // 機會：圓牌上一個字，外圈越粗越亮程度越高
-  if (layers.opp) for (const o of curOpps(s)) {
+  if (layers.opp) for (const o of curOpps(s).filter(o => !unseen(o.tile))) {   // 迷霧：沒去過的地方不標委託（委託板上寫「傳聞」）
     if (oppKind !== 'all' && o.kind !== oppKind) continue;
     const K = OK[o.kind], x = cx(o.tile) + S0 * .35 * opMK(), y = cy(o.tile) + S0 * .3 * opMK(), r = S0 * (.38 + o.lv * .08) * opMK();
     if (o.lv === 3) { ctx.fillStyle = K.c + '55'; ctx.beginPath(); ctx.arc(x, y, r * 1.55, 0, 7); ctx.fill(); }
@@ -248,6 +250,10 @@ function label(t, x, y, size, col) { ctx.font = `500 ${size}px 'Noto Sans TC',sa
 // 跟戰略地圖同一套平移縮放、同一個像素空間：戰略格的中心照原本的位置，小格用一個線性變換鋪上去（三個方向各 7 小格＝一個戰略格的間距），
 // 所以基地、運兵車、近的一層的隊伍不用改位置。只展開看得到的範圍（基地和在外的運兵車四周 4 格）
 let opMode = false, opSel = null, opCache = null;
+// 戰略地圖的戰爭迷霧（OPMAP.md 第 3 段，只有單機）：seen＝去過、vis＝現在看著。沒有 fog（觀看模式、線上）＝全開
+let fogKey = '', fogSeen = null, fogVis = null;
+function fog() { const F = GV?.fog; if (!F) return null; const k = F.seen.length + ':' + F.vis.join(','); if (k !== fogKey) { fogKey = k; fogSeen = new Set(F.seen); fogVis = new Set(F.vis); } return {seen: fogSeen, vis: fogVis}; }
+const unseen = i => { const f = fog(); return !!f && !f.seen.has(i); };
 const zmax = () => opMode ? 40 : 8;
 const opMK = () => opMode && k > 6 ? Math.max(.1, Math.min(.35, 2.4 / k)) : 1;   // 作戰地圖放大時，基地、隊伍、運兵車的記號縮成一小格的大小   // 作戰地圖可以放得很大（一小格看得清楚）
 function opMatrix() {   // 小格軸座標的位移 → 像素：A＝(7,−3) 對到往右一個戰略格、B＝(3,4) 對到往右下一個戰略格
@@ -360,6 +366,7 @@ function centerOn(i) { const r = canvas.getBoundingClientRect(); if (k < 1.8) k 
 function showTip(mx, my) {
   const tip = $('tip'); if (hover < 0) { tip.hidden = true; return; }
   const s = hist[cur], o = s.owner[hover], F = facById(s), t = s.towns.find(x => x.t === hover);
+  if (unseen(hover)) { tip.innerHTML = `<b>${t ? ST.names[hover] : '還沒去過'}</b>${t ? '　<span class="muted">城（還沒去過）</span>' : ''}`; tip.hidden = false; moveTip(mx, my); return; }   // 迷霧
   tip.innerHTML = `<b>${ST.names[hover] || ST.biomes[s.biome[hover]].n}</b>　<span class="muted">${ST.biomes[s.biome[hover]].n}</span><br>${o >= 0 && F[o] ? F[o].n : '<span class="muted">無主</span>'}${s.pop[hover] ? `・人口 ${s.pop[hover]}` : ''}${t ? `<br>市鎮${t.vat ? `・培養槽 ${t.vat}` : ''}${t.works ? '・廠區' : ''}` : ''}${s.trench[hover] ? `<br>戰壕 ${(s.trench[hover] / 80).toFixed(1)} 級` : ''}`;
   tip.hidden = false; moveTip(mx, my);
 }
@@ -417,6 +424,7 @@ $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) retu
 function renderTile() {
   if ($('pane-tile').contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;   // 正在打留言，先不重畫
   const s = hist[cur], i = sel; if (i < 0) { $('pane-tile').innerHTML = '<p class="muted">點地圖上的格子看細節。</p>'; return; }
+  if (unseen(i)) { const tw = s.towns.find(x => x.t === i); $('pane-tile').innerHTML = `<h2>${esc(ST.names[i] || '無名之地')}</h2><p class="muted">還沒去過${tw ? '：只知道這裡有一座城' : ''}。把基地或運兵車開到附近（4 格內）就看得到。</p>${GV ? baseTileHtml(i) : ''}`; return; }
   const F = facById(s), o = s.owner[i], t = s.towns.find(x => x.t === i), g = s.gangs.filter(x => x.lair === i);
   let html = `<h2>${esc(ST.names[i] || '無名之地')}</h2><dl class="kv"><dt>地形</dt><dd>${ST.biomes[s.biome[i]].n}${ST.river[i] ? '・有水脈' : ''}</dd><dt>屬於</dt><dd>${o >= 0 && F[o] ? esc(F[o].n) : '無主'}</dd>`;
   if (s.pop[i]) html += `<dt>人口</dt><dd>${s.pop[i]}</dd>`;
@@ -563,7 +571,7 @@ function renderOpp() {
   let html = `<div class="opphead"><p class="muted" style="margin:0">${GM?.board ? '星球上公開的委託：每個公開三天，截止前一天不能再接；大家接同一個委託就在同一個案件裡搶積分。' : '如果玩家此刻進場，沙盒會給出的事。'}外圈越粗越亮，程度越高（●●● 最高）。</p></div><div class="filters">` +
     [['all', '全部'], ...Object.entries(OK).map(([k, v]) => [k, v.n])].map(([k, n]) => `<button data-ok="${k}" class="${oppKind === k ? 'on' : ''}">${n} <span class="muted">${cnt(k)}</span></button>`).join('') + '</div>';
   const list = O.filter(o => oppKind === 'all' || o.kind === oppKind);
-  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${esc(o.title)}${ownWarn(o)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${o.closeAt != null ? `<span class="due">${o.joined ? `已接・${cd(o.end)}後結束` : o.busy ? '這裡已經接了別的委託' : `${cd(o.closeAt)}後截止`}${o.n ? `・${o.n} 家公司在打` : ''}</span>` : ''}${o.joined && o.kind !== 'camp' ? '' : accPicker(o)}</li>`; }).join('') + '</ol>';
+  html += '<ol class="log opp">' + list.map(o => { const K = OK[o.kind]; return `<li data-tile="${o.tile}" style="border-left-color:${K.c}"><span class="lv" style="color:${K.c}">${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</span> <b style="color:${K.c}">${K.n}</b>　${unseen(o.tile) ? '<span class="muted">（傳聞）</span>' : ''}${esc(o.title)}${ownWarn(o)}<span class="yr" style="font-family:inherit;font-size:12px;color:var(--muted)">${esc(o.detail)}${o.risk ? `・風險 ${'▲'.repeat(o.risk)}` : ''}</span>${o.closeAt != null ? `<span class="due">${o.joined ? `已接・${cd(o.end)}後結束` : o.busy ? '這裡已經接了別的委託' : `${cd(o.closeAt)}後截止`}${o.n ? `・${o.n} 家公司在打` : ''}</span>` : ''}${o.joined && o.kind !== 'camp' ? '' : accPicker(o)}</li>`; }).join('') + '</ol>';
   $('pane-opp').html = html || '';
 }
 $('pane-opp').onclick = e => {
