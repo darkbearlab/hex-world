@@ -17,6 +17,7 @@ import {colo} from './battle.js';
 import {enemyRoster, ASH_FACTION, LEGACY_KINDS, LEGACY_BOSS} from '../cases.js';
 import {parked, RARE} from '../company.js';
 import {NEAR} from '../near.js';
+import {TRIP} from '../cases.js';
 
 const json = (data, status = 200) => new Response(JSON.stringify(data, (k, v) => ArrayBuffer.isView(v) ? Array.from(v) : v), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store'}});
 const bad = (msg, status = 400) => json({error: msg}, status);
@@ -158,7 +159,7 @@ export class Planet extends DurableObject {
 
   /* ───── 單機的時鐘 ───── */
   // 開機（讀檔或建好世界）一律從暫停開始：伺服器重開後世界不會自己跑掉
-  soloInit() { RARE.on = true; NEAR.on = true; this.core.pauseOnFight = true; if (this.core.game && this.core.game.fighting == null) this.core.game.speed = 0; this.soloH = this.core.hour; this.soloAt = Date.now(); this.soloPause = null; }
+  soloInit() { RARE.on = true; NEAR.on = true; TRIP.dice = false; this.core.pauseOnFight = true; if (this.core.game && this.core.game.fighting == null) this.core.game.speed = 0; this.soloH = this.core.hour; this.soloAt = Date.now(); this.soloPause = null; }
   // 自動暫停要比對的東西：每家玩家公司的服務單通知數、基地停著沒有
   soloMark() {
     const G = this.core.game; if (!G) return null; const out = {};

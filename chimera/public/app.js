@@ -207,7 +207,7 @@ function drawNow() {
         if (opMode && k > 6 && p.str) { ctx.fillStyle = '#fff'; ctx.font = `700 ${r * .9}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(p.str), x, y + r * .9); } } }
     // 基地：開動中照時間在兩格之間移動，剩下的路畫虛線（原本的 Rover）
     const H = GV.hq || {tile: GV.base, route: []}, hnow = hourNow() ?? GV.h, hf = H.move ? Math.max(0, Math.min(1, (hnow - H.move.t0) / Math.max(.01, H.move.t1 - H.move.t0))) : 0, ha = H.move ? H.move.from : GV.base, hb = H.move ? H.move.to : GV.base;
-    const [bx, by] = legXY(ha, hb, hf), _u1 = 0, hrest = [hb, ...(H.route || [])];
+    const [bx, by] = baseXY(H, ha, hb, hf), _u1 = 0, hrest = [hb, ...(H.route || [])];
     if (hrest.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = Math.max(1, 1.8 / k); ctx.strokeStyle = 'rgba(111,208,216,.8)'; ctx.beginPath(); ctx.moveTo(bx, by); hrest.forEach(t => ctx.lineTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
     ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1.5, 2.4 / k); ctx.beginPath(); ctx.arc(bx, by, S0 * .9 * opMK(), 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, S0 * 1.15 * opMK(), 0, 7); ctx.stroke();
     ctx.fillStyle = '#6fd0d8'; ctx.font = `700 ${S0 * .8 * opMK()}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('H', bx, by + S0 * .04);
@@ -216,7 +216,7 @@ function drawNow() {
     if (selPath && selPath.to === sel && selPath.path.length > 1) {
       ctx.save(); ctx.setLineDash([S0 * .5, S0 * .35]); ctx.lineWidth = Math.max(1.6, 2.6 / k); ctx.strokeStyle = 'rgba(255,240,210,.95)'; ctx.lineJoin = 'round';
       ctx.beginPath(); selPath.path.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore();
-      if (selPath.hours >= 0) { const t = selPath.path[selPath.path.length - 1]; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; label(`單程 ${fmtH(selPath.hours)}`, cx(t), cy(t) + S0 * .9, Math.max(9 / k, S0 * .6), '#fff0d2'); }
+      if (selPath.hours >= 0) { const t = selPath.path[selPath.path.length - 1]; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; label(`單程 ${fmtH(selPath.hours)}`, cx(t), cy(t) + S0 * .9 * opMK(), Math.max(9 / k, S0 * .6 * opMK()), '#fff0d2'); }
     }
     // 派出去的人馬：剩下的路（淡虛線）＋現在的位置
     for (const u of GV.units || []) {
@@ -271,6 +271,13 @@ function opCells(s) {
   const D = mapData(ST, s, nbrs), cells = new Map(); for (const t of tiles) for (const [k2, v] of cellsOf(t, D)) cells.set(k2, v);
   return opCache = {key, cells, tiles: new Set(tiles), roads: !!s.roads};
 }
+// 基地的位置：作戰地圖開著時，停在某一小格（H.sub）或在同一格裡挪動（H.subMove）就畫在那裡
+function subXY(t, q, r) { const [dx, dy] = opXY(opMatrix(), opCenter(t, ST.W), q, r); return [cx(t) + dx, cy(t) + dy]; }
+function baseXY(H, ha, hb, hf) {
+  if (opMode && H.subMove) { const m = H.subMove, f = Math.max(0, Math.min(1, ((hourNow() ?? GV.h) - m.t0) / Math.max(.01, m.t1 - m.t0))); return subXY(GV.base, m.from[0] + (m.to[0] - m.from[0]) * f, m.from[1] + (m.to[1] - m.from[1]) * f); }
+  if (opMode && !H.move && H.sub) return subXY(GV.base, H.sub[0], H.sub[1]);
+  return legXY(ha, hb, hf);
+}
 // 近的一層的兵牌：作戰地圖開著時畫在牠那一小格，不然畫在戰略格中心
 function nearXY(p) { if (!(opMode && p.pos)) return [cx(p.tile), cy(p.tile)]; const [dx, dy] = opXY(opMatrix(), opCenter(p.tile, ST.W), p.pos[0], p.pos[1]); return [cx(p.tile) + dx, cy(p.tile) + dy]; }
 // 兩個戰略格之間走了 f：作戰地圖開著時沿小格路線（道路優先），不然照直線
@@ -321,7 +328,8 @@ function opInfo(i) {   // 地點分頁最上面：選到的那一小格
   const x = opCache.cells.get(opSel); if (!x || x.t !== i) return '';
   const F = {town: '城', suburb: '城郊', settle: '聚落', ruin: '廢墟'}, T = TERRAIN[x.k];
   const bits = [T?.n || x.k, x.f ? F[x.f] : '', x.road ? '有路' : '', x.bridge ? '橋' : '', x.river ? '河' : '', x.trench ? '戰壕' : ''].filter(Boolean);
-  return `<p class="mini" style="border-left:3px solid #c9b48a;padding-left:8px"><b>作戰地圖・這一小格</b>　${bits.join('・')}<br><span class="muted">${isFinite(T?.car) ? `車 ${T.car} 分鐘、徒步 ${T.foot} 分鐘走過一小格` : '過不去'}</span></p>`;
+  const go = GV.hq && isFinite(T?.car) ? `<br><button data-act="basegosub" data-id="${x.t}" data-q="${x.q}" data-r="${x.r}">基地開到這一小格</button>` : '';
+  return `<p class="mini" style="border-left:3px solid #c9b48a;padding-left:8px"><b>作戰地圖・這一小格</b>　${bits.join('・')}<br><span class="muted">${isFinite(T?.car) ? `車 ${T.car} 分鐘、徒步 ${T.foot} 分鐘走過一小格` : '過不去'}</span>${go}</p>`;
 }
 function toggleOp() {
   opMode = !opMode; opSel = null; $('zop').classList.toggle('on', opMode);
@@ -1671,6 +1679,7 @@ const coClick = e => {
   else if (A === 'rethide') send({type: 'retHide', id});
   // 基地（Alan 2026-10-12；原本的 Rover）
   else if (A === 'basego') baseGoAsk(+id);
+  else if (A === 'basegosub') send({type: 'baseGo', tile: +id, sub: [+b.dataset.q, +b.dataset.r]});   // 作戰地圖：停到某一小格
   else if (A === 'sortiepick') {   // 派遣（單機第 4 步）：用出擊編成挑人
     const mode = b.dataset.mode, MN2 = {explore: '探索', talk: '交流', fight: '攻擊'}, tile = +id, place = ST.names?.[tile] || '荒野';
     sortie = {key: 'custom', tile, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'sortie', lv: 1, one: true, min: 2, tile, title: `派遣・${MN2[mode]}：${place}`,

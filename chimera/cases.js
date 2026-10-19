@@ -650,7 +650,11 @@ function directTickets(book, w, c, now) {
 }
 // ===== 行軍途中遇襲 =====
 // 出發時就沿實際道路算好這一趟的風險（跟沙盒裡商隊被劫的算法同一套），決定會不會、在哪一格、第幾小時出事
+// 作戰地圖（單機）：兵牌攔下運兵車＝馬上開一張行軍遇襲的單（near.js 的控制區）
+export function ambushNow(book, w, sqId, tile, now) { const sq = book.squads[sqId]; if (!sq || sq.busy) return false; const trip = {unit: sqId, caseId: sq.caseId, tile, at: now, done: false}; tripAmbush(book, w, trip, now); return !!sq.busy; }
+export const TRIP = {dice: true};   // 單機（NEAR.on）時玩家的運兵車不再事先擲遭遇（改由作戰地圖上的兵牌攔），NPC 公司照舊
 function planTrip(book, w, c, unitId, from, now, eta) {
+  if (!TRIP.dice && !book.npcs?.includes(book.squads[unitId]?.player)) return;
   if (eta - now < 2 || from < 0) return;
   const K = w.sim.peek(), P = w.sim.pmc, path = P.route(from, c.tile).filter(t => t !== c.tile);
   if (!path.length) return;

@@ -9,7 +9,9 @@
 import * as C from './cases.js';
 import {gainLegacy, relAdd, unpack, parked, inTown, nearSite, ensureHq, VAN} from './company.js';
 import {BIOMES, hdist} from './sim.js';
-import {nearHour, nearAt, nearName, nearView, NEAR} from './near.js';
+import {nearHour, nearAt, nearName, nearView, NEAR, od} from './near.js';
+import {center as opCenter, cellsOf, subRoute, hexDist as opDist} from './opmap.js';
+import {W as MAPW} from './sim.js';
 
 export const HQ = {FUEL: 3, SEARCH_H: 4, SEARCH_CD: 24 * 7, SITE_CD: 24 * 7, FOOD_K: 1, WATER_K: 1, REG_COST: 100, RAID: .05};
 const SITE = {oil: '石油城', ammo: '彈藥農場', oasis: '綠洲', salvage: '拆解場'};
@@ -41,6 +43,7 @@ const busyTicket = (book, R) => { const sq = guardOf(book, R); return sq ? book.
 export function hqBlock(book, G, h) {
   const R = ensureHq(G);
   if (busyTicket(book, R)) return '基地正在被襲擊，打完才能動';
+  if (R.holdUntil > h) return '剛打完，正在整頓';
   if (R.busyUntil > h) return '正在搜索';
   return null;
 }
@@ -68,15 +71,26 @@ function guardBack(G, book, R, h) {
 }
 
 // 開到某一格：照路線一格一格走
-export function baseGo(G, book, w, to, h) {
+export function baseGo(G, book, w, to, h, sub = null) {
   if (!Number.isInteger(to) || !w.land[to]) return '開不到那裡';   // 不是地圖上的陸地格（2026-10-18 測試時送了 NaN，基地開到第 0 格）
   const R = ensureHq(G), why = hqBlock(book, G, h); if (why) return why;
-  if (to === G.base && !R.move) return '已經在這裡了';
+  // 作戰地圖（單機）：可以指定停在目的地的哪一小格（OPMAP.md 第 2 段）
+  if (sub != null) { if (!NEAR.on || !Array.isArray(sub) || !Number.isInteger(sub[0]) || !Number.isInteger(sub[1]) || opDist(opCenter(to, MAPW), sub) > 3) return '開不到那一小格';
+    const c = cellsOf(to, od(w)).get(sub[0] + ',' + sub[1]); if (!c || !subRoute(to, opCenter(to, MAPW), sub, od(w))) return '開不到那一小格'; }
+  const subGoal = sub && !(sub[0] === opCenter(to, MAPW)[0] && sub[1] === opCenter(to, MAPW)[1]) ? sub : null;
+  if (to === G.base && !R.move && !R.subMove) {   // 同一格裡換一小格
+    if (!NEAR.on) return '已經在這裡了';
+    const from = R.sub || opCenter(G.base, MAPW), dest = subGoal || opCenter(G.base, MAPW); if (from[0] === dest[0] && from[1] === dest[1]) return '已經在這裡了';
+    const r = subRoute(G.base, from, dest, od(w)); if (!r) return '開不到那一小格';
+    R.subMove = {from, to: dest, t0: h, t1: +(h + r.minutes / 60).toFixed(3)}; R.subGoal = null; R.route = [];
+    say(R, h, G.base, `基地在${nmOf(w)(G.base)}挪到另一處（約 ${Math.round(r.minutes)} 分鐘）。`); return null;
+  }
+  R.subGoal = subGoal;
   const from = R.move ? R.move.to : G.base, path = w.sim.pmc.route(from, to);
   if (!path?.length || path[path.length - 1] !== to) return '開不到那裡';
   R.route = path[0] === from ? path.slice(1) : path;
   say(R, h, G.base, `基地出發，目的地：${nmOf(w)(to)}（${R.route.length} 格，油錢約 $${R.route.length * HQ.FUEL}k）。`);
-  if (!R.move) nextLeg(G, book, w, R, h);   // 下了命令就開走，不等下一個整點
+  if (!R.move && !R.subMove) nextLeg(G, book, w, R, h);   // 下了命令就開走，不等下一個整點
   return null;
 }
 export function baseStop(G, book, w, h) { const R = ensureHq(G); R.route = []; say(R, h, G.base, '基地停下。'); return null; }
@@ -172,6 +186,8 @@ function searchResult(G, book, w, t, h) {
 // 一格要多久：原本慢車的速度，引擎再乘
 const legH = (w, R, a, b) => Math.max(.01, +(C.baseHours(w, a, b) * upK(R, 'engine')).toFixed(3));
 function nextLeg(G, book, w, R, h) {
+  // 停在某一小格（作戰地圖）：先開回這一格的中心再上路
+  if (R.sub && NEAR.on) { const c0 = opCenter(G.base, MAPW), r = subRoute(G.base, R.sub, c0, od(w)); R.subMove = {from: R.sub, to: c0, t0: h, t1: +(h + (r ? r.minutes : 10) / 60).toFixed(3)}; R.sub = null; return; }
   const to = R.route.shift(), t = legH(w, R, G.base, to);
   C.pay(book, h, G.name, -HQ.FUEL, 'fare', `基地開往${nmOf(w)(to)}：油錢`);
   R.move = {from: G.base, to, t0: h, t1: +(h + t).toFixed(2), path: [G.base, to]};
@@ -243,6 +259,9 @@ export function hqHour(cos, book, w, h) {
     } else if (h % 24 === 0) R.hungry = 0;
     jobsHour(G, book, w, R, h);
     if (R.searching != null && h >= R.busyUntil) { const t = R.searching; R.searching = null; for (const s of searchResult(G, book, w, t, h)) say(R, h, t, s, 'find'); }
+    // 作戰地圖的小格之間（單機）：到了就停在那一小格；要上路的話接著開下一段
+    if (R.subMove && h >= R.subMove.t1) { const c0 = opCenter(G.base, MAPW), to = R.subMove.to; R.sub = to[0] === c0[0] && to[1] === c0[1] ? null : to; R.subMove = null;
+      if (!R.route.length) say(R, h, G.base, `基地停好了（${nmOf(w)(G.base)}）。`); }
     // 開動
     for (let legs = 0; legs < 200 && R.move && h >= R.move.t1; legs++) { const t1 = R.move.t1; G.base = R.move.to; R.move = null; if (book.companies[G.name]) book.companies[G.name].base = G.base;
       for (const s of tileStory(G, book, w, G.base, h)) say(R, h, G.base, s, 'story');
@@ -250,9 +269,9 @@ export function hqHour(cos, book, w, h) {
       // 遭遇：單機用近的一層（near.js：開進有敵對隊伍的那一格就打）；線上照原本每到一格擲一次
       const foe = NEAR.on ? nearAt(G, w, G.base) : null;
       if (foe || (!NEAR.on && roll(G.base, h, 1) < encounterP(w, G.base))) { defend(G, book, w, h, foe ? `基地在${nmOf(w)(G.base)}撞上一群${nearName(foe)}` : `基地在${nmOf(w)(G.base)}被人攔住`); if (busyTicket(book, R)) break; }
-      else if (!R.route.length) say(R, h, G.base, `基地到了${nmOf(w)(G.base)}。`);
+      else if (!R.route.length) { say(R, h, G.base, `基地到了${nmOf(w)(G.base)}。`); if (R.subGoal && NEAR.on) { const c0 = opCenter(G.base, MAPW), r = subRoute(G.base, c0, R.subGoal, od(w)); if (r) R.subMove = {from: c0, to: R.subGoal, t0: t1, t1: +(t1 + r.minutes / 60).toFixed(3)}; R.subGoal = null; } }
       if (R.route.length && !hqBlock(book, G, h)) nextLeg(G, book, w, R, t1); }
-    if (!R.move && R.route.length && !hqBlock(book, G, h)) nextLeg(G, book, w, R, h);
+    if (!R.move && !R.subMove && R.route.length && !hqBlock(book, G, h)) nextLeg(G, book, w, R, h);
     // 派遣的結果（單機第 4 步）：探索打贏＝搜那一格；交流＝那一格的故事和附近的線索；攻擊打贏＝那一格的敵對隊伍散了
     for (const id of G.cases) { const c = book.cases.find(x => x.id === id); if (!c?.sortie || c.sortie.done || c.sortie.win == null) continue;
       c.sortie.done = true; const t = c.tile, nm = nmOf(w);
@@ -263,7 +282,9 @@ export function hqHour(cos, book, w, h) {
       else if (c.sortie.mode === 'talk') { const L = tileStory(G, book, w, t, h); const site = nearSite(book, w, t, h); say(R, h, t, `${c.title}：${L.join('')}${site && !site.taken ? `當地人說起附近的${site.title}。` : ''}`, 'story'); }
       else { if (R.near) R.near = R.near.filter(p => !(p.tile === t && p.kind !== 'caravan')); say(R, h, t, `${c.title}：把${nm(t)}的匪打散了。`, 'find'); } }
     // 近的一層（單機）：附近的隊伍生出、移動；敵對的追上基地就打（手上已經有服務單時先不追上）
-    if (NEAR.on) { const c = nearHour(G, w, h, !busyTicket(book, R), (hh, t, text) => say(R, hh, t, text, 'note')); if (c) defend(G, book, w, h, `一群${nearName(c)}追上了基地（${nmOf(w)(G.base)}）`); }
+    if (NEAR.on) { const c = nearHour(G, w, h, !busyTicket(book, R) && !(R.holdUntil > h), (hh, t, text) => say(R, hh, t, text, 'note'), book);
+      if (c?.base) defend(G, book, w, h, `一群${nearName(c.base)}追上了基地（${nmOf(w)(G.base)}）`);
+      for (const v of c?.vans || []) if (C.ambushNow(book, w, v.sq.id, v.tile, h)) say(R, h, v.tile, `${v.sq.name}的運兵車在${nmOf(w)(v.tile)}被一群${nearName(v.p)}攔下。`, 'danger'); }
   }
 }
 
@@ -271,7 +292,7 @@ export function hqHour(cos, book, w, h) {
 export function hqView(G, book, w, h) {
   const R = ensureHq(G), K = w.sim.peek(), m = K.markets[G.base], nm = nmOf(w);
   const legHours = (from, route) => { let t = 0, a = from; for (const b of route) { t += legH(w, R, a, b); a = b; } return +t.toFixed(2); };
-  return {near: nearView(G, h), tile: G.base, place: nm(G.base), move: R.move, route: R.route, dest: R.route.length ? R.route[R.route.length - 1] : R.move?.to ?? null, parked: parked(G), inTown: inTown(G, w), town: !!(m && K.owner[G.base] >= 0),
+  return {near: nearView(G, h), sub: R.sub || null, subMove: R.subMove || null, hold: R.holdUntil > h ? R.holdUntil : null, tile: G.base, place: nm(G.base), move: R.move, route: R.route, dest: R.route.length ? R.route[R.route.length - 1] : R.move?.to ?? null, parked: parked(G), inTown: inTown(G, w), town: !!(m && K.owner[G.base] >= 0),
     block: hqBlock(book, G, h), ticket: busyTicket(book, R)?.id || null, guard: guardOf(book, R)?.clones.map(c => c.uid) || [], searching: R.searching != null ? R.busyUntil : null, searchedAt: R.searched[G.base] ?? null,
     up: Object.entries(UP).map(([k, U]) => { const lv = upLv(R, k), max = U.k.length - 1, here = upHere(w, G.base, k);
       const near = here ? [] : Object.keys(K.markets).map(Number).filter(t => upHere(w, t, k)).map(t => ({t, d: w.sim.pmc.dist(G.base, t)})).filter(x => isFinite(x.d)).sort((a, b) => a.d - b.d).slice(0, 3)

@@ -4,7 +4,8 @@
 // 模板保證拿到某一位、數值固定（約前 20%），是事件和活動的獎勵。
 // 接機會層的案、編成小隊派出去；服務單只能自動結算（戰鬥層還沒接上）。
 import * as C from './cases.js';
-import {hdist} from './sim.js';
+import {hdist, W as MAPW} from './sim.js';
+import {hexDist as opDist, center as opCenter} from './opmap.js';
 
 // ===== 移動基地與運兵車（Alan 2026-10-12，warband/DESIGN.md「移動基地」）=====
 // G.base 是基地現在停的格子（會動，rover.js）；G.home 是登記地（勢力看這裡）。運兵車是「同時能派幾隊出去」：一台四個人，
@@ -12,8 +13,9 @@ import {hdist} from './sim.js';
 // 出門時記下集合點（出發時基地的位置）：回來時基地不在，就在那裡等 VAN.WAIT_H 小時；基地開到回程的路上（或集合點旁邊）就上車；等不到就倒在那裡（遺體）
 export const VAN = {START: 2, MAX: 4, PRICE: [150, 250], WAIT_H: 48, NPC: 8};
 export const ensureHq = G => G.hq ||= {route: [], move: null, log: [], searched: {}, seen: [], up: {}, jobs: [], busyUntil: 0, searching: null, hungry: 0, caseId: null, guard: null};
-export const parked = G => !G.hq || (!G.hq.move && !G.hq.route.length);
-export const inTown = (G, w) => { const K = w.sim.peek(); return parked(G) && !!K.markets[G.base] && K.owner[G.base] >= 0; };
+export const parked = G => !G.hq || (!G.hq.move && !G.hq.route.length && !G.hq.subMove);
+// 在城裡：停在城那一格，而且（作戰地圖）停在城或城郊（中心一小格以內）
+export const inTown = (G, w) => { const K = w.sim.peek(), s = G.hq?.sub; return parked(G) && !!K.markets[G.base] && K.owner[G.base] >= 0 && (!s || opDist(s, opCenter(G.base, MAPW)) <= 1); };
 export const onSite = (G, tile) => !!G.npc || (parked(G) && hdist(G.base, tile) <= 1);
 const homeFac = (G, K) => K.owner[G.home ?? G.base];
 // 運兵車：出勤中（還在外面、沒有在回程）的小隊，加上回程中的人坐的車（同一台車回來的算一台）

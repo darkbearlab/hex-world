@@ -376,7 +376,7 @@ export class Core {
     if (m.type === 'equip') return G.equipItem(g, +m.uid, String(m.slot), m.item || null);
     if (m.type === 'retHide') return G.retHide(g, b, String(m.id));
     // 移動基地（Alan 2026-10-12；原本的 Rover）
-    if (m.type === 'baseGo') return RV.baseGo(g, b, w, +m.tile, h);
+    if (m.type === 'baseGo') return RV.baseGo(g, b, w, +m.tile, h, Array.isArray(m.sub) ? m.sub.map(Number) : null);
     if (m.type === 'sortie') return G.sortie(g, b, w, +m.tile, String(m.mode), m.uids || [], this.exactNow ?? h);   // 派遣（單機的第 4 步）
     if (m.type === 'baseStop') return RV.baseStop(g, b, w, h);
     if (m.type === 'baseSearch') return RV.baseSearch(g, b, w, h);
@@ -453,6 +453,8 @@ export class Core {
       const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
       if (!sq) return '這張服務單已經結算了';
       const win = !!m.result.win, dead = (m.result.dead || []).filter(id => sq.clones.some(c => c.id === id && c.alive));
+      // 打完要整頓（OPMAP.md：照 ASH 打了幾回合，一回合 10 秒，加接近和收拾 20 分鐘）：基地遇襲的話基地這段時間不能動
+      if (tk.type === 'roverhit' && m.result.turns && g.hq) g.hq.holdUntil = Math.max(g.hq.holdUntil || 0, h + (20 + m.result.turns * 10 / 60) / 60);
       const wipe = !sq.clones.some(c => c.alive && !dead.includes(c.id));
       // 成長寫回名冊（等級、經驗、升級三選一、技能、預備欄），升級的人另外發一則通知
       const ups = [];

@@ -111,6 +111,17 @@ export function legRoute(a, b, D) {
   const tot = path[path.length - 1].d || 1; return path.map(p => ({q: p.q, r: p.r, at: p.d / tot}));
 }
 export function alongRoute(route, f) { for (let i = 1; i < route.length; i++) if (f <= route[i].at) { const a = route[i - 1], b = route[i], t = (f - a.at) / Math.max(1e-9, b.at - a.at); return [a.q + (b.q - a.q) * t, a.r + (b.r - a.r) * t]; } const z = route[route.length - 1]; return [z.q, z.r]; }
+// 同一個戰略格裡，小格 a 走到小格 b（基地停到某一小格、從某一小格回到中心）：回傳 {path, minutes}；走不通就 null
+export function subRoute(t, a, b, D, mult = 1.3) {
+  const cells = cellsOf(t, D), K = key(a[0], a[1]), G = key(b[0], b[1]); if (K === G) return {path: [a], minutes: 0};
+  const cost = x => { const m = TERRAIN[x.k]?.car; return isFinite(m) ? m * mult : x.bridge ? 4 * mult : Infinity; };
+  const dist = new Map([[K, 0]]), prev = new Map(), open = [[0, K]];
+  while (open.length) { open.sort((p, q) => p[0] - q[0]); const [d, k] = open.shift(); if (k === G) break; if (d > (dist.get(k) ?? Infinity)) continue; const x = cells.get(k);
+    for (const [dq, dr] of DIRS) { const nk = key(x.q + dq, x.r + dr), y = cells.get(nk); if (!y) continue; const c = cost(y); if (!isFinite(c)) continue; const nd = d + c; if (nd < (dist.get(nk) ?? Infinity)) { dist.set(nk, nd); prev.set(nk, k); open.push([nd, nk]); } } }
+  if (!dist.has(G)) return null;
+  const path = []; for (let k = G; k; k = prev.get(k)) { const x = cells.get(k); path.unshift([x.q, x.r]); if (k === K) break; }
+  return {path, minutes: dist.get(G)};
+}
 // 戰略格 t 往 n 走到一半時，在作戰地圖上的位置（小格的軸座標，帶小數）：從 t 的中心到 n 的中心內插
 export function between(a, b, f, W) { const ca = center(a, W), cb = center(b, W); return [ca[0] + (cb[0] - ca[0]) * f, ca[1] + (cb[1] - ca[1]) * f]; }
 // 伺服器端：直接從沙盒組地圖資料（跟 core.js snapshot 送給瀏覽器的數字一樣算法，兩邊展開出來的小格才會一模一樣）

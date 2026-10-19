@@ -7,6 +7,7 @@
 // 只在單機開（NEAR.on，server/worker.js 的 soloInit）；線上的共用星球照舊擲骰。
 import {NBR, W as MAPW} from './sim.js';
 import {TERRAIN, DIRS, center, key, hexDist, cellsOf, dataFromSim, legRoute, alongRoute} from './opmap.js';
+import {posOn} from './cases.js';
 
 export const NEAR = {
   on: false,
@@ -27,7 +28,7 @@ const town = (K, t) => !!K.markets[t] && K.owner[t] >= 0;
 
 // 作戰地圖的資料（每季換一次）與小格（照需要展開、快取）
 let OD = null, ODkey = '', CELLS = new Map();
-function od(w) { const K = w.sim.peek(), k = K.curY + ':' + (w.sim.season || 0) + ':' + (K.routes?.length || 0); if (k !== ODkey) { ODkey = k; OD = dataFromSim(w, K, MAPW, t => NBR[t]); CELLS = new Map(); } return OD; }
+export function od(w) { const K = w.sim.peek(), k = K.curY + ':' + (w.sim.season || 0) + ':' + (K.routes?.length || 0); if (k !== ODkey) { ODkey = k; OD = dataFromSim(w, K, MAPW, t => NBR[t]); CELLS = new Map(); } return OD; }
 function cellAt(w, t, q, r) { const D = od(w); let m = CELLS.get(t); if (!m) { if (CELLS.size > 400) CELLS.clear(); m = cellsOf(t, D); CELLS.set(t, m); } return m.get(key(q, r)); }
 // 小格屬於哪個戰略格：先看原本那格，再看鄰格（六角群半徑 3）
 function tileOf(t, pos) { if (hexDist(center(t, MAPW), pos) <= 3) return t; for (const n of NBR[t]) if (hexDist(center(n, MAPW), pos) <= 3) return n; for (const n of NBR[t]) for (const m of NBR[n]) if (hexDist(center(m, MAPW), pos) <= 3) return m; return t; }
@@ -37,7 +38,9 @@ const minutes = (kind, c) => { if (!c) return Infinity; const [m, x] = NEAR.MOVE
 // 基地在作戰地圖上的位置（小格）：開動中照小格路線內插（跟畫面同一套），停著就是那一格的中心
 const legCache = new Map();
 export function basePos(G, w, h) {
-  const R = G.hq; if (!R?.move) return center(G.base, MAPW);
+  const R = G.hq;
+  if (R?.subMove) { const {from, to, t0, t1} = R.subMove, f = Math.max(0, Math.min(1, (h - t0) / Math.max(.01, t1 - t0))); return [Math.round(from[0] + (to[0] - from[0]) * f), Math.round(from[1] + (to[1] - from[1]) * f)]; }
+  if (!R?.move) return R?.sub || center(G.base, MAPW);
   const {from, to, t0, t1} = R.move, f = Math.max(0, Math.min(1, (h - t0) / Math.max(.01, t1 - t0))), k2 = ODkey + ':' + from + '-' + to;
   let rt = legCache.get(k2); if (!rt) { if (legCache.size > 200) legCache.clear(); rt = legRoute(from, to, od(w)); legCache.set(k2, rt); }
   const [q, r] = alongRoute(rt, f); return [Math.round(q), Math.round(r)];
@@ -50,31 +53,51 @@ function stepToward(w, p, goal) {
   return best;
 }
 
-// 每個遊戲小時（rover.js 的 hqHour，每家玩家公司）：生出、移動、非玩家之間的交戰、接觸。回傳接觸到基地的敵對兵牌（交給 defend 開遭遇的單），沒有就 null
-export function nearHour(G, w, h, canFight, say) {
+// 玩家的眼睛：基地、在路上的運兵車（看得到四周 RANGE 格；兵牌只在這附近生出、追這些人）
+const vanCache = new Map();
+export function eyes(G, book, w, h) {
+  const out = [{kind: 'base', tile: G.base, pos: basePos(G, w, h)}];
+  for (const sq of Object.values(book?.squads || {})) {
+    if (sq.player !== G.name || !sq.van || !sq.move || h >= sq.move.t1 || !sq.move.path?.length) continue;
+    const p = posOn(sq.move.path, (h - sq.move.t0) / Math.max(1, sq.move.t1 - sq.move.t0)), k2 = ODkey + ':' + p.a + '-' + p.b;
+    let rt = vanCache.get(k2); if (!rt) { if (vanCache.size > 200) vanCache.clear(); rt = p.a === p.b ? [{q: center(p.a, MAPW)[0], r: center(p.a, MAPW)[1], at: 0}] : legRoute(p.a, p.b, od(w)); vanCache.set(k2, rt); }
+    const [q, r] = alongRoute(rt, p.f); out.push({kind: 'van', tile: p.f < .5 ? p.a : p.b, pos: [Math.round(q), Math.round(r)], sq});
+  }
+  return out;
+}
+// 每個遊戲小時（rover.js 的 hqHour，每家玩家公司）：生出、移動、非玩家之間的交戰、接觸。
+// 回傳 {base: 接觸到基地的敵對兵牌, vans: [{sq, p}]（接觸到運兵車的）}；canFight＝基地手上沒有別的單
+export function nearHour(G, w, h, canFight, say, book) {
   if (!NEAR.on) return null;
   const R = G.hq; if (!R) return null;
-  const K = w.sim.peek(), base = G.base, P = R.near ||= [], bpos = basePos(G, w, h), safe = town(K, base) && !R.move;
+  const K = w.sim.peek(), base = G.base, P = R.near ||= [], E = eyes(G, book, w, h), bpos = E[0].pos, safe = town(K, base) && !R.move && !R.subMove;
   for (const p of P) if (!p.pos) { p.pos = center(p.tile, MAPW); p.mins = 0; }   // 舊的兵牌（升級前只有戰略格）：放到那一格的中心
   // 走遠了、待太久的就消失
-  for (let i = P.length - 1; i >= 0; i--) if (hexDistT(P[i].tile, base) > NEAR.RANGE + 1 || h - P[i].born > NEAR.LIFE) P.splice(i, 1);
+  for (let i = P.length - 1; i >= 0; i--) if (Math.min(...E.map(e => hexDistT(P[i].tile, e.tile))) > NEAR.RANGE + 1 || h - P[i].born > NEAR.LIFE) P.splice(i, 1);
   // 生出
-  if (P.length < NEAR.MAX) for (const t of ring(base, NEAR.RANGE)) {
+  const around = new Set(); for (const e of E) for (const t of ring(e.tile, NEAR.RANGE)) around.add(t);
+  if (P.length < NEAR.MAX) for (const t of around) {
     if (P.length >= NEAR.MAX || !w.land[t] || P.some(p => p.tile === t)) continue;
     if (town(K, t)) { if (roll(t, h, 11) < NEAR.CARAVAN) { const to = Object.keys(K.markets).map(Number).filter(u => u !== t && town(K, u) && hexDistT(u, t) <= 10).sort((a, b) => hexDistT(a, t) - hexDistT(b, t))[Math.floor(roll(t, h, 12) * 3)]; if (to != null) P.push(make(G, w, 'caravan', t, h, {to, str: 3})); } continue; }
     const native = (K.gangs || []).some(g => !g.gone && g.native && hexDistT(g.lair, t) <= 3);
     if (native && roll(t, h, 13) < NEAR.NATIVE) { P.push(make(G, w, 'native', t, h, {str: 5})); continue; }
     if (roll(t, h, 14) < (K.bandit[t] || 0) * NEAR.BANDIT) P.push(make(G, w, 'bandit', t, h, {str: 3 + Math.round((K.bandit[t] || 0) / 20)}));
   }
-  // 移動：每小時 60 分鐘的預算（沒走完的留到下一小時）
+  // 一小時切成 SLICES 段（每段 10 分鐘）：兵牌走一段、玩家的基地和運兵車也照那個時刻的位置，每段檢查一次接觸——
+  // 運兵車一小時走 7～14 小格，一小時才看一次會擦身而過
+  const out = {base: null, vans: []}, hitVan = new Set();
+  for (let sl = 1; sl <= SLICES; sl++) {
+  const tt = h - 1 + sl / SLICES, Es = sl === SLICES ? E : eyes(G, book, w, tt), bp = Es[0].pos;
+  // 移動：每段 60/SLICES 分鐘的預算（沒走完的留著，最多兩小時份）
   for (const p of P) {
     if (p.hold > h) continue;
-    p.mins = Math.min(120, (p.mins || 0) + 60);
+    p.mins = Math.min(120, (p.mins || 0) + 60 / SLICES);
     for (let guard = 0; guard < 20; guard++) {
       let goal;
       if (p.kind === 'caravan') goal = center(p.to, MAPW);
-      else if (!safe && hexDistT(p.tile, base) <= NEAR.CHASE) { goal = bpos; p.chase = true; }
-      else { p.chase = false; if (!p.wander || hexDist(p.pos, p.wander) <= 1) { const c0 = center(p.tile, MAPW), d = DIRS[Math.floor(roll(p.id, h + guard, 7) * 6)]; p.wander = [c0[0] + d[0] * 3, c0[1] + d[1] * 3]; } goal = p.wander; }
+      else { const tgt = Es.filter(e => !(e.kind === 'base' && safe) && !(e.sq?.busy) && hexDistT(p.tile, e.tile) <= NEAR.CHASE).sort((a, b) => hexDist(a.pos, p.pos) - hexDist(b.pos, p.pos))[0];
+        if (tgt && p.kind !== 'caravan') { goal = tgt.pos; p.chase = true; } else goal = null; }
+      if (!goal) { p.chase = false; if (!p.wander || hexDist(p.pos, p.wander) <= 1) { const c0 = center(p.tile, MAPW), d = DIRS[Math.floor(roll(p.id, h + guard, 7) * 6)]; p.wander = [c0[0] + d[0] * 3, c0[1] + d[1] * 3]; } goal = p.wander; }
       if (hexDist(p.pos, goal) <= (p.kind === 'caravan' ? 0 : 1)) break;
       const s = stepToward(w, p, goal); if (!s || s.m > p.mins) break;
       p.mins -= s.m; p.pos = s.pos; p.tile = s.t;
@@ -91,11 +114,13 @@ export function nearHour(G, w, h, canFight, say) {
     else if (r === 'repelled') { K.bandit[a.tile] = Math.max(0, (K.bandit[a.tile] || 0) - 1); a.str = Math.max(1, a.str - 1); a.wander = null; for (let i = 0; i < 2; i++) { const s = stepToward(w, a, [a.pos[0] * 2 - v.pos[0], a.pos[1] * 2 - v.pos[1]]); if (s) { a.pos = s.pos; a.tile = s.t; } } say?.(h, v.tile, `附近：${nm}一帶，往${w.names[v.to] || '別座城'}的商隊打退了一群掠奪者。`); }
     else say?.(h, v.tile, `附近：${nm}一帶，掠奪者和商隊交上火了。`);
   }
-  // 接觸：敵對兵牌在基地旁邊一小格（控制區）
-  if (safe || !canFight) return null;
-  const i = P.findIndex(p => KIND[p.kind].hostile && !(p.hold > h) && hexDist(p.pos, bpos) <= 1);
-  return i < 0 ? null : P.splice(i, 1)[0];
+  // 接觸：敵對兵牌在基地、運兵車旁邊一小格（控制區）
+  if (!out.base && !safe && canFight) { const i = P.findIndex(p => KIND[p.kind].hostile && !(p.hold > h) && hexDist(p.pos, bp) <= 1); if (i >= 0) out.base = P.splice(i, 1)[0]; }
+  for (const e of Es.slice(1)) { if (e.sq.busy || hitVan.has(e.sq.id)) continue; const i = P.findIndex(p => KIND[p.kind].hostile && !(p.hold > h) && hexDist(p.pos, e.pos) <= 1); if (i >= 0) { hitVan.add(e.sq.id); out.vans.push({sq: e.sq, tile: e.tile, p: P.splice(i, 1)[0]}); } }
+  }
+  return out;
 }
+const SLICES = 6;
 const hexDistT = (a, b) => hexDist(center(a, MAPW), center(b, MAPW)) / 7;   // 戰略格的距離（中心之間 7 小格＝1 格）
 // 戰鬥結果表（OPMAP.md 第六節，非玩家之間）：攻方戰力 ÷ 守方戰力分欄，擲一顆骰（0～1）。robbed＝守方被劫／打散、repelled＝攻方被擊退、engaged＝還在打
 const COLS = [1 / 3, 1 / 2, 1, 2, 3, 4];
