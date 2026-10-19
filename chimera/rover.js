@@ -178,7 +178,9 @@ function searchResult(G, book, w, t, h) {
   const K = w.sim.peek(), out = [], site = nearSite(book, w, t, h);
   if (site && !site.taken) { site.claim(G.name); out.push(...site.loot(G, h)); }
   for (const b of (book.bodies || []).filter(b => b.tile === t && !b.takenBy)) { b.takenBy = G.name; out.push(b.co === G.name ? '找到了我們自己人的遺體，帶回去還能重新培養。' : `找到一具${b.co}的人的遺體。`); }
-  if (!site && K.ruin[t]) { const r = roll(t, h, 77); if (r < .5) { G.mats.implant = (G.mats.implant || 0) + 3; G.mats.neural = (G.mats.neural || 0) + 3; out.push('在廢墟裡拆到一些還能用的植入物和神經介質（植入物 +3、神經介質 +3）。'); } else out.push('廢墟裡翻了一圈，只有爛掉的電路板。'); }
+  const ruinCell = NEAR.on && K.ruin[t] ? [...cellsOf(t, od(w)).values()].find(c => c.f === 'ruin') : null, atRuin = !ruinCell || (G.hq?.sub && G.hq.sub[0] === ruinCell.q && G.hq.sub[1] === ruinCell.r);
+  if (!site && K.ruin[t] && !atRuin) out.push('這一格的廢墟在別處（作戰地圖上的 ✕），把基地停到那一小格再搜。');
+  if (!site && K.ruin[t] && atRuin) { const r = roll(t, h, 77); if (r < .5) { G.mats.implant = (G.mats.implant || 0) + 3; G.mats.neural = (G.mats.neural || 0) + 3; out.push('在廢墟裡拆到一些還能用的植入物和神經介質（植入物 +3、神經介質 +3）。'); } else out.push('廢墟裡翻了一圈，只有爛掉的電路板。'); }
   if (!out.length) { const k = 2; out.push(roll(t, h, 5) >= .3 ? '搜了一圈，什麼也沒找到。' : `撿到一些補給（熱量 +${k}）。`); if (out[0].startsWith('撿到一些補給')) G.mats.food = (G.mats.food || 0) + k; }
   return out;
 }

@@ -4,6 +4,7 @@
 // 伺服器的存檔＝快照＋指令紀錄（log）。
 import {roadsOf} from './opmap.js';
 import {fogView} from './near.js';
+import * as NR from './near.js';
 import * as S from './sim.js';
 import * as C from './cases.js';
 import * as G from './company.js';
@@ -18,7 +19,7 @@ const BIG_OK = new Set(['probe', 'hold', 'clear', 'patrol', 'sweep', 'scout', 'g
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['autoFight', 'flee', 'sortie', 'outfit', 'speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave', 'opResupply', 'opPick', 'cover'];
+export const COMMANDS = ['caravanBuy', 'askLocal', 'autoFight', 'flee', 'sortie', 'outfit', 'speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave', 'opResupply', 'opPick', 'cover'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -378,6 +379,9 @@ export class Core {
     if (m.type === 'retHide') return G.retHide(g, b, String(m.id));
     // 移動基地（Alan 2026-10-12；原本的 Rover）
     if (m.type === 'baseGo') return RV.baseGo(g, b, w, +m.tile, h, Array.isArray(m.sub) ? m.sub.map(Number) : null);
+    // 作戰地圖第 4 段：跟商隊買、在聚落打聽消息
+    if (m.type === 'caravanBuy') return NR.caravanBuy(g, b, w, h, +m.id, String(m.mat), +m.qty || 10);
+    if (m.type === 'askLocal') { const r = NR.askLocal(g, b, w, h, (this.worldView(g)?.sites || []).filter(x => !x.taken)); if (typeof r === 'string') return r; if (g.hq) g.hq.log.push({h, tile: g.base, text: r.say, kind: 'story'}); return null; }
     if (m.type === 'sortie') return G.sortie(g, b, w, +m.tile, String(m.mode), m.uids || [], this.exactNow ?? h);   // 派遣（單機的第 4 步）
     if (m.type === 'baseStop') return RV.baseStop(g, b, w, h);
     if (m.type === 'baseSearch') return RV.baseSearch(g, b, w, h);

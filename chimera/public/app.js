@@ -200,7 +200,7 @@ function drawNow() {
     // 東方謠言（Alan 2026-10-12）：傳聞中的舊星艦維修站，紅★
     if (W.rumor) { const px = cx(W.rumor.tile), py = cy(W.rumor.tile), r = S0 * .9; ctx.fillStyle = '#ff5a5a'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = q * Math.PI / 5 - Math.PI / 2, rr = q % 2 ? r * .45 : r; ctx.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke(); }
     // 近的一層（單機，Alan 2026-10-18）：基地看得到的範圍畫一圈淡淡的六角，裡面的隊伍：掠奪者紅、原住民橙、商隊青；在追基地的外面多一圈
-    if (GV.hq?.near) { const NV = GV.hq.near, col = {bandit: '#e05a43', native: '#e7a14a', caravan: '#6fd0d8'};
+    if (GV.hq?.near) { const NV = GV.hq.near, col = {bandit: '#e05a43', native: '#e7a14a', caravan: '#6fd0d8', patrol: '#9fb3d9'};   // 巡邏隊（第 4 段）：敵對的畫成三角
       ctx.save(); ctx.globalAlpha = .18; ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1, 1.2 / k); ctx.beginPath(); ctx.arc(cx(GV.base), cy(GV.base), SQ3 * S0 * (NV.range + .5), 0, 7); ctx.stroke(); ctx.restore();
       for (const p of NV.list) { const [x, y] = nearXY(p), r = S0 * .55 * opMK();
         ctx.fillStyle = col[p.kind] || '#ccc'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.4 / k);
@@ -335,7 +335,18 @@ function opInfo(i) {   // 地點分頁最上面：選到的那一小格
   const F = {town: '城', suburb: '城郊', settle: '聚落', ruin: '廢墟'}, T = TERRAIN[x.k];
   const bits = [T?.n || x.k, x.f ? F[x.f] : '', x.road ? '有路' : '', x.bridge ? '橋' : '', x.river ? '河' : '', x.trench ? '戰壕' : ''].filter(Boolean);
   const go = GV.hq && isFinite(T?.car) ? `<br><button data-act="basegosub" data-id="${x.t}" data-q="${x.q}" data-r="${x.r}">基地開到這一小格</button>` : '';
-  return `<p class="mini" style="border-left:3px solid #c9b48a;padding-left:8px"><b>作戰地圖・這一小格</b>　${bits.join('・')}<br><span class="muted">${isFinite(T?.car) ? `車 ${T.car} 分鐘、徒步 ${T.foot} 分鐘走過一小格` : '過不去'}</span>${go}</p>`;
+  // 第 4 段的互動：這一小格（和旁邊一圈）的兵牌；商隊可以買東西；停在聚落、城可以打聽；廢墟要停在這一小格才搜得到
+  const H = GV.hq || {}, here = (H.near?.list || []).filter(p => p.pos && Math.max(Math.abs(p.pos[0] - x.q), Math.abs(p.pos[1] - x.r), Math.abs(p.pos[0] + p.pos[1] - x.q - x.r)) <= 1);
+  const atBase = !H.move && !H.subMove && (H.sub ? H.sub[0] === x.q && H.sub[1] === x.r : (() => { const c0 = opCenter(GV.base, ST.W); return c0[0] === x.q && c0[1] === x.r; })());
+  let act = '';
+  for (const p of here) {
+    act += `<br><b style="color:${p.hostile ? 'var(--war)' : 'var(--cyan)'}">${esc(p.name)}</b>（戰力 ${p.str}${p.chase ? '・正朝我們過來' : ''}${p.to != null && !p.hostile ? `・往${esc(ST.names[p.to] || '')}` : ''}）`;
+    if (p.kind === 'caravan' && p.cargo) act += `　<button data-act="cvbuy" data-id="${p.id}" data-mat="food">買熱量 10</button><button data-act="cvbuy" data-id="${p.id}" data-mat="water">買淨水 10</button><span class="muted">（還有熱量 ${p.cargo.food}、淨水 ${p.cargo.water}；基地要在牠旁邊一小格）</span>`;
+  }
+  if ((x.f === 'settle' || x.f === 'town') && atBase) act += `<br><button data-act="asklocal">打聽消息</button><span class="muted">（同一處一天一次：附近的據點、遠征點在哪個方向）</span>`;
+  else if (x.f === 'settle') act += '<br><span class="muted">基地停在這一小格就可以打聽消息。</span>';
+  if (x.f === 'ruin') act += `<br><span class="muted">${atBase ? '基地停在這處廢墟：用基地分頁的「搜索這一帶」就會搜它。' : '把基地停在這一小格，才能搜這處廢墟。'}</span>`;
+  return `<p class="mini" style="border-left:3px solid #c9b48a;padding-left:8px"><b>作戰地圖・這一小格</b>　${bits.join('・')}${GV.hq?.near?.night ? '<span class="muted">・夜裡</span>' : ''}<br><span class="muted">${isFinite(T?.car) ? `車 ${T.car} 分鐘、徒步 ${T.foot} 分鐘走過一小格` : '過不去'}</span>${go}${act}</p>`;
 }
 function toggleOp() {
   opMode = !opMode; opSel = null; $('zop').classList.toggle('on', opMode);
@@ -420,7 +431,7 @@ function renderFac() {
 $('pane-tile').onclick = e => { if (recallClick(e)) return;
   const bg = e.target.closest('[data-basego]'); if (bg) { baseGoAsk(+bg.dataset.basego); return; }
   if (e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-clean],[data-ret]')) { $('pane-opp').onclick(e); renderTile(); return; }   // 接案：跟委託板同一套
-  if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"],[data-act="sortiepick"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
+  if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"],[data-act="sortiepick"],[data-act="cvbuy"],[data-act="asklocal"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
   const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('trade'); send({type: 'quotes'}); } };
 $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) return; const id = +r.dataset.f; hiFac = hiFac === id ? -1 : id; const f = hist[cur].fac.find(x => x.id === id); if (f && hiFac >= 0) centerOn(f.cap); draw(); };
 
@@ -1702,6 +1713,8 @@ const coClick = e => {
   // 基地（Alan 2026-10-12；原本的 Rover）
   else if (A === 'basego') baseGoAsk(+id);
   else if (A === 'basegosub') send({type: 'baseGo', tile: +id, sub: [+b.dataset.q, +b.dataset.r]});   // 作戰地圖：停到某一小格
+  else if (A === 'cvbuy') send({type: 'caravanBuy', id: +id, mat: b.dataset.mat, qty: 10});   // 第 4 段：跟商隊買
+  else if (A === 'asklocal') send({type: 'askLocal'});   // 第 4 段：在聚落、城打聽消息
   else if (A === 'sortiepick') {   // 派遣（單機第 4 步）：用出擊編成挑人
     const mode = b.dataset.mode, MN2 = {explore: '探索', talk: '交流', fight: '攻擊'}, tile = +id, place = ST.names?.[tile] || '荒野';
     sortie = {key: 'custom', tile, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'sortie', lv: 1, one: true, min: 2, tile, title: `派遣・${MN2[mode]}：${place}`,

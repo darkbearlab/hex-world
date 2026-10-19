@@ -7,7 +7,8 @@
 // 只在單機開（NEAR.on，server/worker.js 的 soloInit）；線上的共用星球照舊擲骰。
 import {NBR, W as MAPW} from './sim.js';
 import {TERRAIN, DIRS, center, key, hexDist, cellsOf, dataFromSim, legRoute, alongRoute} from './opmap.js';
-import {posOn} from './cases.js';
+import {posOn, pay} from './cases.js';
+import {relOf, REL} from './company.js';
 
 export const NEAR = {
   on: false,
@@ -18,10 +19,19 @@ export const NEAR = {
   BANDIT: 2.5e-5,    // 掠奪者：每格每小時出現的機率 ＝ 匪患 × BANDIT
   NATIVE: 4e-4,      // 原住民：地盤（巢穴 3 格內）每格每小時
   CARAVAN: .02,      // 商隊：範圍內每座城每小時
+  PATROL: .0015,     // 巡邏隊：勢力地盤（不在城裡）每格每小時；那個勢力在打仗的話 ×3（第 4 段）
+  NIGHT: [20, 6],    // 夜裡（遊戲時間 20:00～06:00）：敵對兵牌追人的距離縮成 NIGHT_CHASE，離玩家 2 格外的兵牌看不到
+  NIGHT_CHASE: 2,
+  HIDE: 3,           // 兵牌在林、廢墟的小格裡：離玩家 3 小格外看不到
+  TRADE: 1.3,        // 跟商隊買：照目的地城的價格 ×1.3
   // 移動：地形的分鐘數用車還是徒步，再乘這個倍率（OPMAP.md：掠奪者騎車快、商隊慢、基地 ×1.3）
-  MOVE: {bandit: ['car', .8], native: ['foot', 1], caravan: ['car', 1.5]},
+  MOVE: {bandit: ['car', .8], native: ['foot', 1], caravan: ['car', 1.5], patrol: ['car', 1]},
 };
-const KIND = {bandit: {n: '掠奪者', hostile: true}, native: {n: '原住民', hostile: true}, caravan: {n: '商隊', hostile: false}};
+const KIND = {bandit: {n: '掠奪者', hostile: true}, native: {n: '原住民', hostile: true}, caravan: {n: '商隊', hostile: false}, patrol: {n: '巡邏隊', hostile: false}};
+// 對這家公司敵不敵對：掠奪者、原住民一律敵對；巡邏隊看登記地的勢力跟牠交戰、或派系關係低到不往來（第 4 段）
+function hostileTo(p, G, w) { if (p.kind !== 'patrol') return KIND[p.kind].hostile; const K = w.sim.peek(), f0 = K.owner[G.home ?? G.base]; return (f0 >= 0 && w.sim.pmc.atWar(p.fac, f0)) || relOf(G, p.fac) <= REL.REFUSE; }
+export const isNight = h => { const x = ((h % 24) + 24) % 24; return x >= NEAR.NIGHT[0] || x < NEAR.NIGHT[1]; };
+const hiddenCell = c => !!c && (c.k === 'forest' || c.f === 'ruin');
 const roll = (t, h, salt) => (((t * 2654435761) ^ (h * 40503) ^ (salt * 2246822519)) >>> 0) % 100000 / 100000;
 const ring = (c, r) => { const out = [], seen = new Set([c]); let edge = [c]; for (let d = 0; d < r; d++) { const nx = []; for (const t of edge) for (const n of NBR[t]) if (!seen.has(n)) { seen.add(n); nx.push(n); out.push(n); } edge = nx; } return out; };
 const town = (K, t) => !!K.markets[t] && K.owner[t] >= 0;
@@ -71,6 +81,7 @@ export function nearHour(G, w, h, canFight, say, book) {
   if (!NEAR.on) return null;
   const R = G.hq; if (!R) return null;
   const K = w.sim.peek(), base = G.base, P = R.near ||= [], E = eyes(G, book, w, h), bpos = E[0].pos, safe = town(K, base) && !R.move && !R.subMove;
+  const baseHidden = !R.move && !R.subMove && !!R.sub && cellOf(w, G.base, R.sub).c?.k === 'forest';   // 基地停在林的小格裡（第 4 段）
   for (const p of P) if (!p.pos) { p.pos = center(p.tile, MAPW); p.mins = 0; }   // 舊的兵牌（升級前只有戰略格）：放到那一格的中心
   // 走遠了、待太久的就消失
   for (let i = P.length - 1; i >= 0; i--) if (Math.min(...E.map(e => hexDistT(P[i].tile, e.tile))) > NEAR.RANGE + 1 || h - P[i].born > NEAR.LIFE) P.splice(i, 1);
@@ -79,8 +90,13 @@ export function nearHour(G, w, h, canFight, say, book) {
   if (P.length < NEAR.MAX) for (const t of around) {
     if (P.length >= NEAR.MAX || !w.land[t] || P.some(p => p.tile === t)) continue;
     if (town(K, t)) { if (roll(t, h, 11) < NEAR.CARAVAN) { const to = Object.keys(K.markets).map(Number).filter(u => u !== t && town(K, u) && hexDistT(u, t) <= 10).sort((a, b) => hexDistT(a, t) - hexDistT(b, t))[Math.floor(roll(t, h, 12) * 3)]; if (to != null) P.push(make(G, w, 'caravan', t, h, {to, str: 3})); } continue; }
-    const native = (K.gangs || []).some(g => !g.gone && g.native && hexDistT(g.lair, t) <= 3);
-    if (native && roll(t, h, 13) < NEAR.NATIVE) { P.push(make(G, w, 'native', t, h, {str: 5})); continue; }
+    const nat = (K.gangs || []).find(g => !g.gone && g.native && hexDistT(g.lair, t) <= 3);
+    if (nat && roll(t, h, 13) < NEAR.NATIVE) { P.push(make(G, w, 'native', t, h, {str: 5, lair: nat.lair})); continue; }
+    // 巡邏隊：勢力的地盤上，往那個勢力最近的另一座城走
+    const f = K.owner[t];
+    if (f >= 0 && K.fac[f]?.alive !== false && roll(t, h, 16) < NEAR.PATROL * (K.fac.some((x, j) => j !== f && x.alive !== false && w.sim.pmc.atWar(f, j)) ? 3 : 1)) {
+      const to = Object.keys(K.markets).map(Number).filter(u => town(K, u) && K.owner[u] === f).sort((a, b) => hexDistT(a, t) - hexDistT(b, t))[0];
+      if (to != null) { P.push(make(G, w, 'patrol', t, h, {str: 6, fac: f, to})); continue; } }
     if (roll(t, h, 14) < (K.bandit[t] || 0) * NEAR.BANDIT) P.push(make(G, w, 'bandit', t, h, {str: 3 + Math.round((K.bandit[t] || 0) / 20)}));
   }
   // 一小時切成 SLICES 段（每段 10 分鐘）：兵牌走一段、玩家的基地和運兵車也照那個時刻的位置，每段檢查一次接觸——
@@ -95,9 +111,13 @@ export function nearHour(G, w, h, canFight, say, book) {
     for (let guard = 0; guard < 20; guard++) {
       let goal;
       if (p.kind === 'caravan') goal = center(p.to, MAPW);
-      else { const tgt = Es.filter(e => !(e.kind === 'base' && safe) && !(e.sq?.busy) && hexDistT(p.tile, e.tile) <= NEAR.CHASE).sort((a, b) => hexDist(a.pos, p.pos) - hexDist(b.pos, p.pos))[0];
-        if (tgt && p.kind !== 'caravan') { goal = tgt.pos; p.chase = true; } else goal = null; }
-      if (!goal) { p.chase = false; if (!p.wander || hexDist(p.pos, p.wander) <= 1) { const c0 = center(p.tile, MAPW), d = DIRS[Math.floor(roll(p.id, h + guard, 7) * 6)]; p.wander = [c0[0] + d[0] * 3, c0[1] + d[1] * 3]; } goal = p.wander; }
+      else if (p.kind === 'patrol' && !hostileTo(p, G, w)) { goal = center(p.to, MAPW); if (hexDist(p.pos, goal) <= 1) { const o = Object.keys(K.markets).map(Number).filter(u => town(K, u) && K.owner[u] === p.fac && u !== p.to); if (o.length) p.to = o[Math.floor(roll(p.id, h, 17) * o.length)]; } }
+      else { const reach = isNight(tt) ? NEAR.NIGHT_CHASE : NEAR.CHASE;
+        const tgt = Es.filter(e => !(e.kind === 'base' && safe) && !(e.sq?.busy) && hexDistT(p.tile, e.tile) <= reach
+          && !(p.kind === 'native' && p.lair != null && hexDistT(e.tile, p.lair) > 2)                       // 原住民只追進到巢穴 2 格內的人
+          && !(e.kind === 'base' && baseHidden && hexDistT(p.tile, e.tile) > .5)).sort((a, b) => hexDist(a.pos, p.pos) - hexDist(b.pos, p.pos))[0];   // 基地躲在林裡：同一格才找得到
+        if (tgt) { goal = tgt.pos; p.chase = true; } else goal = null; }
+      if (!goal) { p.chase = false; if (!p.wander || hexDist(p.pos, p.wander) <= 1) { const c0 = center(p.kind === 'native' && p.lair != null ? p.lair : p.tile, MAPW), d = DIRS[Math.floor(roll(p.id, h + guard, 7) * 6)], k3 = p.kind === 'native' ? 1 + Math.floor(roll(p.id, h + guard, 8) * 14) : 3; p.wander = [c0[0] + d[0] * k3, c0[1] + d[1] * k3]; } goal = p.wander; }
       if (hexDist(p.pos, goal) <= (p.kind === 'caravan' ? 0 : 1)) break;
       const s = stepToward(w, p, goal); if (!s || s.m > p.mins) break;
       p.mins -= s.m; p.pos = s.pos; p.tile = s.t;
@@ -106,19 +126,58 @@ export function nearHour(G, w, h, canFight, say, book) {
   // 商隊到了就消失
   for (let i = P.length - 1; i >= 0; i--) if (P[i].kind === 'caravan' && hexDist(P[i].pos, center(P[i].to, MAPW)) <= 0) P.splice(i, 1);
   // 非玩家之間：掠奪者碰到商隊（相鄰一小格）擲戰鬥結果表
-  for (const a of P.filter(p => p.kind === 'bandit' && !(p.hold > h))) {
+  // 巡邏隊碰到掠奪者會出手：掠奪者被打散，匪患降
+  for (const a of P.filter(p => p.kind === 'patrol' && !(p.hold > h))) {
+    const v = P.find(p => p.kind === 'bandit' && !(p.hold > h) && hexDist(p.pos, a.pos) <= 1); if (!v) continue;
+    const r = crt(a.str, v.str, roll(a.id * 37 + v.id, h, 24)), nm = w.names[v.tile] || '荒野', hold = h + 1 + Math.floor(roll(a.id, h, 25) * 2); a.hold = hold; v.hold = hold;
+    if (r === 'robbed') { K.bandit[v.tile] = Math.max(0, (K.bandit[v.tile] || 0) - 2); P.splice(P.indexOf(v), 1); say?.(h, v.tile, `附近：${nm}一帶，${K.fac[a.fac]?.n || ''}的巡邏隊打散了一群掠奪者。`); }
+    else if (r === 'repelled') say?.(h, v.tile, `附近：${nm}一帶，掠奪者擋住了${K.fac[a.fac]?.n || ''}的巡邏隊。`);
+  }
+  for (const a of P.filter(p => (p.kind === 'bandit' || (p.kind === 'native' && p.lair != null && hexDistT(p.tile, p.lair) <= 3)) && !(p.hold > h))) {
     const v = P.find(p => p.kind === 'caravan' && !(p.hold > h) && hexDist(p.pos, a.pos) <= 1); if (!v) continue;
     const r = crt(a.str, v.str, roll(a.id * 31 + v.id, h, 21), v.pos && cellOf(w, v.tile, v.pos).c?.road ? 0 : 0), nm = w.names[v.tile] || '荒野';
     const hold = h + 1 + Math.floor(roll(a.id, h, 22) * 3); a.hold = hold; v.hold = hold;
-    if (r === 'robbed') { const m = K.markets[v.to]; if (m) { const g = ['food', 'water', 'fuel', 'parts'][Math.floor(roll(v.id, h, 23) * 4)]; m.stock[g] = Math.max(0, m.stock[g] * .995); } K.bandit[v.tile] = Math.min(100, (K.bandit[v.tile] || 0) + 1); a.str += 1; P.splice(P.indexOf(v), 1); say?.(h, v.tile, `附近：${nm}一帶，一群掠奪者攔下往${w.names[v.to] || '別座城'}的商隊，搶走了貨。`); }
+    if (r === 'robbed') { const m = K.markets[v.to]; if (m) { const g = ['food', 'water', 'fuel', 'parts'][Math.floor(roll(v.id, h, 23) * 4)]; m.stock[g] = Math.max(0, m.stock[g] * .995); } K.bandit[v.tile] = Math.min(100, (K.bandit[v.tile] || 0) + 1); a.str += 1; P.splice(P.indexOf(v), 1); say?.(h, v.tile, `附近：${nm}一帶，一群${KIND[a.kind].n}攔下往${w.names[v.to] || '別座城'}的商隊，搶走了貨。`); }
     else if (r === 'repelled') { K.bandit[a.tile] = Math.max(0, (K.bandit[a.tile] || 0) - 1); a.str = Math.max(1, a.str - 1); a.wander = null; for (let i = 0; i < 2; i++) { const s = stepToward(w, a, [a.pos[0] * 2 - v.pos[0], a.pos[1] * 2 - v.pos[1]]); if (s) { a.pos = s.pos; a.tile = s.t; } } say?.(h, v.tile, `附近：${nm}一帶，往${w.names[v.to] || '別座城'}的商隊打退了一群掠奪者。`); }
     else say?.(h, v.tile, `附近：${nm}一帶，掠奪者和商隊交上火了。`);
   }
   // 接觸：敵對兵牌在基地、運兵車旁邊一小格（控制區）
-  if (!out.base && !safe && canFight) { const i = P.findIndex(p => KIND[p.kind].hostile && !(p.hold > h) && hexDist(p.pos, bp) <= 1); if (i >= 0) out.base = P.splice(i, 1)[0]; }
-  for (const e of Es.slice(1)) { if (e.sq.busy || hitVan.has(e.sq.id)) continue; const i = P.findIndex(p => KIND[p.kind].hostile && !(p.hold > h) && hexDist(p.pos, e.pos) <= 1); if (i >= 0) { hitVan.add(e.sq.id); out.vans.push({sq: e.sq, tile: e.tile, p: P.splice(i, 1)[0]}); } }
+  if (!out.base && !safe && canFight) { const i = P.findIndex(p => hostileTo(p, G, w) && !(p.hold > h) && hexDist(p.pos, bp) <= 1); if (i >= 0) out.base = P.splice(i, 1)[0]; }
+  for (const e of Es.slice(1)) { if (e.sq.busy || hitVan.has(e.sq.id)) continue; const i = P.findIndex(p => hostileTo(p, G, w) && !(p.hold > h) && hexDist(p.pos, e.pos) <= 1); if (i >= 0) { hitVan.add(e.sq.id); out.vans.push({sq: e.sq, tile: e.tile, p: P.splice(i, 1)[0]}); } }
   }
+  // 看不看得到（第 4 段）：夜裡離玩家 2 格外看不到；在林、廢墟的小格裡，離玩家 3 小格外看不到
+  const night = isNight(h);
+  for (const p of P) { const c = cellOf(w, p.tile, p.pos).c; p.vis = E.some(e => (!night || hexDistT(p.tile, e.tile) <= 2) && (!hiddenCell(c) || hexDist(p.pos, e.pos) <= NEAR.HIDE)); p.hostile = hostileTo(p, G, w); }
   return out;
+}
+// 跟商隊買東西（第 4 段）：基地在商隊旁邊一小格；照牠目的地那座城的價格 ×TRADE；牠的貨有限
+export function caravanBuy(G, book, w, h, id, mat, qty) {
+  if (!NEAR.on) return '只有單機有';
+  const p = (G.hq?.near || []).find(x => x.id === id && x.kind === 'caravan'); if (!p) return '這支商隊已經走了';
+  if (mat !== 'food' && mat !== 'water') return '商隊只賣熱量、淨水';
+  if (hexDist(basePos(G, w, h), p.pos) > 1) return '基地要開到商隊旁邊一小格';
+  const left = (p.cargo ||= {food: 40, water: 40})[mat]; qty = Math.min(Math.max(1, qty | 0), left); if (!qty) return '這支商隊的貨賣完了';
+  const pr = caravanPrice(w, p)[mat], cost = Math.round(pr * qty * 10) / 10; if (cost > G.cash) return '錢不夠';
+  pay(book, h, G.name, -cost, 'buy', `跟往${w.names[p.to] || ''}的商隊買${mat === 'food' ? '熱量' : '淨水'} ${qty}`);
+  p.cargo[mat] -= qty; G.mats[mat] = (G.mats[mat] || 0) + qty; return null;
+}
+function caravanPrice(w, p) { const m = w.sim.peek().markets[p.to], q = g => m?.price?.[g] ?? 1; return {food: +(.2 * q('food') * NEAR.TRADE).toFixed(2), water: +(.24 * q('water') * NEAR.TRADE).toFixed(2)}; }
+// 打聽消息（第 4 段）：基地停在聚落（或城）的小格；同一處一天一次。說附近的遠征點、據點在哪個方向
+const DIR8 = ['東', '東南', '南', '西南', '西', '西北', '北', '東北'];
+export function askLocal(G, book, w, h, siteList) {
+  if (!NEAR.on) return '只有單機有';
+  const R = G.hq; if (!R || R.move || R.subMove) return '基地要停下來';
+  const pos = R.sub || center(G.base, MAPW), c = cellOf(w, G.base, pos).c; if (!c || !(c.f === 'settle' || c.f === 'town')) return '基地要停在聚落或城的那一小格';
+  const k = pos[0] + ',' + pos[1]; R.asked ||= {}; if (h - (R.asked[k] ?? -1e9) < 24) return '這裡今天已經打聽過了';
+  R.asked[k] = h;
+  const K = w.sim.peek(), from = center(G.base, MAPW), dir = t => { const c2 = center(t, MAPW), x = (c2[0] - from[0]) + (c2[1] - from[1]) / 2, y = (c2[1] - from[1]) * .866, a = Math.atan2(y, x); return DIR8[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]; };
+  const near = (L, n) => L.filter(x => x.tile !== G.base).map(x => ({...x, d: hexDistT(x.tile, G.base)})).filter(x => x.d <= n).sort((a, b) => a.d - b.d);
+  const lines = [];
+  const lair = near((K.gangs || []).filter(g => !g.gone).map(g => ({tile: g.lair, name: g.native ? g.name : `${g.name}的據點`})), 6)[0];
+  if (lair) lines.push(`往${dir(lair.tile)}大約 ${Math.round(lair.d)} 格，有${lair.name}。`);
+  const site = near(siteList || [], 6)[0]; if (site) lines.push(`往${dir(site.tile)}大約 ${Math.round(site.d)} 格，聽說有${site.title}。`);
+  if (!lines.length) lines.push('這一帶最近沒什麼事。');
+  return {say: `在${c.f === 'town' ? '城裡' : '聚落'}打聽：${lines.join('')}`};
 }
 const SLICES = 6;
 const hexDistT = (a, b) => hexDist(center(a, MAPW), center(b, MAPW)) / 7;   // 戰略格的距離（中心之間 7 小格＝1 格）
@@ -135,7 +194,8 @@ function make(G, w, kind, tile, h, extra = {}) {
   const R = G.hq; R.nearSeq = (R.nearSeq || 0) + 1;
   // 出生在那一格裡一個走得過去、不是城的小格
   const D = od(w), cells = [...cellsOf(tile, D).values()].filter(c => isFinite(minutes(kind, c)) && c.f !== 'town'), c = cells.length ? cells[Math.floor(roll(tile, h, 15) * cells.length)] : null, pos = c ? [c.q, c.r] : center(tile, MAPW);
-  return {id: R.nearSeq, kind, tile, pos, mins: 0, born: h, ...extra};
+  const facName = kind === 'patrol' ? w.sim.peek().fac[extra.fac]?.n || '' : undefined;
+  return {id: R.nearSeq, kind, tile, pos, mins: 0, born: h, ...(facName != null ? {facName} : {}), ...extra};
 }
 export const nearName = p => KIND[p.kind]?.n || '隊伍';
 // 戰略地圖的戰爭迷霧（OPMAP.md 第 3 段）：基地和在路上的運兵車四周 RANGE 格「現在看著」；看過的格子記在公司身上（G.seen），之後一直知道地形、道路、城
@@ -147,5 +207,6 @@ export function nearAt() { return null; }
 // 給畫面：範圍與每一個兵牌（種類、名字、在哪一格、哪一小格、戰力、敵對、在追、在交戰）
 export function nearView(G, h) {
   if (!NEAR.on || !G.hq) return null;
-  return {range: NEAR.RANGE, list: (G.hq.near || []).map(p => ({id: p.id, kind: p.kind, name: nearName(p), tile: p.tile, pos: p.pos || null, str: p.str || 0, hostile: KIND[p.kind].hostile, chase: !!p.chase, hold: h != null && p.hold > h, to: p.to ?? null}))};
+  return {range: NEAR.RANGE, night: h != null && isNight(h), list: (G.hq.near || []).filter(p => p.vis !== false).map(p => ({id: p.id, kind: p.kind, name: p.kind === 'patrol' ? `${p.facName || ''}巡邏隊` : nearName(p), tile: p.tile, pos: p.pos || null, str: p.str || 0, hostile: p.hostile ?? KIND[p.kind].hostile, chase: !!p.chase, hold: h != null && p.hold > h, to: p.to ?? null,
+    ...(p.kind === 'caravan' ? {cargo: p.cargo || {food: 40, water: 40}} : {})}))};
 }
