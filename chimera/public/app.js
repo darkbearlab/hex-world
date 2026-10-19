@@ -1730,7 +1730,7 @@ const ash = import('./ash/chimera-boot.js').then(m => m.bootAsh()).then(E => {
       for (const t of [0, 3000, 8000, 15000, 30000, 60000]) setTimeout(() => worker?.poll?.(), t); setTimeout(() => { if (settling === id && !syncShown) return; if (settling === id) { syncEl.className = 'retry'; syncEl.innerHTML = '<i class="spin"></i>簽核比平常久，重新整理頁面看看'; } }, 65000); } else send({type: 'submit', ticket: id, result}); mission = null; } };   // 伺服器結算可能要一點時間：多拉幾次（2026-10-14）
   // 先不打：伺服器上的戰鬥留在伺服器，下次按親自打接著打；單人測試模式要讓時間恢復
   E.onSync = (state, n) => syncChip(state, n);   // 打的時候伺服器驗證輸入的狀態（chimera-entry.js uplink）
-  E.onabort = id => { if (mission && mission.id === id) { if (mission.arena) showTitle(); else if (LOCAL) send({type: 'abort'}); mission = null; } };
+  E.onabort = id => { if (mission && mission.id === id) { if (mission.arena) showTitle(); else if (LOCAL || document.body.classList.contains('solo')) send({type: 'abort'}); mission = null; } };   // 單機：中途離開戰鬥也要讓伺服器把時間鎖解開
   return E;
 });
 async function openMission(tk) { mission = {id: tk.id}; const E = await ash; await launch(E, tk); }

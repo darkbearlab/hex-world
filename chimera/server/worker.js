@@ -124,7 +124,9 @@ export class Planet extends DurableObject {
   async alarm() {
     await this.init();
     if (this.pending || this.archived || this.hub) { if (this.archived || this.hub) await this.ctx.storage.deleteAlarm(); return; }
-    if (this.solo) { if (this.soloCatchUp()) this.markDirty(); this.out = []; return this.soloArm(); }   // 單機：一直在走，存檔照節流
+    if (this.solo) { const was = this.core.game?.speed; if (this.soloCatchUp()) this.markDirty(); this.out = [];
+      if (this.dirty && (!this.core.game?.speed && was || Date.now() - (this.meta.savedAt || 0) > 10000)) await this.persist();   // 鬧鐘醒來後物件可能被回收，節流的計時器不一定等得到：至少每 10 秒、自動暫停時馬上存
+      return this.soloArm(); }
     if (this.catchUp() || this.dirty) await this.persist();
     this.out = [];
     await this.arm();
@@ -144,6 +146,12 @@ export class Planet extends DurableObject {
       const at = Date.now(), z = await gzip(JSON.stringify({seed: String(b.seed || '奇美拉-1'), save: b.save, at})), n = Math.ceil(z.length / CHUNK), old = await st.get('tpl');
       for (let i = 0; i < n; i++) await st.put('tpl:' + i, z.slice(i * CHUNK, (i + 1) * CHUNK)); for (let i = n; i < (old?.chunks || 0); i++) await st.delete('tpl:' + i);
       await st.put('tpl', {chunks: n, bytes: z.length, at}); return json({ok: true, bytes: z.length, at});
+    }
+    // 後台：有哪些 Google 帳號（只有管理員的鑰匙）；拿 pid 去 admin/save?pid= 看那個人的星球
+    if (path === 'admin/accounts') {
+      const tok = req.headers.get('x-admin-token') || '', d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(tok))), hex = [...d].map(x => x.toString(16).padStart(2, '0')).join('');
+      if (!this.env.ADMIN_TOKEN_SHA256 || hex !== this.env.ADMIN_TOKEN_SHA256) return bad('沒有權限', 403);
+      const L = []; for (const [k, v] of await st.list({prefix: 'acct:'})) L.push({pid: k.slice(5), email: v.email, last: v.last}); return json(L);
     }
     return bad('不認得的請求', 404);
   }
@@ -335,6 +343,7 @@ export class Planet extends DurableObject {
         m.data = battleTicket(m.data, d);
       }
       if (this.solo && body.type === 'speed' && body.v) this.soloPause = null;
+      if (this.solo && (body.type === 'speed' || body.type === 'abort')) await this.persist();   // 單機：按暫停／換速度時馬上存（推到哪裡就存到哪裡）
       if (allowed.includes(body.type)) this.markDirty();   // 節流：SAVE_EVERY 內的指令合併成一次存檔
       if (allowed.includes(body.type) && this.env.PAUSED !== '1') await this.arm();   // 鬧鐘改排到最早要結算的時刻（培養完成、抵達、回到總部）
       return json({view: this.core.view(name, err), msgs, solo: this.solo ? this.soloInfo() : null});
@@ -413,7 +422,7 @@ export default {
     if (env.DEV === '1' && url.pathname.startsWith('/api/dev/battle/')) { const [, , , , id, op] = url.pathname.split('/'); return env.SKIRMISH.get(env.SKIRMISH.idFromName('dev-' + id)).fetch(new Request('https://battle/' + op, req)); }
     if (env.SOLO === '1' && url.pathname.startsWith('/api/')) {
       const p = url.pathname.slice(5);
-      if (p === 'auth/google' || p === 'admin/template') return hubOf(env).fetch(asHub(req));
+      if (p === 'auth/google' || p === 'admin/template' || p === 'admin/accounts') return hubOf(env).fetch(asHub(req));
       // 管理員的唯讀鑰匙：?pid= 指定看哪一個玩家的星球
       if (p.startsWith('admin/') && req.headers.get('x-admin-token') && url.searchParams.get('pid')) return soloOf(env, url.searchParams.get('pid')).fetch(asPlayer(req, url.searchParams.get('pid'), req.cf?.continent));
       const owner = await ownerOf(req, env);

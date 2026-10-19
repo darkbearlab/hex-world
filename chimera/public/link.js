@@ -31,7 +31,7 @@ export class ServerLink {
   // 單機（SOLO=1 的伺服器，Alan 2026-10-18）：時間是玩家按播放才走；伺服器回報推到哪（h）、速度（每秒幾小時）、為什麼停
   setSolo(x) {
     const was = this.solo; this.solo = {...x, at: Date.now()};
-    if (!was || was.speed !== x.speed || was.pause !== x.pause) this.emit({type: 'solo', solo: this.solo});
+    if (!was || was.speed !== x.speed || was.pause !== x.pause || was.fighting !== x.fighting) this.emit({type: 'solo', solo: this.solo});   // 打完（fighting 變回 false）也要通知，不然按鈕一直鎖著
     clearInterval(this.timer); this.timer = setInterval(() => this.poll(), x.speed ? 1000 : 15000);   // 走著的時候每秒拉一次畫面
   }
   // 現在是第幾個遊戲小時（帶小數）
