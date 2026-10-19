@@ -5,7 +5,8 @@
 // 接機會層的案、編成小隊派出去；服務單只能自動結算（戰鬥層還沒接上）。
 import * as C from './cases.js';
 import {hdist, W as MAPW} from './sim.js';
-import {hexDist as opDist, center as opCenter} from './opmap.js';
+import {hexDist as opDist, center as opCenter, cellsOf, key as opKey, TERRAIN} from './opmap.js';
+import {NEAR, lairInfo, opPos, od} from './near.js';
 
 // ===== 移動基地與運兵車（Alan 2026-10-12，warband/DESIGN.md「移動基地」）=====
 // G.base 是基地現在停的格子（會動，rover.js）；G.home 是登記地（勢力看這裡）。運兵車是「同時能派幾隊出去」：一台四個人，
@@ -612,14 +613,28 @@ export const canSee = (G, book, w, opp) => !gate(G, book, w, opp, []);
 // 派遣（Alan 2026-10-18，DESIGN.md「縮小規模」第 4 步）：自己挑一格派人去——探索（搜那一格，可能撞上零星的人）、交流（跟當地的人談，不打）、
 // 攻擊（掃蕩那一格的匪，近的一層裡那一格的敵對隊伍一起清掉）。坐運兵車、一隊最多四人；打的部分照練兵單的服務單（親自打或自動結算）
 export const SORTIE = {explore: '探索', talk: '交流', fight: '攻擊'};
-export function sortie(G, book, w, tile, mode, uids, now) {
+// 單機的小格選項（OPMAP.md 第十三節，巡查併在派人過去底下）：o.sub＝派到那一格的某一小格；o.sweep＝探索時巡查整格；o.lair＝清剿那個據點（要先找到確切的小格）；o.move＝'car'｜'foot'
+export function sortie(G, book, w, tile, mode, uids, now, o = {}) {
   if (!SORTIE[mode]) return '不認得的派遣';
   if (!Number.isInteger(tile) || !w.land[tile]) return '去不了那裡';
   const K = w.sim.peek(), town = !!K.markets[tile] && K.owner[tile] >= 0, nm = w.names[tile] || '無名之地';
   if (mode === 'fight' && town) return '不能在城裡動手';
   if (!isFinite(w.sim.pmc.dist(G.base, tile))) return '路走不到那裡';
-  const lv = Math.max(1, Math.min(3, Math.round((K.bandit[tile] || 0) / 25) + 1));
-  return accept(G, book, w, {kind: 'drill', tile, fac: -1, lv, hours: 48, sortie: mode, title: `派遣・${SORTIE[mode]}：${nm}`}, '', uids, now);
+  let lv = Math.max(1, Math.min(3, Math.round((K.bandit[tile] || 0) / 25) + 1)), title = `派遣・${SORTIE[mode]}：${nm}`, op = null;
+  if (NEAR.on && (o.sub || o.sweep || o.lair != null)) {
+    const move = o.move === 'foot' ? 'foot' : 'car';
+    if (o.lair != null) {
+      const g = (K.gangs || []).find(x => x.id === +o.lair && !x.gone); if (!g || g.lair !== tile) return '那個據點已經不在了';
+      if (mode !== 'fight') return '據點只能攻擊';
+      const L = lairInfo(G, w, g); if (L.found == null) return '還不知道據點在哪一小格：先派人巡查那一格';
+      lv = Math.min(3, g.str > 260 ? 3 : g.str > 150 ? 2 : 1); title = `清剿・${g.native ? g.name : g.name + '的據點'}`;
+      op = {lair: g.id, sub: [...L.sub], move};
+    } else if (o.sweep) { if (mode !== 'explore') return '只有探索可以巡查整格'; title = `派遣・巡查：${nm}`; op = {sweep: true, move}; }
+    else { const s = [Math.round(+o.sub[0]), Math.round(+o.sub[1])], x = cellsOf(tile, od(w)).get(opKey(s[0], s[1])); if (!x || !isFinite(TERRAIN[x.k]?.car)) return '那一小格過不去'; op = {sub: s, move}; title += '（一小格）'; }
+  }
+  const err = accept(G, book, w, {kind: 'drill', tile, fac: -1, lv, hours: 48, sortie: mode, title}, '', uids, now);
+  if (!err && op) { const c = book.cases.filter(x => G.cases.includes(x.id) && x.tile === tile && x.sortie && !x.settled).pop(); if (c) { Object.assign(c.sortie, {op: true}, op); if (op.lair != null) c.gang = op.lair; } }
+  return err;
 }
 function gate(G, book, w, opp, pick) {
   const K = w.sim.peek(), me = homeFac(G, K);
@@ -630,6 +645,7 @@ function gate(G, book, w, opp, pick) {
     const low = pick.filter(c => (c.lv || 1) < (opp.minLv || 0)); if (low.length) return `雇主要求至少 ${opp.minLv} 級（${low.map(c => label(c)).join('、')} 不夠）`;
   }
   if (opp.kind === 'privateer' && opp.foe === me) return '不能替人私掠自己總部的勢力';
+  if (NEAR.on && opp.kind === 'lair' && opp.gang != null) { const g = (K.gangs || []).find(x => x.id === opp.gang); if (g && !g.gone && lairInfo(G, w, g).found == null) return '還不知道據點在哪一小格：先派人到那一格「巡查整格」，找到了才能清剿'; }
   if (opp.kind === 'shadow' && opp.foe === me) return '不能接對付自己總部勢力的黑單';
   return null;
 }
@@ -1146,8 +1162,9 @@ function unitsView(G, book, h) {
     }
     const c = sq.caseId && book.cases.find(x => x.id === sq.caseId); if (!c || c.settled) continue;
     const moving = sq.move && h < sq.move.t1;
-    out.push({key: sq.id, kind: c.own ? 'escort' : 'squad', name: sq.name, n, pos: C.whereIs(sq, c, h), path: moving ? rest(sq.move, h) : [], where: c.title, own: !!c.own,
-      status: sq.busy ? '正在打服務單' : moving ? `行軍中，約 ${C.fmtDur(sq.move.t1 - h)}後到位` : c.own ? '護送車隊中' : '在現場待命',
+    const op = sq.op && !sq.op.handled ? {tile: sq.op.tile, pos: opPos(sq.op, h), foot: sq.op.mode === 'foot', sweep: sq.op.sweep, end: sq.op.pts[sq.op.pts.length - 1][2]} : null;
+    out.push({key: sq.id, kind: c.own ? 'escort' : 'squad', name: sq.name, n, pos: C.whereIs(sq, c, h), path: moving ? rest(sq.move, h) : [], where: c.title, own: !!c.own, op,
+      status: sq.busy ? '正在打服務單' : moving ? `行軍中，約 ${C.fmtDur(sq.move.t1 - h)}後到位` : op ? (sq.op.pause != null ? '遇襲，打完再接著走' : `${op.sweep ? '巡查中' : '往那一小格'}（${op.foot ? '徒步' : '開車'}），約 ${C.fmtDur(Math.max(0, op.end - h))}`) : c.own ? '護送車隊中' : '在現場待命',
       recall: {type: 'squad', id: sq.id, penalty: c.own ? 0 : c.pay.deposit + (c.midPaid ? c.pay.mid : 0) + 10 * c.lv}, busy: !!sq.busy});
   }
   for (const id of G.cases) { const c = book.cases.find(x => x.id === id); if (!c || !c.own || c.settled) continue;

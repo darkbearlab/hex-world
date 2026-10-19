@@ -226,7 +226,7 @@ function drawNow() {
         ctx.beginPath(); u.path.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
     }
     for (const u of GV.units || []) {
-      if (!u.pos) continue; const [x, y] = legXY(u.pos.a, u.pos.b, u.pos.f), _u2 = 0, r = S0 * .42 * opMK();
+      if (!u.pos) continue; const [x, y] = opMode && u.op?.pos ? subXY(u.op.tile, u.op.pos[0], u.op.pos[1]) : legXY(u.pos.a, u.pos.b, u.pos.f), _u2 = 0, r = S0 * .42 * opMK();   // 巡查中的人：畫在那一小格
       const col = u.kind === 'waiting' ? '#f2c94c' : u.kind === 'returning' ? '#a0c8aa' : u.kind === 'convoy' ? '#e0a64a' : u.kind === 'column' ? '#9fe3ea' : '#6fd0d8';
       ctx.fillStyle = col; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = LW(1, 1.5);
       if (u.kind === 'convoy') { ctx.beginPath(); ctx.rect(x - r * .8, y - r * .6, r * 1.6, r * 1.2); ctx.fill(); ctx.stroke(); }
@@ -271,6 +271,7 @@ function opWindow() {
   const out = new Set(); let edge = seeds.filter(t => t >= 0);
   for (const t of edge) out.add(t);
   for (let d = 0; d < 4; d++) { const nx = []; for (const t of edge) for (const n of nbrs(t)) if (!out.has(n)) { out.add(n); nx.push(n); } edge = nx; }
+  for (const L of H.lairs || []) out.add(L.tile);   // 找到確切位置的據點：那一格也展開，才看得到紅框
   return [...out];
 }
 function opCells(s) {
@@ -320,6 +321,10 @@ function drawOp(s) {
     if (x.trench) { ctx.strokeStyle = '#2a2016'; ctx.lineWidth = Math.max(.5, u * .12); ctx.beginPath(); ctx.moveTo(x.px - u * .35, x.py); ctx.lineTo(x.px + u * .35, x.py); ctx.stroke(); }
     if (x.bridge) { ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = Math.max(.5, u * .12); ctx.strokeRect(x.px - u * .3, x.py - u * .15, u * .6, u * .3); }
   }
+  // 找到確切位置的據點：那一小格畫紅框（警戒中再加一圈虛線）
+  for (const L of GV?.hq?.lairs || []) { const x = O.cells.get(opKey(L.sub[0], L.sub[1])); if (!x) continue;
+    ctx.fillStyle = 'rgba(224,90,67,.45)'; ctx.strokeStyle = '#ff6a4a'; ctx.lineWidth = LW(1, 3); ctx.beginPath(); corner.forEach(([a, b], i) => i ? ctx.lineTo(x.px + a * .85, x.py + b * .85) : ctx.moveTo(x.px + a * .85, x.py + b * .85)); ctx.closePath(); ctx.fill(); ctx.stroke();
+    if (L.alert) { ctx.save(); ctx.setLineDash([u * .2, u * .15]); ctx.beginPath(); ctx.arc(x.px, x.py, u * 1.1, 0, 7); ctx.stroke(); ctx.restore(); } }
   if (opSel) { const x = O.cells.get(opSel); if (x) { ctx.strokeStyle = '#fff'; ctx.lineWidth = LW(1, 1.6); ctx.beginPath(); corner.forEach(([a, b], i) => i ? ctx.lineTo(x.px + a, x.py + b) : ctx.moveTo(x.px + a, x.py + b)); ctx.closePath(); ctx.stroke(); } }
   // 城名（小格看得清楚時）
   if (k > 3) { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; for (const x of O.cells.values()) if (x.f === 'town') label(ST.names[x.t] || '', x.px, x.py - u * .45, Math.max(9 / k, u * .55), '#f1e6cf'); }
@@ -348,6 +353,10 @@ function opInfo(i) {   // 地點分頁最上面：選到的那一小格
   if ((x.f === 'settle' || x.f === 'town') && atBase) act += `<br><button data-act="asklocal">打聽消息</button><span class="muted">（同一處一天一次：附近的據點、遠征點在哪個方向）</span>`;
   else if (x.f === 'settle') act += '<br><span class="muted">基地停在這一小格就可以打聽消息。</span>';
   if (x.f === 'ruin') act += `<br><span class="muted">${atBase ? '基地停在這處廢墟：用基地分頁的「搜索這一帶」就會搜它。' : '把基地停在這一小格，才能搜這處廢墟。'}</span>`;
+  // 清剿據點（OPMAP.md 第十三節）：找到確切位置的據點；派人到這一小格（探索、交流、攻擊）
+  const lair = (H.lairs || []).find(L => L.tile === x.t && L.sub[0] === x.q && L.sub[1] === x.r);
+  if (lair) act += `<br><b style="color:var(--war)">${esc(lair.name)}</b>（實力 ${lair.str}${lair.alert ? '・警戒中' : ''}）　<button data-act="sortiepick" data-mode="fight" data-lair="${lair.id}" data-id="${x.t}">派人過去攻擊（清剿）</button>`;
+  else if (isFinite(T?.car) && GV.hq) act += `<br>派人到這一小格：<button data-act="sortiepick" data-mode="explore" data-id="${x.t}" data-q="${x.q}" data-r="${x.r}">探索</button><button data-act="sortiepick" data-mode="talk" data-id="${x.t}" data-q="${x.q}" data-r="${x.r}">交流</button><button data-act="sortiepick" data-mode="fight" data-id="${x.t}" data-q="${x.q}" data-r="${x.r}">攻擊</button>`;
   return `<p class="mini" style="border-left:3px solid #c9b48a;padding-left:8px"><b>作戰地圖・這一小格</b>　${bits.join('・')}${GV.hq?.near?.night ? '<span class="muted">・夜裡</span>' : ''}<br><span class="muted">${isFinite(T?.car) ? `車 ${T.car} 分鐘、徒步 ${T.foot} 分鐘走過一小格` : '過不去'}</span>${go}${act}</p>`;
 }
 function toggleOp() {
@@ -479,7 +488,7 @@ function pickGroups(av) {
 // ===== 出擊編成（Alan 2026-10-10）=====
 // 在機會按「接案」進到這個畫面：一隊四個位置。電腦橫向是四張直長卡片排開，選中的人卡片下半壓一層他現在的裝備；
 // 手機直向是四張橫長卡片，只露出頭和往右延伸的名字，裝備收在卡片下面、點開才展開。按「確認出擊」才真的派出去。
-let sortie = null;   // {key, tile, side, fast, sq: [[uid|null ×4]…], pick: [i, j] | null, open: Set}
+let sortie = null, moveSel = 'car';   // {key, tile, side, fast, sq: [[uid|null ×4]…], pick: [i, j] | null, open: Set}
 function openSortie(o) {
   sortie = {key: o.kind + ':' + o.tile, tile: o.tile, side: o.side ? o.side : o.kind === 'front' || o.kind === 'camp' ? 'att' : o.kind === 'tense' || o.kind === 'outpost' ? 'a' : o.kind === 'drill' ? '1' : '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set()};
   if (!selPath || selPath.to !== o.tile) send({type: 'path', to: o.tile});
@@ -512,7 +521,8 @@ function renderSortie() {
   const row = c => `<button class="sprow" data-sp="${c.uid}"><img src="${face(c)}" alt=""><span class="sprn"><b>${c.callsign ? csq(c) : esc(who(c))}</b> <span class="mini">${c.callsign ? esc(who(c)) + ' ' : ''}${c.id}</span><br><span class="mini">${CLS[c.cls].n}・${c.lv || 1} 級・記憶片段 ${cellCount(c)}${c.crown === 'gold' ? '・金冠' : c.crown === 'silver' ? '・銀冠' : ''}${(c.tags || []).length ? '・' + c.tags.map(t => TAGS[t]).join('、') : ''}</span></span></button>`;
   const SP = $('spick'); SP.hidden = !sortie.pick;
   if (sortie.pick) $('spbox').html = `<div class="shead"><b style="flex:1">選人：第 ${sortie.pick[0] + 1} 隊第 ${sortie.pick[1] + 1} 位</b><button data-pickx="1" aria-label="關閉">✕</button></div>${groups.map(([nm, L]) => `<div class="mini pgroup">${nm}（${L.length}）</div><div class="sprows">${L.map(row).join('')}</div>`).join('') || '<p class="muted">沒有待命的人（「不出擊」的人不會列出）</p>'}`;
-  const picker = '';
+  // 小格上的派遣：開車（快、吵：哨兵 3 小格內就發現）或徒步（慢、安靜：1 小格；夜裡各減一格）
+  const picker = sortie.custom?.op ? `<div class="row"><button data-smove="car" class="${sortie.custom.move === 'car' ? 'on' : ''}">開車</button><button data-smove="foot" class="${sortie.custom.move === 'foot' ? 'on' : ''}">徒步</button><span class="mini muted">${sortie.custom.move === 'foot' ? '徒步：慢，一小格 10～15 分鐘；安靜，哨兵要 1 小格內才發現' : '開車：快，一小格 4～12 分鐘；吵，哨兵 3 小格內就發現'}（夜裡各減一格）</span></div>` : '';
   $('sbox').html = `<div class="shead"><div style="flex:1"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}${ownWarn(o)}<div class="mini muted">${esc(o.detail || '')}</div></div><button data-scancel="1" aria-label="關閉">✕</button></div>
     ${sides.length ? `<div class="row">${sides.map(([v, nm]) => `<button data-side="${v}" class="${sortie.side === v ? 'on' : ''}">${esc(nm)}</button>`).join('')}</div>` : ''}
     ${sortie.sq.map((q, i) => `<div class="sqlabel mini">第 ${i + 1} 隊（${q.filter(u => u != null).length}／4）${sortie.sq.length > 1 && !q.some(u => u != null) ? ` <button data-sqx="${i}">拿掉這一隊</button>` : ''}</div><div class="srow">${q.map((u, j) => sortieCard(u, i, j)).join('')}</div>`).join('')}
@@ -523,7 +533,7 @@ function renderSortie() {
 }
 $('sortie').onclick = e => {
   if (e.target.id === 'sortie') { sortie = null; renderSortie(); return; }
-  const a = e.target.closest('[data-smenu],[data-sgear],[data-sinfo],[data-slot],[data-sp],[data-sx],[data-sg],[data-addsq],[data-sqx],[data-side],[data-sgo],[data-scancel],[data-pickx]');
+  const a = e.target.closest('[data-smenu],[data-sgear],[data-sinfo],[data-slot],[data-sp],[data-sx],[data-sg],[data-addsq],[data-sqx],[data-side],[data-smove],[data-sgo],[data-scancel],[data-pickx]');
   if (!sortie) return;
   // 點大頭照：卡片上面跳出小選單（換人、編輯裝備、看資料）；點別的地方就收起來
   const menu0 = sortie.menu; sortie.menu = null;
@@ -538,6 +548,7 @@ $('sortie').onclick = e => {
   else if (d.addsq) sortie.sq.push([null, null, null, null]);
   else if (d.sqx) sortie.sq.splice(+d.sqx, 1);
   else if (d.side) sortie.side = d.side;
+  else if (d.smove && sortie.custom) { sortie.custom.move = d.smove; moveSel = d.smove; }
   else if (d.pickx) sortie.pick = null;
   else if (d.sgo && sortie.custom) { sortie.custom.go(sortie.sq.flatMap(q => q.filter(u => u != null))); sortie = null; }
   else if (d.sgo) { const [kind, tile] = sortie.key.split(':'); send({type: 'accept', kind, tile: +tile, side: sortie.side, uids: sortie.sq.flatMap(q => q.filter(u => u != null))}); sortie = null; }
@@ -1230,7 +1241,8 @@ function baseTileHtml(i) {
   // 單機（Alan 2026-10-18）：這一格的隊伍（近的一層），和派人過去（探索、交流、攻擊；坐運兵車、一隊最多四人）
   if (H.near) { const here = H.near.list.filter(p => p.tile === i);
     if (here.length) html += `<p class="mini">${here.map(p => `<b style="color:${p.hostile ? 'var(--war)' : 'var(--cyan)'}">${esc(p.name)}</b>${p.chase ? '（正朝基地過來）' : p.to != null ? `（往${nm(p.to)}）` : ''}`).join('、')}</p>`;
-    html += `<p>${i === H.tile ? '派人在這一格' : '派人過去'}：<button data-act="sortiepick" data-mode="explore" data-id="${i}">探索</button> <button data-act="sortiepick" data-mode="talk" data-id="${i}">交流</button> <button data-act="sortiepick" data-mode="fight" data-id="${i}">攻擊</button> <span class="mini muted">坐運兵車去，一隊最多四人；探索可能撞上人、交流不打、攻擊是掃蕩那一格的匪</span></p>`; }
+    html += `<p>${i === H.tile ? '派人在這一格' : '派人過去'}：<button data-act="sortiepick" data-mode="explore" data-id="${i}">探索</button> <button data-act="sortiepick" data-mode="talk" data-id="${i}">交流</button> <button data-act="sortiepick" data-mode="fight" data-id="${i}">攻擊</button> <button data-act="sortiepick" data-mode="explore" data-sweep="1" data-id="${i}">巡查整格</button> <span class="mini muted">坐運兵車去，一隊最多四人；探索可能撞上人、交流不打、攻擊是掃蕩那一格的匪；巡查整格＝把 37 小格走一遍找據點（要走到據點旁邊一小格才找得到）</span></p>`;
+    for (const L of (H.lairs || []).filter(x => x.tile === i)) html += `<p class="mini" style="border-left:3px solid var(--war);padding-left:8px"><b style="color:var(--war)">${esc(L.name)}</b>：確切位置找到了（作戰地圖上的紅框）${L.alert ? '・<b style="color:var(--war)">警戒中</b>' : ''}　<button data-act="sortiepick" data-mode="fight" data-lair="${L.id}" data-id="${i}">派人過去攻擊（清剿）</button></p>`; }
   html += hereHtml(i);
   return html;
 }
@@ -1719,9 +1731,12 @@ const coClick = e => {
   else if (A === 'asklocal') send({type: 'askLocal'});   // 第 4 段：在聚落、城打聽消息
   else if (A === 'sortiepick') {   // 派遣（單機第 4 步）：用出擊編成挑人
     const mode = b.dataset.mode, MN2 = {explore: '探索', talk: '交流', fight: '攻擊'}, tile = +id, place = ST.names?.[tile] || '荒野';
-    sortie = {key: 'custom', tile, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'sortie', lv: 1, one: true, min: 2, tile, title: `派遣・${MN2[mode]}：${place}`,
-      detail: mode === 'explore' ? '去那一格看看：寫回那裡的樣子、找到的東西（要基地開過去才搬得走）；路上可能撞上零星的人。' : mode === 'talk' ? '去跟當地的人談：那裡的近況、附近的線索。不打。' : '掃蕩那一格的匪：一張服務單（親自打或自動結算），打贏了那一格的匪隊就散了。',
-      go: uids => send({type: 'sortie', tile, mode, uids})}};
+    // 小格的選項（單機）：巡查整格、派到某一小格、清剿找到的據點；這些都可以選開車或徒步
+    const sweep = !!b.dataset.sweep, sub = b.dataset.q != null ? [+b.dataset.q, +b.dataset.r] : null, lairId = b.dataset.lair != null ? +b.dataset.lair : null, lair = lairId != null ? (GV.hq?.lairs || []).find(L => L.id === lairId) : null, op = sweep || !!sub || !!lair;
+    const title = lair ? `清剿・${lair.name}` : sweep ? `派遣・巡查：${place}` : `派遣・${MN2[mode]}：${place}${sub ? '（一小格）' : ''}`;
+    const detail = lair ? `摸到據點旁邊開一場清剿（主要任務，要親自打）。被哨兵看到會警戒，守得更嚴；在外面晃的人不在家。打贏拆掉據點、搬回存貨。` : sweep ? '開到那一格，把 37 小格走一遍：據點要走到旁邊一小格才找得到，找到就停、回報、回家。開車約 3 小時、徒步約 4 小時；路上可能被攔。' : sub ? (mode === 'fight' ? '開到那一小格，掃蕩那裡的匪（一張服務單）。' : mode === 'talk' ? '開到那一小格，跟當地的人談。' : '開到那一小格看看，順路經過的小格也算看過。') : mode === 'explore' ? '去那一格看看：寫回那裡的樣子、找到的東西（要基地開過去才搬得走）；路上可能撞上零星的人。' : mode === 'talk' ? '去跟當地的人談：那裡的近況、附近的線索。不打。' : '掃蕩那一格的匪：一張服務單（親自打或自動結算），打贏了那一格的匪隊就散了。';
+    sortie = {key: 'custom', tile, side: '', fast: false, sq: [[null, null, null, null]], pick: null, open: new Set(), custom: {kind: 'sortie', lv: 1, one: true, min: 2, tile, title, detail, op, move: moveSel,
+      go: uids => send({type: 'sortie', tile, mode, uids, ...(op ? {sweep, sub, lair: lairId, move: sortie?.custom?.move || moveSel} : {})})}};
     renderSortie();
   }
   else if (A === 'basestop') roverSend({type: 'baseStop'}, '基地停下');

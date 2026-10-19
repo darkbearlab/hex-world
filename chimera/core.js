@@ -382,7 +382,7 @@ export class Core {
     // 作戰地圖第 4 段：跟商隊買、在聚落打聽消息
     if (m.type === 'caravanBuy') return NR.caravanBuy(g, b, w, h, +m.id, String(m.mat), +m.qty || 10);
     if (m.type === 'askLocal') { const r = NR.askLocal(g, b, w, h, (this.worldView(g)?.sites || []).filter(x => !x.taken)); if (typeof r === 'string') return r; if (g.hq) g.hq.log.push({h, tile: g.base, text: r.say, kind: 'story'}); return null; }
-    if (m.type === 'sortie') return G.sortie(g, b, w, +m.tile, String(m.mode), m.uids || [], this.exactNow ?? h);   // 派遣（單機的第 4 步）
+    if (m.type === 'sortie') return G.sortie(g, b, w, +m.tile, String(m.mode), m.uids || [], this.exactNow ?? h, {sub: Array.isArray(m.sub) ? m.sub : null, sweep: !!m.sweep, lair: m.lair ?? null, move: m.move});   // 派遣（單機的第 4 步）
     if (m.type === 'baseStop') return RV.baseStop(g, b, w, h);
     if (m.type === 'baseSearch') return RV.baseSearch(g, b, w, h);
     if (m.type === 'baseUpgrade') return RV.baseUpgrade(g, b, w, String(m.kind), h);

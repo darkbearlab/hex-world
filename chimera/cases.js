@@ -529,7 +529,7 @@ function enemyOf(book, w, c, ev, o = {}) {
   if (ev.type === 'ambush' || ev.type === 'native' || ev.type === 'clear') {
     const g = ev.gang ? K.gangs.find(x => x.id === ev.gang) : K.gangs.filter(x => !x.gone && hdist(x.lair, t) <= 3).sort((a, b) => hdist(a.lair, t) - hdist(b.lair, t))[0];
     const leg = g ? K.weapons.find(x => x.gang === g.id) : null, side = gangSide(K, g);
-    const power = 6 + K.bandit[t] * .12 + (g ? g.str * .025 : 0) + (ev.type === 'clear' ? 6 : 0) + 2 * L;
+    const power = Math.max(4, 6 + K.bandit[t] * .12 + (g ? g.str * .025 : 0) + (ev.type === 'clear' ? 6 : 0) + 2 * L + (ev.adj || 0));
     // 頭目：遺產級在誰手上誰就是頭目；清剿據點一定有頭目（巢匪是巢母）
     const boss = leg ? legacyBoss(book, g, leg) : ev.type === 'clear' ? (side === 'hive' ? {ash: 'hive_beast', name: '巢母'} : {ash: 'squad_leader', name: `頭目${g?.chief || ''}`, hp: 3}) : null;
     const veh = {}; if ((side === 'raider' || side === 'warlord') && power > 14 && rng(book) < (side === 'warlord' ? .6 : .3)) veh.rush = 1 + (power > 24 && rng(book) < .4 ? 1 : 0);
@@ -636,6 +636,7 @@ function directTickets(book, w, c, now) {
   const K = w.sim.peek(), nm = t => w.names[t] || '無名之地';
   for (const id of c.squads) {
     const sq = book.squads[id]; if (!sq || sq.busy || sq.headedHome || sq.drillDone || sq.readyAt > now || alive(sq).length < 1) continue;
+    if (c.sortie?.op) continue;   // 在小格上走的派遣（巡查、到某一小格、清剿據點）：rover.js 照小格路線走完再處理
     // 派遣的交流：不打，到了就算辦完（結果在 rover.js 寫進基地日誌）
     if (c.sortie?.mode === 'talk') { sq.drillDone = true; c.sortie.win = true; notify(book, now, sq.player, 'result', `${sq.name}：${c.title}，跟當地的人談過了，動身回基地。`, c.id); continue; }
     const floor = c.kind === 'hunting' ? 1 : 0, type = c.kind === 'hunting' ? 'hunting' : 'drill', T = TYPES[type];   // 狩獵場一場打到底（電梯口選往下或撤離，Alan 2026-10-11）
@@ -647,6 +648,16 @@ function directTickets(book, w, c, now) {
     notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，戰力 ${enemy.power}）。${c.kind === 'hunting' ? '最多三層，每到一層的電梯口可以選往下或撤離；' : ''}若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算${c.kind === 'hunting' ? '（只算第一層）' : ''}。`, tk.id);
   }
   if (c.squads.length && c.squads.every(id => { const s = book.squads[id]; return !s || s.drillDone || s.headedHome != null || !alive(s).length; })) c.closedEarly = true;   // 打完、召回、或在路上全滅
+}
+// 小格上的派遣走到了（rover.js）：開一張服務單。攻擊一般的小格＝掃蕩流寇；清剿據點＝清剿（主要任務，要親自打）。adj＝守方戰力的加減（警戒、偷襲、在外面的人）
+export function sortieTicket(book, w, c, sq, now, {type = 'drill', gang = null, adj = 0} = {}) {
+  const K = w.sim.peek(), T = TYPES[type], enemy = enemyOf(book, w, c, {type, tile: c.tile, gang, adj});
+  const tk = {id: 'T' + book.nextId++, caseId: c.id, type, title: c.title, tile: c.tile, floor: 0, floors: 0, biome: BIOMES[K.biome[c.tile]]?.n || '', night: rng(book) < T.night, trench: 0, enemy,
+    objectives: T.obj.map(([k, text, pts]) => ({k, text, pts: pts * c.lv})), born: now, squad: null, player: null, issued: -1, deadline: -1, done: false};
+  book.tickets.push(tk); c.tickets++;
+  sq.busy = tk.id; tk.squad = sq.id; tk.player = sq.player; tk.issued = now; tk.deadline = now + CFG.DEADLINE; sq.floor = 0;
+  notify(book, now, sq.player, 'ticket', `${sq.name}：${tk.title}（${enemy.name}，戰力 ${enemy.power}）。若在 ${CFG.DEADLINE} 小時內未簽收，則由雇主逕行結算。`, tk.id);
+  return tk;
 }
 // ===== 行軍途中遇襲 =====
 // 出發時就沿實際道路算好這一趟的風險（跟沙盒裡商隊被劫的算法同一套），決定會不會、在哪一格、第幾小時出事
@@ -750,7 +761,7 @@ export function submit(book, w, ticketId, result, now) {
 // 撤退（Alan 2026-10-19）：遭遇時擲一次；成功就脫身（這張單取消，不算輸贏），失敗就得打（親自打或自動戰鬥），同一張只能試一次
 export const FLEE_P = .55;
 // 遭遇＝可以自動戰鬥、撤退的服務單：基地遇襲、行軍遇襲、自己派遣去打的（不是雇主的主要任務）
-export const isEncounter = (book, tk) => tk.type === 'roverhit' || !!tk.transit || !!book.cases.find(c => c.id === tk.caseId)?.sortie;
+export const isEncounter = (book, tk) => { if (tk.type === 'roverhit' || tk.transit) return true; const s = book.cases.find(c => c.id === tk.caseId)?.sortie; return !!s && !s.lair; };   // 清剿據點是主要任務
 export function flee(book, w, tk, now) {
   if (tk.fleeTried) return '已經試過撤退了，只能打';
   tk.fleeTried = true;
@@ -865,7 +876,10 @@ function writeBack(book, w, c, tk, win, gearLost, now) {
       if (m && m.veh) { m.veh.armor = Math.max(0, (m.veh.armor || 0) - .5 * WX()); m.veh.rush = Math.max(0, (m.veh.rush || 0) - WX()); m.veh.gt = Math.max(0, (m.veh.gt || 0) - .3 * WX()); m.stock.fuel *= .9; } }
   } else if (tk.type === 'probe') { if (win) P.calm(c.fac, c.foe, 3); }
   else if (tk.type === 'clear') {
-    if (win) { const g = K.gangs.find(x => x.id === c.gang);
+    if (c.sortie) c.sortie.win = win;
+    // 單機的清剿據點（OPMAP.md 第十三節）：打贏就拆掉，四周的匪患大降
+    if (win && c.sortie?.lair) { const g = K.gangs.find(x => x.id === c.gang); if (g && !g.gone) { for (const n of [g.lair, ...nb(g.lair)]) K.bandit[n] *= .4; g.gone = 1; P.say('bandit', `${g.name}${g.native ? '' : '的據點'}被傭兵公司拆了，手下四散。`, g.lair); } }
+    else if (win) { const g = K.gangs.find(x => x.id === c.gang);
       if (g) { for (const n of [g.lair, ...nb(g.lair)]) K.bandit[n] *= .7; g.str *= .8;
         if (K.bandit[g.lair] < 12 && !g.gone) { g.gone = 1; P.say('bandit', `${g.name}${g.native ? '' : '的據點'}被傭兵公司清剿，手下四散。`, g.lair); c.closedEarly = true; } } }
   }
