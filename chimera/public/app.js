@@ -4,6 +4,7 @@ import {playScene} from './story.js';
 import {REST_TALK, SOLO, IO, STORY} from './story-lines.js';
 import {unitName, cellHas, cellCount, CELL_PITY} from './cases.js';
 import {ServerLink, account, signOut, signedIn, authHeaders, token as guestToken} from './link.js';
+import {mapData, cellsOf, center as opCenter, TERRAIN, key as opKey, legRoute, alongRoute} from './opmap.js';
 // 預設連伺服器（大家共用的星球）；網址加 ?local 是單人測試模式（推演在這個瀏覽器的 worker 裡跑，可以加速）
 // ?watch：觀看世界生成（Alan 2026-10-09，系統選單裡）：用星球的種子在這個瀏覽器從頭推演到開服那一年，只能看，不能開公司、不能再往後推
 const WATCH = new URL(location).searchParams.has('watch');
@@ -138,6 +139,7 @@ function drawNow() {
     if (layers.bandit && s.bandit[i] > 15) { ctx.fillStyle = `rgba(200,60,40,${Math.min(.65, s.bandit[i] / 255)})`; hexPath(x, y, S0); ctx.fill(); }
     if (layers.trench && s.trench[i]) { const lv = s.trench[i] / 80; ctx.strokeStyle = `rgba(30,20,10,${.35 + .2 * lv})`; ctx.lineWidth = S0 * .12; ctx.beginPath(); for (let q = -1; q <= 1; q++) { ctx.moveTo(x - S0 * .55, y + q * S0 * .32); ctx.lineTo(x + S0 * .55, y + q * S0 * .32 - S0 * .18); } ctx.stroke(); }
   }
+  if (opMode && GV) drawOp(s);
   // 疆界與戰線
   ctx.lineCap = 'round';
   for (let i = 0; i < N; i++) {
@@ -152,7 +154,8 @@ function drawNow() {
   }
   // 城鎮與記號
   const caps = new Set(s.fac.map(f => f.cap)), sieges = new Set(s.wars.map(w => w.siege).filter(t => t >= 0));
-  for (const t of s.towns) {
+  const opZ = opMode && k > 6;   // 作戰地圖放大時：城由作戰地圖自己畫（小格裡的城、城郊、名字）
+  for (const t of opZ ? [] : s.towns) {
     const x = cx(t.t), y = cy(t.t), f = F[s.owner[t.t]];
     if (sieges.has(t.t)) { ctx.strokeStyle = '#ff5a3c'; ctx.lineWidth = Math.max(1.5, 2 / k); ctx.beginPath(); ctx.arc(x, y, S0 * .78, 0, 7); ctx.stroke(); }
     if (caps.has(t.t)) { star(x, y, S0 * .55, f ? f.c : '#fff'); }
@@ -178,7 +181,7 @@ function drawNow() {
   // 機會：圓牌上一個字，外圈越粗越亮程度越高
   if (layers.opp) for (const o of curOpps(s)) {
     if (oppKind !== 'all' && o.kind !== oppKind) continue;
-    const K = OK[o.kind], x = cx(o.tile) + S0 * .35, y = cy(o.tile) + S0 * .3, r = S0 * (.38 + o.lv * .08);
+    const K = OK[o.kind], x = cx(o.tile) + S0 * .35 * opMK(), y = cy(o.tile) + S0 * .3 * opMK(), r = S0 * (.38 + o.lv * .08) * opMK();
     if (o.lv === 3) { ctx.fillStyle = K.c + '55'; ctx.beginPath(); ctx.arc(x, y, r * 1.55, 0, 7); ctx.fill(); }
     ctx.fillStyle = '#15120e'; ctx.strokeStyle = K.c; ctx.lineWidth = Math.max(.8, (o.lv * .9) / Math.sqrt(k)) * (S0 / 10); ctx.globalAlpha = o.lv === 1 ? .7 : 1;
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
@@ -196,16 +199,16 @@ function drawNow() {
     // 近的一層（單機，Alan 2026-10-18）：基地看得到的範圍畫一圈淡淡的六角，裡面的隊伍：掠奪者紅、原住民橙、商隊青；在追基地的外面多一圈
     if (GV.hq?.near) { const NV = GV.hq.near, col = {bandit: '#e05a43', native: '#e7a14a', caravan: '#6fd0d8'};
       ctx.save(); ctx.globalAlpha = .18; ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1, 1.2 / k); ctx.beginPath(); ctx.arc(cx(GV.base), cy(GV.base), SQ3 * S0 * (NV.range + .5), 0, 7); ctx.stroke(); ctx.restore();
-      for (const p of NV.list) { const x = cx(p.tile), y = cy(p.tile), r = S0 * .55;
+      for (const p of NV.list) { const x = cx(p.tile), y = cy(p.tile), r = S0 * .55 * opMK();
         ctx.fillStyle = col[p.kind] || '#ccc'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.4 / k);
         ctx.beginPath(); if (p.hostile) { ctx.moveTo(x, y - r); ctx.lineTo(x + r * .9, y + r * .7); ctx.lineTo(x - r * .9, y + r * .7); ctx.closePath(); } else ctx.rect(x - r * .7, y - r * .5, r * 1.4, r); ctx.fill(); ctx.stroke();
         if (p.chase) { ctx.strokeStyle = col[p.kind]; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, 7); ctx.stroke(); } } }
     // 基地：開動中照時間在兩格之間移動，剩下的路畫虛線（原本的 Rover）
     const H = GV.hq || {tile: GV.base, route: []}, hnow = hourNow() ?? GV.h, hf = H.move ? Math.max(0, Math.min(1, (hnow - H.move.t0) / Math.max(.01, H.move.t1 - H.move.t0))) : 0, ha = H.move ? H.move.from : GV.base, hb = H.move ? H.move.to : GV.base;
-    const bx = cx(ha) + (cx(hb) - cx(ha)) * hf, by = cy(ha) + (cy(hb) - cy(ha)) * hf, hrest = [hb, ...(H.route || [])];
+    const [bx, by] = legXY(ha, hb, hf), _u1 = 0, hrest = [hb, ...(H.route || [])];
     if (hrest.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = Math.max(1, 1.8 / k); ctx.strokeStyle = 'rgba(111,208,216,.8)'; ctx.beginPath(); ctx.moveTo(bx, by); hrest.forEach(t => ctx.lineTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
-    ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1.5, 2.4 / k); ctx.beginPath(); ctx.arc(bx, by, S0 * .9, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, S0 * 1.15, 0, 7); ctx.stroke();
-    ctx.fillStyle = '#6fd0d8'; ctx.font = `700 ${S0 * .8}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('H', bx, by + S0 * .04);
+    ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1.5, 2.4 / k); ctx.beginPath(); ctx.arc(bx, by, S0 * .9 * opMK(), 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, S0 * 1.15 * opMK(), 0, 7); ctx.stroke();
+    ctx.fillStyle = '#6fd0d8'; ctx.font = `700 ${S0 * .8 * opMK()}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('H', bx, by + S0 * .04);
     for (const c of GV.cases) { if (c.settled) continue; const x = cx(c.tile), y = cy(c.tile), r = S0 * .85; ctx.strokeStyle = '#f1e6cf'; ctx.lineWidth = Math.max(1.4, 2 / k); ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.stroke(); }
     // 選取的點：從基地沿實際道路拉一條虛線
     if (selPath && selPath.to === sel && selPath.path.length > 1) {
@@ -219,7 +222,7 @@ function drawNow() {
         ctx.beginPath(); u.path.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
     }
     for (const u of GV.units || []) {
-      if (!u.pos) continue; const x = cx(u.pos.a) + (cx(u.pos.b) - cx(u.pos.a)) * u.pos.f, y = cy(u.pos.a) + (cy(u.pos.b) - cy(u.pos.a)) * u.pos.f, r = S0 * .42;
+      if (!u.pos) continue; const [x, y] = legXY(u.pos.a, u.pos.b, u.pos.f), _u2 = 0, r = S0 * .42 * opMK();
       const col = u.kind === 'waiting' ? '#f2c94c' : u.kind === 'returning' ? '#a0c8aa' : u.kind === 'convoy' ? '#e0a64a' : u.kind === 'column' ? '#9fe3ea' : '#6fd0d8';
       ctx.fillStyle = col; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.5 / k);
       if (u.kind === 'convoy') { ctx.beginPath(); ctx.rect(x - r * .8, y - r * .6, r * 1.6, r * 1.2); ctx.fill(); ctx.stroke(); }
@@ -232,12 +235,95 @@ function drawNow() {
   // 名字：首府一定標，放大後標城鎮
   ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   const fs = Math.max(9 / k, S0 * .62);
-  for (const f of s.fac) { if (f.cap < 0) continue; label(f.n, cx(f.cap), cy(f.cap) - S0 * .6, fs * 1.05, '#fff'); }
-  if (k > 1.7) for (const t of s.towns) if (!caps.has(t.t)) label(ST.names[t.t], cx(t.t), cy(t.t) - S0 * .4, fs * .85, '#e9e1d2');
+  if (!opZ) for (const f of s.fac) { if (f.cap < 0) continue; label(f.n, cx(f.cap), cy(f.cap) - S0 * .6, fs * 1.05, '#fff'); }
+  if (k > 1.7 && !opZ) for (const t of s.towns) if (!caps.has(t.t)) label(ST.names[t.t], cx(t.t), cy(t.t) - S0 * .4, fs * .85, '#e9e1d2');
   if (sel >= 0) { ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.5, 2.2 / k); hexPath(cx(sel), cy(sel), S0 * .95); ctx.stroke(); }
 }
 function star(x, y, r, c) { ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = -Math.PI / 2 + q * Math.PI / 5, rr = q % 2 ? r * .45 : r; ctx.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); } ctx.closePath(); ctx.fillStyle = c; ctx.fill(); ctx.strokeStyle = '#120f0b'; ctx.lineWidth = Math.max(.8, 1.2 / k); ctx.stroke(); }
 function label(t, x, y, size, col) { ctx.font = `500 ${size}px 'Noto Sans TC',sans-serif`; ctx.lineWidth = size * .28; ctx.strokeStyle = 'rgba(10,8,6,.9)'; ctx.strokeText(t, x, y); ctx.fillStyle = col; ctx.fillText(t, x, y); }
+
+/* ───────── 作戰地圖（Alan 2026-10-19，warband/OPMAP.md 第 1 段）───────── */
+// 跟戰略地圖同一套平移縮放、同一個像素空間：戰略格的中心照原本的位置，小格用一個線性變換鋪上去（三個方向各 7 小格＝一個戰略格的間距），
+// 所以基地、運兵車、近的一層的隊伍不用改位置。只展開看得到的範圍（基地和在外的運兵車四周 4 格）
+let opMode = false, opSel = null, opCache = null;
+const zmax = () => opMode ? 40 : 8;
+const opMK = () => opMode && k > 6 ? Math.max(.1, Math.min(.35, 2.4 / k)) : 1;   // 作戰地圖放大時，基地、隊伍、運兵車的記號縮成一小格的大小   // 作戰地圖可以放得很大（一小格看得清楚）
+function opMatrix() {   // 小格軸座標的位移 → 像素：A＝(7,−3) 對到往右一個戰略格、B＝(3,4) 對到往右下一個戰略格
+  const ax = SQ3 * S0, bx = SQ3 * S0 / 2, by = 1.5 * S0, det = 7 * 4 - 3 * -3;   // [A B] = [[7,3],[-3,4]]
+  // M·[A B] = [[ax,bx],[0,by]]  →  M = [[ax,bx],[0,by]] · inv([[7,3],[-3,4]])
+  const i00 = 4 / det, i01 = -3 / det, i10 = 3 / det, i11 = 7 / det;
+  return [ax * i00 + bx * i10, ax * i01 + bx * i11, by * i10, by * i11];
+}
+const opCorners = [[2 / 3, -1 / 3], [1 / 3, 1 / 3], [-1 / 3, 2 / 3], [-2 / 3, 1 / 3], [-1 / 3, -1 / 3], [1 / 3, -2 / 3]];
+function opWindow() {
+  const H = GV.hq || {}, seeds = [GV.base]; if (H.move) seeds.push(H.move.to);
+  for (const u of GV.units || []) if (u.pos) seeds.push(u.pos.a, u.pos.b);
+  const out = new Set(); let edge = seeds.filter(t => t >= 0);
+  for (const t of edge) out.add(t);
+  for (let d = 0; d < 4; d++) { const nx = []; for (const t of edge) for (const n of nbrs(t)) if (!out.has(n)) { out.add(n); nx.push(n); } edge = nx; }
+  return [...out];
+}
+function opCells(s) {
+  const tiles = opWindow(), key = s.stamp + ':' + tiles.slice().sort((a, b) => a - b).join(',');
+  if (opCache?.key === key) return opCache;
+  const D = mapData(ST, s, nbrs), cells = new Map(); for (const t of tiles) for (const [k2, v] of cellsOf(t, D)) cells.set(k2, v);
+  return opCache = {key, cells, tiles: new Set(tiles), roads: !!s.roads};
+}
+// 兩個戰略格之間走了 f：作戰地圖開著時沿小格路線（道路優先），不然照直線
+const legCache = new Map();
+function legXY(a, b, f) {
+  if (a === b || !(opMode && GV && hist.length)) return [cx(a) + (cx(b) - cx(a)) * f, cy(a) + (cy(b) - cy(a)) * f];
+  const s = hist[hist.length - 1], kk = s.stamp + ':' + a + '-' + b; let R = legCache.get(kk);
+  if (!R) { if (legCache.size > 200) legCache.clear(); R = legRoute(a, b, mapData(ST, s, nbrs)); legCache.set(kk, R); }
+  const [q, r] = alongRoute(R, f), c0 = opCenter(a, ST.W), M = opMatrix(), [dx, dy] = opXY(M, c0, q, r);
+  return [cx(a) + dx, cy(a) + dy];
+}
+function opXY(M, c0, q, r) { const dq = q - c0[0], dr = r - c0[1]; return [M[0] * dq + M[1] * dr, M[2] * dq + M[3] * dr]; }
+function drawOp(s) {
+  const O = opCells(s), M = opMatrix(), cache = new Map();
+  const pos = x => { let c = cache.get(x.t); if (!c) cache.set(x.t, c = {c0: opCenter(x.t, ST.W), x: cx(x.t), y: cy(x.t)}); const [px, py] = opXY(M, c.c0, x.q, x.r); return [c.x + px, c.y + py]; };
+  const corner = opCorners.map(([a, b]) => [M[0] * a + M[1] * b, M[2] * a + M[3] * b]);
+  for (const x of O.cells.values()) { const [px, py] = pos(x); x.px = px; x.py = py;
+    ctx.beginPath(); corner.forEach(([a, b], i) => i ? ctx.lineTo(px + a * 1.02, py + b * 1.02) : ctx.moveTo(px + a * 1.02, py + b * 1.02)); ctx.closePath();
+    ctx.fillStyle = TERRAIN[x.k]?.c || '#888'; ctx.fill();
+    if (k > 3) { ctx.strokeStyle = 'rgba(10,8,6,.25)'; ctx.lineWidth = Math.max(.3, .6 / k); ctx.stroke(); } }
+  // 道路：相鄰的路格連線
+  ctx.save(); ctx.strokeStyle = '#e8d6a8'; ctx.lineWidth = Math.max(.6, S0 * .06); ctx.lineCap = 'round';
+  for (const x of O.cells.values()) { if (!x.road) continue; for (const [dq, dr] of [[1, 0], [0, 1], [-1, 1]]) { const y = O.cells.get(opKey(x.q + dq, x.r + dr)); if (y?.road) { ctx.beginPath(); ctx.moveTo(x.px, x.py); ctx.lineTo(y.px, y.py); ctx.stroke(); } } }
+  ctx.restore();
+  // 地上的東西：城、城郊、聚落、廢墟、戰壕、橋
+  const u = Math.hypot(M[0], M[2]);   // 一小格的大小
+  for (const x of O.cells.values()) {
+    if (x.f === 'town') { ctx.fillStyle = '#f1e6cf'; ctx.strokeStyle = '#1a140c'; ctx.lineWidth = Math.max(.5, u * .08); ctx.fillRect(x.px - u * .35, x.py - u * .35, u * .7, u * .7); ctx.strokeRect(x.px - u * .35, x.py - u * .35, u * .7, u * .7); }
+    else if (x.f === 'suburb') { ctx.fillStyle = 'rgba(241,230,207,.35)'; ctx.fillRect(x.px - u * .22, x.py - u * .22, u * .44, u * .44); }
+    else if (x.f === 'settle') { ctx.fillStyle = '#e9dcc0'; ctx.beginPath(); ctx.moveTo(x.px, x.py - u * .3); ctx.lineTo(x.px + u * .25, x.py - u * .05); ctx.lineTo(x.px + u * .25, x.py + u * .25); ctx.lineTo(x.px - u * .25, x.py + u * .25); ctx.lineTo(x.px - u * .25, x.py - u * .05); ctx.closePath(); ctx.fill(); }
+    else if (x.f === 'ruin') { ctx.strokeStyle = '#3a2f22'; ctx.lineWidth = Math.max(.5, u * .1); ctx.beginPath(); ctx.moveTo(x.px - u * .25, x.py - u * .25); ctx.lineTo(x.px + u * .25, x.py + u * .25); ctx.moveTo(x.px + u * .25, x.py - u * .25); ctx.lineTo(x.px - u * .25, x.py + u * .25); ctx.stroke(); }
+    if (x.trench) { ctx.strokeStyle = '#2a2016'; ctx.lineWidth = Math.max(.5, u * .12); ctx.beginPath(); ctx.moveTo(x.px - u * .35, x.py); ctx.lineTo(x.px + u * .35, x.py); ctx.stroke(); }
+    if (x.bridge) { ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = Math.max(.5, u * .12); ctx.strokeRect(x.px - u * .3, x.py - u * .15, u * .6, u * .3); }
+  }
+  if (opSel) { const x = O.cells.get(opSel); if (x) { ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.beginPath(); corner.forEach(([a, b], i) => i ? ctx.lineTo(x.px + a, x.py + b) : ctx.moveTo(x.px + a, x.py + b)); ctx.closePath(); ctx.stroke(); } }
+  // 城名（小格看得清楚時）
+  if (k > 3) { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; for (const x of O.cells.values()) if (x.f === 'town') label(ST.names[x.t] || '', x.px, x.py - u * .45, Math.max(9 / k, u * .55), '#f1e6cf'); }
+}
+// 點到哪一小格（作戰地圖開著時）：先找最近的戰略格，再換算成小格
+function opHit(mx, my) {
+  if (!opMode || !opCache) return null;
+  const x = (mx - ox) / k, y = (my - oy) / k; let best = null, bd = 1e18;
+  for (const c of opCache.cells.values()) { if (c.px == null) continue; const d = (c.px - x) ** 2 + (c.py - y) ** 2; if (d < bd) { bd = d; best = c; } }
+  return best && Math.sqrt(bd) < S0 * .3 ? best : null;
+}
+function opInfo(i) {   // 地點分頁最上面：選到的那一小格
+  if (!opMode || !opSel || !opCache) return '';
+  const x = opCache.cells.get(opSel); if (!x || x.t !== i) return '';
+  const F = {town: '城', suburb: '城郊', settle: '聚落', ruin: '廢墟'}, T = TERRAIN[x.k];
+  const bits = [T?.n || x.k, x.f ? F[x.f] : '', x.road ? '有路' : '', x.bridge ? '橋' : '', x.river ? '河' : '', x.trench ? '戰壕' : ''].filter(Boolean);
+  return `<p class="mini" style="border-left:3px solid #c9b48a;padding-left:8px"><b>作戰地圖・這一小格</b>　${bits.join('・')}<br><span class="muted">${isFinite(T?.car) ? `車 ${T.car} 分鐘、徒步 ${T.foot} 分鐘走過一小格` : '過不去'}</span></p>`;
+}
+function toggleOp() {
+  opMode = !opMode; opSel = null; $('zop').classList.toggle('on', opMode);
+  if (opMode && GV) { const r = canvas.getBoundingClientRect(); const t = GV.base; k = Math.max(k, 6); ox = r.width / 2 - cx(t) * k; oy = r.height / 2 - cy(t) * k; }
+  draw();
+}
 
 /* ───────── 平移縮放、點選 ───────── */
 const pts = new Map(); let moved = false, pinch0 = null;
@@ -245,17 +331,18 @@ canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointer
 canvas.addEventListener('pointermove', e => {
   const p = pts.get(e.pointerId);
   if (!p) { if (ST && hist.length && e.pointerType === 'mouse') { mouse = {x: e.offsetX, y: e.offsetY}; const i = hit(e.offsetX, e.offsetY); if (i !== hover) { hover = i; showTip(e.offsetX, e.offsetY); } else moveTip(e.offsetX, e.offsetY); } return; }
-  if (pts.size === 2 && pinch0) { p.x = e.offsetX; p.y = e.offsetY; const [a, b] = [...pts.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); zoomAt(pinch0.mx, pinch0.my, Math.max(.6, Math.min(8, pinch0.k * d / pinch0.d)), pinch0); moved = true; return; }
+  if (pts.size === 2 && pinch0) { p.x = e.offsetX; p.y = e.offsetY; const [a, b] = [...pts.values()]; const d = Math.hypot(a.x - b.x, a.y - b.y); zoomAt(pinch0.mx, pinch0.my, Math.max(.6, Math.min(zmax(), pinch0.k * d / pinch0.d)), pinch0); moved = true; return; }
   const dx = e.offsetX - p.x, dy = e.offsetY - p.y; if (Math.abs(dx) + Math.abs(dy) > 3) moved = true; ox += dx; oy += dy; p.x = e.offsetX; p.y = e.offsetY; draw();
 });
-const up = e => { const was = pts.has(e.pointerId); pts.delete(e.pointerId); if (pts.size < 2) pinch0 = null; canvas.classList.remove('drag'); if (was && !moved && pts.size === 0 && ST) { const i = hit(e.offsetX, e.offsetY); if (i >= 0) select(i); } };
+const up = e => { const was = pts.has(e.pointerId); pts.delete(e.pointerId); if (pts.size < 2) pinch0 = null; canvas.classList.remove('drag'); if (was && !moved && pts.size === 0 && ST) { const c = opHit(e.offsetX, e.offsetY); opSel = c ? opKey(c.q, c.r) : null; const i = c ? c.t : hit(e.offsetX, e.offsetY); if (i >= 0) select(i); else draw(); } };
 canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
 canvas.addEventListener('pointerleave', () => { hover = -1; $('tip').hidden = true; });
-canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, Math.max(.6, Math.min(8, k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))); }, {passive: false});
+canvas.addEventListener('wheel', e => { e.preventDefault(); zoomAt(e.offsetX, e.offsetY, Math.max(.6, Math.min(zmax(), k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))); }, {passive: false});
 function zoomAt(mx, my, nk, base) { const b = base || {k, ox, oy}; ox = mx - (mx - b.ox) * nk / b.k; oy = my - (my - b.oy) * nk / b.k; k = nk; draw(); }
-$('zin').onclick = () => { const r = canvas.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, Math.min(8, k * 1.4)); };
+$('zin').onclick = () => { const r = canvas.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, Math.min(zmax(), k * 1.4)); };
 $('zout').onclick = () => { const r = canvas.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, Math.max(.6, k / 1.4)); };
 $('zfit').onclick = fit;
+$('zop').onclick = toggleOp;
 function centerOn(i) { const r = canvas.getBoundingClientRect(); if (k < 1.8) k = 1.8; ox = r.width / 2 - cx(i) * k; oy = r.height / 2 - cy(i) * k; draw(); }
 
 function showTip(mx, my) {
@@ -1078,7 +1165,7 @@ function baseGoAsk(tile) {
 }
 // 地圖上一格：基地開到這裡、這裡的遠征點／突發事件／搶購、此地（同一格的公司、留言、對話）
 function baseTileHtml(i) {
-  const H = GV.hq || {}, W = GV.world || {}, nm = t => esc(ST.names?.[t] || '荒野'); let html = '';
+  const H = GV.hq || {}, W = GV.world || {}, nm = t => esc(ST.names?.[t] || '荒野'); let html = opInfo(i);
   if (W.rumor?.tile === i) html += W.rumor.found ? `<p style="border-left:3px solid #ff5a5a;padding-left:8px"><b style="color:#ff5a5a">舊星艦維修站</b>　第 ${W.rumor.found.y} 年由${esc(W.rumor.found.who)}找到<br><span class="muted">${W.rumor.holder ? `現在在${esc(W.rumor.holder)}手上：每段時間吐出大量燃料、彈藥、零件和水，駐守的人越多產得越多。其他勢力一直在打它的主意。` : '還沒有勢力佔下它。'}</span></p>`
     : `<p style="border-left:3px solid #ff5a5a;padding-left:8px"><b style="color:#ff5a5a">傳聞</b>　舊星艦的維修站<br><span class="muted">第 ${W.rumor.y} 年開始流傳：東邊大河中段的${nm(i)}一帶露出了舊時代的鋼骨。還沒有人真的找到它；好幾個勢力派了遠征隊往這裡走。把基地開到這一格搜索，或某個勢力推進到附近，就會知道是真是假。</span></p>`;
   for (const x of (W.events || []).filter(x => x.tile === i)) html += `<p style="border-left:3px solid #f2c94c;padding-left:8px"><b style="color:#f2c94c">突發事件</b>　${esc(x.title)}<br><span class="muted">${esc(x.hint)}・${cd(x.end)}後消失・基地開過來搜索，先搜到的先拿</span></p>`;

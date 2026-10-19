@@ -10,6 +10,7 @@ public/asset-manifest.json
 public/rover.js
 public/ops.js
 public/near.js
+public/opmap.js
 tools/fx-lab/assets/
 tools/fx-lab/picks.json
 tools/fx-lab/snap.png

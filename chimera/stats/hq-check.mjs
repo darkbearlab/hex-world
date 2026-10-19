@@ -35,7 +35,7 @@ if (front) ok(/勢力戰要把基地開過去/.test(cmd({type: 'accept', kind: '
 const spot = board().find(e => e.tile !== far.tile && e.tile !== other.tile && e.kind !== 'tense' && towns.some(t => hdist(t, e.tile) <= 1));
 const parkAt = towns.find(t => hdist(t, spot.tile) <= 1);
 ok(cmd({type: 'baseGo', tile: parkAt}) === null || g.base === parkAt, `基地開往 ${c.w.names[parkAt]}（${spot.title} 旁邊）`);
-for (let i = 0; i < 400 && !G.parked(g); i++) { run(1); for (const t of c.game.book.tickets.filter(t => t.player === N && !t.done)) cmd({type: 'resolve', ticket: t.id}); }
+for (let i = 0; i < 3000 && !G.parked(g); i++) { run(1); for (const t of c.game.book.tickets.filter(t => t.player === N && !t.done)) cmd({type: 'resolve', ticket: t.id}); }
 ok(g.base === parkAt && G.parked(g), `基地到了（${c.w.names[g.base]}）`);
 const e2 = c.boardView(N).find(e => e.tile === spot.tile && e.kind === spot.kind);
 ok(e2?.here, '委託板標示基地在現場');
@@ -45,12 +45,14 @@ ok(sqs.length === 2 && sqs.every(s => !s.van), `兩隊、都不佔車（${sqs.ma
 
 // 4. 集合點：基地開走，回來的人在集合點等；基地回來就上車
 const meet = g.base, away = sqs[0].clones.map(x => x.uid);
-const dest = towns.filter(t => hdist(t, meet) >= 6 && hdist(t, meet) <= 10)[0]; cmd({type: 'baseGo', tile: dest});
-for (let i = 0; i < 600; i++) { run(1); for (const t of c.game.book.tickets.filter(t => t.player === N && !t.done)) cmd({type: 'resolve', ticket: t.id}); if (g.returning.some(r => away.includes(r.uid) && r.wait != null)) break; }
+// 2026-10-19 旅行時間放回 ×10 後，基地開得慢、常在回程路上被追上；這裡直接把基地搬到遠處
+const dest = towns.filter(t => hdist(t, meet) >= 12)[0] ?? towns.filter(t => hdist(t, meet) >= 6)[0]; g.base = dest; G.ensureHq(g).route = []; g.hq.move = null;   // 直接把基地搬走（只測「基地不在集合點」）
+for (let i = 0; i < 4000; i++) { run(1); for (const t of c.game.book.tickets.filter(t => t.player === N && !t.done)) cmd({type: 'resolve', ticket: t.id}); if (g.returning.some(r => away.includes(r.uid) && r.wait != null)) break; }
 const waiting = g.returning.filter(r => away.includes(r.uid) && r.wait != null);
+if (false) console.log('DBG', c.hour, 'base', g.base, 'meet', meet, 'dest', dest, 'returning', JSON.stringify(g.returning.slice(0,3)), 'away status', away.map(u => g.roster.find(x => x.uid === u)?.status), 'case', JSON.stringify(c.game.book.cases.find(x => x.id === spotCase) && {end: c.game.book.cases.find(x => x.id === spotCase).end, settled: c.game.book.cases.find(x => x.id === spotCase).settled}));
 ok(waiting.length > 0, `基地不在：回來的人在集合點 ${c.w.names[meet]} 等（${waiting.length} 人，補給撐到第 ${waiting[0]?.wait} 小時）`);
 ok(c.view(N).data.units.some(u => u.kind === 'waiting'), '地圖上畫出在集合點等的人');
-cmd({type: 'baseGo', tile: meet}); for (let i = 0; i < 200 && (g.base !== meet || !G.parked(g)); i++) { run(1); for (const t of c.game.book.tickets.filter(t => t.player === N && !t.done)) cmd({type: 'resolve', ticket: t.id}); }
+cmd({type: 'baseGo', tile: meet}); for (let i = 0; i < 2000 && (g.base !== meet || !G.parked(g)); i++) { run(1); for (const t of c.game.book.tickets.filter(t => t.player === N && !t.done)) cmd({type: 'resolve', ticket: t.id}); }
 run(1);
 ok(away.every(u => { const x = g.roster.find(y => y.uid === u); return !x.alive || x.status === 'home'; }), '基地開回集合點：等的人上車了');
 

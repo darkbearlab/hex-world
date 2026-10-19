@@ -1621,7 +1621,7 @@ function createSim(w,rand,pick){
     for(const g of gangs){if(g.gone)continue;const leg=weapons.filter(w=>w.gang===g.id);
       out.push({kind:'lair',tile:g.lair,gang:g.id,lv:Math.min(3,(g.str>260?3:g.str>150?2:1)+(leg.length?1:0)),risk:3,title:g.native?g.name:`${g.name}的據點`,detail:`${g.native?'原住民':'掠奪者'}・勢力 ${Math.round(g.str)}${leg.length?`・手上有遺產級「${leg.map(w=>w.name).join('」「')}」`:''}`})}
     return out}
-  const peek=()=>({owner,pop,bandit,town,mkt,markets,gangs,fac,routeTiles,biome,trench,wall,ruin,ARC,leagues,saga,game,gameK,timber,timberK,vein,known,ev,T,curY,weapons,heroes,war,caravans,carts,stamp:stamp(),season:curSeason()});
+  const peek=()=>({owner,pop,bandit,town,mkt,markets,gangs,fac,routeTiles,routes,biome,trench,wall,ruin,ARC,leagues,saga,game,gameK,timber,timberK,vein,known,ev,T,curY,weapons,heroes,war,caravans,carts,stamp:stamp(),season:curSeason()});
   // ===== 玩家公司案件的回寫介面（chimera/cases.js 用） =====
   const pmc={
     route(a,b){const D=dijkstra(a);return isFinite(D.dist[b])?pathTo(D,b):[]},
