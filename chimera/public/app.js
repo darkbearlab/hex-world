@@ -417,14 +417,24 @@ function renderFac() {
   }
   $('pane-fac').innerHTML = html;
 }
-$('pane-tile').onclick = e => { if (recallClick(e)) return; if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"],[data-act="sortiepick"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
+$('pane-tile').onclick = e => { if (recallClick(e)) return;
+  const bg = e.target.closest('[data-basego]'); if (bg) { baseGoAsk(+bg.dataset.basego); return; }
+  if (e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-clean],[data-ret]')) { $('pane-opp').onclick(e); renderTile(); return; }   // 接案：跟委託板同一套 if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"],[data-act="sortiepick"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
   const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('trade'); send({type: 'quotes'}); } };
 $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) return; const id = +r.dataset.f; hiFac = hiFac === id ? -1 : id; const f = hist[cur].fac.find(x => x.id === id); if (f && hiFac >= 0) centerOn(f.cap); draw(); };
 
+// 地點分頁的委託（Alan 2026-10-19）：這一格的委託可以直接接、或把基地開過去；選的是基地那一格的話，旁邊一格以內的委託也列出來（基地在現場就能直接派人）
+function oppBlock(i, s) {
+  let html = '';
+  const atBase = GV && i === GV.base, oppHere = curOpps(s).filter(o => o.tile === i || (atBase && o.tile !== i && nbrs(i).includes(o.tile) && !unseen(o.tile)));
+  if (atBase && oppHere.length) html += '<p class="mini muted" style="margin-bottom:2px">基地在這裡，旁邊一格以內的委託都可以直接派人：</p>';
+  for (const o of oppHere) { const K = OK[o.kind]; html += `<div style="border-left:3px solid ${K.c};padding-left:8px;margin:6px 0"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${unseen(o.tile) ? '<span class="muted">（傳聞）</span>' : ''}${esc(o.title)}${o.tile !== i ? `<span class="mini muted">（${esc(ST.names[o.tile] || '旁邊一格')}）</span>` : ''}${ownWarn(o)}<br><span class="muted">${esc(o.detail)}</span>${GV && !(o.joined && o.kind !== 'camp') ? accPicker(o) : ''}</div>`; }
+  return html;
+}
 function renderTile() {
   if ($('pane-tile').contains(document.activeElement) && document.activeElement.tagName === 'INPUT') return;   // 正在打留言，先不重畫
   const s = hist[cur], i = sel; if (i < 0) { $('pane-tile').innerHTML = '<p class="muted">點地圖上的格子看細節。</p>'; return; }
-  if (unseen(i)) { const tw = s.towns.find(x => x.t === i); $('pane-tile').innerHTML = `<h2>${esc(ST.names[i] || '無名之地')}</h2><p class="muted">還沒去過${tw ? '：只知道這裡有一座城' : ''}。把基地或運兵車開到附近（4 格內）就看得到。</p>${GV ? baseTileHtml(i) : ''}`; return; }
+  if (unseen(i)) { const tw = s.towns.find(x => x.t === i); $('pane-tile').innerHTML = `<h2>${esc(ST.names[i] || '無名之地')}</h2><p class="muted">還沒去過${tw ? '：只知道這裡有一座城' : ''}。把基地或運兵車開到附近（4 格內）就看得到。</p>${oppBlock(i, s)}${GV ? baseTileHtml(i) : ''}`; return; }
   const F = facById(s), o = s.owner[i], t = s.towns.find(x => x.t === i), g = s.gangs.filter(x => x.lair === i);
   let html = `<h2>${esc(ST.names[i] || '無名之地')}</h2><dl class="kv"><dt>地形</dt><dd>${ST.biomes[s.biome[i]].n}${ST.river[i] ? '・有水脈' : ''}</dd><dt>屬於</dt><dd>${o >= 0 && F[o] ? esc(F[o].n) : '無主'}</dd>`;
   if (s.pop[i]) html += `<dt>人口</dt><dd>${s.pop[i]}</dd>`;
@@ -432,7 +442,7 @@ function renderTile() {
   if (s.bandit[i] > 15) html += `<dt>掠奪者</dt><dd>${Math.round(s.bandit[i] / 2.55)}%</dd>`;
   if (i === s.arc.elevator) html += `<dt>地標</dt><dd>軌道電梯</dd>`;
   html += '</dl>';
-  for (const o of curOpps(s).filter(o => o.tile === i)) { const K = OK[o.kind]; html += `<p style="border-left:3px solid ${K.c};padding-left:8px"><b style="color:${K.c}">${K.n} ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)}</b>　${esc(o.title)}${ownWarn(o)}<br><span class="muted">${esc(o.detail)}</span></p>`; }
+  html += oppBlock(i, s);
   if (GV) html += baseTileHtml(i);
   if (GV) { const here = (GV.units || []).filter(u => u.pos && (u.pos.f < .5 ? u.pos.a : u.pos.b) === i);
     if (here.length) html += `<h2 style="margin-top:10px">我的人馬</h2>` + here.map(u => `<div class="card"><b>${esc(u.name)}</b>${u.n ? ` <span class="mini">${u.n} 人</span>` : ''}<div class="mini">${esc(u.status)}${u.where ? '・' + esc(u.where) : ''}</div>${recallBtn(u)}</div>`).join(''); }
@@ -527,6 +537,8 @@ $('spick').onclick = e => {
   const [i, j] = sortie.pick || []; if (i != null) sortie.sq[i][j] = +a.dataset.sp; sortie.pick = null; renderSortie();
 };
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && sortie && $('pcard').hidden) { if (sortie.pick) sortie.pick = null; else sortie = null; renderSortie(); } });
+// 委託旁邊的「基地開過去」（Alan 2026-10-19）：基地已經在現場（停著、旁邊一格以內）就不顯示
+const goBtn = o => GV?.hq && !o.here && o.tile !== GV.base ? `<button data-basego="${o.tile}">基地開過去</button>` : o.here ? '<span class="mini muted">基地在現場</span>' : '';
 function accPicker(o) {
   const key = o.kind + ':' + o.tile; if (!GV) return '';
   if (o.busy) return '';   // 同一格已經接了別的委託（core.js boardView）
@@ -534,7 +546,7 @@ function accPicker(o) {
   if (o.ret) return `<div class="row" style="margin-top:4px"><button data-ret="${o.ret.id}">簽約</button></div>`;
   // 大戰役（Alan 2026-10-09）：不限隊數、接了之後可以一再加派、撤軍不違約
   const camp = o.kind === 'camp', campNote = camp ? '<div class="mini">大戰役：派幾隊都可以，服務單一張接一張、越來越大；撤軍不算違約，已打下的貢獻照算。</div>' : '';
-  if (!pickOpp || pickOpp.key !== key) return `${camp && !o.joined ? campNote : ''}<div class="row" style="margin-top:4px"><button data-acc="${key}">${o.joined ? '加派' : '接案'}</button></div>`;
+  if (!pickOpp || pickOpp.key !== key) return `${camp && !o.joined ? campNote : ''}<div class="row" style="margin-top:4px"><button data-acc="${key}">${o.joined ? '加派' : '接案'}</button>${goBtn(o)}</div>`;
   const s = hist[cur], fn = id => s.fac.find(f => f.id === id)?.n || '';
   const sides = o.joined ? [] : o.kind === 'front' || o.kind === 'camp' ? [['att', '替攻方 ' + fn(o.att)], ['def', '替守方 ' + fn(o.def)]] : o.kind === 'outpost' ? [['a', '替 ' + fn(o.a) + ' 守'], ['b', '替 ' + fn(o.b) + ' 搶']] : o.kind === 'tense' ? [['a', '替 ' + fn(o.a)], ['b', '替 ' + fn(o.b)]] : o.kind === 'drill' ? [['1', '難度 1'], ['2', '難度 2'], ['3', '難度 3']] : [];
   const av = GV.roster.filter(c => c.alive && c.status === 'home' && !c.keep);
@@ -575,6 +587,7 @@ function renderOpp() {
   $('pane-opp').html = html || '';
 }
 $('pane-opp').onclick = e => {
+  const bg = e.target.closest('[data-basego]'); if (bg) { baseGoAsk(+bg.dataset.basego); return; }
   const a = e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-clean],[data-ret]');
   if (a?.dataset.clean) { send({type: 'clean', tile: +a.dataset.clean}); return; }
   if (a?.dataset.ret) { const r = (GV?.retainer?.offers || []).find(x => x.id === a.dataset.ret); if (r && confirm(`簽下${r.name}${r.kn}的長期護衛約？\n\n期限 ${r.seasons} 季。產地發車隊時要在 5 小時內派人；沒派就從駐在那裡的小隊隨機拉一隊，連駐軍都沒有就是違約。\n違約第一次賠簽約金的四分之一${r.bond ? '、保證金沒收' : ''}；第二次合約作廢、那個勢力一年不跟你往來。`)) send({type: 'sign', id: r.id}); return; }
@@ -1203,7 +1216,7 @@ function baseTileHtml(i) {
   // 單機（Alan 2026-10-18）：這一格的隊伍（近的一層），和派人過去（探索、交流、攻擊；坐運兵車、一隊最多四人）
   if (H.near) { const here = H.near.list.filter(p => p.tile === i);
     if (here.length) html += `<p class="mini">${here.map(p => `<b style="color:${p.hostile ? 'var(--war)' : 'var(--cyan)'}">${esc(p.name)}</b>${p.chase ? '（正朝基地過來）' : p.to != null ? `（往${nm(p.to)}）` : ''}`).join('、')}</p>`;
-    if (i !== H.tile) html += `<p>派人過去：<button data-act="sortiepick" data-mode="explore" data-id="${i}">探索</button> <button data-act="sortiepick" data-mode="talk" data-id="${i}">交流</button> <button data-act="sortiepick" data-mode="fight" data-id="${i}">攻擊</button> <span class="mini muted">坐運兵車去，一隊最多四人；探索可能撞上人、交流不打、攻擊是掃蕩那一格的匪</span></p>`; }
+    html += `<p>${i === H.tile ? '派人在這一格' : '派人過去'}：<button data-act="sortiepick" data-mode="explore" data-id="${i}">探索</button> <button data-act="sortiepick" data-mode="talk" data-id="${i}">交流</button> <button data-act="sortiepick" data-mode="fight" data-id="${i}">攻擊</button> <span class="mini muted">坐運兵車去，一隊最多四人；探索可能撞上人、交流不打、攻擊是掃蕩那一格的匪</span></p>`; }
   html += hereHtml(i);
   return html;
 }
