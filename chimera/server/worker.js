@@ -285,7 +285,7 @@ export class Planet extends DurableObject {
       return json({ok: !err, err});
     }
     // 後台的唯讀鑰匙（Alan 2026-10-10：讓 Claude 也能看後台查問題）：x-admin-token 的 SHA-256 等於 ADMIN_TOKEN_SHA256 才放行；只開 admin/world，不能下指令
-    if ((path === 'admin/world' || path === 'admin/save' || path === 'admin/forward' || path === 'admin/fix') && !pid && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {
+    if ((path === 'admin/world' || path === 'admin/save' || path === 'admin/forward' || path === 'admin/fix') && (!pid || this.solo) && this.env.ADMIN_TOKEN_SHA256 && req.headers.get('x-admin-token')) {   // 單機：入口照 ?pid= 轉進來的，帶著 x-pid
       const d = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(req.headers.get('x-admin-token')))), hex = [...d].map(x => x.toString(16).padStart(2, '0')).join('');
       if (hex !== this.env.ADMIN_TOKEN_SHA256) return bad('沒有權限', 403);
       // 整份存檔（Alan 2026-10-10：拉到測試環境比對改動的影響）；唯讀
