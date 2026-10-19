@@ -419,7 +419,8 @@ function renderFac() {
 }
 $('pane-tile').onclick = e => { if (recallClick(e)) return;
   const bg = e.target.closest('[data-basego]'); if (bg) { baseGoAsk(+bg.dataset.basego); return; }
-  if (e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-clean],[data-ret]')) { $('pane-opp').onclick(e); renderTile(); return; }   // 接案：跟委託板同一套 if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"],[data-act="sortiepick"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
+  if (e.target.closest('[data-acc],[data-side],[data-pk],[data-go],[data-cancel],[data-clean],[data-ret]')) { $('pane-opp').onclick(e); renderTile(); return; }   // 接案：跟委託板同一套
+  if (e.target.closest('[data-act^="base"],[data-act="deal"],[data-act="note"],[data-act="say"],[data-act="sortiepick"]')) { coClick(e); return; }   // 基地開到這裡、搶購、留言
   const b = e.target.closest('[data-found]'); if (b) { found(+b.dataset.found); return; } const p = e.target.closest('[data-proc]'); if (p) { procSel = {t: +p.dataset.proc, mat: '', qty: 100, uids: new Set()}; showPage('trade'); send({type: 'quotes'}); } };
 $('pane-fac').onclick = e => { const r = e.target.closest('.frow'); if (!r) return; const id = +r.dataset.f; hiFac = hiFac === id ? -1 : id; const f = hist[cur].fac.find(x => x.id === id); if (f && hiFac >= 0) centerOn(f.cap); draw(); };
 
