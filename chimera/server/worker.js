@@ -24,11 +24,11 @@ const CHUNK = 100000;
 const SAVE_EVERY = 5000;   // 一般指令的存檔節流（毫秒）
 // 伺服器上玩家能下的指令：加速、改年長度只有單人測試模式有；放棄親自打（abort）在伺服器上不用通知
 // 戰果（submit）只能由伺服器上的戰鬥交（S2），瀏覽器不能自己報
-const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort', 'sortie'].includes(c));   // sortie（派遣）只有單機
+const ALLOWED = COMMANDS.filter(c => !['speed', 'yearDays', 'submit', 'abort', 'sortie', 'autoFight', 'flee'].includes(c));   // sortie（派遣）只有單機
 // 單機（Alan 2026-10-18，DESIGN.md「縮小規模」）：SOLO=1 的伺服器只有一家公司，時間不跟現實走——
 // 玩家按播放才走（速度＝每秒幾個遊戲小時，核心的 game.speed），親自打的時候停住（core.pauseOnFight），
 // 有服務單要簽收、基地到站、玩家離開頁面太久都會自動暫停。開發階段放在伺服器上，單機版就是開一個本機的這個
-const SOLO_ALLOWED = [...ALLOWED, 'speed', 'abort', 'sortie'];
+const SOLO_ALLOWED = [...ALLOWED, 'speed', 'abort', 'sortie', 'autoFight', 'flee'];   // 派遣、遭遇的自動戰鬥與撤退只有單機
 const SOLO_AWAY = 20000;
 // 速度（Alan 2026-10-18）：暫停、普通（照現實：一小時一小時）、加速 1（每秒一小時）、加速 2（每秒六小時）
 export const SOLO_SPEEDS = [0, 1 / 3600, 1, 6];   // 這麼久沒有請求（頁面關了、睡著了）就停住
@@ -334,8 +334,18 @@ export class Planet extends DurableObject {
       const allowed = this.solo ? SOLO_ALLOWED : ALLOWED;
       if (!allowed.includes(body.type) && !QUERIES.includes(body.type)) return bad('不認得的指令');
       if (this.solo && body.type === 'speed') body.v = SOLO_SPEEDS.find(v => Math.abs(v - +body.v) < 1e-9) ?? 0;
+      // 單機：現在自動結算＝遭遇的自動戰鬥；主要任務的服務單要親自打（Alan 2026-10-19）
+      if (this.solo && body.type === 'resolve') body.type = 'autoFight';
       if ((body.type === 'note' || body.type === 'say') && pid[0] !== 'g' && this.env.DEV !== '1') return bad('訪客不能留言，用 Google 帳號登入才行');   // 同一格的留言、對話（照 warband）
       const err = this.core.command(body, name), msgs = this.out.splice(0);
+      // 自動戰鬥（單機）：伺服器的機器人把整場打完，直接結算；不送畫面
+      for (const m of msgs.filter(x => x.type === 'mission' && x.data.auto)) {
+        const r = await battleStub(this.env, m.data.id + '-auto', req.headers.get('x-continent'), pid).fetch(new Request('https://battle/auto', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid})}));
+        const d = await r.json(); if (!r.ok) return bad(d.error || '自動戰鬥失敗', 500);
+        const e2 = this.core.command({type: 'submit', ticket: m.data.id, result: {...d.result, auto: true}}, name); if (e2) return json({view: this.core.view(name, e2), msgs: [], solo: this.soloInfo()});
+        msgs.push({type: 'autoResult', data: {ticket: m.data.id, win: d.result.win, retreat: !!d.result.retreat, turns: d.turns, dead: d.result.dead.length, kills: d.result.kills, total: d.result.total}});
+      }
+      for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].type === 'mission' && msgs[i].data.auto) msgs.splice(i, 1);
       // 親自打：在伺服器上開（或接回）這場戰鬥；種子留在伺服器，瀏覽器只拿到畫面
       for (const m of msgs) if (m.type === 'mission') {
         const r = await battleStub(this.env, m.data.id, req.headers.get('x-continent'), pid).fetch(new Request('https://battle/start', {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({mission: m.data, owner: pid, mode: this.env.BATTLE_MODE || 'verify'})}));

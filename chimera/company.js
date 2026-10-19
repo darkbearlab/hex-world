@@ -1115,7 +1115,7 @@ export function view(G, book, w) {
       backAt: Math.max(-1, ...G.returning.filter(r => sq.clones.some(x => x.uid === r.uid)).map(r => r.at)),   // 收尾後啟程返回：最後一個人到總部的時刻 refused: !!sq.refused, fast: !!sq.fast,
       clones: sq.clones.map(x => x.uid), pending: book.amends.filter(a => a.squad === sq.id && !a.done).map(a => ({id: a.id, n: a.n, eta: a.eta}))}))}));
   const units = unitsView(G, book, G.h);
-  const tickets = book.tickets.filter(t => t.player === G.name && !t.done).map(t => ({id: t.id, title: t.title, type: t.type, transit: !!t.transit, deadline: t.deadline, issued: t.issued, tile: t.tile,
+  const tickets = book.tickets.filter(t => t.player === G.name && !t.done).map(t => ({id: t.id, title: t.title, type: t.type, transit: !!t.transit, fleeTried: !!t.fleeTried, enc: C.isEncounter(book, t), deadline: t.deadline, issued: t.issued, tile: t.tile,
     biome: t.biome, night: t.night, trench: t.trench, intro: t.intro || null, enemy: {name: t.enemy.name, power: t.enemy.power, side: t.enemy.side, units: t.enemy.units, boss: t.enemy.boss, veh: t.enemy.veh},
     objectives: t.objectives, squad: book.squads[t.squad]?.name, est: book.squads[t.squad] ? C.estimate(book.squads[t.squad], t.enemy) : null, caseTitle: book.cases.find(c => c.id === t.caseId)?.title}));
   const done = book.tickets.filter(t => t.player === G.name && t.done).slice(-12).reverse().map(t => ({id: t.id, title: t.title, win: t.win, auto: t.auto, pts: t.pts, dead: (t.dead || []).length, at: t.doneAt}));

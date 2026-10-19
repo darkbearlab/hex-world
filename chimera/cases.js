@@ -743,6 +743,19 @@ export function submit(book, w, ticketId, result, now) {
   return true;
 }
 
+// 撤退（Alan 2026-10-19）：遭遇時擲一次；成功就脫身（這張單取消，不算輸贏），失敗就得打（親自打或自動戰鬥），同一張只能試一次
+export const FLEE_P = .55;
+// 遭遇＝可以自動戰鬥、撤退的服務單：基地遇襲、行軍遇襲、自己派遣去打的（不是雇主的主要任務）
+export const isEncounter = (book, tk) => tk.type === 'roverhit' || !!tk.transit || !!book.cases.find(c => c.id === tk.caseId)?.sortie;
+export function flee(book, w, tk, now) {
+  if (tk.fleeTried) return '已經試過撤退了，只能打';
+  tk.fleeTried = true;
+  if (rng(book) >= FLEE_P) { notify(book, now, tk.player, 'result', `${tk.title}：撤不掉，被纏住了——只能打。`, tk.id); return null; }
+  tk.done = true; tk.fled = true; tk.win = false;
+  const sq = book.squads[tk.squad]; if (sq && sq.busy === tk.id) sq.busy = null;
+  notify(book, now, tk.player, 'result', `${tk.title}：撤退成功，甩掉了對方。`, tk.id);
+  return null;
+}
 export function resolveNow(book, w, ticketId, now) { const tk = book.tickets.find(x => x.id === ticketId); if (!tk || tk.done || !tk.squad) return false; autoResolve(book, w, tk, now); return true; }
 function autoResolve(book, w, tk, now) {
   const sq = book.squads[tk.squad];

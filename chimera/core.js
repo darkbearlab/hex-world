@@ -16,7 +16,7 @@ const BIG_OK = new Set(['probe', 'hold', 'clear', 'patrol', 'sweep', 'scout', 'g
 const BOARD_COOL = 24;   // 委託結束後冷卻多久才再公開（Alan 2026-10-09）
 // 沙盒一年幾天（現實時間）：四季，每季結算一次戰事
 export const SEASONAL_YEAR_DAYS = 56;
-export const COMMANDS = ['sortie', 'outfit', 'speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave', 'opResupply', 'opPick', 'cover'];
+export const COMMANDS = ['autoFight', 'flee', 'sortie', 'outfit', 'speed', 'yearDays', 'buy', 'build', 'keep', 'accept', 'reinforce', 'resolve', 'fight', 'submit', 'abort', 'procure', 'recall', 'recallCol', 'read', 'claim', 'revive', 'clean', 'merge', 'tag', 'callsign', 'sellbody', 'sign', 'garrison', 'ungarrison', 'retHide', 'readReport', 'baseGo', 'baseStop', 'baseSearch', 'baseUpgrade', 'baseJob', 'buyVan', 'register', 'deal', 'note', 'say', 'answer', 'equip', 'fieldEquip', 'sell', 'shop', 'mod', 'talent', 'opStart', 'opGo', 'opLeave', 'opResupply', 'opPick', 'cover'];
 export const QUERIES = ['path', 'quotes'];
 export const YEARS = S.YEARS;   // 推演多少年才開放開公司（globalThis.YEARS 可改）
 
@@ -416,6 +416,17 @@ export class Core {
     if (m.type === 'resolve') { const tk = b.tickets.find(x => x.id === m.ticket); if (!tk || tk.player !== name) return '這張服務單不是你的'; C.resolveNow(b, w, m.ticket, h); G.hour(g, b, w, h); return null; }
     // 親自打（ASH 任務戰鬥）：把服務單和小隊交給畫面去開戰。單人測試模式打的時候時間停住（pauseOnFight）；伺服器上大家共用時鐘，不停
     if (m.type === 'fight' && String(m.ticket).startsWith('OP-')) { if (g.op?.fight?.ticket !== m.ticket) return '這場行動的戰鬥已經結算了'; this.opMission(g); return null; }   // 接回行動的戰鬥
+    // 遭遇的三個選擇（Alan 2026-10-19，OPMAP.md）：親自打（fight）、自動戰鬥（伺服器的機器人打一場 ASH，規則一律殲滅）、撤退（擲骰）。
+    // 只給遭遇（基地遇襲、行軍遇襲）；主要任務的服務單要親自打
+    if (m.type === 'autoFight' || m.type === 'flee') {
+      const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
+      if (!sq) return '這張服務單已經不在了';
+      if (!C.isEncounter(b, tk)) return '主要任務的服務單要親自打';
+      if (m.type === 'flee') return C.flee(b, w, tk, h);
+      const squad = this.squadOf(g, sq.clones.filter(c => c.alive).slice(0, 4)); if (!squad.length) return '這一隊沒有活著的人';
+      let seed = 11; for (const ch of tk.id + ':auto:' + h) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+      this.emitMission(tk, squad, seed, true); return null;
+    }
     if (m.type === 'fight') {
       const tk = b.tickets.find(x => x.id === m.ticket && !x.done && x.player === name), sq = tk && b.squads[tk.squad];
       if (!sq) return '這張服務單已經不在了';
@@ -475,13 +486,13 @@ export class Core {
       lv: c.lv || 1, xp: c.xp || 0, picks: [], tal: G.talentIds(c), grow: G.growOf(c), scrap: c.cls === 'engineer' ? G.engineerScrap(c.lv) : 0, skills: c.skills || [], prep: c.prep || null, gear: G.gearOf(g, c), perkPicks: 0, classPerkMisses: c.classPerkMisses || 0, legacyPerkPicks: 0,
       ...(run ? {run: run(c)} : {})}));
   }
-  emitMission(tk, squad, seed) {
+  emitMission(tk, squad, seed, auto = false) {
     const game = this.game;
-    if (this.pauseOnFight) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }
+    if (this.pauseOnFight && !auto) { if (game.fighting == null) game.fighting = game.speed; game.speed = 0; }   // 自動戰鬥（伺服器的機器人打）不停時間
     // 戰場大小（Alan 2026-10-13：照 Claude 的意思）：敵人 12 名以上的大單開 50×50（據點群的佈陣），其餘 27×27；室內設施、公路戰由戰場那邊固定 27
     // 只開在「清光敵人／守住」的戰場：奪點、裝炸藥（突擊、戰壕、破壞…）在 50×50 上機器人隊員打不完（size-check 18 名敵人：卡到步數上限），先維持 27
     const roster = C.enemyRoster(tk.enemy), size = roster.length >= 12 && BIG_OK.has(tk.transit ? 'transit' : tk.type) ? 50 : 27;
-    this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster}, squad, type: tk.transit ? 'transit' : tk.type, intro: tk.transit ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0, size,
+    this.emit({type: 'mission', data: {id: tk.id, title: tk.title, seed: seed % 1000000, faction: C.ASH_FACTION[tk.enemy.side] || 'rebel', night: tk.night, enemy: {...tk.enemy, roster}, squad, type: auto ? 'drill' : tk.transit ? 'transit' : tk.type, auto, intro: tk.transit || auto ? null : tk.intro || null, biome: tk.biome, facility: !!tk.facility, floors: tk.floors || 0, size,
       depth: Math.max(1, Math.min(12, 1 + Math.round((tk.enemy.power || 10) / 7) + (tk.wave ? Math.floor(tk.wave / 3) : 0)))}});   // 敵人的強度（菁英、詞條的機率照 ASH 的樓層），Alan 2026-10-11
   }
   // 行動這一點的戰鬥：種子跟著行動走（同一點重開是同一場）

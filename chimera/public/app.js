@@ -49,6 +49,7 @@ function start(seed) {
       if (!GV && page === 'co' && hist.length % 10 === 0) renderCo();
     } else if (m.type === 'solo') { onSolo(m.solo); } else if (m.type === 'idle') { computing = false; $('computing').hidden = true; $('more').hidden = WATCH; if (!LOCAL && !worker.company) { hideTitle(); showPage('co'); } }
     else if (m.type === 'relogin') { showTitle(m.text); }
+    else if (m.type === 'autoResult') { const d = m.data; toast(`自動戰鬥${d.retreat ? '打不完，撤退了' : d.win ? '打贏了' : '打輸了'}：${d.turns} 回合、打倒 ${d.kills}／${d.total}${d.dead ? `、陣亡 ${d.dead}` : ''}`); }
     else if (m.type === 'chronicle') { allEvents = m.events; if (curTab() === 'log') renderLog(); }
     else if (m.type === 'game') { if (m.err) hideMissionLoading(); onGame(m); hideTitle(); }
     else if (m.type === 'mission') openMission(m.data);
@@ -923,7 +924,7 @@ function renderCo() {
       ${t.intro ? `<div class="mini" style="font-style:italic;opacity:.85">${esc(t.intro)}</div>` : ''}
       ${t.transit ? '<div class="mini">行軍遇襲，不算案件積分</div>' : `<div class="mini">目標：${t.objectives.map(o => `${esc(o.text)}（${o.pts}）`).join('、')}</div>`}
       ${t.est ? `<div class="mini">小隊戰力 ${t.est.pow}・自動結算勝算約 <span class="odds-est ${t.est.p < .4 ? 'bad' : t.est.p < .75 ? 'mid' : 'good'}">${Math.round(t.est.p * 100)}%</span>・預估陣亡 ${t.est.dead.toFixed(1)} 人</div>` : ''}
-      <div class="row"><button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button></div></div>`; }).join('') : '<p class="muted">沒有待處理的服務單。</p>';
+      <div class="row">${tkButtons(t)}</div></div>`; }).join('') : '<p class="muted">沒有待處理的服務單。</p>';
   // 案件分三段（Alan 2026-10-10）：進行中的照舊整張卡；人都回來、只等結案撥款的，和已結案的，收成一行，不再列人
   const nowH = hourNow() ?? h, back = c => !c.own && !c.settled && c.squads.length && c.squads.every(sq => sq.headedHome != null && !(sq.backAt > nowH));
   const brief = c => `<div class="mini caseline"><a href="#" data-center="${c.tile}">${esc(c.title)}</a>・${c.settled ? (c.own ? '車隊已回到總部' : `尾款 $${c.payout || 0}k`) : `${cd(c.end + (c.buffer ?? 24))}後結算`}${c.own ? '' : `・積分 ${c.score}`}${c.kind === 'route' ? `・車隊 ${c.convoys - c.lost}/${c.convoys}` : ''}</div>`;
@@ -1026,6 +1027,14 @@ function renderStore() {
     <table class="rep"><tr><th>人員</th><th>武器</th><th>護甲、預備品</th></tr>${al.map(c => `<tr><td><span class="chip" data-person="${c.uid}"><img src="${face(c)}" alt="">${nameShort(c)}</span></td><td>${esc(c.weapon || '')}</td><td>${esc(kit(c))}</td></tr>`).join('')}</table></div></div>
     <div class="cocol"><div class="box"><h3 class="sec">庫存 <span class="muted">戰鬥撿到的、換下來的・本地行情 ×${(GV.sellFactor ?? 1).toFixed(2)}</span></h3>
     ${store.length ? storeFilters(store) : ''}${store.length ? `<table class="rep"><tr><th>種類</th><th>名稱</th><th></th></tr>${(L => L.length ? L : [])(storeList(store)).map(it => `<tr><td>${it.legacy ? '遺產級' : KN[it.kind]}</td><td>${esc(it.name)}${it.kind === 'armor' && it.affix ? `<div class="mini muted">${esc(ARMOR_TEXT[it.affix] || '')}</div>` : ''}</td><td class="acts">${it.kind === 'gun' ? `<button data-modpick="${it.id}">改裝</button>` : ''}<button data-sell="${it.id}">${it.value ? `賣 $${it.value}k` : '丟棄'}</button></td></tr>${modPick === it.id ? `<tr><td colspan="3"><div class="gpick">${Object.keys(MOD_AFFIXES).filter(a => !MOD_AFFIXES[a].notOn?.includes(it.base) && a !== it.affix).map(a => `<button data-mod="${it.id}:${a}">${AFFIX_NAMES[a]}</button>`).join('')}<span class="mini">每次 $${modCost(it.base)}k</span><button data-modx="1">取消</button></div></td></tr>` : ''}`).join('') || '<tr><td colspan="3" class="muted">沒有符合的裝備。</td></tr>'}</table>` : '<p class="muted">沒有沒在用的裝備。</p>'}</div></div></div>`;
+}
+// 服務單的按鈕（Alan 2026-10-19，OPMAP.md）：單機時遭遇（基地遇襲、行軍遇襲）有三個選擇——親自打、自動戰鬥（機器人打一場，殲滅）、撤退（擲骰，一次）；
+// 主要任務只能親自打（放著不管由雇主逕行結算）。線上照舊：親自打、現在自動結算
+function tkButtons(t) {
+  const solo = document.body.classList.contains('solo'), enc = t.enc ?? (t.type === 'roverhit' || t.transit);
+  if (!solo) return `<button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">現在自動結算</button>`;
+  if (!enc) return `<button data-act="fight" data-id="${t.id}">親自打</button><span class="mini muted">主要任務要親自打；放著不管，時限到了由雇主逕行結算</span>`;
+  return `<button data-act="fight" data-id="${t.id}">親自打</button><button data-act="resolve" data-id="${t.id}">自動戰鬥</button>${t.fleeTried ? '' : `<button data-act="flee" data-id="${t.id}">撤退（約 55%）</button>`}`;
 }
 // ───── 交易：素材庫存、在總部買、派車隊去別座城採購（之後賣人也放這裡） ─────
 function renderTrade() {
@@ -1217,7 +1226,7 @@ function renderRover() {
     <div class="mini">${R.inTown ? '停在城裡：吃喝照城裡的' : `在城外每天：熱量 ${+(homeN * R.daily.food).toFixed(1)}、淨水 ${+(homeN * R.daily.water).toFixed(1)}（在家 ${homeN} 人，從倉庫扣）`}${R.hungry ? `・<span style="color:var(--war)">缺糧第 ${R.hungry} 天（培養槽停擺）</span>` : ''}</div>
     ${out ? `<div class="mini">有 ${out} 個人在外面，集合點就是這裡：基地不要開走，他們回來就會自己上車。</div>` : ''}
     ${R.out?.far ? `<div class="mini" style="color:var(--war)">有 ${R.out.far} 個人的集合點在別的地方：${R.out.farAt.map(x => `<a href="#" data-mappick="${x.tile}">📍${esc(x.name)}</a>`).join('、')}——把基地開過去接（到了集合點基地不在，只能等 48 小時；下面「外出的人」有每個人的時間）。</div>` : ''}
-    ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）・守衛：${R.guard.map(u => esc(nameShort(GV.roster.find(x => x.uid === u) || {}))).join('、')}</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row"><button data-act="fight" data-id="${tk.id}">親自打</button><button data-act="resolve" data-id="${tk.id}">現在自動結算</button></div></div>` : ''}
+    ${tk ? `<div class="card" style="margin-top:8px"><b>${esc(tk.title)}</b><div class="mini">敵人：${esc(tk.enemy.name)}（戰力 ${tk.enemy.power}）・守衛：${R.guard.map(u => esc(nameShort(GV.roster.find(x => x.uid === u) || {}))).join('、')}</div>${tk.intro ? `<div class="mini" style="font-style:italic">${esc(tk.intro)}</div>` : ''}<div class="row">${tkButtons(tk)}</div></div>` : ''}
     <div class="row" style="margin-top:8px;flex-wrap:wrap">${R.route.length || R.move ? '<button data-act="basestop">停下</button>' : ''}<button data-act="basesearch"${R.block || !R.parked ? ' disabled' : ''}>搜索這一帶（4 小時）${R.site && !R.site.taken ? `：${esc(R.site.title)}` : ''}</button></div>
     ${R.site ? `<p class="mini">${esc(R.site.title)}：${esc(R.site.hint)}${R.site.taken ? `（最近被${esc(R.site.taken)}搜過了）` : ''}</p>` : ''}
     <!-- 說明（不顯示）：要去哪裡：到戰略地圖點一格，按「基地開到這裡」。基地照原本慢車的速度走，每格油錢 $3k；停在委託旁邊一格以內，那個委託就能直接派人（不用車、不限隊數） --></div>
@@ -1684,6 +1693,7 @@ const coClick = e => {
   }
   else if (A === 'merge') { if (confirm('合成之後，被吃掉的那一位就不在了。確定？')) send({type: 'merge', keep: +id, feed: +b.dataset.feed}); }
   else if (A === 'resolve' || A === 'fight') return;   // 上面 pointerdown 已經送出
+  else if (A === 'flee') send({type: 'flee', ticket: id});
   else if (A === 're') { pickRe = {squad: id, uids: new Set()}; renderCo(); }
   else if (A === 're-go') { send({type: 'reinforce', squad: pickRe.squad, uids: [...pickRe.uids]}); pickRe = null; }
   else if (A === 're-x') { pickRe = null; renderCo(); }

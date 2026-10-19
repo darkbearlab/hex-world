@@ -91,6 +91,14 @@ export class Skirmish extends DurableObject {
   async fetch(req) {
     const url = new URL(req.url), path = url.pathname.split('/').pop();
     let body = {}; if (req.method === 'POST') { try { body = await req.json(); } catch { return bad('請求格式不對'); } }
+    // 自動戰鬥（單機，Alan 2026-10-19）：星球叫的；機器人把整場打完（規則一律殲滅，任務的 type 由星球改成掃蕩），戰果直接回給星球，不經 settle。
+    // 打不完（動作上限到了）＝撤退：帶著現有的傷亡離開，算輸
+    if (path === 'auto') {
+      const t0 = Date.now(), g = new SquadGame(body.mission), lead = installFullSquad(g).botFor; let n = 0;
+      while (g.status === 'playing' && n++ < 2500 && Date.now() - t0 < 20000) lead(g.player).step();
+      const result = g.missionResult; if (g.status === 'playing') { result.win = false; result.retreat = true; result.loot = null; }
+      return json({result, turns: g.turn, actions: n, ms: Date.now() - t0});
+    }
     if (path === 'start' && (body.mode || 'verify') === 'verify' && !(await this.load())) {
       this.mission = body.mission; this.log = []; this.g = this.fresh();
       this.meta = {ticket: body.mission.id, owner: body.owner, startedAt: Date.now(), arena: !!body.arena, mode: 'verify'};
