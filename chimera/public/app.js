@@ -149,7 +149,7 @@ function drawNow() {
       const p = s.owner[n]; if (p === o || (p >= 0 && n < i)) continue;
       const war = p >= 0 && atWar.has(o + ':' + p);
       const a = Math.atan2(cy(n) - cy(i), cx(n) - cx(i)), x = cx(i), y = cy(i);
-      ctx.strokeStyle = war ? '#ff5a3c' : 'rgba(15,12,8,.85)'; ctx.lineWidth = war ? Math.max(1.6, 2.6 / k) : Math.max(.7, 1.1 / k);
+      ctx.strokeStyle = war ? '#ff5a3c' : 'rgba(15,12,8,.85)'; ctx.lineWidth = war ? LW(1.6, 2.6) : LW(.7, 1.1);
       ctx.beginPath(); ctx.moveTo(x + S0 * Math.cos(a - Math.PI / 6), y + S0 * Math.sin(a - Math.PI / 6)); ctx.lineTo(x + S0 * Math.cos(a + Math.PI / 6), y + S0 * Math.sin(a + Math.PI / 6)); ctx.stroke();
     }
   }
@@ -160,22 +160,22 @@ function drawNow() {
   const opZ = opMode && k > 6;   // 作戰地圖放大時：城由作戰地圖自己畫（小格裡的城、城郊、名字）
   for (const t of opZ ? [] : s.towns) {
     const x = cx(t.t), y = cy(t.t), f = F[s.owner[t.t]];
-    if (sieges.has(t.t)) { ctx.strokeStyle = '#ff5a3c'; ctx.lineWidth = Math.max(1.5, 2 / k); ctx.beginPath(); ctx.arc(x, y, S0 * .78, 0, 7); ctx.stroke(); }
+    if (sieges.has(t.t)) { ctx.strokeStyle = '#ff5a3c'; ctx.lineWidth = LW(1.5, 2); ctx.beginPath(); ctx.arc(x, y, S0 * .78, 0, 7); ctx.stroke(); }
     if (caps.has(t.t)) { star(x, y, S0 * .55, f ? f.c : '#fff'); }
-    else { ctx.fillStyle = '#f1e6cf'; ctx.strokeStyle = '#1a1510'; ctx.lineWidth = Math.max(.6, 1 / k); ctx.beginPath(); ctx.arc(x, y, S0 * (.17 + Math.min(.16, t.pop / 2500)), 0, 7); ctx.fill(); ctx.stroke(); }
+    else { ctx.fillStyle = '#f1e6cf'; ctx.strokeStyle = '#1a1510'; ctx.lineWidth = LW(.6, 1); ctx.beginPath(); ctx.arc(x, y, S0 * (.17 + Math.min(.16, t.pop / 2500)), 0, 7); ctx.fill(); ctx.stroke(); }
     if (t.vat) { ctx.fillStyle = '#6fd0d8'; const d = S0 * .2; ctx.beginPath(); ctx.moveTo(x + S0 * .45, y - S0 * .45 - d); ctx.lineTo(x + S0 * .45 + d, y - S0 * .45); ctx.lineTo(x + S0 * .45, y - S0 * .45 + d); ctx.lineTo(x + S0 * .45 - d, y - S0 * .45); ctx.closePath(); ctx.fill(); }
     if (t.works) { ctx.fillStyle = '#d9b86a'; ctx.fillRect(x - S0 * .62, y + S0 * .25, S0 * .3, S0 * .3); }
   }
-  if (s.arc.elevator >= 0) { const x = cx(s.arc.elevator), y = cy(s.arc.elevator); ctx.strokeStyle = '#e9e1d2'; ctx.lineWidth = Math.max(1, 1.4 / k); ctx.beginPath(); ctx.moveTo(x, y - S0 * .55); ctx.lineTo(x, y - S0 * 1.6); ctx.stroke(); }
+  if (s.arc.elevator >= 0) { const x = cx(s.arc.elevator), y = cy(s.arc.elevator); ctx.strokeStyle = '#e9e1d2'; ctx.lineWidth = LW(1, 1.4); ctx.beginPath(); ctx.moveTo(x, y - S0 * .55); ctx.lineTo(x, y - S0 * 1.6); ctx.stroke(); }
   for (const g of s.gangs.filter(g => !unseen(g.lair))) {
-    const x = cx(g.lair), y = cy(g.lair), r = S0 * .32;
+    const x = cx(g.lair), y = cy(g.lair), r = S0 * .32 * opMK();
     if (g.native) { ctx.fillStyle = '#e0915a'; ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y + r * .8); ctx.lineTo(x - r, y + r * .8); ctx.closePath(); ctx.fill(); }
-    else { ctx.strokeStyle = g.legacy ? '#ffd27a' : '#c4593c'; ctx.lineWidth = Math.max(1.2, 1.8 / k); ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke(); }
+    else { ctx.strokeStyle = g.legacy ? '#ffd27a' : '#c4593c'; ctx.lineWidth = LW(1.2, 1.8); ctx.beginPath(); ctx.moveTo(x - r, y - r); ctx.lineTo(x + r, y + r); ctx.moveTo(x + r, y - r); ctx.lineTo(x - r, y + r); ctx.stroke(); }
   }
   // 大戰役（Alan 2026-10-09）：戰場上兩圈紅環，外圈照雙方剩下的兵力（攻方左半、守方右半）
   for (const c of campaignsNow(s)) {
     if (c.done) continue;
-    const x = cx(c.tile), y = cy(c.tile), r = S0 * 1.25, lw = Math.max(2, 3 / k);
+    const x = cx(c.tile), y = cy(c.tile), r = S0 * 1.25, lw = LW(2, 3);
     ctx.strokeStyle = '#ff4a2e88'; ctx.lineWidth = lw * 2.2; ctx.beginPath(); ctx.arc(x, y, r * 1.25, 0, 7); ctx.stroke();
     ctx.lineWidth = lw * 1.6; ctx.strokeStyle = F[c.att]?.c || '#f66'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI / 2, Math.PI / 2 + Math.PI * Math.max(.02, c.fa)); ctx.stroke();
     ctx.strokeStyle = F[c.def]?.c || '#66f'; ctx.beginPath(); ctx.arc(x, y, r, Math.PI / 2, Math.PI / 2 - Math.PI * Math.max(.02, c.fd), true); ctx.stroke();
@@ -186,7 +186,7 @@ function drawNow() {
     if (oppKind !== 'all' && o.kind !== oppKind) continue;
     const K = OK[o.kind], x = cx(o.tile) + S0 * .35 * opMK(), y = cy(o.tile) + S0 * .3 * opMK(), r = S0 * (.38 + o.lv * .08) * opMK();
     if (o.lv === 3) { ctx.fillStyle = K.c + '55'; ctx.beginPath(); ctx.arc(x, y, r * 1.55, 0, 7); ctx.fill(); }
-    ctx.fillStyle = '#15120e'; ctx.strokeStyle = K.c; ctx.lineWidth = Math.max(.8, (o.lv * .9) / Math.sqrt(k)) * (S0 / 10); ctx.globalAlpha = o.lv === 1 ? .7 : 1;
+    ctx.fillStyle = '#15120e'; ctx.strokeStyle = K.c; ctx.lineWidth = opMode && k > 3 ? (.6 + o.lv * .3) / k : Math.max(.8, (o.lv * .9) / Math.sqrt(k)) * (S0 / 10); ctx.globalAlpha = o.lv === 1 ? .7 : 1;
     ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.stroke();
     ctx.fillStyle = K.c; ctx.font = `700 ${r * 1.15}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(K.ch, x, y + r * .05); ctx.globalAlpha = 1;
   }
@@ -194,45 +194,45 @@ function drawNow() {
   if (GV) {
     // 遠征點（基地到場搜索）、突發事件、搶購（Alan 2026-10-12 移動基地）
     const W = GV.world || {};
-    for (const x of W.sites || []) { if (x.taken) continue; const px = cx(x.tile), py = cy(x.tile), r = S0 * .38; ctx.fillStyle = '#2a2116'; ctx.strokeStyle = '#c49a5a'; ctx.lineWidth = Math.max(1, 1.4 / k); ctx.beginPath(); ctx.rect(px - r, py - r, r * 2, r * 2); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#e0c08a'; ctx.font = `700 ${r * 1.3}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('搜', px, py + r * .05); }
-    for (const x of W.events || []) { const px = cx(x.tile), py = cy(x.tile), r = S0 * .55; ctx.fillStyle = '#f2c94c'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.5 / k); ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = q * Math.PI / 5 - Math.PI / 2, rr = q % 2 ? r * .5 : r; ctx.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    for (const x of W.sites || []) { if (x.taken) continue; const px = cx(x.tile), py = cy(x.tile), r = S0 * .38 * opMK(); ctx.fillStyle = '#2a2116'; ctx.strokeStyle = '#c49a5a'; ctx.lineWidth = LW(1, 1.4); ctx.beginPath(); ctx.rect(px - r, py - r, r * 2, r * 2); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#e0c08a'; ctx.font = `700 ${r * 1.3}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('搜', px, py + r * .05); }
+    for (const x of W.events || []) { const px = cx(x.tile), py = cy(x.tile), r = S0 * .55 * opMK(); ctx.fillStyle = '#f2c94c'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = LW(1, 1.5); ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = q * Math.PI / 5 - Math.PI / 2, rr = q % 2 ? r * .5 : r; ctx.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke(); }
     for (const x of W.deals || []) { if (x.left <= 0) continue; const px = cx(x.tile) + S0 * .45, py = cy(x.tile) - S0 * .45, r = S0 * .36; ctx.fillStyle = x.mine ? '#5b6b55' : '#8fd18b'; ctx.beginPath(); ctx.arc(px, py, r, 0, 7); ctx.fill(); ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.4}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('$', px, py + r * .05); }
     // 東方謠言（Alan 2026-10-12）：傳聞中的舊星艦維修站，紅★
-    if (W.rumor) { const px = cx(W.rumor.tile), py = cy(W.rumor.tile), r = S0 * .9; ctx.fillStyle = '#ff5a5a'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = q * Math.PI / 5 - Math.PI / 2, rr = q % 2 ? r * .45 : r; ctx.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    if (W.rumor) { const px = cx(W.rumor.tile), py = cy(W.rumor.tile), r = S0 * .9; ctx.fillStyle = '#ff5a5a'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = LW(1, 1.6); ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = q * Math.PI / 5 - Math.PI / 2, rr = q % 2 ? r * .45 : r; ctx.lineTo(px + Math.cos(a) * rr, py + Math.sin(a) * rr); } ctx.closePath(); ctx.fill(); ctx.stroke(); }
     // 近的一層（單機，Alan 2026-10-18）：基地看得到的範圍畫一圈淡淡的六角，裡面的隊伍：掠奪者紅、原住民橙、商隊青；在追基地的外面多一圈
     if (GV.hq?.near) { const NV = GV.hq.near, col = {bandit: '#e05a43', native: '#e7a14a', caravan: '#6fd0d8', patrol: '#9fb3d9'};   // 巡邏隊（第 4 段）：敵對的畫成三角
-      ctx.save(); ctx.globalAlpha = .18; ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1, 1.2 / k); ctx.beginPath(); ctx.arc(cx(GV.base), cy(GV.base), SQ3 * S0 * (NV.range + .5), 0, 7); ctx.stroke(); ctx.restore();
+      ctx.save(); ctx.globalAlpha = .18; ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = LW(1, 1.2); ctx.beginPath(); ctx.arc(cx(GV.base), cy(GV.base), SQ3 * S0 * (NV.range + .5), 0, 7); ctx.stroke(); ctx.restore();
       for (const p of NV.list) { const [x, y] = nearXY(p), r = S0 * .55 * opMK();
-        ctx.fillStyle = col[p.kind] || '#ccc'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.4 / k);
+        ctx.fillStyle = col[p.kind] || '#ccc'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = LW(1, 1.4);
         ctx.beginPath(); if (p.hostile) { ctx.moveTo(x, y - r); ctx.lineTo(x + r * .9, y + r * .7); ctx.lineTo(x - r * .9, y + r * .7); ctx.closePath(); } else ctx.rect(x - r * .7, y - r * .5, r * 1.4, r); ctx.fill(); ctx.stroke();
-        if (p.chase || p.hold) { ctx.strokeStyle = p.hold ? '#fff' : col[p.kind]; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.setLineDash(p.hold ? [r * .4, r * .3] : []); ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
+        if (p.chase || p.hold) { ctx.strokeStyle = p.hold ? '#fff' : col[p.kind]; ctx.lineWidth = LW(1, 1.6); ctx.setLineDash(p.hold ? [r * .4, r * .3] : []); ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
         if (opMode && k > 6 && p.str) { ctx.fillStyle = '#fff'; ctx.font = `700 ${r * .9}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(p.str), x, y + r * .9); } } }
     // 基地：開動中照時間在兩格之間移動，剩下的路畫虛線（原本的 Rover）
     const H = GV.hq || {tile: GV.base, route: []}, hnow = hourNow() ?? GV.h, hf = H.move ? Math.max(0, Math.min(1, (hnow - H.move.t0) / Math.max(.01, H.move.t1 - H.move.t0))) : 0, ha = H.move ? H.move.from : GV.base, hb = H.move ? H.move.to : GV.base;
     const [bx, by] = baseXY(H, ha, hb, hf), _u1 = 0, hrest = [hb, ...(H.route || [])];
-    if (hrest.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = Math.max(1, 1.8 / k); ctx.strokeStyle = 'rgba(111,208,216,.8)'; ctx.beginPath(); ctx.moveTo(bx, by); hrest.forEach(t => ctx.lineTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
-    ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1.5, 2.4 / k); ctx.beginPath(); ctx.arc(bx, by, S0 * .9 * opMK(), 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, S0 * 1.15 * opMK(), 0, 7); ctx.stroke();
+    if (hrest.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = LW(1, 1.8); ctx.strokeStyle = 'rgba(111,208,216,.8)'; ctx.beginPath(); ctx.moveTo(bx, by); hrest.forEach(t => ctx.lineTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
+    ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = LW(1.5, 2.4); ctx.beginPath(); ctx.arc(bx, by, S0 * .9 * opMK(), 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(bx, by, S0 * 1.15 * opMK(), 0, 7); ctx.stroke();
     ctx.fillStyle = '#6fd0d8'; ctx.font = `700 ${S0 * .8 * opMK()}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('H', bx, by + S0 * .04);
-    for (const c of GV.cases) { if (c.settled) continue; const x = cx(c.tile), y = cy(c.tile), r = S0 * .85; ctx.strokeStyle = '#f1e6cf'; ctx.lineWidth = Math.max(1.4, 2 / k); ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.stroke(); }
+    for (const c of GV.cases) { if (c.settled) continue; const x = cx(c.tile), y = cy(c.tile), r = S0 * .85 * opMK(); ctx.strokeStyle = '#f1e6cf'; ctx.lineWidth = LW(1.4, 2); ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.stroke(); }
     // 選取的點：從基地沿實際道路拉一條虛線
     if (selPath && selPath.to === sel && selPath.path.length > 1) {
-      ctx.save(); ctx.setLineDash([S0 * .5, S0 * .35]); ctx.lineWidth = Math.max(1.6, 2.6 / k); ctx.strokeStyle = 'rgba(255,240,210,.95)'; ctx.lineJoin = 'round';
+      ctx.save(); ctx.setLineDash([S0 * .5, S0 * .35]); ctx.lineWidth = LW(1.6, 2.6); ctx.strokeStyle = 'rgba(255,240,210,.95)'; ctx.lineJoin = 'round';
       ctx.beginPath(); selPath.path.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore();
       if (selPath.hours >= 0) { const t = selPath.path[selPath.path.length - 1]; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; label(`單程 ${fmtH(selPath.hours)}`, cx(t), cy(t) + S0 * .9 * opMK(), Math.max(9 / k, S0 * .6 * opMK()), '#fff0d2'); }
     }
     // 派出去的人馬：剩下的路（淡虛線）＋現在的位置
     for (const u of GV.units || []) {
-      if (u.path && u.path.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = Math.max(1, 1.4 / k); ctx.strokeStyle = u.kind === 'returning' ? 'rgba(160,200,170,.6)' : u.kind === 'convoy' ? 'rgba(224,166,74,.6)' : 'rgba(111,208,216,.65)';
+      if (u.path && u.path.length > 1) { ctx.save(); ctx.setLineDash([S0 * .25, S0 * .3]); ctx.lineWidth = LW(1, 1.4); ctx.strokeStyle = u.kind === 'returning' ? 'rgba(160,200,170,.6)' : u.kind === 'convoy' ? 'rgba(224,166,74,.6)' : 'rgba(111,208,216,.65)';
         ctx.beginPath(); u.path.forEach((t, q) => q ? ctx.lineTo(cx(t), cy(t)) : ctx.moveTo(cx(t), cy(t))); ctx.stroke(); ctx.restore(); }
     }
     for (const u of GV.units || []) {
       if (!u.pos) continue; const [x, y] = legXY(u.pos.a, u.pos.b, u.pos.f), _u2 = 0, r = S0 * .42 * opMK();
       const col = u.kind === 'waiting' ? '#f2c94c' : u.kind === 'returning' ? '#a0c8aa' : u.kind === 'convoy' ? '#e0a64a' : u.kind === 'column' ? '#9fe3ea' : '#6fd0d8';
-      ctx.fillStyle = col; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.5 / k);
+      ctx.fillStyle = col; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = LW(1, 1.5);
       if (u.kind === 'convoy') { ctx.beginPath(); ctx.rect(x - r * .8, y - r * .6, r * 1.6, r * 1.2); ctx.fill(); ctx.stroke(); }
       else { ctx.beginPath(); ctx.moveTo(x, y - r); ctx.lineTo(x + r, y); ctx.lineTo(x, y + r); ctx.lineTo(x - r, y); ctx.closePath(); ctx.fill(); ctx.stroke(); }
       if (u.n) { ctx.fillStyle = '#0d0c0a'; ctx.font = `700 ${r * 1.05}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(u.n, x, y + r * .05); }
-      if (u.busy) { ctx.strokeStyle = '#e05a43'; ctx.lineWidth = Math.max(1.4, 2 / k); ctx.beginPath(); ctx.arc(x, y, r * 1.35, 0, 7); ctx.stroke(); }
+      if (u.busy) { ctx.strokeStyle = '#e05a43'; ctx.lineWidth = LW(1.4, 2); ctx.beginPath(); ctx.arc(x, y, r * 1.35, 0, 7); ctx.stroke(); }
     }
     for (const t of GV.tickets) { const x = cx(t.tile) - S0 * .4, y = cy(t.tile) - S0 * .45, r = S0 * .42; ctx.fillStyle = t.transit ? '#b3784a' : '#e05a43'; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.font = `700 ${r * 1.4}px 'Noto Sans TC',sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', x, y + r * .05); }
   }
@@ -241,9 +241,9 @@ function drawNow() {
   const fs = Math.max(9 / k, S0 * .62);
   if (!opZ) for (const f of s.fac) { if (f.cap < 0) continue; label(f.n, cx(f.cap), cy(f.cap) - S0 * .6, fs * 1.05, '#fff'); }
   if (k > 1.7 && !opZ) for (const t of s.towns) if (!caps.has(t.t)) label(ST.names[t.t], cx(t.t), cy(t.t) - S0 * .4, fs * .85, '#e9e1d2');
-  if (sel >= 0) { ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1.5, 2.2 / k); hexPath(cx(sel), cy(sel), S0 * .95); ctx.stroke(); }
+  if (sel >= 0) { ctx.strokeStyle = '#fff'; ctx.lineWidth = LW(1.5, 2.2); hexPath(cx(sel), cy(sel), S0 * .95); ctx.stroke(); }
 }
-function star(x, y, r, c) { ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = -Math.PI / 2 + q * Math.PI / 5, rr = q % 2 ? r * .45 : r; ctx.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); } ctx.closePath(); ctx.fillStyle = c; ctx.fill(); ctx.strokeStyle = '#120f0b'; ctx.lineWidth = Math.max(.8, 1.2 / k); ctx.stroke(); }
+function star(x, y, r, c) { ctx.beginPath(); for (let q = 0; q < 10; q++) { const a = -Math.PI / 2 + q * Math.PI / 5, rr = q % 2 ? r * .45 : r; ctx.lineTo(x + rr * Math.cos(a), y + rr * Math.sin(a)); } ctx.closePath(); ctx.fillStyle = c; ctx.fill(); ctx.strokeStyle = '#120f0b'; ctx.lineWidth = LW(.8, 1.2); ctx.stroke(); }
 function label(t, x, y, size, col) { ctx.font = `500 ${size}px 'Noto Sans TC',sans-serif`; ctx.lineWidth = size * .28; ctx.strokeStyle = 'rgba(10,8,6,.9)'; ctx.strokeText(t, x, y); ctx.fillStyle = col; ctx.fillText(t, x, y); }
 
 /* ───────── 作戰地圖（Alan 2026-10-19，warband/OPMAP.md 第 1 段）───────── */
@@ -255,7 +255,9 @@ let fogKey = '', fogSeen = null, fogVis = null;
 function fog() { const F = GV?.fog; if (!F) return null; const k = F.seen.length + ':' + F.vis.join(','); if (k !== fogKey) { fogKey = k; fogSeen = new Set(F.seen); fogVis = new Set(F.vis); } return {seen: fogSeen, vis: fogVis}; }
 const unseen = i => { const f = fog(); return !!f && !f.seen.has(i); };
 const zmax = () => opMode ? 40 : 8;
-const opMK = () => opMode && k > 6 ? Math.max(.1, Math.min(.35, 2.4 / k)) : 1;   // 作戰地圖放大時，基地、隊伍、運兵車的記號縮成一小格的大小   // 作戰地圖可以放得很大（一小格看得清楚）
+// 線寬：平常有個下限（縮小看時線不會細到看不見）；作戰地圖放大時改成螢幕上固定的細線，不然一條線就蓋掉好幾小格
+const LW = (min, px) => opMode && k > 3 ? px * .6 / k : Math.max(min, px / k);
+const opMK = () => opMode && k > 3 ? Math.max(.1, Math.min(.8, 2.4 / k)) : 1;   // 作戰地圖放大時，基地、隊伍、運兵車的記號縮成一小格的大小   // 作戰地圖可以放得很大（一小格看得清楚）
 function opMatrix() {   // 小格軸座標的位移 → 像素：A＝(7,−3) 對到往右一個戰略格、B＝(3,4) 對到往右下一個戰略格
   const ax = SQ3 * S0, bx = SQ3 * S0 / 2, by = 1.5 * S0, det = 7 * 4 - 3 * -3;   // [A B] = [[7,3],[-3,4]]
   // M·[A B] = [[ax,bx],[0,by]]  →  M = [[ax,bx],[0,by]] · inv([[7,3],[-3,4]])
@@ -318,7 +320,7 @@ function drawOp(s) {
     if (x.trench) { ctx.strokeStyle = '#2a2016'; ctx.lineWidth = Math.max(.5, u * .12); ctx.beginPath(); ctx.moveTo(x.px - u * .35, x.py); ctx.lineTo(x.px + u * .35, x.py); ctx.stroke(); }
     if (x.bridge) { ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = Math.max(.5, u * .12); ctx.strokeRect(x.px - u * .3, x.py - u * .15, u * .6, u * .3); }
   }
-  if (opSel) { const x = O.cells.get(opSel); if (x) { ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.beginPath(); corner.forEach(([a, b], i) => i ? ctx.lineTo(x.px + a, x.py + b) : ctx.moveTo(x.px + a, x.py + b)); ctx.closePath(); ctx.stroke(); } }
+  if (opSel) { const x = O.cells.get(opSel); if (x) { ctx.strokeStyle = '#fff'; ctx.lineWidth = LW(1, 1.6); ctx.beginPath(); corner.forEach(([a, b], i) => i ? ctx.lineTo(x.px + a, x.py + b) : ctx.moveTo(x.px + a, x.py + b)); ctx.closePath(); ctx.stroke(); } }
   // 城名（小格看得清楚時）
   if (k > 3) { ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; for (const x of O.cells.values()) if (x.f === 'town') label(ST.names[x.t] || '', x.px, x.py - u * .45, Math.max(9 / k, u * .55), '#f1e6cf'); }
 }
