@@ -263,7 +263,7 @@ export function hqHour(cos, book, w, h) {
       else if (c.sortie.mode === 'talk') { const L = tileStory(G, book, w, t, h); const site = nearSite(book, w, t, h); say(R, h, t, `${c.title}：${L.join('')}${site && !site.taken ? `當地人說起附近的${site.title}。` : ''}`, 'story'); }
       else { if (R.near) R.near = R.near.filter(p => !(p.tile === t && p.kind !== 'caravan')); say(R, h, t, `${c.title}：把${nm(t)}的匪打散了。`, 'find'); } }
     // 近的一層（單機）：附近的隊伍生出、移動；敵對的追上基地就打（手上已經有服務單時先不追上）
-    if (NEAR.on) { const c = nearHour(G, w, h, !busyTicket(book, R)); if (c) defend(G, book, w, h, `一群${nearName(c)}追上了基地（${nmOf(w)(G.base)}）`); }
+    if (NEAR.on) { const c = nearHour(G, w, h, !busyTicket(book, R), (hh, t, text) => say(R, hh, t, text, 'note')); if (c) defend(G, book, w, h, `一群${nearName(c)}追上了基地（${nmOf(w)(G.base)}）`); }
   }
 }
 
@@ -271,7 +271,7 @@ export function hqHour(cos, book, w, h) {
 export function hqView(G, book, w, h) {
   const R = ensureHq(G), K = w.sim.peek(), m = K.markets[G.base], nm = nmOf(w);
   const legHours = (from, route) => { let t = 0, a = from; for (const b of route) { t += legH(w, R, a, b); a = b; } return +t.toFixed(2); };
-  return {near: nearView(G), tile: G.base, place: nm(G.base), move: R.move, route: R.route, dest: R.route.length ? R.route[R.route.length - 1] : R.move?.to ?? null, parked: parked(G), inTown: inTown(G, w), town: !!(m && K.owner[G.base] >= 0),
+  return {near: nearView(G, h), tile: G.base, place: nm(G.base), move: R.move, route: R.route, dest: R.route.length ? R.route[R.route.length - 1] : R.move?.to ?? null, parked: parked(G), inTown: inTown(G, w), town: !!(m && K.owner[G.base] >= 0),
     block: hqBlock(book, G, h), ticket: busyTicket(book, R)?.id || null, guard: guardOf(book, R)?.clones.map(c => c.uid) || [], searching: R.searching != null ? R.busyUntil : null, searchedAt: R.searched[G.base] ?? null,
     up: Object.entries(UP).map(([k, U]) => { const lv = upLv(R, k), max = U.k.length - 1, here = upHere(w, G.base, k);
       const near = here ? [] : Object.keys(K.markets).map(Number).filter(t => upHere(w, t, k)).map(t => ({t, d: w.sim.pmc.dist(G.base, t)})).filter(x => isFinite(x.d)).sort((a, b) => a.d - b.d).slice(0, 3)

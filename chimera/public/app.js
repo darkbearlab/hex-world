@@ -200,10 +200,11 @@ function drawNow() {
     // 近的一層（單機，Alan 2026-10-18）：基地看得到的範圍畫一圈淡淡的六角，裡面的隊伍：掠奪者紅、原住民橙、商隊青；在追基地的外面多一圈
     if (GV.hq?.near) { const NV = GV.hq.near, col = {bandit: '#e05a43', native: '#e7a14a', caravan: '#6fd0d8'};
       ctx.save(); ctx.globalAlpha = .18; ctx.strokeStyle = '#6fd0d8'; ctx.lineWidth = Math.max(1, 1.2 / k); ctx.beginPath(); ctx.arc(cx(GV.base), cy(GV.base), SQ3 * S0 * (NV.range + .5), 0, 7); ctx.stroke(); ctx.restore();
-      for (const p of NV.list) { const x = cx(p.tile), y = cy(p.tile), r = S0 * .55 * opMK();
+      for (const p of NV.list) { const [x, y] = nearXY(p), r = S0 * .55 * opMK();
         ctx.fillStyle = col[p.kind] || '#ccc'; ctx.strokeStyle = '#0d0c0a'; ctx.lineWidth = Math.max(1, 1.4 / k);
         ctx.beginPath(); if (p.hostile) { ctx.moveTo(x, y - r); ctx.lineTo(x + r * .9, y + r * .7); ctx.lineTo(x - r * .9, y + r * .7); ctx.closePath(); } else ctx.rect(x - r * .7, y - r * .5, r * 1.4, r); ctx.fill(); ctx.stroke();
-        if (p.chase) { ctx.strokeStyle = col[p.kind]; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, 7); ctx.stroke(); } } }
+        if (p.chase || p.hold) { ctx.strokeStyle = p.hold ? '#fff' : col[p.kind]; ctx.lineWidth = Math.max(1, 1.6 / k); ctx.setLineDash(p.hold ? [r * .4, r * .3] : []); ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, 7); ctx.stroke(); ctx.setLineDash([]); }
+        if (opMode && k > 6 && p.str) { ctx.fillStyle = '#fff'; ctx.font = `700 ${r * .9}px 'IBM Plex Mono',monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(p.str), x, y + r * .9); } } }
     // 基地：開動中照時間在兩格之間移動，剩下的路畫虛線（原本的 Rover）
     const H = GV.hq || {tile: GV.base, route: []}, hnow = hourNow() ?? GV.h, hf = H.move ? Math.max(0, Math.min(1, (hnow - H.move.t0) / Math.max(.01, H.move.t1 - H.move.t0))) : 0, ha = H.move ? H.move.from : GV.base, hb = H.move ? H.move.to : GV.base;
     const [bx, by] = legXY(ha, hb, hf), _u1 = 0, hrest = [hb, ...(H.route || [])];
@@ -270,6 +271,8 @@ function opCells(s) {
   const D = mapData(ST, s, nbrs), cells = new Map(); for (const t of tiles) for (const [k2, v] of cellsOf(t, D)) cells.set(k2, v);
   return opCache = {key, cells, tiles: new Set(tiles), roads: !!s.roads};
 }
+// 近的一層的兵牌：作戰地圖開著時畫在牠那一小格，不然畫在戰略格中心
+function nearXY(p) { if (!(opMode && p.pos)) return [cx(p.tile), cy(p.tile)]; const [dx, dy] = opXY(opMatrix(), opCenter(p.tile, ST.W), p.pos[0], p.pos[1]); return [cx(p.tile) + dx, cy(p.tile) + dy]; }
 // 兩個戰略格之間走了 f：作戰地圖開著時沿小格路線（道路優先），不然照直線
 const legCache = new Map();
 function legXY(a, b, f) {

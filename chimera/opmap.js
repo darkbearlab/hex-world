@@ -113,3 +113,15 @@ export function legRoute(a, b, D) {
 export function alongRoute(route, f) { for (let i = 1; i < route.length; i++) if (f <= route[i].at) { const a = route[i - 1], b = route[i], t = (f - a.at) / Math.max(1e-9, b.at - a.at); return [a.q + (b.q - a.q) * t, a.r + (b.r - a.r) * t]; } const z = route[route.length - 1]; return [z.q, z.r]; }
 // 戰略格 t 往 n 走到一半時，在作戰地圖上的位置（小格的軸座標，帶小數）：從 t 的中心到 n 的中心內插
 export function between(a, b, f, W) { const ca = center(a, W), cb = center(b, W); return [ca[0] + (cb[0] - ca[0]) * f, ca[1] + (cb[1] - ca[1]) * f]; }
+// 伺服器端：直接從沙盒組地圖資料（跟 core.js snapshot 送給瀏覽器的數字一樣算法，兩邊展開出來的小格才會一模一樣）
+export function dataFromSim(w, K, W, nbr) {
+  const N = K.biome.length, pop = new Uint16Array(N), trench = new Uint8Array(N), ruin = new Uint8Array(N);
+  for (let i = 0; i < N; i++) { pop[i] = Math.round(K.pop[i]); trench[i] = Math.round(K.trench[i] * 80); ruin[i] = K.ruin[i] ? 1 : 0; }
+  const towns = Object.keys(K.markets).map(Number).filter(t => K.owner[t] >= 0).map(t => ({t}));
+  return mapData({W, N, land: w.land, river: w.river, riverPaths: w.riverPaths || []}, {biome: K.biome, pop, trench, ruin, towns, roads: roadsOf(K)}, nbr);
+}
+export function roadsOf(K) {
+  const rset = new Set(), roads = [];
+  for (const rt of K.routes || []) { if (rt.sea || !rt.path) continue; for (let i = 1; i < rt.path.length; i++) { const a = rt.path[i - 1], b = rt.path[i], k = a < b ? a + '-' + b : b + '-' + a; if (a !== b && !rset.has(k)) { rset.add(k); roads.push([a, b]); } } }
+  return roads;
+}

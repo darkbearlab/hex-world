@@ -2,6 +2,7 @@
 // 不碰 postMessage、不管時間怎麼走：瀏覽器的 public/worker.js 用加速時鐘推它（單人測試模式），之後伺服器用現實時鐘推。
 // 一切亂數都來自種子與帳本（沒有 Math.random），同樣的「指令＋發生的遊戲小時」重播出同樣的結果（stats/core-replay.mjs 驗證），
 // 伺服器的存檔＝快照＋指令紀錄（log）。
+import {roadsOf} from './opmap.js';
 import * as S from './sim.js';
 import * as C from './cases.js';
 import * as G from './company.js';
@@ -63,7 +64,7 @@ export class Core {
     const weapons = L.weapons.map(x => ({name: x.name, kind: x.kind, at: x.at, holder: x.holder ? x.holderName : '', fac: x.fac >= 0 ? K.fac[x.fac]?.n : '', gang: x.gang ? x.gangName : '', lost: x.lost, sealed: x.sealed, owners: x.owners || 0, wins: x.wins || 0}));
     const ev = w.events.slice(this.lastEv).filter(e => e.y === y || e.y === y - 1 || e.y === 0); this.lastEv = w.events.length;
     // 作戰地圖（OPMAP.md）：道路＝貿易路線經過的相鄰兩格（只算陸路）；廢墟
-    const rset = new Set(), roads = []; for (const rt of K.routes || []) { if (rt.sea || !rt.path) continue; for (let i = 1; i < rt.path.length; i++) { const a = rt.path[i - 1], b = rt.path[i], k = a < b ? a + '-' + b : b + '-' + a; if (a !== b && !rset.has(k)) { rset.add(k); roads.push([a, b]); } } }
+    const roads = roadsOf(K);
     const ruin = new Uint8Array(S.N); for (let i = 0; i < S.N; i++) ruin[i] = K.ruin[i] ? 1 : 0;
     return {y, stamp: this.stamp, campaigns: sim.campaignView(), owner, pop, trench, bandit, biome: Uint8Array.from(K.biome), towns, fac, wars, gangs, weapons, roads, ruin,
       blocs: (K.ARC.blocs || []).filter(B => !B.gone).map(B => ({id: B.id, n: B.n, lead: B.lead})), leagues: (K.leagues || []).map(x => ({id: x.id, n: x.n})),
